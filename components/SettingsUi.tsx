@@ -165,8 +165,16 @@ export function ConfigField({ label, children, style }: { label: ReactNode; chil
   );
 }
 
-export function ConfigEmptyState({ children }: { children: ReactNode }) {
-  return <div className="config-empty-state">{children}</div>;
+export function ConfigEmptyState({ children, title, action }: { children: ReactNode; title?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="config-empty-state">
+      <div className="config-empty-state-content">
+        {title && <h2>{title}</h2>}
+        <div>{children}</div>
+        {action}
+      </div>
+    </div>
+  );
 }
 
 export function ConfigDetail({ children, style }: { children: ReactNode; style?: CSSProperties }) {

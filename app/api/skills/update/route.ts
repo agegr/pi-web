@@ -1,3 +1,4 @@
+import { acquireLease } from "@/lib/skill-center/journal";
 import { NextResponse } from "next/server";
 import { runNpx } from "@/lib/npx";
 import type { SkillInstallScope } from "@/lib/api-types";
@@ -8,7 +9,10 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  let lease: ReturnType<typeof acquireLease> | undefined;
+  let release = true;
   try {
+    lease = acquireLease(null);
     const body = await req.json() as {
       cwd?: unknown;
       package?: unknown;
@@ -40,6 +44,8 @@ export async function POST(req: Request) {
 
     const { stdout, stderr } = await runNpx(buildSkillUpdateArgs(skill.install), {
       timeout: 60_000,
+      terminateTreeOnTimeout: true,
+      onSpawn: pid => lease!.child(pid),
       cwd: scope === "project" ? cwd : undefined,
       env: { ...process.env, FORCE_COLOR: "0" },
     });
@@ -54,11 +60,13 @@ export async function POST(req: Request) {
       output: `${stdout}${stderr}`.slice(-500),
     });
   } catch (error: unknown) {
+    const processError = error as { killed?: boolean; treeTerminated?: boolean };
+    release = !processError.killed || Boolean(processError.treeTerminated);
     const detail = error as { stdout?: string; stderr?: string; message?: string };
     const output = `${detail.stdout ?? ""}${detail.stderr ?? ""}`;
     return NextResponse.json(
       { error: output || detail.message || String(error) },
       { status: 500 },
     );
-  }
+  } finally { if (release) lease?.release(); }
 }

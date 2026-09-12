@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const workspaceStyles = await readFile(new URL("../app/workspace.css", import.meta.url), "utf8");
 const mobileHookSource = await readFile(new URL("../hooks/useIsMobile.ts", import.meta.url), "utf8");
 
 test("keeps action icons inline in medium mobile sidebars", () => {
@@ -14,10 +15,9 @@ test("keeps action icons inline in medium mobile sidebars", () => {
 
 test("uses a compact narrow-mobile toolbar with a floating action layer", () => {
   assert.match(source, /data-mobile-toolbar="true"[\s\S]*?flex: 1,[\s\S]*?minWidth: 0/);
-  assert.match(
-    source,
-    /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
-  );
+  assert.match(source, /data-mobile-toolbar-actions="true"[\s\S]*?className="workspace-mobile-menu"/);
+  assert.match(workspaceStyles, /\.workspace-mobile-menu \{[^}]*position: absolute;[^}]*top: calc\(100% \+ 8px\);[^}]*right: 0;[^}]*max-height:/);
+  assert.match(workspaceStyles, /\.chat-toolbar-actions\.is-expanded \{ flex-direction: column;/);
 
   for (const action of ["history", "name", "agents", "branches", "system", "tools", "theme", "language"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));

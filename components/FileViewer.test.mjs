@@ -4,6 +4,11 @@ import test from "node:test";
 
 const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
 
+test("source theme switches override Prism's conflicting background shorthand", () => {
+  const syntaxSource = source.slice(source.indexOf("<SyntaxHighlighter"));
+  assert.match(syntaxSource, /customStyle=\{\{[\s\S]*?background: undefined,[\s\S]*?backgroundColor: "var\(--bg\)"/);
+});
+
 test("large source previews bypass the per-line syntax highlighter", () => {
   assert.match(source, /const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;/);
   assert.match(source, /const useLightweightSource = lines\.length > SOURCE_HIGHLIGHT_MAX_LINES;/);

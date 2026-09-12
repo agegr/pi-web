@@ -20,19 +20,26 @@
 
 :root {
   --bg: #ffffff;
-  --bg-panel: #f5f5f5;
-  --bg-hover: #eeeeee;
-  --bg-selected: #e8e8e8;
-  --border: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  --bg-panel: #f5f8fc;
+  --bg-hover: #edf2f9;
+  --bg-selected: #e7efff;
+  --border: #dbe3ef;
+  --text: #122342;
+  --text-muted: #536986;
+  --text-dim: #6e809a;
+  --accent: #315bec;
+  --accent-hover: #244bd2;
   --user-bg: #eff6ff;
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --shadow-popover: 0 8px 28px rgb(18 35 66 / 12%);
+  --shadow-dialog: 0 20px 64px rgb(18 35 66 / 20%);
+  --control-height: 40px;
+  --font-size-small: 13px;
+  --font-size-body: 14px;
 }
 
 html.dark {
@@ -1290,7 +1297,7 @@ span.token.table {
     flex-shrink: 0;
   }
   .right-panel-container.right-panel-open {
-    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
+    width: var(--right-panel-width, clamp(360px, 34vw, 640px));
     min-width: 300px;
   }
   .right-panel-container.right-panel-closed {

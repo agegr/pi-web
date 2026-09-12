@@ -19,7 +19,7 @@ export function clampPanelWidth(width: number, minWidth: number, maxWidth: numbe
 }
 
 export function getDefaultRightPanelWidth(viewportWidth: number): number {
-  return clampPanelWidth(viewportWidth * 0.42, 360, 640);
+  return clampPanelWidth(viewportWidth * 0.34, 360, 640);
 }
 
 export function getSidebarMaxWidth(options: {

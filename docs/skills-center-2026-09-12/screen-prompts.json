@@ -1,0 +1,223 @@
+{
+  "version": "1.1",
+  "date": "2026-09-12",
+  "status": "proposed-design-not-implemented",
+  "workflow": "Product Design / Image Gen",
+  "visualDirection": "Clear Horizon (previously selected third direction)",
+  "generationCalls": 13,
+  "fixtureNotice": "All demo-team sources, skill descriptions, counts, hashes and paths are illustrative. No real classified catalog is provided.",
+  "supersedes": "references/v1-prompts.json",
+  "domains": [
+    {
+      "id": "computing",
+      "label": "计算机领域"
+    },
+    {
+      "id": "finance",
+      "label": "金融领域"
+    },
+    {
+      "id": "philosophy",
+      "label": "哲学领域"
+    },
+    {
+      "id": "psychology",
+      "label": "心理学领域"
+    },
+    {
+      "id": "metaphysics",
+      "label": "玄学领域"
+    }
+  ],
+  "screens": [
+    {
+      "id": "00",
+      "name": "五大领域总览",
+      "file": "00-domains.png",
+      "viewport": "desktop",
+      "references": [
+        "references/v1/01-discover.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN '领域总览' defaultdiscoverhomepage. 发现 tabselected. Prominent search '搜索全部领域的技能' with 搜索 button. Undersearch heading '按领域探索' smalltext '先选择领域，再浏览细分方向'. ExactlyFIVE large equalweight domainrows, each fullwidth withsmall lineicon onleft, title, shortdescription, subcategory tags asplaintext separatedmiddots, rightaction '进入领域 →'. Rowsabout120pxheight, allfivefit. No skillresultcards onthispage. 1计算机领域 description 开发、设计与工程实践; categories 前端设计 · 代码审查 · 文档工程 · 测试工程 · 研究工具. 2金融领域 description 财务、投资与风险研究; categories 财务分析 · 投资研究 · 风险管理 · 量化研究. 3哲学领域 description 概念、论证与思想体系; categories 逻辑与论证 · 伦理学 · 知识论 · 哲学史. 4心理学领域 description 心理机制、行为与研究方法; categories 认知心理 · 社会心理 · 发展心理 · 研究方法. 5玄学领域 description 传统术数与象征研究; categories 易学 · 命理 · 风水 · 塔罗与象征. All five equal prominence, neutralprofessionalicons. Subtlesurface alternate separators NOT fivecolorfulmarketingcards. Smallfooter '领域下的细分方向可调整；未分类技能仍可通过搜索查找。'. Generousbutefficientlayout, visually makes clear existing computingonlyonefifth.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "01",
+      "name": "计算机领域发现",
+      "file": "01-discover.png",
+      "viewport": "desktop",
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN '计算机领域' innerdiscoverypage, revise original attached screen so it is explicitly ONLY a computing subsection. 发现tabactive. Belowtabs a compact five-domain horizontal strip: 计算机 selected / 金融 / 哲学 / 心理学 / 玄学. Breadcrumb '全部领域 / 计算机领域'. Mainheading '计算机领域', one-line 开发、设计与工程实践. A scopedsearch '搜索计算机领域的技能' and 搜索 button. Underit label '细分方向' with chips 全部 selected, 前端设计,代码审查,文档工程,测试工程,研究工具. Resulttoolbar '本领域示例 6 项' and sort '目录顺序'. Grid3columns2rows six readable cards: frontend-design 界面设计 subcategory前端设计 source demo-team/computing-skills badge项目已安装; web-guidelines 界面检查 subcategory前端设计 same source badge全局已安装; react-review React代码审查 category代码审查 same source action安装…; doc-workflow 文档工程 category文档工程 same source; test-strategy 测试策略 category测试工程 same source; research-plan 研究规划 category研究工具 source demo-team/research-skills second tag哲学/研究方法? No secondtagneededkeepcomputing. Briefrealisticone-line descriptions, 查看详情. No default firstleveltopicchips masqueradingdomains. Footer '示例内容仅用于设计；实际列表由分类索引与来源数据提供。'. Fit hierarchy efficiently within1024pxheight, do not giantheadingswasteverticalspace.",
+      "references": [
+        "references/v1/01-discover.png"
+      ],
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "09",
+      "name": "金融领域发现",
+      "file": "09-finance.png",
+      "viewport": "desktop",
+      "references": [
+        "screens/01-discover.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. Keep exact shared geometry of attached computing discovery page: shared appbar heading/tasktabs, five-domain strip, breadcrumb, domainheading, scopedsearch, subcategorychips, results grid. Change selected domain and domain-specific content only. Four cards in a two-column two-row grid, generouscards withalltextreadable. Fullwidthsourceidentifiers maywrap. Show small '本领域示例 4 项', sort目录顺序. All fixturelabels explicit 设计示例; no realmarketclaims. Each card name,shortChinese title,subcategory,one-lineuse,source,action查看详情 and安装… or管理. Atbottom '示例内容仅用于设计；实际列表由分类索引与来源数据提供。'. SCREEN 金融领域, finance selected in domainstrip. Breadcrumb全部领域/金融领域. Heading金融领域 description 财务、投资与风险研究. Searchplaceholder搜索金融领域的技能. Categorychips全部 selected/财务分析/投资研究/风险管理/量化研究. Card1 financial-statement-review, 财报阅读, tag财务分析, '整理报表结构、指标定义与待核实问题。', demo-team/finance-skills, 安装…. Card2 industry-research, 行业研究, tag投资研究, '组织行业资料、竞争格局与研究记录。', same source, 全局已安装 /管理. Card3 risk-checklist, 风险清单, 风险管理, '按研究框架梳理假设与风险因素。', same source,安装…. Card4 quant-research, 量化研究, 量化研究 andsecondarytag '计算机 · 研究工具', '整理数据分析与量化研究步骤。', source demo-team/cross-domain-skills, 项目已安装 /管理. No investmentreturns orbuysell advice, no extra riskwarningbanner, justdomaincatalogUI.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "10",
+      "name": "哲学领域发现",
+      "file": "10-philosophy.png",
+      "viewport": "desktop",
+      "references": [
+        "screens/01-discover.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. Keep exact shared geometry of attached computing discovery page: shared appbar heading/tasktabs, five-domain strip, breadcrumb, domainheading, scopedsearch, subcategorychips, results grid. Change selected domain and domain-specific content only. Four cards in a two-column two-row grid, generouscards withalltextreadable. Fullwidthsourceidentifiers maywrap. Show small '本领域示例 4 项', sort目录顺序. All fixturelabels explicit 设计示例; no realmarketclaims. Each card name,shortChinese title,subcategory,one-lineuse,source,action查看详情 and安装… or管理. Atbottom '示例内容仅用于设计；实际列表由分类索引与来源数据提供。'. SCREEN 哲学领域, philosophy selected. Breadcrumb全部领域/哲学领域. Heading哲学领域, description 概念、论证与思想体系. Scopedsearch搜索哲学领域的技能. Chips 全部 selected /逻辑与论证/伦理学/知识论/哲学史. Fourcards: argument-map 论证梳理, 逻辑与论证, '区分前提、结论与隐含假设。', source demo-team/philosophy-skills, 项目已安装/管理. ethical-notes 伦理议题, 伦理学, '比较不同伦理立场与论证依据。', same source,安装…. knowledge-questions 知识问题, 知识论, '整理知识、证据与信念的讨论框架。', same source,安装…. philosophy-timeline 哲学脉络, 哲学史, '梳理思想家、文本与观点之间的关系。',same source,安装…. This is equalweightdomain UI, not computer codingcards with relabeledheadings. No otherfeatures, no essays, no fakecounts beyondexplicit4fixtures.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "11",
+      "name": "心理学领域发现",
+      "file": "11-psychology.png",
+      "viewport": "desktop",
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. Keep exact shared geometry of attached computing discovery page: shared appbar heading/tasktabs, five-domain strip, breadcrumb, domainheading, scopedsearch, subcategorychips, results grid. Change selected domain and domain-specific content only. Four cards in a two-column two-row grid, generouscards withalltextreadable. Fullwidthsourceidentifiers maywrap. Show small '本领域示例 4 项', sort目录顺序. All fixturelabels explicit 设计示例; no realmarketclaims. Each card name,shortChinese title,subcategory,one-lineuse,source,action查看详情 and安装… or管理. Atbottom '示例内容仅用于设计；实际列表由分类索引与来源数据提供。'. SCREEN 心理学领域, psychology selected. Breadcrumb全部领域/心理学领域. Heading心理学领域 description 心理机制、行为与研究方法. Search搜索心理学领域的技能. Chips 全部selected/认知心理/社会心理/发展心理/研究方法. Fourcards: cognitive-notes 认知学习, 认知心理, '整理注意、记忆与学习机制的知识笔记。', source demo-team/psychology-skills, 项目已安装/管理. social-observation 社会行为, 社会心理, '梳理群体互动与社会行为研究问题。', same source, 安装…. development-reading 发展阅读, 发展心理, '组织不同发展阶段的文献阅读框架。',same source安装…. study-design 研究设计, 研究方法, '整理研究假设、变量与方法选择。',same source安装…. No diagnostics/therapy promises orpersonalitytestclaims; no unsolicitedmedicalwarningbanner. This is neutral scientific readingandmethods domaincatalog, equal visualimportance tocomputing.",
+      "references": [
+        "screens/01-discover.png"
+      ],
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "12",
+      "name": "玄学领域发现",
+      "file": "12-metaphysics.png",
+      "viewport": "desktop",
+      "references": [
+        "screens/01-discover.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. Keep exact shared geometry of attached computing discovery page: shared appbar heading/tasktabs, five-domain strip, breadcrumb, domainheading, scopedsearch, subcategorychips, results grid. Change selected domain and domain-specific content only. Four cards in a two-column two-row grid, generouscards withalltextreadable. Fullwidthsourceidentifiers maywrap. Show small '本领域示例 4 项', sort目录顺序. All fixturelabels explicit 设计示例; no realmarketclaims. Each card name,shortChinese title,subcategory,one-lineuse,source,action查看详情 and安装… or管理. Atbottom '示例内容仅用于设计；实际列表由分类索引与来源数据提供。'. SCREEN 玄学领域, metaphysicsselected. Breadcrumb全部领域/玄学领域. Heading玄学领域 description传统术数与象征研究. Search搜索玄学领域的技能. Chips全部selected/易学/命理/风水/塔罗与象征. Fourcards: iching-study 易学研读, 易学, '整理卦象、经典文本与相关学习笔记。', source demo-team/metaphysics-skills, 全局已安装/管理. bazi-notes 命理笔记, 命理, '组织传统命理术语与文献阅读框架。',same source,安装…. fengshui-history 风水文献, 风水, '梳理传统空间观念与相关资料。',same source,安装…. tarot-symbols 塔罗象征, 塔罗与象征, '整理牌面意象、象征系统与反思问题。',same source安装…. Neutral lineicons only, no mysticalhero, no fortune prediction interface, no supernaturaltruthclaims, no warningbanner. Atbottom include subtle secondarylink '到 skills.sh 外部搜索 →' beside statement resultsaredesignexamples. Equalweighttootherdomains.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "02",
+      "name": "金融技能详情",
+      "file": "02-detail.png",
+      "viewport": "desktop",
+      "references": [
+        "screens/09-finance.png",
+        "references/v1/02-detail.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN financial skill detail, task发现active, domainstripfinanceactive as attached newfinancepage. Breadcrumb '全部领域 / 金融领域 / 财报阅读'. Header skillname financial-statement-review linebelow财报阅读; source demo-team/finance-skills, tag尚未安装, blueaction安装…. Distinctsmall '领域归属：金融领域 / 财务分析' and text分类来源：目录索引. Maincontenttabs概览 selected / SKILL.md / 文件. 2:1leftcontentrightfacts. Main briefsections '用途说明' text '整理报表结构、指标定义与待核实问题。'; '使用方式' text '提供一份报表，按章节整理阅读提纲与问题清单。'; '文件预览' rows SKILL.md and references/reading-outline.md. Rightfacts来源GitHub,仓库demo-team/finance-skills,技能路径 skills/financial-statement-review (wrap),读取提交8c42a71,安装量未提供. Bottomsimpleinfo '领域归属用于组织内容，不决定安装位置。'. No actualfinancialadvice/returns, no fake professionalbadge. Keep detailsourcegithubcontent notimplementationcode. Similarvisual density to attachedolddetail but adaptnewdomain context.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "03",
+      "name": "金融技能安装",
+      "file": "03-install.png",
+      "viewport": "desktop",
+      "references": [
+        "screens/02-detail.png",
+        "references/v1/03-install.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN desktop installing financial-statement-review. Use newfinance detail as background subdued bylightoverlay; rightdrawerwidth520px fullheight matchesoldinstallreference. Panel heading 安装技能 then wrappedcanonicalname financial-statement-review andChinese财报阅读, source demo-team/finance-skills. Smallread-onlyline '领域归属：金融领域 / 财务分析'. Steps确认目标/安装中/查看结果,firstactive. Label安装位置, two radioboxes 当前项目 · pi-web selected withsubtitle写入当前项目的技能位置; 全局配置 unselected subtitle写入此主机的全局技能位置. Targetpreviewbox monopath '<项目目录>/.pi/skills/financial-statement-review' wrapping,caption由服务端解析，此处为示例. Info '下次资源加载时按当前配置处理。'; anotherplain '领域归属不改变安装位置。'. Bottom cancel取消 andprimary确认安装. No promises allprojectsavailable. No categoryediting, no finance-specificinstallationmethod, no dashboardstats. Fitpanel readably,allowlongsourceidentifierwrap.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "04",
+      "name": "跨领域已安装管理",
+      "file": "04-installed.png",
+      "viewport": "desktop",
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN cross-domain 已安装管理, task已安装active. No computingselecteddomainstrip; instead clear filterrow '领域：全部领域' plus '位置：全部' and '更多筛选', search '搜索名称、描述或来源', 刷新. Contextcaption '当前项目与全局的可访问技能'. Acompact filterhint '包含五大领域与待分类技能'. Clean table6rows with columns 技能/来源,领域,位置,当前配置加载,向模型展示,更新,操作. Sixrows: frontend-design source demo-team/computing-skills,domain计算机,位置当前项目,已加载,toggleON,可更新,查看详情. industry-research source demo-team/finance-skills,金融,全局,已加载,ON,已是最新. argument-map source demo-team/philosophy-skills,哲学,当前项目,已加载,ON,未检查. cognitive-notes source demo-team/psychology-skills,心理学,当前项目,已加载,OFF,检查失败. iching-study source demo-team/metaphysics-skills,玄学,全局,已加载,ON,不支持. quant-research source demo-team/cross-domain-skills, TWOtags金融 and计算机,当前项目,已加载,ON,未检查. Distinctrows no duplicatequantinstance. Footer '显示 6 / 6 个安装实例' and '跨领域归属不重复安装；此设置不禁止手动调用，具体调用取决于加载结果。'. Tablelineheight comfortable,14pxbody,columnsfit byputting sourceonsubline nottinyfont. Do not put domainsasinstallscopes. Allfixtures设计示例.",
+      "references": [
+        "screens/00-domains.png",
+        "references/v1/04-installed.png"
+      ],
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "05",
+      "name": "跨领域更新中心",
+      "file": "05-updates.png",
+      "viewport": "desktop",
+      "references": [
+        "screens/04-installed.png",
+        "references/v1/05-updates.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Desktop 1440x1024 natural landscape. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN cross-domain 更新中心 task更新selected. Filterrow 领域：全部领域, otherfilter位置：全部; primaryrightbutton '检查全部领域'. Clearone-line '检查覆盖当前项目与全局的全部实例，领域筛选仅影响展示。'. Then statusfilters 全部6selected,可更新1,已是最新1,未检查2,检查失败1,不支持1. Compact clean table6rows columns技能/来源,领域,位置,版本与状态,操作. Row1frontend-design source demo-team/computing-skills,计算机,当前项目,内容哈希8c42a71→b931e20 amber可更新, 更新…. Row2industry-research source demo-team/finance-skills,金融,全局,已是最新 hash a017df2,查看详情. Row3argument-map source demo-team/philosophy-skills,哲学,当前项目,尚未检查,检查更新. Row4cognitive-notes source demo-team/psychology-skills,心理学,当前项目,源站请求失败 red检查失败,重试检查. Row5iching-study source demo-team/metaphysics-skills,玄学,全局,缺少可比较版本 gray不支持,查看详情. Row6quant-research source demo-team/cross-domain-skills,金融+计算机,当前项目,未检查,检查更新. Footer '单技能更新；分类变化不会触发内容更新。'. No updateallbutton, no semanticversionhistory, keepall6rowsfitwithoutminisculefont. Styleasnewinstalledscreen.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      }
+    },
+    {
+      "id": "06",
+      "name": "手机五领域总览",
+      "file": "06-mobile-discover.png",
+      "viewport": "mobile",
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Mobile web viewport390x844, naturalportrait. No phoneframe, OSstatusbar, browserchrome; body14–16CSSpx andtouchcontrols44px. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN mobile 领域总览. Compacttop Pi Web / pi-web / close. Heading技能中心,subtitle跨领域发现与管理. Threeoperationtabs发现selected/已安装/更新. Searchfield '搜索全部领域' plus搜索button. Heading按领域探索. FIVE equallysizedstacked domainentries, allvisible orlastcontinuesnaturallybutdoNOT omit anydomain. Eachlineicon,nameandtwolinesofsubcategorytextwithenterchevron. 计算机领域: 前端设计 · 代码审查 / 文档工程 · 测试工程 · 研究工具. 金融领域: 财务分析 · 投资研究 / 风险管理 · 量化研究. 哲学领域: 逻辑与论证 · 伦理学 / 知识论 · 哲学史. 心理学领域: 认知心理 · 社会心理 / 发展心理 · 研究方法. 玄学领域: 易学 · 命理 · 风水 / 塔罗与象征. Preserve mobilelegibilitywithonecolumn no horizontalcarouselhidingdomains, compactentriesnotgiantmarketingcards. Small设计示例. No resultskillcardsonthehomepage. Clear Horizonstyle fromdesktopreference.",
+      "references": [
+        "screens/00-domains.png",
+        "references/v1/06-mobile-discover.png"
+      ],
+      "targetViewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "id": "07",
+      "name": "手机金融安装",
+      "file": "07-mobile-install.png",
+      "viewport": "mobile",
+      "references": [
+        "screens/03-install.png",
+        "screens/06-mobile-discover.png"
+      ],
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Mobile web390x844portrait, body14–16CSSpx, no devicebezel/OSstatusbar/browserchrome. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN mobile install confirmation for financial-statement-review. Not a draweronshrinkendesktop, fullmobilepage. Compactappbar Pi Web / pi-web / X. Backchevron andheading安装技能. Canonicalskillname financial-statement-review wrapsinto2lines ifneeded, Chinese 财报阅读, source demo-team/finance-skills. Read-only badges '金融领域' '财务分析' labeled领域归属. Compactstepbar确认目标active/安装中/查看结果. Installationsection两个radioboxes 当前项目 · pi-web selected helper写入当前项目的技能位置 and 全局配置 unselected helper写入此主机的全局技能位置. Targetheading目标预览, wrapmonopath '<项目目录>/.pi/skills/financial-statement-review', caption由服务端解析，此处为示例. Importantplainnote '领域归属不改变安装位置。' and '下次资源加载时按当前配置处理。'. Bottomsticky44pxtouchbuttons取消secondary/确认安装cobalt. Keepthisentireformreadablewithoutminifont, no otherunnecessary information. Samevisualsystemasattachedmobileoverview anddesktopinstall.",
+      "targetViewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "id": "08",
+      "name": "手机跨领域管理",
+      "file": "08-mobile-installed.png",
+      "viewport": "mobile",
+      "prompt": "Use case ui-mockup. Design a revised Pi Web Skills Center, continuing the attached USER-SELECTED Clear Horizon white/ice/cobalt visual style. Production-quality clear Chinese UI, system sans-serif 14–16px body, 28px headings, monospace only identifiers. Mobile web390x844portrait, body14–16CSSpx no devicebezel/OSstatusbar/browserchrome. Palette white#fff ice#f5f8fc border#dbe3ef navy#122342 muted#536986 cobalt#315bec, 6px controls and8px panels. Realistic lineicons, no decorative illustration, no gradients/hero, no excessive badges/cards nested in cards. Top56px appbar Pi Web / current project pi-web / 返回工作台 and close. Page heading 技能中心, subtitle 跨领域发现、安装与管理 AI 技能. Small 设计示例 label. All depicted skill sources and data are explicitly fictional UI fixtures. No invented market totals, ratings, popularity or availability guarantees. Today anchor2026-09-12 if needed. Shared task tabs 发现 / 已安装 / 更新. Five subject domains exactly in order 计算机领域、金融领域、哲学领域、心理学领域、玄学领域. Domains are content taxonomy, NOT installation scope or permission. Use exact Chinese readable words. One screen per image, no browser/editor/device chrome. SCREEN mobile cross-domain installedmanagement. Tasktabs发现/已安装selected/更新. Searchfield '搜索名称、描述或来源'. Filterrow dropdown '全部领域' then筛选buttonand刷新icon. Smallcaption '当前项目与全局 · 显示6个实例'. Renderthreevisible stacked compact skillinstanceblocks, remainingmaybelowfold. First frontend-design source demo-team/computing-skills, domain计算机tag, 当前项目 · pi-web,green已加载; nextline 向模型展示 withONtoggle; footeramber可更新 and 查看详情. Second industry-research source demo-team/finance-skills domain金融tag, 全局,已加载,ONtoggle,已是最新/查看详情. Third quant-research source demo-team/cross-domain-skills TWOdomainstags金融and计算机, 当前项目 · pi-web,已加载,ONtoggle,未检查/查看详情. Keepcorrectsourcewrap andfigurecount6meansfullsampleinventorywhileonly3visible. Captionatbottom '领域归属不改变安装位置；跨域技能不会重复安装。'. Domain filter mustclearlyshowall, notonlycomputinglabel. Don't cram6instances norhideidentitymetadata. Samebluewhiteiceshellasrefs, small设计示例. No uninstallorpermissionclaim.",
+      "references": [
+        "screens/04-installed.png",
+        "screens/06-mobile-discover.png"
+      ],
+      "targetViewport": {
+        "width": 390,
+        "height": 844
+      }
+    }
+  ]
+}

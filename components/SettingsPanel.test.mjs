@@ -25,9 +25,11 @@ test("keeps enabled configuration surfaces inside the settings panel", () => {
   for (const section of ["general", "models", "skills", "plugins"]) {
     assert.match(panelSource, new RegExp(`id: "${section}"`));
   }
-  for (const component of ["ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
+  for (const component of ["ModelsConfig", "PluginsConfig"]) {
     assert.match(panelSource, new RegExp(`<${component} embedded`));
   }
+  assert.match(panelSource, /<SkillsCenter cwd=\{cwd\}/);
+  assert.match(panelSource, /id: "skills"[^\n]*requiresProject: false/);
   assert.doesNotMatch(panelSource, /id: "agents"|<AgentsConfig embedded/);
 });
 
@@ -59,9 +61,13 @@ test("offers direct light, dark, and system theme selection", () => {
   assert.match(themeSource, /const setThemePreference = useCallback/);
 });
 
-test("keeps General free of divider rows", () => {
+test("groups General settings with shared dividers and a scrollable content pane", () => {
   assert.match(panelSource, /className="settings-dialog-header"/);
-  assert.match(cssSource, /\.settings-dialog-header \{[\s\S]*?display: flex[\s\S]*?align-items: center[\s\S]*?min-height: 50px/);
+  assert.match(cssSource, /\.settings-dialog-header \{[^}]*display: flex[^}]*align-items: center[^}]*min-height: 60px/);
+  assert.match(cssSource, /\.settings-general \{[^}]*height: 100%/);
+  assert.match(cssSource, /\.settings-general \{[^}]*overflow-y: auto/);
+  assert.match(cssSource, /\.settings-general-section \{[^}]*border-top: 1px solid var\(--border\)/);
+  assert.match(cssSource, /\.settings-general-section:first-of-type \{[^}]*border-top: 0/);
   assert.doesNotMatch(panelSource, /sections\.find\(\(item\) => item\.id === section\)/);
   assert.doesNotMatch(panelSource, /<section style=\{\{[^}]*borderBottom/);
   assert.doesNotMatch(panelSource, /borderLeft: index > 0/);
@@ -73,12 +79,13 @@ test("uses top navigation on desktop and one compact section picker on mobile", 
   assert.match(panelSource, /className="settings-section-tab"/);
   assert.match(cssSource, /\.settings-section-tab \{[\s\S]*?width: 96px/);
   assert.match(cssSource, /\.settings-section-icon \{[\s\S]*?flex-shrink: 0/);
-  assert.match(cssSource, /\.settings-section-tab::after \{[\s\S]*?width: 24px/);
+  assert.match(cssSource, /\.settings-section-tab::after \{[^}]*width: 56px[^}]*background: var\(--accent\)/);
   assert.match(cssSource, /\.settings-section-tab\[aria-current="page"\]::after/);
   assert.match(cssSource, /\.settings-section-tab:focus-visible:not\(\[aria-current="page"\]\)/);
   assert.match(cssSource, /\.settings-section-tab:focus-visible\[aria-current="page"\][\s\S]*?outline: none/);
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?\.settings-section-tabs \{[\s\S]*?display: none/);
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?\.settings-mobile-section-picker \{[\s\S]*?display: block/);
+  assert.match(cssSource, /\.settings-mobile-section-picker \{[^}]*height: var\(--control-height\)/);
   assert.doesNotMatch(panelSource, /width: isMobile \? "100%" : 188/);
   assert.match(panelSource, /<main className="settings-dialog-main">/);
   assert.doesNotMatch(panelSource, /<style>/);

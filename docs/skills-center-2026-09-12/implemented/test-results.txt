@@ -1,0 +1,1250 @@
+
+> @agegr/pi-web@0.8.11 test
+> node --experimental-strip-types --test "app/**/*.test.mjs" "components/**/*.test.mjs" "hooks/**/*.test.mjs" "lib/**/*.test.mjs" "public/**/*.test.mjs"
+
+✔ agent SSE starts sessions asynchronously and disables response buffering (1.3556ms)
+✔ agent SSE reuses one TextEncoder per stream (0.3393ms)
+✔ validated cwd responses include server-resolved project identity (161.3734ms)
+✔ streamed responses are not content-type sniffable (1.358ms)
+✔ inline SVG is served with a script-blocking content security policy (0.3083ms)
+✔ the restrictive headers are applied to every streamFile response shape (0.2854ms)
+✔ file watching survives same-path replacement (1.5747ms)
+✔ a missing target can be watched after its parent is authorized (0.6898ms)
+✔ connected is emitted only after the watcher exists (0.5695ms)
+✔ context route parses ?tail and ?before, excluding the boundary on paging (1.5649ms)
+✔ context route: ?before pages upward without duplicating the boundary (4.3054ms)
+✔ context route data reports when pagination reaches the root (0.2916ms)
+✔ detail route parses ?tail: default 50, NaN-safe, capped at 1000 (1.5598ms)
+✔ detail route bounds history to the tail window (default 50 over 5000 entries) (40.0238ms)
+✔ detail route with an out-of-range tail still caps at 1000 (48.132ms)
+✔ session listing merges live registry snapshots and honors force refresh (1.5563ms)
+✔ session reads use the live SessionManager before requiring a JSONL path (0.3788ms)
+✔ live agent state is available before the session file is persisted (0.2452ms)
+✔ deleting an intermediate subagent reparents both relation representations (184.1332ms)
+✔ live detail and state routes work without a persisted JSONL file (16.1124ms)
+✔ profiles route creates, lists, and deletes a project profile (271.6843ms)
+✔ profiles route keeps same-name global and project profiles independently editable (182.1539ms)
+✔ profiles route rejects missing paths, malformed profiles, and unsafe names (74.2725ms)
+✔ subagent route reads live state and accepts steer and abort actions (35.9922ms)
+✔ subagent route validates actions and rejects commands after completion (5.9167ms)
+✔ subagent GET returns 404 for an unknown session (64.408ms)
+✔ settings route defaults off and persists both switch states (62.4555ms)
+✔ settings route validates mutations (2.3872ms)
+✔ keeps the main session first and makes every agent session selectable (1.6831ms)
+✔ sorts running subagents first and enables search only for larger families (0.2975ms)
+✔ renders as a compact left-positioned dropdown without a centered inner width (0.2319ms)
+✔ shows persisted completion states while live running state takes precedence (1.4515ms)
+✔ keeps same-name profiles selectable by scope and groups writable sources first (1.8291ms)
+✔ uses the shared enabled status treatment (0.4485ms)
+✔ offers a persisted built-in sub-agent switch with explicit session reload (0.583ms)
+✔ marks profiles shadowed by a higher-precedence source (0.4132ms)
+✔ treats global and project profiles as directly editable (0.3014ms)
+✔ offers both writable scopes when creating a profile (0.3543ms)
+✔ uses the shared sidebar action for new profiles (0.3354ms)
+✔ sends the selected scope for saves and the source scope for deletes (0.2114ms)
+✔ shows a Skills-style path row with the same switch in editable and readonly modes (0.2554ms)
+✔ persists existing profile toggles immediately without submitting unsaved fields (0.4622ms)
+✔ reuses the ChatInput model selector with scoped models (3.2418ms)
+✔ renders the stable agent id as text outside create mode (0.7222ms)
+✔ uses the same form controls for editable and readonly profiles (0.6923ms)
+✔ shows disabled controls with a gray background (0.3842ms)
+✔ keeps a larger resize corner when system instructions need a scrollbar (0.2882ms)
+✔ duplicates any selected profile through the existing create flow (0.2751ms)
+✔ places duplicate and delete immediately before the enabled switch (0.1929ms)
+✔ confirms deletion and limits it to writable profiles (0.1744ms)
+✔ plain text without escapes passes through unchanged (14.8586ms)
+✔ 24-bit rgb foreground and background colors (1.4295ms)
+✔ xterm 256-color palette (0.7377ms)
+✔ standard 16 colors and full reset (0.675ms)
+✔ decoration codes render as styles (not dropped) (0.6853ms)
+✔ widget text cannot inject HTML (escape_html) (0.6682ms)
+✔ newlines inside text are preserved (0.6827ms)
+✔ styles do not leak between complete widget snapshots (27.4278ms)
+✔ 压缩后的会话仍可根据持久化消息数生成标题 (1.6398ms)
+✔ 尚未落盘的会话不会触发依赖 JSONL 的自动命名 (0.4781ms)
+✔ 会话落盘后会用服务端记录清除临时状态 (0.3218ms)
+✔ only the active file tab mounts a FileViewer (1.9239ms)
+✔ the active viewer restores tab state and saves it with a revision (0.4951ms)
+✔ closing the file panel pauses the active viewer watcher (0.2351ms)
+✔ keeps action icons inline in medium mobile sidebars (1.7136ms)
+✔ uses a compact narrow-mobile toolbar with a floating action layer (1.504ms)
+✔ only renders the Agents switcher when the active session family has subagents (0.4131ms)
+✔ keeps the Agents panel open while switching sessions and positions it at the left (0.3979ms)
+✔ only renders branch toolbar controls for sessions with branches (0.2888ms)
+✔ keeps covered statistics and file controls out of interaction and focus (0.4035ms)
+✔ closes the mobile action layer on outside click, Escape, layout changes, and session changes (0.2946ms)
+✔ keeps the mobile action layer open after using an expanded action (1.2252ms)
+✔ prioritizes context and cost when the mobile statistics area narrows (0.8116ms)
+✔ places trust warnings below the mobile toolbar and the file toggle in toolbar flow (0.574ms)
+✔ explicit context changes invalidate a pending workspace restore (1.5974ms)
+✔ all active-session transitions share one persistence effect (0.3445ms)
+✔ workspace restoration remains inside the cross-project branch (0.2664ms)
+✔ compressChain labels a chain by its first message entry (2.1394ms)
+✔ compressChain skips non-message entries such as session_info (0.3742ms)
+✔ compressChain labels a projected chain by its preview but selects its representative (2.7698ms)
+✔ compressChain falls back to the chain end when no message entry exists (0.3398ms)
+✔ selectTopLevelBranches returns all roots for multi-root trees (0.5008ms)
+✔ selectTopLevelBranches returns children of the first branching node (0.3919ms)
+✔ selectTopLevelBranches returns empty for a linear session (0.2714ms)
+✔ hasSessionBranches distinguishes linear sessions from branched sessions (0.8386ms)
+✔ selectTopLevelBranches works on preview-only server projections (1.467ms)
+✔ multi-root metadata chains use their user previews and assistant representatives (0.6671ms)
+✔ buildActivePath finds the leaf on a 6000-deep linear chain without a stack overflow (90.493ms)
+✔ hasSessionBranches reports false for a linear chain (no branching) and true otherwise (5.2584ms)
+✔ hasSessionBranches reports true for multiple root nodes (a branch from the first message) (0.2105ms)
+✔ uses the rendered slash command order for selection indices (3.0327ms)
+✔ anchors the mobile reasoning menu to its left edge (1.4908ms)
+✔ renders the upstream model error (13.3965ms)
+✔ does not render an empty model error (0.4815ms)
+✔ renders enabledModels scope warnings (2.6991ms)
+✔ keeps the model selector visible when a model error leaves no options (12.4901ms)
+✔ renders the read-only tool preset as the active selection (13.0863ms)
+✔ renders the empty tool preset as Chat only (6.1382ms)
+✔ shows and locks the optimistic model while a switch is pending (5.8062ms)
+✔ filters model options by name and id (1.3844ms)
+✔ renders the shared field model selector as a disabled gray control (2.1927ms)
+✔ caps an upward menu to the visible space above its anchor (0.5035ms)
+✔ compresses large images while preserving small images and GIFs (0.9863ms)
+✔ recognizes exact slash commands for one-Enter submission (0.2287ms)
+✔ clears a completed built-in only while its submitted input is unchanged (0.211ms)
+✔ keeps only read-only built-ins available while a run is active (0.4286ms)
+✔ restores text and base64 images when editing a user message (0.6528ms)
+✔ restores legacy flat image entries when editing a user message (0.2677ms)
+✔ does not restore a historical message over a pending image attachment (0.1826ms)
+✔ restores a cleared submission using the queued React state (0.24ms)
+✔ keeps a failed first submission recoverable across a composer remount (0.583ms)
+✔ preserves duplicate image attachments when restoring a submission (0.1953ms)
+✔ moves a provisional new-session draft to the real session key (0.3059ms)
+✔ rekey keeps a synchronously restored draft when React state is still empty (0.2218ms)
+✔ renders compact errors above the input as a wrapping alert (7.6723ms)
+✔ renders math in headings without disabling heading navigation (82.4603ms)
+✔ renders temporary notices once at the top right of the chat column (1.606ms)
+✔ pauses only for a visible notice (0.3728ms)
+✔ lets keyboard users pause and scroll long notices (0.7533ms)
+✔ expands process details when a completed turn has no final answer (1.2148ms)
+✔ sorts status text by hidden key like the Pi CLI footer (20.0291ms)
+✔ preserves status line breaks while normalizing horizontal whitespace (0.3306ms)
+✔ allows multiline status text to wrap and scroll within the footer (16.3168ms)
+✔ renders a single status line without identifier keys (15.9305ms)
+✔ renders widgets and status text in one footer (5.3548ms)
+✔ renders short extension widgets without a truncation marker (17.8073ms)
+✔ collapses long widgets by default (1.7888ms)
+✔ keeps all widget lines available for the scrollable expanded panel (0.3033ms)
+✔ keeps compact widgets expanded by default (2.1301ms)
+✔ expands at most one compact widget (2.0414ms)
+✔ switching widgets closes the previously expanded widget (0.2ms)
+✔ detects only existing widgets whose line content changed (1.2986ms)
+✔ compares widget lines without delimiter collisions (0.206ms)
+✔ keeps one-line widgets compact but expandable (1.3073ms)
+✔ keeps empty widgets non-interactive (1.5451ms)
+✔ ImageViewer pauses its watcher and synchronizes after connecting (1.9266ms)
+✔ AudioViewer pauses its watcher and synchronizes after connecting (0.2576ms)
+✔ DocumentViewer pauses its watcher and synchronizes after connecting (0.216ms)
+✔ TextFileViewer pauses its watcher and synchronizes after connecting (0.1998ms)
+✔ FileViewer forwards watcher state to every viewer implementation (0.3223ms)
+✔ TextFileViewer snapshots and restores lightweight tab state (0.3222ms)
+✔ TextFileViewer keeps first-mount preview eligibility across Strict Effects cleanup (0.3244ms)
+✔ markdown table tokens stay inline despite Tailwind's table utility (29.7272ms)
+✔ source theme switches override Prism's conflicting background shorthand (1.4031ms)
+✔ large source previews bypass the per-line syntax highlighter (0.4089ms)
+✔ uses a native modal dialog and restores focus to its trigger (1.4926ms)
+✔ Escape closes image preview without reaching global shortcuts (0.42ms)
+✔ closes only when the backdrop itself is clicked (0.2404ms)
+✔ keeps the preview and Pi-style close button inside mobile safe areas (0.3972ms)
+✔ opens non-file markdown links in a safe new tab (36.8454ms)
+✔ keeps local file markdown links in the app (4.9192ms)
+✔ keeps single-tilde CJK numeric ranges literal instead of striking them (5.0295ms)
+✔ still renders double-tilde strikethrough (5.8558ms)
+✔ renders LaTeX parenthesis delimiters as inline math (41.6741ms)
+✔ renders paired LaTeX bracket delimiters as display math (36.7221ms)
+✔ renders model-emitted bracket-only formula lines as display math (47.3283ms)
+✔ leaves an unmatched LaTeX bracket delimiter unchanged (0.9811ms)
+✔ does not normalize LaTeX delimiters inside Markdown code (0.481ms)
+✔ does not normalize LaTeX delimiters inside raw HTML code (0.4371ms)
+✔ does not normalize escaped delimiters or link destinations (0.2247ms)
+✔ MermaidBlock renders source by default (30.2781ms)
+✔ MermaidBlock can render preview by default (1.399ms)
+✔ MermaidBlock with isStreaming falls back to source view (1.4207ms)
+✔ MermaidBlock renders empty graph without error (0.9349ms)
+✔ CodeBlock highlights code when not streaming (10.7916ms)
+✔ CodeBlock renders plain text without tokenization while streaming (1.3108ms)
+✔ MermaidBlock handles Chinese characters in diagram (1.1181ms)
+✔ keeps streamed tool input out of collapsed markup while counting it (38.6464ms)
+✔ renders subagents as standard tool calls with only an extra session button (5.7278ms)
+✔ renders a provider error when the assistant message has no content (1.5243ms)
+✔ renders partial assistant content before the provider error (23.7721ms)
+✔ renders a complete SDK skill expansion as a compact command (3.3606ms)
+✔ does not collapse incomplete skill-looking user text (9.346ms)
+✔ keeps attached images when restoring a compact command for editing (1.1796ms)
+✔ renders user-message images as buttons that open a larger preview (43.79ms)
+✔ renders custom-message images as buttons that open a larger preview (3.2341ms)
+✔ configures iOS standalone mode to use the full screen (1.547ms)
+✔ tracks the visual viewport while the software keyboard is open (0.9386ms)
+✔ contains chat content and inputs within the mobile viewport (2.7683ms)
+✔ prevents iOS focus zoom from widening the layout (0.32ms)
+✔ keeps modal dialogs clear of the iOS status bar in standalone mode (0.5279ms)
+✔ model configuration becomes saveable after edits and returns clean after reverting (3.3983ms)
+✔ deleting the final saved provider can still be saved (0.2672ms)
+✔ saving an earlier snapshot does not hide edits made while the request is pending (0.2992ms)
+✔ uses shared sidebar sizing for providers and matching indented model rows (0.8008ms)
+✔ ignores malformed auth provider responses (0.5212ms)
+✔ custom model config exposes provider-level request headers (0.2954ms)
+✔ custom model config exposes model headers and supportsDeveloperRole compat flag (0.4637ms)
+✔ disabling the developer role writes an explicit false override (2.6263ms)
+✔ editing a header preserves row order and stable identities (0.7322ms)
+✔ blank header drafts are omitted until they have a name (0.3991ms)
+✔ model cost drafts default blank prices to zero unless all are blank (0.5256ms)
+✔ manual price editing commits completed costs and removes only an all-blank group (0.3306ms)
+✔ model specs keep catalog-filled prices visible outside advanced settings (0.5921ms)
+✔ per-model settings use one primary divider before advanced settings (0.2735ms)
+✔ thinking level overrides keep explicit default, disabled, and custom controls (0.3848ms)
+✔ provides a debounced file search UI and opens selected results (1.5143ms)
+✔ renders search results with the existing expandable file tree (0.2873ms)
+✔ search result rows offer mention and download actions like the file tree (0.2112ms)
+✔ keeps search on the bounded index and reports request failures (0.3ms)
+✔ custom cwd selection installs validated identity before changing cwd (1.7724ms)
+✔ custom cwd selection remembers the last validated path for the picker (0.3784ms)
+✔ only Shift+click bypasses session deletion confirmation (2.7988ms)
+✔ does not register row-level session deletion shortcuts (0.3017ms)
+✔ polls running sessions only while the tab is visible (0.3006ms)
+✔ exposes the polled running-session set to the shell (0.2447ms)
+✔ exposes the loaded session catalog to the shell (0.2427ms)
+✔ subagent completion stays silent and never becomes unread (5.9802ms)
+✔ includes project activity counts in accessible labels (2.1565ms)
+✔ formats session timestamps with the active locale (0.3452ms)
+✔ does not persist an unchanged fallback title ending in whitespace (0.3821ms)
+✔ offers the downstream context-menu hook only on a normal session row (0.4178ms)
+✔ manual and lifecycle refreshes bypass the server session-list cache (0.3474ms)
+✔ does not expose disk-backed actions for transient sessions (0.205ms)
+✔ hides subagent rows and aggregates their state into the main session row (0.2804ms)
+✔ uses the server-resolved current worktree identity (1.6434ms)
+✔ opens one settings panel from direct sidebar shortcuts (2.0782ms)
+✔ keeps enabled configuration surfaces inside the settings panel (0.5026ms)
+✔ restores the settings section and each list detail selection (54.3216ms)
+✔ keeps visited settings sections mounted and contains nested Escape handling (7.1828ms)
+✔ offers direct light, dark, and system theme selection (0.6711ms)
+✔ groups General settings with shared dividers and a scrollable content pane (0.6103ms)
+✔ uses top navigation on desktop and one compact section picker on mobile (0.6821ms)
+✔ labels agent profiles as sub-agents (0.2287ms)
+✔ uses the child-session robot glyph for the sub-agents tab (0.445ms)
+✔ uses the compact controls glyph for General (0.3457ms)
+✔ provides one template for config layout and controls (3.0295ms)
+✔ loads settings presentation from its dedicated stylesheet (0.5308ms)
+✔ all four settings sections use the shared list-detail layout (0.7872ms)
+✔ all subpanel sidebars share one typography scale (0.5002ms)
+✔ skills and sub-agents share interactive sidebar rows (0.4537ms)
+✔ shared sidebar controls use the common touch target without fixing content height (0.5664ms)
+✔ mobile empty lists collapse while populated sidebars remain scrollable (0.5655ms)
+✔ plugin sidebar rows omit detail metadata (0.6568ms)
+✔ skill scope group labels are localized (0.5225ms)
+✔ all subpanel detail panes share one content hierarchy (0.9157ms)
+✔ detail header actions keep buttons and switches aligned to the right (0.3612ms)
+✔ keeps shared static presentation in the stylesheet (0.4482ms)
+✔ embedded sections do not repeat Settings close actions (0.2508ms)
+✔ subpanel footers share sizing while maintenance actions stay secondary (0.551ms)
+✔ skills, agents, and plugins share enabled and disabled controls (0.24ms)
+✔ lists active skills before dormant skills while preserving their order (2.3925ms)
+✔ renders dormant skills directly without a collapsible section (0.5857ms)
+✔ keeps System and Tools in separate adjacent toolbar actions (5.7003ms)
+✔ renders active tool definitions in a selectable master-detail layout (0.317ms)
+✔ shows schema fields and metadata in the detail form (0.42ms)
+✔ preserves the two-column layout on narrow screens (1.2263ms)
+✔ renders a button per file showing the basename and full path (20.9179ms)
+✔ renders nothing when no files were written (5.9178ms)
+(node:47508) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/components/file-tab-state.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ saving viewer state updates only the matching revision (2.0333ms)
+✔ opening an existing tab normally preserves its state and revision (0.4155ms)
+✔ changing the source session remounts the viewer without losing its state (0.3292ms)
+✔ opening from the same source session preserves the viewer revision (0.2657ms)
+✔ changing source while forcing diff increments the revision once (0.7043ms)
+✔ every explicit diff activation resets the mode and increments the revision (1.0758ms)
+✔ a remounted viewer ignores the previous revision's late cleanup (0.2527ms)
+✔ new-session startup sends only explicit browser overrides (1.7383ms)
+✔ new-session startup adopts server state only while explicit overrides are unchanged (0.3656ms)
+✔ model-list refresh does not overwrite a live session or explicit thinking override (0.4518ms)
+✔ existing-session model changes are optimistic and serialized (1.6425ms)
+✔ session reloads cannot clear an in-flight optimistic model (0.244ms)
+✔ a completed model switch reloads canonical session state and reports failures (0.2532ms)
+✔ keeps the session event stream open through the idle grace window (2.9471ms)
+✔ a rejected submission preserves a different run reported by the server (0.5089ms)
+✖ opening System or Tools lazily starts a dormant session without sending a prompt (1.4941ms)
+✔ new-session promotion rekeys drafts before publishing the real session (0.3556ms)
+✔ fresh sessions use the preference while persisted and live sessions restore their selection (1.9983ms)
+✔ existing-session prompts rely on the persisted tool selection (0.3277ms)
+✔ submission recovery updates live refs before a possible session rekey (0.232ms)
+✔ stale fresh-session completion cannot replace the active composer (0.427ms)
+✔ abandoned fresh-session drafts are cleared and cannot be recreated by late rejection (0.3614ms)
+✔ streaming submissions cannot be stranded in an idle direct queue (0.4678ms)
+✔ built-in clone switches to the independent child session (0.3447ms)
+✔ post-accept prompt errors do not duplicate the user submission (0.217ms)
+✔ delegates event stream readiness and hides an empty agent phase (0.3446ms)
+✔ uses one absolute agent-readiness deadline instead of a five-second transport deadline (0.1441ms)
+✔ uses server pagination state instead of guessing from rendered rows (0.3218ms)
+✔ connects a selected session when another browser reports it running (0.3386ms)
+✔ keeps one reducer-owned assistant partial and consumes Pi JSON deltas (0.5068ms)
+✔ shows the latest streamed tool execution progress in the running phase (0.3443ms)
+✔ plays the enabled sound once for each extension dialog (0.1486ms)
+✔ suppresses sounds and browser attention for the active subagent session (0.2157ms)
+✔ routes blocking extension requests through deduplicated browser attention notifications (0.2869ms)
+✔ keeps live following cancellable when the user scrolls away from the tail (0.8421ms)
+✖ keeps a newly sent user message at the top while its response starts (0.6247ms)
+✔ keeps prompt anchor measurement outside the React update cycle (0.5315ms)
+✔ uses the prompt anchor as the only trailing message spacer (0.2295ms)
+✖ keeps a detached viewport in place when streaming completes (0.3415ms)
+✔ uses the visual viewport for a focused editor when the keyboard shrinks it (1.7836ms)
+✔ does not keep the keyboard height after the visual viewport restores (0.228ms)
+✔ restores the dynamic height as soon as the editor loses focus (0.1669ms)
+✔ does not mistake pinch zoom for an open keyboard (0.166ms)
+✔ keeps the dynamic viewport height when the visual viewport is not reduced (0.1796ms)
+✔ agent command HTTP rejections are distinguishable from transport failures (45.0692ms)
+✔ only an explicit negative prompt acknowledgement is definitive (0.2791ms)
+✔ shares one source and waits past the former transport deadline (37.1319ms)
+✔ times out all waiters and closes the stalled source (40.4165ms)
+✔ manual close rejects waiters and isolates late events (1.4782ms)
+✔ surfaces startup errors without retrying or dispatching them (15.0627ms)
+✔ replaces a previously connected CONNECTING source only once (1.3271ms)
+✔ passive maintenance retries a transient failure once (29.6469ms)
+✔ an explicit startup error cancels a pending passive retry (14.3064ms)
+✔ dropped demand, session switches, and close cannot revive an old retry (45.509ms)
+✔ opens the transport before a slow session is ready and snapshots after subscribing (40.2113ms)
+✔ reports a startup failure in-band after opening the transport (2.5738ms)
+✔ does not subscribe when the client cancels during startup (17.3935ms)
+✔ closes an already-aborted request and handles a later startup rejection (1.5279ms)
+✔ projects message_update onto Pi 0.84's JSON/RPC delta shape (7.6783ms)
+✔ keeps tool identity on toolcall_start without sending the cumulative partial (0.4352ms)
+✔ refreshes late tool identity on toolcall_delta (0.621ms)
+✔ does not whitelist assistant delta event types (1.4458ms)
+✔ rejects a malformed message_update without breaking the stream (0.2242ms)
+✔ recognizes only the in-flight event already covered by a snapshot (0.2531ms)
+✔ keeps the existing event omissions and slim agent_end (0.2407ms)
+✔ forwards tool execution progress without repeating tool arguments (0.2182ms)
+✔ serialized streaming traffic grows linearly with response length (1.2299ms)
+✔ serialized tool-input traffic grows linearly with write content (0.9985ms)
+(node:8196) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/ansi.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ strips ANSI escape sequences (57.3813ms)
+✔ normalizes boxed custom panel lines while preserving ANSI codes (1.428ms)
+✔ removes pi-tui cursor markers from custom panel output (1.3651ms)
+✔ detects newer stable Pi Web versions (1.8202ms)
+✔ does not report equal, older, or unsupported versions as updates (0.3347ms)
+✔ builds a release-notes URL only for stable versions (0.8634ms)
+(node:39920) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/atomic-file.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ atomically replaces a file with restrictive permissions (9.5589ms)
+✔ keeps the destination and removes the temporary file when replacement fails (3.6329ms)
+(node:62356) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/bash-output.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ accepts only pi bash logs directly inside the configured temp directory (58.035ms)
+✔ reads small output and rejects oversized inline output before buffering it (16.8093ms)
+﹣ rejects symbolic links when opening bash output (26.4236ms) # Creating symbolic links requires additional privileges on this platform
+(node:46804) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/bounded-form-data.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ rejects a declared oversized request before reading its body (157.6369ms)
+✔ stops a chunked request once its body exceeds the limit (4.0208ms)
+✔ parses multipart data inside the request limit (12.0797ms)
+(node:79572) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/browser-notifications.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ uses a service worker notification when a registration is available (109.9279ms)
+✔ falls back to a page notification and wires its click handler (0.6998ms)
+✔ silently skips notification when neither delivery mechanism works (0.3859ms)
+✔ shows notifications when the page is hidden (0.3534ms)
+✔ shows notifications when the visible page is unfocused (0.3819ms)
+✔ skips notifications only when the visible page is focused (0.3295ms)
+✔ claims only blocking extension requests and deduplicates their ids (0.4919ms)
+(node:95928) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/chat-lazy-load.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ shows only the last visible render items (84.7317ms)
+✔ shows all render items when the visible count reaches the total (0.4497ms)
+✔ continues paging when render items outnumber source messages (0.4069ms)
+✔ restores the viewport after prepending content (0.4366ms)
+✔ restores top and bottom boundary positions (0.3419ms)
+✔ treats only the real message tail as live-follow attached (0.6042ms)
+✔ prompt anchor spacer uses the rendered content end (0.5248ms)
+✔ prompt anchor spacer includes the viewport deficit for short conversations (4.4334ms)
+✔ prompt anchor spacer clamps at zero once content can reach the target (2.8907ms)
+✔ prompt anchor spacer rounds fractional layout measurements up (1.2731ms)
+✔ streaming content consumes the prompt anchor before advancing the tail (1.7626ms)
+✔ Chat only disables optional resources but retains Pi context discovery (1.8725ms)
+✔ Chat only preserves Pi context-file order without filtering CLAUDE files (0.378ms)
+(node:56388) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/compaction-summary.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ separates pi file metadata tags from the visible compaction summary (2.5319ms)
+✔ leaves normal summaries unchanged (0.547ms)
+✔ keeps file-like tags that are part of the summary body (0.2961ms)
+(node:90656) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/custom-ui-terminal.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ headless custom UI exposes stable terminal dimensions (66.8618ms)
+✔ headless custom UI supports plugin rendering and render requests (0.6131ms)
+(node:88908) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/directory-browser.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✖ lists directories and directory symlinks without returning files (26.4308ms)
+✔ expands home-relative paths and rejects missing directories (89.9462ms)
+✔ builds every Windows drive-letter candidate (1.8146ms)
+✔ finds parent directories across POSIX and Windows paths (0.708ms)
+✔ rejects an existing path that escapes an allowed root through a symlink (117.0185ms)
+(node:17536) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/file-dirent.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ uses Dirent types for regular files and directories (64.9889ms)
+✔ falls back to stat when the Dirent type is unknown (18.3033ms)
+﹣ follows directory symlinks and skips dangling symlinks (3.0055ms) # Creating symbolic links requires additional privileges on this platform
+✔ defaults to an open file explorer (1.5396ms)
+✔ saves and restores the file explorer panel state (3.6709ms)
+✔ falls back to open when browser storage is unavailable (1.2282ms)
+✔ falls back when accessing browser storage throws (0.491ms)
+(node:65424) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/file-fuzzy.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ builds closed file mentions and quotes paths containing spaces (61.0765ms)
+✔ builds line-scoped file mentions (4.2405ms)
+(node:91752) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/file-links.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ resolves absolute markdown file links and strips line suffixes (76.4039ms)
+✔ resolves absolute file links outside cwd (0.4914ms)
+✔ resolves relative markdown file links against cwd (0.5128ms)
+✔ does not let relative links escape cwd (0.3165ms)
+✔ resolves preview links from the file directory within the project root (0.3752ms)
+✔ does not treat app or external URLs as file links (0.3609ms)
+✔ resolves Windows file URLs without a synthetic leading slash (2.4885ms)
+✔ resolves UNC file URLs and backslash UNC paths (1.8312ms)
+(node:95672) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/file-types.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ detects image, audio, and document preview paths (93.991ms)
+✔ extracts extensions from mixed path styles (1.4589ms)
+(node:21116) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/file-upload.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ validates upload names without accepting paths or duplicates (58.7325ms)
+✔ finds conflicts and prevents replacing directories (6.5263ms)
+﹣ prevents replacing symbolic links (4.1315ms) # Creating symbolic links requires additional privileges on this platform
+✔ parses only supported conflict strategies (0.5242ms)
+(node:19428) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/file-viewer-state.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a restored display mode wins over a stale open hint (1.3506ms)
+✔ the open hint is used only before viewer state has been saved (0.2485ms)
+(node:78364) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/frontmatter.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ parseFrontmatter
+  ✔ accepts the same common fence variants as remark-frontmatter (14.6216ms)
+  ✔ removes an empty or malformed fenced block from the returned body (2.7713ms)
+  ✔ leaves documents without a leading frontmatter block untouched (0.2799ms)
+✔ parseFrontmatter (19.7841ms)
+▶ frontmatter value formatting
+  ✔ does not recurse forever through YAML aliases (0.913ms)
+  ✔ uses scalar titles and leaves structured titles for the metadata rows (0.2155ms)
+✔ frontmatter value formatting (1.4177ms)
+(node:66784) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/git-status.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ parses null-delimited Git status entries including renames (61.2193ms)
+✔ classifies Git status for explorer badges (0.6961ms)
+✔ configures HTTP_PROXY, HTTPS_PROXY, and NO_PROXY for global fetch (414.0892ms)
+(node:84892) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/i18n/format.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[i18n] Missing translation: missing.key
+✔ interpolates string and numeric parameters (3.3842ms)
+✔ falls back to English and returns the key when both are missing (0.52ms)
+✔ formats relative time using the selected locale (50.3297ms)
+✔ uses the first supported browser language and falls back to English (1.713ms)
+✔ returns only registered locales (1.2806ms)
+✔ built-in locale packages have the complete English key and required placeholder sets (11.669ms)
+(node:78124) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/image-attachments.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ calculates padded base64 byte lengths and rejects invalid data (79.5774ms)
+✔ rejects invalid, oversized, and too many image attachments (92.5737ms)
+(node:59828) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/initial-navigation.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ uses cwd instead of session when both parameters are present (80.8954ms)
+✔ restores session when cwd is absent (0.4734ms)
+✔ treats an empty cwd as absent (0.523ms)
+✔ preserves a URL-encoded Windows path (0.4117ms)
+✔ Web loads the repository's built Pi modules, with no independent SDK copies (2585.219ms)
+✔ Next.js adapters expose the same native local SDK modules, including subpath imports (53.0252ms)
+(node:47112) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/markdown.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ normalizeDisplayMath
+  ▶ single-line $$…$$
+    ✔ splits a single-line block into three lines (5.2292ms)
+    ✔ preserves the indent of the surrounding list item (1.2436ms)
+  ✔ single-line $$…$$ (8.3665ms)
+  ▶ multi-line blocks with glued delimiters
+    ✔ moves a glued opening delimiter to its own line (1.295ms)
+    ✔ moves a glued closing delimiter to its own line (0.4081ms)
+  ✔ multi-line blocks with glued delimiters (2.1236ms)
+  ▶ blocks nested in GFM list items
+    ✔ re-indents lazy content lines of an indented bare-fence block (0.4886ms)
+    ✔ re-indents partially indented content lines (0.3751ms)
+    ✔ does not use a sibling list item's formula as a closing fence (0.31ms)
+    ✔ does not scan a bare fence past a sibling list item (0.7164ms)
+  ✔ blocks nested in GFM list items (2.4546ms)
+  ▶ blocks that must stay untouched
+    ✔ leaves a top-level block with detached delimiters untouched (0.4269ms)
+    ✔ leaves content inside fenced code blocks untouched (0.4833ms)
+    ✔ leaves inline math and plain prose untouched (0.1997ms)
+    ✔ does not treat a glued opener with mid-line $$ as a block (0.1774ms)
+  ✔ blocks that must stay untouched (2.2464ms)
+  ▶ \[ … \] blocks
+    ✔ normalizes single-line brackets (0.2283ms)
+    ✔ keeps content indented when nested in a list item (0.1411ms)
+    ✔ normalizes multi-line brackets without double-indenting (0.4619ms)
+  ✔ \[ … \] blocks (1.1073ms)
+  ▶ loose [ … ] formula blocks
+    ✔ normalizes model-emitted bracket-only formula lines (0.8237ms)
+    ✔ leaves ambiguous bracket-only Markdown untouched (7.6112ms)
+  ✔ loose [ … ] formula blocks (8.6912ms)
+✔ normalizeDisplayMath (26.348ms)
+(node:54656) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/message-display.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ splits trailing final answer blocks from process blocks (70.3083ms)
+✔ keeps pre-tool text in process blocks (1.6928ms)
+✔ does not expose text before a trailing tool call as final answer (0.6866ms)
+✔ drops empty thinking blocks after completion (4.2824ms)
+✔ keeps empty thinking while streaming (0.9468ms)
+✔ keeps deferred historical thinking placeholders (4.7683ms)
+✔ returns completed provider errors even when the message has no content (0.5986ms)
+✔ falls back when a provider error has no message (1.5872ms)
+✔ flattens supported models.dev metadata and prices (2.8162ms)
+✔ ranks exact model IDs and provider hints first (0.5516ms)
+✔ prefers an exact Pi provider match (1.0474ms)
+✔ matches canonical and catalog Base URLs by hostname (1.276ms)
+✔ uses stable metadata and price consensus with cache modes (0.9585ms)
+✔ defaults omitted consensus cache prices to zero (1.6966ms)
+✔ accepts a unique five-record price plurality below 60 percent (0.9001ms)
+✔ still rejects four-record pluralities and five-record ties (0.7751ms)
+✔ refuses tied or single-record fallback prices (25.07ms)
+✔ builds protocol-appropriate model list URLs (1.8883ms)
+✔ parses OpenAI, Anthropic, Google, and string model lists (2.8719ms)
+✔ resolves environment-backed headers without an API key (106.301ms)
+✔ returns every available model when no patterns are configured (2.9237ms)
+✔ expands provider globs alongside exact references (#307) (8.6044ms)
+✔ matches bare model id globs across providers without duplicates (0.9599ms)
+✔ rejects an ambiguous bare exact model id before fuzzy matching (0.874ms)
+✔ accepts provider-qualified and unique bare exact model ids (0.6268ms)
+✔ rejects an ambiguous bare exact model id with a thinking suffix (0.6353ms)
+✔ keeps thinking-level suffixes out of the matched reference and reports them as pins (10.9726ms)
+✔ leaves models without a pinned thinking level unpinned (1.2066ms)
+✔ reports patterns that match nothing but keeps the models that matched (1.3912ms)
+✔ falls back to all available models when nothing matches at all (1.1022ms)
+✔ selects the saved scoped default and applies its thinking pin (1.1987ms)
+✔ uses the saved default without creating a synthetic scope when unconfigured (0.3018ms)
+✔ uses resolver order when the saved default is outside the enabled scope (0.6973ms)
+✔ applies a requested scoped model pin unless thinking was explicitly overridden (12.3723ms)
+✔ rejects an explicit model outside the enabled scope (0.9062ms)
+(node:63220) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/models-cache.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ caches model data independently for each cwd (2.4725ms)
+✔ shares one loader between concurrent requests for the same cwd (0.564ms)
+✔ does not cache a stale load that finishes after invalidation (0.8181ms)
+✔ retries after a model load fails (9.8458ms)
+✔ adds runtime errors without discarding available models (0.5338ms)
+✔ uses a safe error for unexpected model load failures (1.7009ms)
+✔ saving models.json atomically invalidates the model-list cache (13.7943ms)
+✔ models.json writes fill partial cost groups with zero and remove empty groups (26.7273ms)
+✔ saving models.json drops blank model rows without hiding other schema errors (5.9945ms)
+✔ an existing session opens after its historical model is removed from config (32.2482ms)
+(node:71160) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/next.config.ts?esm-test is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ resolves config paths without CommonJS globals (85.5866ms)
+✔ includes the linked local Pi packages in tracing and Turbopack resolution (62.5304ms)
+✔ accepts the minimum supported Node.js version and newer versions (1.5654ms)
+✔ rejects older and invalid Node.js versions (0.2914ms)
+✔ keeps the package engine aligned with the startup check (0.3648ms)
+✔ reports both the required and current Node.js versions (0.5898ms)
+✔ keeps SDK scratch input only for an in-flight snapshot (2.4353ms)
+✔ removes a client raw buffer when normalizing a completed message (0.45ms)
+(node:53320) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/npx.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ managed process preserves argument boundaries and both output streams (234.116ms)
+✔ managed process reports nonzero exits and spawn failures (234.5938ms)
+✔ managed process requires a finite positive termination budget (0.8628ms)
+✔ timeout terminates a real wrapper and its descendant (4762.9375ms)
+✔ failed Windows tree termination still settles within its budget (867.6893ms)
+✔ a hung Windows termination helper cannot keep the operation pending (1725.8525ms)
+✔ clamps panel widths to finite bounds (2.2296ms)
+✔ keeps the responsive right panel default within useful limits (0.3119ms)
+✔ reserves chat space while split panels are visible (0.3673ms)
+✔ does not rewrite desktop widths while the file panel is in overlay mode (0.2115ms)
+(node:7232) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/patch.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ parses paired changes into split diff rows (96.3193ms)
+✔ pads one-sided additions and removes timestamp suffixes from file paths (0.9918ms)
+✔ treats in-hunk lines that look like file headers as content (0.7384ms)
+✔ parses multiple files, resuming header detection after each hunk (0.4226ms)
+✔ returns null for text without diff lines (0.5087ms)
+✔ toNativePath converts git's POSIX output to native separators (40.6563ms)
+✔ samePath ignores separator style and Windows case (2.9704ms)
+✔ toSlashPath normalizes to forward slashes (2.8997ms)
+✔ isWindowsAbsolutePath recognizes drive and UNC paths (2.5485ms)
+✔ opens the browser by default (11.5462ms)
+✔ supports --help and -h without starting the server (1.3945ms)
+✔ rejects unknown options with a help hint (0.953ms)
+✔ rejects unexpected positional arguments (1.6899ms)
+✔ CLI writes help and parse errors before exiting (417.5592ms)
+✔ supports the no-open CLI option (0.3516ms)
+✔ supports truthy PI_WEB_NO_OPEN values (0.4341ms)
+✔ does not disable browser opening for false PI_WEB_NO_OPEN values (0.4437ms)
+✔ preserves port and hostname options (0.4218ms)
+✔ rejects port values that could inject cmd arguments (1.5473ms)
+✔ supports PI_WEB_HOSTNAME without trusting the ambient system HOSTNAME (0.2778ms)
+✔ PowerShell is opt-in on Windows and never selected on other platforms (2.5866ms)
+✔ the setting preserves unrelated config and switches defaultTools both ways (46.4346ms)
+✔ enabling PowerShell adds it when a custom defaultTools list has no shell (12.7751ms)
+✔ invalid defaultTools are rejected without overwriting the settings file (27.3819ms)
+✔ forwards the first shutdown signal and force-kills on repeated signals (3.6007ms)
+✔ propagates a child exit code and clears its shutdown wiring (29.7924ms)
+✔ force-kills the child when graceful shutdown times out (30.4746ms)
+✔ uses conventional exit statuses for known child signals (0.7599ms)
+✔ reports a spawn failure instead of crashing on an unhandled error event (0.6841ms)
+✔ names the reason when the child stops on its own (0.558ms)
+✔ keeps the shutdown fallback armed when signaling the child fails (29.0542ms)
+✔ stays quiet for a shutdown the user asked for (31.7998ms)
+✔ sanitizes host variables using platform casing rules (3.7633ms)
+✖ agent bash removes host variables while preserving SDK and user environment (250.3402ms)
+✖ agent bash reads current shell settings for every execution (340.7268ms)
+✖ direct bash removes host variables and allows explicit project values (216.1428ms)
+✔ direct bash preserves execution controls and streaming callbacks (0.6139ms)
+✖ direct bash updates the platform PATH key (2.0394ms)
+✔ a user extension keeps priority over the Pi Web fallback bash tool (17.395ms)
+✔ Windows path variants form one recent project using the newest display path (2.6455ms)
+✔ project filtering includes every session with the stable identity (0.4552ms)
+✔ running and unread counts aggregate under the stable project identity (0.4608ms)
+✔ Windows project identity ignores full-path casing and separator style (64.2005ms)
+✔ Windows project identity handles UNC casing and separators (10.5122ms)
+✔ project identity preserves case on case-sensitive platforms (2.1368ms)
+(node:90308) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/project-tree.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ attaches the first branch message preview to the contracted representative (3.6268ms)
+✔ does not copy thinking or tool payloads from a compressed assistant label source (0.5299ms)
+✔ carries previews through non-message roots in multi-root trees (0.4174ms)
+✔ normalizes and bounds preview text and labels image-only messages (0.3572ms)
+✔ does not copy unknown message roles into previews (1.4392ms)
+✔ carries previews through the depth-limit flattening path (1.2123ms)
+✔ linear sessions still project to root + leaf only (0.2871ms)
+(node:93416) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/project-trust.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ clean projects stay on the normal trusted load path (37.0484ms)
+✔ project extensions execute only after the project is trusted (302.4199ms)
+✔ the reload resolver reads the latest persisted trust decision (196.6135ms)
+✔ all project resource loaders and reloads enforce project trust (86.484ms)
+✔ the trust API invalidates cached models and restricted runtimes (14.6194ms)
+✔ builds stable keys for matching optimistic text messages (1.3316ms)
+✔ includes attached images in optimistic message keys (0.4558ms)
+✔ API key saves do not use ModelRuntime.login's network refresh (9.3832ms)
+✔ removes only the expected credential type and preserves other providers (44.6391ms)
+✔ stores a provider credential while preserving other providers (117.0785ms)
+✔ a stale API-key delete cannot remove a newly stored OAuth credential (163.543ms)
+✔ missing credentials are a successful no-op (155.0709ms)
+✔ saving and removing an API key updates the SDK authentication status (599.4267ms)
+✔ lists an API-key-configured dual-auth provider in the API-key list (#309) (2.9399ms)
+✔ an OAuth-authenticated provider counts as configured only in the OAuth list (0.4441ms)
+✔ switching auth method moves the provider between lists in both directions (0.3414ms)
+✔ environment-provided keys are reported as configured (0.5028ms)
+✔ custom models.json providers stay out of the API-key list (0.3216ms)
+✔ providers without an API-key login method are excluded (0.386ms)
+✔ keeps friendlier OAuth labels and falls back to the provider name (0.3627ms)
+✔ duplicate provider ids are collapsed (0.4147ms)
+(node:7340) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/request-security.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ allows same-origin and non-browser API requests (113.2734ms)
+✔ allows LAN same-origin requests when Next.js uses an internal localhost URL (1.3342ms)
+✔ allows IPv6 and an explicitly configured hostname (9.1769ms)
+✔ rejects cross-origin browser API requests (1.0285ms)
+✔ does not globally trust opaque iframe or alternate loopback origins (2.3605ms)
+✔ allows only user-initiated session export document navigations from a PWA (1.241ms)
+✔ rejects an origin that does not match the external request host (0.6342ms)
+✔ rejects DNS rebinding even when browser headers say same-origin (0.4906ms)
+✔ rejects missing, malformed, and unconfigured Host headers (0.6564ms)
+✔ recognizes JSON request content types (0.7399ms)
+✔ allows a proxy that reports the scheme out-of-band and rewrites Origin (0.5721ms)
+✔ still rejects a foreign origin when a proxy is in front (0.7031ms)
+✔ does not relax the scheme without same-origin proxy evidence (0.5607ms)
+[pi-web] session_start dispatched to extensions for session session-1
+✔ get_state waits for extension resources before returning the system prompt (37.438ms)
+✔ prompt commands wait for SDK preflight acceptance before acknowledging (21.5678ms)
+✔ completion notification waits for an accepted agent run to become idle (18.5174ms)
+✔ completion notification covers extension-injected runs without an SSE client (3.9372ms)
+✔ suppressed sessions do not emit completion notifications (0.838ms)
+✔ prompt commands reject when SDK preflight fails (1.355ms)
+✔ accepted prompt failures still finish through the event stream (29.8157ms)
+✔ queued prompt commands forward their streaming behavior and acknowledge acceptance (1.5825ms)
+✔ an exact system prompt is reapplied after SDK preflight resets it (9.2945ms)
+✔ prompt admission waits for the preceding preflight and keeps overlapping runs counted (3.2341ms)
+✔ prompt admission continues after the preceding preflight rejects (3.5359ms)
+✔ a failing event listener cannot reject prompt completion (15.6779ms)
+✔ session shutdown notifies extensions before disposing the SDK session (1.319ms)
+✔ session shutdown still disposes the SDK session when an extension fails (0.4838ms)
+✔ direct destruction disposes the SDK session before unregistering the wrapper (0.2051ms)
+✔ direct destruction emits session_shutdown before dispose when extensions are present (2.6193ms)
+✔ direct destruction still disposes when session_shutdown throws synchronously (2.9172ms)
+✔ idle timer preserves active work but reaps a run stuck after Stop (3.9728ms)
+✔ direct bash commands use sanitized project operations with current shell settings (2.6681ms)
+✔ keeps array widgets compatible while maintaining the state snapshot (6.3143ms)
+✔ renders a factory widget immediately with the fixed headless facade (1.137ms)
+✔ requestRender replaces the browser event and server snapshot (0.7981ms)
+✔ clearing and replacing widgets disposes components and invalidates old callbacks (1.0348ms)
+✔ isolates factory and render failures with a clear and extension_error (2.4252ms)
+✔ reload and destroy dispose factory components and invalidate callbacks (2.991ms)
+✔ command-context reload also clears factory widgets (2.2297ms)
+✔ dispose-time reentrant updates remain authoritative (0.7845ms)
+✔ render failure does not clear a dispose-time recovery widget (10.987ms)
+✔ ignores factory registrations after the wrapper is destroyed (0.5808ms)
+✔ reload ignores widget registrations triggered by component disposal (8.6237ms)
+✔ get_tools preserves the SDK tool definition fields (86.971ms)
+✔ RPC session startup preloads extension-registered providers before restoring models (24.3828ms)
+✔ built-in subagents persist their selected resource policy (40.8331ms)
+✔ running snapshots expose sessions with suppressed completion notifications (40.6437ms)
+✔ RPC session startup resolves and passes the SDK-native enabled model scope (17.4888ms)
+✔ RPC session startup treats only sessions with messages as continuing (21.2463ms)
+✔ RPC session startup opens an existing session file only once and trusts its cwd (206.1321ms)
+✔ RPC wrapper avoids per-chunk idle maintenance (58.7838ms)
+✔ normal session teardown paths use graceful extension shutdown (101.6473ms)
+✔ clone copies the requested leaf into a child session (17.1798ms)
+✔ session replacement rejects active work and clone writes one reopenable child (300.5763ms)
+✔ cancelled session replacement releases its lock (1.7436ms)
+✔ clone cancels an assistant-free branch without creating a file (18.2272ms)
+✔ new-session route applies model scope during construction instead of follow-up commands (15.5593ms)
+✔ prompt routes mark only preflight failures as rejected (30.5616ms)
+✔ the wrapper reapplies an exact prompt after SDK preflight (21.6254ms)
+✔ RPC session startup persists explicit preferences without replaying setters (16.1759ms)
+✔ custom extension UI receives the fixed headless terminal facade (14.149ms)
+✔ reloading a session invalidates the models cache (14.3624ms)
+✔ normal sessions restore persisted tool selections before loading resources (2.0991ms)
+✔ crossing the Chat-only boundary persists and rebuilds the wrapper (13.4835ms)
+✔ lists an accepted new prompt before its session file exists (8.1192ms)
+✔ keeps an idle runtime visible once its JSONL file exists (4.9484ms)
+(node:71576) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/search-tree.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ groups flat paths into directories with files at the root level (118.0131ms)
+✔ builds arbitrarily deep nesting (0.655ms)
+✔ sorts directories before files and alphabetically within each level (0.6933ms)
+✔ deduplicates repeated paths (0.5234ms)
+✔ returns an empty tree for empty input (0.4587ms)
+✔ treats a lone segment as a root file, not a directory (0.4729ms)
+✔ groups nested subagents under their main session and uses family activity for sorting (22.3449ms)
+✔ does not promote orphaned or cyclic subagent metadata into the main session list (0.5969ms)
+(node:70284) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/session-file-references-core.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ detects exact external file paths referenced in session entries (71.5674ms)
+✔ does not authorize sibling files by prefix match (0.5603ms)
+✔ authorizes full output only from a bash execution message (0.524ms)
+✔ validates session ids before resolving session paths (0.5706ms)
+(node:80092) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/session-path.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ normalizes Windows separators and casing for session identity (76.4473ms)
+✔ preserves case when session paths are case-sensitive (0.8408ms)
+✔ sliceActiveBranch returns the most-recent `tail` ancestors, in time order (3.3397ms)
+✔ sliceActiveBranch walks from leaf back toward root, not forward (1.5299ms)
+✔ sliceActiveBranch defaults to the last entry when leafId is null (0.3949ms)
+✔ deep linear chain (5000 entries) slices without overflowing the stack (11.1035ms)
+✔ buildSessionContext with tail returns only the tail window (1.962ms)
+✔ buildSessionContext without tail still returns the full chain (0.3409ms)
+✔ buildSessionContext excludeLeaf pages upward without duplicating `before` (0.8271ms)
+✔ pagination stops before the root instead of returning it again (0.3245ms)
+✔ pagination cursor follows the raw page boundary across compaction (1.7621ms)
+✔ tail pagination preserves settings from earlier entries (1.1291ms)
+✔ buildSessionContext accepts a large tail and returns the whole chain (70.1822ms)
+✔ real sessions may store assistant content as a string (deferThinking guard) (0.5716ms)
+✔ session stats cover the full file independently of the displayed tail (0.9208ms)
+✔ renders the SDK compaction-aware context with aligned entry IDs (3.7011ms)
+✔ uses only the latest compaction on the active path (1.1131ms)
+✔ uses the selected leaf's path before a later compaction (0.5698ms)
+✔ returns an empty context for a null leaf (0.3258ms)
+✔ defers historical thinking without changing live-session content (0.6439ms)
+✔ does not defer empty historical thinking blocks (0.4272ms)
+✔ defers only base64 images from historical tool results (1.4486ms)
+✔ preserves hidden custom messages so the UI can render them collapsed (0.406ms)
+✔ preserves valid epoch timestamps on synthetic UI messages (0.3761ms)
+✔ reads only a bounded session header, including headers larger than 4 KiB (4.4885ms)
+✔ returns null for malformed or unbounded session headers (50.9082ms)
+✔ session listing reads subagent relations and terminal status without reopening full session files (258.2595ms)
+✔ keeps forward and reverse session path caches in sync (2.1637ms)
+✔ resolves a matching session header without a catalogue scan (112.2463ms)
+✔ does not resolve a parent path outside the default session storage (22.9207ms)
+﹣ preserves project symlinks exposed by the session catalogue (0.107ms) # SKIP
+✔ falls back to the catalogue when a targeted candidate header is invalid (55.6465ms)
+✔ falls back to the catalogue when a targeted lookup finds duplicate IDs (216.8457ms)
+✔ forced session listing bypasses the fresh server cache (19.7772ms)
+✔ a scan invalidated in flight retries before returning to its caller (0.5908ms)
+✔ disk sessions replace runtime snapshots with the same id (1.6202ms)
+(node:63288) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/session-row-context-menu.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ leaves the native context menu unclaimed when no listener is installed (1.5009ms)
+✔ delivers the stable session-row detail without requiring a listener to claim it (0.384ms)
+✔ reports the menu as handled when a listener cancels the extension event (0.2937ms)
+✔ sums usage across ALL entries, including history compacted away (2.2168ms)
+✔ counts tool calls and includes tool result usage (0.4326ms)
+✔ includes branch summary usage (0.2811ms)
+✔ tolerates entries without usage (older session files) (0.2079ms)
+✔ returns zeros for an empty session (1.2627ms)
+✔ full-file stats never shrink relative to the post-compaction context (0.6968ms)
+✔ adds messages completed after load to compacted file totals (2.2886ms)
+✔ empty or single-entry session yields zero (3.3786ms)
+✔ counts active gaps within a turn (0.3356ms)
+✔ drops human idle before the next user message (0.2557ms)
+✔ keeps compacted history and compaction time in append order (0.235ms)
+✔ counts work appended on every branch exactly once (0.2288ms)
+✔ treats user-initiated bash as a boundary (0.181ms)
+✔ ignores metadata without breaking the active interval (0.1726ms)
+✔ counts branch summaries and custom messages (0.1572ms)
+✔ skips invalid timestamps and ignores negative gaps (0.2129ms)
+✔ cleans common session title response wrappers (4.2246ms)
+✔ rejects responses without a usable title (0.7523ms)
+✔ folds the title request into a trailing user message without mutating the source (1.4627ms)
+✔ leaves a completed conversation unchanged before adding the title turn (0.2841ms)
+✔ waits for the source reply before sending the title prompt (3.4162ms)
+✔ generates a title when compaction removed all literal user messages (1.3189ms)
+✔ temporary title agent preserves the provider-facing prefix (0.8722ms)
+✔ keeps only tool calls with adjacent matching results (0.4794ms)
+✔ removes incomplete tool calls before invoking the title provider (2.7659ms)
+✔ a missing tool-selection entry identifies a legacy session (1.5982ms)
+✔ an empty selection is distinct from a missing selection (3.0619ms)
+✔ the newest valid tool selection wins and invalid newer entries are ignored (0.5454ms)
+✔ tool selections accept only built-in tools (1.1078ms)
+✔ appending a selection writes the versioned custom entry (0.4864ms)
+✔ only subagents nest while forks remain independent roots (34.9566ms)
+✔ orphaned subagents become roots and every level is sorted newest first (0.3866ms)
+✔ cyclic relation metadata cannot hide sessions or recurse forever (0.3676ms)
+✔ deep subagent trees are sorted without recursive traversal (186.054ms)
+✔ restores the last settings section and falls back without a project (3.2493ms)
+✔ keeps project settings selections isolated by cwd (4.124ms)
+✔ shares the models selection globally (0.4423ms)
+✔ ignores malformed and unavailable browser storage (0.5445ms)
+✔ empty production index retains five domains and never invents skills (12.3101ms)
+✔ identity separates repositories and unclassified remains unknown (0.8678ms)
+✔ strict query validates scope and Unicode length without coercion (1.487ms)
+✔ rejects duplicate taxonomy and assignments without evidence (0.9578ms)
+✔ F19/F20/F21: cross-domain entries count once per domain and once in all-domain query (83.0697ms)
+✔ F17/F19: invalid replacement and same-revision replacement keep last complete catalog (33.5722ms)
+✔ F02/F03/F21: external search preserves full source order, deduplicates and never sends domain upstream (26.5203ms)
+✔ F02: a normal empty response and rate limiting are distinct (43.9578ms)
+✔ F19: taxonomy failure leaves external search available with unknown coverage (12.858ms)
+✔ F04/F05: metadata is source grounded and snapshot content remains bound to its commit blob (68.3616ms)
+✔ F04: ambiguous frontmatter identities never pick the first candidate (34.5016ms)
+✔ F08/F15: no cwd loads global only; invalid and local untracked files remain visible (128.7475ms)
+✔ F08/F11: malformed lock is a diagnostic, not an empty inventory (74.0893ms)
+✔ F08/F11/F15: trusted project read never executes extensions; same names keep both instances (247.3113ms)
+✔ F10: visibility preserves unrelated bytes, rejects stale revisions and nonboolean inputs (328.7503ms)
+✔ F08/F10/F12: shared physical files retain both bindings and block ambiguous updates (230.222ms)
+✔ F05: snapshots reject traversal and expire after any file change (175.6625ms)
+✔ F05/F08: escaped links are rejected before SDK reads their content (16.1797ms)
+✔ F05: large file gives explicit state, tree hash uses bounded reads (105.4797ms)
+✔ F12: explicitly empty checks stays empty and unknown ids fail (61.7666ms)
+✔ F14: filesystem lease excludes concurrent writers and survives a second module instance (15.255ms)
+✔ F13 regression: failed CLI cannot turn existing unchanged files into a successful update (80.509ms)
+✔ F14: restarted nonterminal operations become needs-review without replay (8.0486ms)
+✔ new route strict validation preserves readable HTTP error envelopes (10.5584ms)
+✔ F06/F07/F14: duplicate simultaneous intent starts one CLI; another intent receives busy (281.2485ms)
+✔ F07: success text without files never becomes succeeded (121.3937ms)
+✔ F13: update preserves only visibility and does not claim latest when comparison fails (428.9318ms)
+✔ F13 regression: source-check-time local edits never become a trusted baseline (417.9878ms)
+✔ F14 regression: unconfirmed process tree performs no visibility restoration and keeps lease (236.2151ms)
+✔ F14 regression: read-only reconcile is excluded by another writer (12.8995ms)
+(node:39628) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/skill-frontmatter.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ setDisableModelInvocation
+  ✔ adds the key after the opening fence when absent (11.9603ms)
+  ✔ creates a frontmatter block when the file has none (0.6689ms)
+  ✔ replaces an explicit false value instead of adding a duplicate key (2.757ms)
+  ✔ updates and removes indented quoted keys (6.0865ms)
+  ✔ rejects unsupported key formatting instead of silently succeeding (2.6743ms)
+  ✔ preserves CRLF line endings when updating or adding the key (0.9843ms)
+  ✔ keeps a single key when disabling an already-true skill (0.9468ms)
+  ✔ removes the key when disabling is turned off (1.8148ms)
+  ✔ removes the key when it is the last frontmatter line before the closing fence (0.6806ms)
+  ✔ is a no-op when disabling is off and the key is absent (10.0519ms)
+  ✔ preserves unrelated frontmatter formatting and body lines that mention the key (17.6861ms)
+✔ setDisableModelInvocation (59.8208ms)
+✔ uses the CLI global lock location (38.0975ms)
+✔ annotates only lock entries that exist in the matching Pi scope (38.0513ms)
+✔ ignores stale lock entries and malformed lock files (9.97ms)
+✔ does not compare a project ref with the default skills.sh snapshot (7.3158ms)
+✔ compares a global lock version with the remote Git tree (57.6295ms)
+✔ uses the repository hash for a root global skill (0.7972ms)
+✔ compares a project lock version with the skills.sh snapshot (2.9554ms)
+✔ returns unsupported without making a remote request (22.4607ms)
+✔ returns a scoped error when the remote check fails (13.1998ms)
+✔ falls back to Git when the GitHub API is rate limited (1.1229ms)
+✔ builds Pi-only update commands for each scope (1.6855ms)
+✔ reuses one remote request for skills from the same GitHub source (8.3833ms)
+(node:28876) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/slash-display.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ restores a complete SDK skill expansion with arguments (2.4629ms)
+✔ restores a complete SDK skill expansion without arguments (0.3633ms)
+✔ restores multiline arguments (0.2006ms)
+✔ uses the final closing tag when the skill body contains an example (0.2231ms)
+✔ does not collapse incomplete or lookalike user text (0.2104ms)
+✔ collapse keeps session auto-naming free of skill XML (0.372ms)
+✔ plain first messages pass through unchanged for naming (0.1872ms)
+✔ persists explicit effective model and thinking defaults (29.615ms)
+✔ does not persist implicit scope selections (23.4509ms)
+✔ does not persist a model when startup resolved a different model (22.5181ms)
+✔ does not replace a reasoning default with off for a non-thinking model (34.153ms)
+✔ builds thinking and text blocks from official assistant deltas (3.2396ms)
+✔ a reconnect snapshot replaces the old partial before deltas continue (0.4356ms)
+✔ text deltas update immutably so React observes each chunk (0.2744ms)
+✔ shows and streams a tool call after thinking, then accepts the authoritative end (0.5901ms)
+✔ restores the raw tool input from a reconnect snapshot (0.3388ms)
+✔ ignores deltas without a baseline and unknown future deltas (0.2243ms)
+✔ normalizes tool calls in snapshots and clears on end (0.2529ms)
+✔ integrated extension exposes the legacy-compatible tool names (4.1873ms)
+✔ integrated extension registers no tools while its feature is disabled (0.7964ms)
+✔ Agent tool description lists enabled effective profiles and refreshes when its factory reloads (1.6417ms)
+✔ integrated extension removes a legacy extension that owns the same tools (1.3907ms)
+✔ integrated extension removes recognized legacy extensions with any reserved tool (0.5523ms)
+✔ foreground Agent streams updates and returns the completed result (1.1807ms)
+✔ foreground Agent reports startup and execution failures as tool errors (1.4437ms)
+✔ background Agent returns immediately and delegates one completion notification (1.2059ms)
+✔ get_subagent_result covers missing, running, completed, failed, and aborted runs (1.3105ms)
+✔ get_subagent_result wait honors abort signals (1.5668ms)
+✔ steer_subagent returns success and runtime failures (0.783ms)
+✔ legacy preference leaves unrelated and partial-overlap extensions intact (0.7181ms)
+✔ loads cwd-relative UTF-8 files and formats them as delegated user input (22.6356ms)
+✖ rejects files outside cwd, including symlink targets (79.6039ms)
+✔ rejects invalid UTF-8 and bounded input sets (99.817ms)
+✔ a tool-free subagent uses only its profile as the exact system prompt (2.1791ms)
+✔ a tool-enabled subagent retains inherited context in its appended system prompt (0.366ms)
+✔ a resource-enabled tool-free subagent keeps the normal system prompt pipeline (0.2585ms)
+✔ completion notification reopens an idle parent and uses its current session (2.8464ms)
+✔ disabled built-in subagents reject stale Agent calls before starting (1.6766ms)
+✔ subagent settings default the built-in extension to disabled (11.3221ms)
+✔ subagent settings persist both states and preserve unrelated fields (32.7749ms)
+✔ damaged settings fail closed and are not overwritten (6.7063ms)
+✔ built-in profile IDs use lowercase kebab-case and read-only profiles cannot execute shell commands (3.3789ms)
+✔ override detection follows scope precedence case-insensitively (0.233ms)
+✔ project profiles override built-ins and round-trip their runtime settings (78.3258ms)
+✔ legacy extension selectors are omitted from lightweight profile tools (16.6962ms)
+✔ persisted subagent metadata reconstructs the final run (3.0555ms)
+✔ persisted subagent resources restore the exact isolated prompt and tools (0.4971ms)
+✔ legacy subagent resource snapshots keep skills and extensions disabled (0.2449ms)
+✔ extension tools are merged while subagent control tools stay excluded (0.2367ms)
+✔ an empty tool selection round-trips without restoring default tools (13.1811ms)
+✔ saved profiles normalize runtime values and reject invalid settings (9.5626ms)
+✔ project profiles override workspace profiles and deletion restores the workspace version (18.1906ms)
+✔ global and project sources with the same name stay visible while project wins at runtime (16.7801ms)
+✔ global profiles round-trip and deleting an override restores the built-in (6.1211ms)
+✔ disabled profiles cannot be resolved for execution (17.5911ms)
+✔ persisted runs distinguish interrupted, failed, aborted, and latest results (0.3528ms)
+✔ project profile directories cannot escape cwd through symbolic links (17.299ms)
+(node:82380) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/terminal-input.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ maps navigation and editing keys to terminal sequences (67.6485ms)
+✔ maps legacy control and alt keys used by pi-tui (0.7486ms)
+✔ leaves printable text to the text input and wraps pasted text (0.4168ms)
+✔ uses the latest non-empty text line from a partial tool result (1.7343ms)
+✔ ignores partial tool results without displayable text (0.344ms)
+✔ bounds long progress lines while preserving the latest text (0.4639ms)
+✔ defaults missing or invalid preferences to the default preset (1.4337ms)
+✔ round-trips every supported tool preset (0.3557ms)
+✔ falls back safely when browser storage is unavailable (0.4942ms)
+✔ falls back when accessing window.localStorage throws (0.3873ms)
+✔ maps every tool preset to its built-in tools (2.4922ms)
+✔ recognizes presets while ignoring active custom tools (0.6126ms)
+✔ returns fresh tool arrays that callers can safely modify (0.2261ms)
+✔ recognizes PowerShell as the shell in standard presets (0.3493ms)
+✔ extracts a file from a successful write tool call (3.6326ms)
+✔ extracts a file from a successful edit tool call using input.path (0.3606ms)
+✔ accepts namespaced write/edit tool names from MCP servers (0.292ms)
+✔ skips a tool call whose result errored (0.2034ms)
+✔ skips a tool call whose result has not arrived (streaming) (0.2022ms)
+✔ deduplicates the same file written then edited (0.331ms)
+✔ resolves a relative path against cwd (0.3453ms)
+✔ resolves extensionless and dot-prefixed filenames against cwd (0.8652ms)
+✔ preserves path characters that have special meaning in hrefs (5.8463ms)
+✔ normalizes Windows-relative tool paths against a Windows cwd (0.6276ms)
+✔ skips non-writing tools like read and bash (0.2639ms)
+✔ ignores paths that only appear in the reply text (0.1973ms)
+✔ lists only the file actually written, not others named in the text (0.2588ms)
+✔ skips a write call missing both file_path and path (0.1791ms)
+✔ returns an empty array for an empty or text-only turn (0.1695ms)
+(node:16812) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/Project/Person-Agent/pi-web/lib/web-auth.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\Project\Person-Agent\pi-web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ enables password authentication only for a non-empty configured password (79.8156ms)
+✔ accepts only the fixed pi username and configured password (1.7415ms)
+✔ supports UTF-8 passwords and colons in the password (0.487ms)
+✔ rejects missing, malformed, and non-canonical authorization values (0.471ms)
+✔ does not authenticate when password protection is disabled (0.4471ms)
+✔ generates and persists VAPID keys when no state exists (1.8724ms)
+✔ reuses persisted VAPID keys (0.2224ms)
+✔ addSubscription upserts by endpoint and persists (0.2187ms)
+✔ addSubscription persists even after getVapidPublicKey already saved (0.1875ms)
+✔ notifySessionComplete sends localized payloads with the session name (0.5069ms)
+✔ notifySessionComplete falls back to the localized generic title (0.2277ms)
+✔ notifySessionComplete prunes subscriptions dropped by the push service (0.3258ms)
+✔ localeText falls back to English for unknown locales (0.1356ms)
+✔ returns null for an unknown workspace (15.6476ms)
+✔ set then get round-trips the remembered session (0.3111ms)
+✔ workspaces are remembered independently (0.2219ms)
+✔ clearLastOpen removes only the named workspace (0.3683ms)
+✔ clearing the last entry removes the storage key entirely (0.5751ms)
+✔ ignores a corrupt stored map (0.2553ms)
+✔ ignores a stored map of the wrong shape (0.203ms)
+✔ recovers from an array-shaped stored map (0.2086ms)
+✔ ignores an empty or non-string session id (0.2887ms)
+✔ falls back to null / no-ops when browser storage is unavailable (0.7475ms)
+✔ falls back when browser storage access throws (0.3717ms)
+✔ workspaceKeyOf prefers projectKey, then projectRoot, then cwd (0.2903ms)
+✔ main and linked worktrees share one canonical project root (1363.2587ms)
+✔ push shows a notification when no window is visible (5.9314ms)
+✔ push skips the system notification when a window is visible (0.3209ms)
+✔ push ignores malformed payloads (0.2126ms)
+✔ notification click focuses an existing client at the session URL (0.708ms)
+✔ notification click navigates an existing client to the session (0.4982ms)
+✔ notification click opens a window and rejects cross-origin targets (0.3598ms)
+ℹ tests 887
+ℹ suites 10
+ℹ pass 874
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 18381.2641
+
+✖ failing tests:
+
+test at hooks\useAgentSession.test.mjs:73:1
+✖ opening System or Tools lazily starts a dormant session without sending a prompt (1.4941ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /onSystemInfoLoaderChange\?\.\(loadSystemInfo\)/. Input:
+
+  ''
+
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/hooks/useAgentSession.test.mjs:89:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /onSystemInfoLoaderChange\?\.\(loadSystemInfo\)/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at hooks\useAgentSession.test.mjs:433:1
+✖ keeps a newly sent user message at the top while its response starts (0.6247ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /pendingScrollToUserRef\.current = false;[\s\S]*?scrollUserMsgToTop\(\)/. Input:
+
+  ''
+
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/hooks/useAgentSession.test.mjs:455:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /pendingScrollToUserRef\.current = false;[\s\S]*?scrollUserMsgToTop\(\)/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at hooks\useAgentSession.test.mjs:503:1
+✖ keeps a detached viewport in place when streaming completes (0.3415ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/. Input:
+
+  ''
+
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/hooks/useAgentSession.test.mjs:509:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at lib\directory-browser.test.mjs:11:1
+✖ lists directories and directory symlinks without returning files (26.4308ms)
+  Error: EPERM: operation not permitted, symlink 'C:\Users\xiaox\AppData\Local\Temp\pi-web-browse-UaHwMB\project' -> 'C:\Users\xiaox\AppData\Local\Temp\pi-web-browse-UaHwMB\linked-project'
+      at async symlink (node:internal/fs/promises:1707:10)
+      at async TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/lib/directory-browser.test.mjs:16:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'symlink',
+    path: 'C:\\Users\\xiaox\\AppData\\Local\\Temp\\pi-web-browse-UaHwMB\\project',
+    dest: 'C:\\Users\\xiaox\\AppData\\Local\\Temp\\pi-web-browse-UaHwMB\\linked-project'
+  }
+
+test at lib\project-command-env.test.mjs:74:1
+✖ agent bash removes host variables while preserving SDK and user environment (250.3402ms)
+  Error: No bash shell found. Options:
+    1. Install Git for Windows: https://git-scm.com/download/win
+    2. Add your bash to PATH (Cygwin, MSYS2, etc.)
+    3. Set shellPath in settings.json
+
+  Searched Git Bash in:
+    C:\Program Files\Git\bin\bash.exe
+    C:\Program Files (x86)\Git\bin\bash.exe
+      at getShellConfig (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/utils/shell.js:87:15)
+      at file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:121:53
+      at Object.exec (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:46:33)
+      at Object.exec (D:/Project/Person-Agent/pi-web/lib/project-command-env.ts:79:30)
+      at Object.execute (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:329:46)
+      at Object.execute (D:/Project/Person-Agent/pi-web/lib/project-command-env.ts:105:38)
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/lib/project-command-env.test.mjs:105:41)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+
+test at lib\project-command-env.test.mjs:138:1
+✖ agent bash reads current shell settings for every execution (340.7268ms)
+  Error: No bash shell found. Options:
+    1. Install Git for Windows: https://git-scm.com/download/win
+    2. Add your bash to PATH (Cygwin, MSYS2, etc.)
+    3. Set shellPath in settings.json
+
+  Searched Git Bash in:
+    C:\Program Files\Git\bin\bash.exe
+    C:\Program Files (x86)\Git\bin\bash.exe
+      at getShellConfig (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/utils/shell.js:87:15)
+      at file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:121:53
+      at Object.exec (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:46:33)
+      at Object.exec (D:/Project/Person-Agent/pi-web/lib/project-command-env.ts:79:30)
+      at Object.execute (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:329:46)
+      at Object.execute (D:/Project/Person-Agent/pi-web/lib/project-command-env.ts:105:38)
+      at execute (file:///D:/Project/Person-Agent/pi-web/lib/project-command-env.test.mjs:153:40)
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/lib/project-command-env.test.mjs:161:23)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+
+test at lib\project-command-env.test.mjs:166:1
+✖ direct bash removes host variables and allows explicit project values (216.1428ms)
+  Error: No bash shell found. Options:
+    1. Install Git for Windows: https://git-scm.com/download/win
+    2. Add your bash to PATH (Cygwin, MSYS2, etc.)
+    3. Set shellPath in settings.json
+
+  Searched Git Bash in:
+    C:\Program Files\Git\bin\bash.exe
+    C:\Program Files (x86)\Git\bin\bash.exe
+      at getShellConfig (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/utils/shell.js:87:15)
+      at file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:121:53
+      at Object.exec (file:///D:/Project/Person-Agent/pi/packages/coding-agent/dist/core/tools/bash.js:46:33)
+      at Object.exec (D:/Project/Person-Agent/pi-web/lib/project-command-env.ts:79:30)
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/lib/project-command-env.test.mjs:179:20)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+
+test at lib\project-command-env.test.mjs:238:1
+✖ direct bash updates the platform PATH key (2.0394ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   PATH: 'D:\\Project\\Person-Agent\\pi-web\\.test-agent\\bin:/usr/bin',
+  -   PATH: 'D:\\Project\\Person-Agent\\pi-web\\.test-agent\\bin;/usr/bin',
+      Path: 'project-metadata'
+    }
+
+      at TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/lib/project-command-env.test.mjs:252:12)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { Path: 'project-metadata', PATH: 'D:\\Project\\Person-Agent\\pi-web\\.test-agent\\bin:/usr/bin' },
+    expected: { Path: 'project-metadata', PATH: 'D:\\Project\\Person-Agent\\pi-web\\.test-agent\\bin;/usr/bin' },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at lib\subagent-input.test.mjs:32:1
+✖ rejects files outside cwd, including symlink targets (79.6039ms)
+  Error: EPERM: operation not permitted, symlink 'C:\Users\xiaox\AppData\Local\Temp\pi-web-subagent-input-outside-9EIdPn\article.md' -> 'C:\Users\xiaox\AppData\Local\Temp\pi-web-subagent-input-cwd-YPviqN\linked.md'
+      at async symlink (node:internal/fs/promises:1707:10)
+      at async TestContext.<anonymous> (file:///D:/Project/Person-Agent/pi-web/lib/subagent-input.test.mjs:38:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    errno: -4048,
+    code: 'EPERM',
+    syscall: 'symlink',
+    path: 'C:\\Users\\xiaox\\AppData\\Local\\Temp\\pi-web-subagent-input-outside-9EIdPn\\article.md',
+    dest: 'C:\\Users\\xiaox\\AppData\\Local\\Temp\\pi-web-subagent-input-cwd-YPviqN\\linked.md'
+  }

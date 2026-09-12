@@ -4,6 +4,16 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = dirname(configDir);
+// Next.js only externalizes files under node_modules, so linked workspace
+// packages need native-loading adapters to preserve dynamic imports and assets.
+const localPiAliases = Object.fromEntries(Object.entries({
+  "@earendil-works/pi-agent-core": "agent",
+  "@earendil-works/pi-ai": "ai",
+  "@earendil-works/pi-ai/compat": "compat",
+  "@earendil-works/pi-coding-agent": "coding-agent",
+  "@earendil-works/pi-tui": "tui",
+}).map(([name, adapter]) => [name, `./lib/local-pi/${adapter}.cjs`]));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
 let piVersion = "unknown";
 try {
@@ -12,7 +22,15 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: configDir,
+  outputFileTracingRoot: repositoryRoot,
+  turbopack: { root: repositoryRoot, resolveAlias: localPiAliases },
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      ...Object.fromEntries(Object.entries(localPiAliases).map(([name, adapter]) => [`${name}$`, join(configDir, adapter)])),
+    };
+    return config;
+  },
   serverExternalPackages: [
     "undici",
     "web-push",

@@ -5,6 +5,8 @@ import test from "node:test";
 const layoutSource = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
 const settingsCssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const composerCssSource = await readFile(new URL("../app/composer-file.css", import.meta.url), "utf8");
+const workspaceCssSource = await readFile(new URL("../app/workspace.css", import.meta.url), "utf8");
 const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
@@ -23,7 +25,8 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(appShellSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
   assert.match(appShellSource, /paddingLeft: "env\(safe-area-inset-left\)"/);
   assert.match(appShellSource, /paddingRight: "env\(safe-area-inset-right\)"/);
-  assert.match(appShellSource, /height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
+  assert.match(appShellSource, /className="workspace-topbar-row"/);
+  assert.match(workspaceCssSource, /\.workspace-topbar-row \{[^}]*env\(safe-area-inset-top\)/);
   assert.match(appShellSource, /\/\* Right panel tab bar \*\/[\s\S]*?height: "calc\(36px \+ env\(safe-area-inset-top\)\)"/);
   assert.match(appShellSource, /height: "var\(--app-viewport-height, 100dvh\)"/);
   assert.match(appShellSource, /data-mobile-toolbar-file=\{mobile \? "true" : undefined\}/);
@@ -43,7 +46,11 @@ test("contains chat content and inputs within the mobile viewport", () => {
   assert.match(cssSource, /\.markdown-code-block \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/);
   assert.match(chatWindowSource, /overflow-x-hidden overflow-y-auto/);
   assert.match(chatWindowSource, /maxHeight: "min\(760px, 100%\)"/);
-  assert.match(chatInputSource, /flex: 1,\s*minWidth: 0,\s*width: "100%",/);
+  assert.match(layoutSource, /import "\.\/composer-file\.css"/);
+  assert.match(chatInputSource, /<textarea[\s\S]*?className="chat-composer-textarea"/);
+  assert.match(composerCssSource, /\.chat-composer-textarea \{[^}]*flex: 1;[^}]*min-width: 0;[^}]*width: 100%;[^}]*max-height: 200px;[^}]*overflow: auto;/);
+  assert.match(composerCssSource, /@media \(max-width: 640px\)[\s\S]*?\.chat-composer-toolbar \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.match(composerCssSource, /@media \(max-width: 640px\)[\s\S]*?\.chat-composer \{[^}]*env\(safe-area-inset-bottom\)/);
 });
 
 test("prevents iOS focus zoom from widening the layout", () => {

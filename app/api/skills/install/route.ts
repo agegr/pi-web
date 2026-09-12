@@ -1,3 +1,4 @@
+import { acquireLease } from "@/lib/skill-center/journal";
 import { NextResponse } from "next/server";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { runNpx } from "@/lib/npx";
@@ -18,7 +19,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
 
+  let lease: ReturnType<typeof acquireLease> | undefined;
+  let release = true;
   try {
+    lease = acquireLease(null);
     const { package: pkg, scope, cwd } = await req.json() as { package?: string; scope?: string; cwd?: string };
     if (!pkg?.trim()) return NextResponse.json({ error: "package required" }, { status: 400 });
 
@@ -42,6 +46,8 @@ export async function POST(req: Request) {
     console.log(`[skills/install] running: npx ${args.join(" ")}`);
     const { stdout, stderr } = await runNpx(args, {
       timeout: 60000,
+      terminateTreeOnTimeout: true,
+      onSpawn: pid => lease!.child(pid),
       cwd: !isGlobal && cwd ? cwd : undefined,
       env: { ...process.env, FORCE_COLOR: "0" },
     });
@@ -53,8 +59,10 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ success: true, output });
   } catch (e: unknown) {
+    const processError = e as { killed?: boolean; treeTerminated?: boolean };
+    release = !processError.killed || Boolean(processError.treeTerminated);
     const err = e as { stdout?: string; stderr?: string; message?: string };
     const output = ((err.stdout ?? "") + (err.stderr ?? "")).replace(ANSI_RE, "");
     return NextResponse.json({ error: output || (err.message ?? String(e)) }, { status: 500 });
-  }
+  } finally { if (release) lease?.release(); }
 }

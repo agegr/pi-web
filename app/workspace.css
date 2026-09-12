@@ -1,0 +1,69 @@
+.workspace-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.workspace-topbar { position: relative; z-index: 210; flex-shrink: 0; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+.workspace-topbar-row { display: flex; align-items: center; position: relative; min-height: calc(54px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 12px 0 0; }
+.workspace-brand { flex-shrink: 0; padding: 0 20px 0 12px; border-right: 1px solid var(--border); }
+.workspace-brand button { font-family: inherit; font-size: 18px; }
+.workspace-context-host { flex: 1; min-width: 0; padding: 0 14px; }
+.workspace-context-controls { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.workspace-project-picker, .workspace-worktree-picker { position: relative; min-width: 0; }
+.workspace-project-picker { width: clamp(110px, 15vw, 220px); }
+.workspace-worktree-picker { width: clamp(88px, 12vw, 170px); }
+.workspace-context-controls > button { max-width: 180px; }
+.workspace-context-controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sidebar-primary-actions, .sidebar-primary-buttons { display: flex; align-items: center; gap: 8px; width: 100%; }
+.sidebar-primary-buttons .sidebar-new-session { flex: 1; min-height: 40px; background: var(--bg-selected); color: var(--accent); }
+.sidebar-section-title { padding: 16px 16px 0; color: var(--text); font-size: var(--font-size-small); font-weight: 600; }
+.sidebar-settings-actions { padding: 8px; flex-shrink: 0; display: flex; justify-content: space-between; gap: 4px; border-top: 1px solid var(--border); }
+.workspace-welcome { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; text-align: center; }
+.workspace-eyebrow { color: var(--accent); font-size: 15px; font-weight: 600; margin-bottom: 18px; }
+.workspace-welcome h1, .chat-empty-heading h1 { margin: 0; font-size: clamp(24px, 2.3vw, 30px); font-weight: 650; letter-spacing: -.025em; line-height: 1.4; }
+.workspace-welcome p, .chat-empty-heading p { color: var(--text-muted); line-height: 1.8; font-size: 15px; margin: 18px 0 0; }
+.workspace-welcome-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 30px; }
+.workspace-primary-button, .workspace-secondary-button { min-height: 42px; padding: 0 20px; border: 1px solid var(--border); border-radius: var(--radius-control); font-size: var(--font-size-body); cursor: pointer; }
+.workspace-primary-button { background: var(--accent); color: white; border-color: var(--accent); }
+.workspace-secondary-button { background: var(--bg); color: var(--text); }
+.workspace-primary-button:hover { background: var(--accent-hover); }
+.workspace-secondary-button:hover { background: var(--bg-hover); }
+.chat-empty-workspace { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 32px; }
+.chat-empty-content { width: 100%; max-width: 920px; }
+.chat-empty-heading { text-align: center; margin-bottom: 24px; }
+.chat-empty-content .chat-composer-inner { max-width: none; }
+.workspace-app.has-file-panel .chat-empty-content { display: flex; flex-direction: column; align-self: stretch; }
+.workspace-app.has-file-panel .chat-empty-heading { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.chat-empty-versions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin: 0 12px 12px; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+.workspace-mobile-menu { position: absolute; top: calc(100% + 8px); right: 0; width: min(280px, calc(100vw - 24px)); max-height: calc(100dvh - 80px); overflow-y: auto; z-index: 520; border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 8px; background: var(--bg); box-shadow: var(--shadow-popover); }
+.workspace-menu-heading { padding: 10px 12px; font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.chat-toolbar-actions.is-expanded { flex-direction: column; }
+.workspace-mobile-menu .chat-toolbar-actions > button { width: 100% !important; height: 42px !important; justify-content: flex-start !important; gap: 12px !important; padding: 0 12px !important; border: 0 !important; border-radius: var(--radius-control); font-size: 14px !important; }
+.workspace-mobile-menu button svg { width: 17px; height: 17px; }
+.directory-picker-list button:hover { background: var(--bg-hover) !important; }
+.directory-picker-action { min-height: 40px; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 1000px) and (min-width: 641px) {
+  .chat-toolbar-actions:not(.is-expanded) button span { display: none; }
+  .workspace-brand { padding-right: 12px; }
+  .workspace-context-host { padding: 0 8px; }
+}
+@media (max-width: 640px) {
+  .workspace-topbar { z-index: 180; }
+  .workspace-topbar-row { padding-right: 6px; min-height: calc(52px + env(safe-area-inset-top)); }
+  .workspace-context-host { padding: 0 6px; flex: 1; }
+  .workspace-context-controls { gap: 5px; }
+  .workspace-project-picker { width: 108px; }
+  .workspace-worktree-picker { width: 88px; }
+  .workspace-main-badge { display: none; }
+  .workspace-context-controls > button { display: none; }
+  .workspace-topbar [data-mobile-toolbar="true"] { flex: 0 0 auto !important; }
+  .workspace-topbar .mobile-session-stats { max-width: 62px; }
+  .workspace-context-controls .workspace-worktree-picker > div { position: fixed !important; top: calc(60px + env(safe-area-inset-top)) !important; left: 12px !important; right: 12px; width: auto !important; }
+  .workspace-welcome { padding: 24px; }
+  .chat-empty-workspace { padding: 24px 12px 12px; align-items: stretch; }
+  .chat-empty-content { display: flex; flex-direction: column; min-height: 100%; }
+  .chat-empty-heading { flex: 1; display: flex; flex-direction: column; justify-content: center; margin: 0; padding-bottom: 24px; }
+  .chat-empty-heading h1 { font-size: 24px; }
+  .chat-empty-heading p { font-size: 14px; }
+  .chat-empty-versions { font-size: 10px; margin-bottom: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-app *, .settings-dialog-surface * { scroll-behavior: auto; transition-duration: .01ms; animation-duration: .01ms; animation-iteration-count: 1; }
+}

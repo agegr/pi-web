@@ -43,9 +43,9 @@ test("provides one template for config layout and controls", () => {
   assert.match(templateSource, /className="config-sidebar"/);
   assert.match(templateSource, /className="config-detail"/);
   assert.match(cssSource, /\.config-sidebar \{[\s\S]*?width: 240px/);
-  assert.match(cssSource, /\.config-detail \{[\s\S]*?padding: 20px/);
+  assert.match(cssSource, /\.config-detail \{[^}]*min-width: 0[^}]*min-height: 0[^}]*padding: 28px[^}]*overflow-y: auto/);
   assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?\.config-sidebar \{[\s\S]*?width: 100%/);
-  assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?\.config-detail \{[\s\S]*?padding: 14px/);
+  assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?\.config-detail \{[^}]*padding: 20px/);
 });
 
 test("loads settings presentation from its dedicated stylesheet", () => {
@@ -66,8 +66,10 @@ test("all four settings sections use the shared list-detail layout", () => {
 
 test("all subpanel sidebars share one typography scale", () => {
   const sources = Object.fromEntries(configSources);
-  assert.match(cssSource, /\.config-sidebar-text \{[\s\S]*?font-family: inherit[\s\S]*?font-size: 12px/);
-  assert.match(cssSource, /\.config-sidebar-group-label \{[\s\S]*?font-family: inherit[\s\S]*?font-size: 10px/);
+  assert.match(cssSource, /\.config-sidebar-text \{[^}]*font-family: inherit[^}]*font-size: var\(--font-size-body\)/);
+  assert.match(cssSource, /\.config-sidebar-group-label \{[^}]*font-family: inherit[^}]*font-size: var\(--font-size-small\)/);
+  assert.match(globalCssSource, /--font-size-body: 14px/);
+  assert.match(globalCssSource, /--font-size-small: 13px/);
   for (const source of Object.values(sources)) {
     assert.match(source, /<ConfigSidebarText/);
   }
@@ -88,9 +90,18 @@ test("skills and sub-agents share interactive sidebar rows", () => {
   assert.doesNotMatch(sources.SkillsConfig, /onMouseEnter[\s\S]*?var\(--bg-hover\)/);
 });
 
-test("all shared config sidebar items use a fixed 30px height", () => {
-  assert.match(cssSource, /\.config-sidebar-item \{[\s\S]*?height: 30px[\s\S]*?padding: 0 8px/);
-  assert.match(cssSource, /\.config-list-action-button \{[\s\S]*?height: 30px[\s\S]*?min-height: 30px/);
+test("shared sidebar controls use the common touch target without fixing content height", () => {
+  assert.match(globalCssSource, /--control-height: 40px/);
+  assert.match(cssSource, /\.config-sidebar-item \{[^}]*height: auto[^}]*min-height: var\(--control-height\)/);
+  assert.match(cssSource, /\.config-list-action-button \{[^}]*height: var\(--control-height\)[^}]*min-height: var\(--control-height\)/);
+});
+
+test("mobile empty lists collapse while populated sidebars remain scrollable", () => {
+  assert.match(cssSource, /@media \(max-width: 640px\)[\s\S]*?\.config-sidebar \{[^}]*height: auto[^}]*max-height: 176px/);
+  assert.match(cssSource, /\.config-sidebar-list \{[^}]*min-height: 0[^}]*overflow-y: auto/);
+  assert.match(cssSource, /\.config-sidebar:not\(:has\(\.config-sidebar-item\)\) \{[^}]*flex-direction: row/);
+  assert.match(cssSource, /\.config-install-path \{[^}]*min-width: 0[^}]*overflow-wrap: anywhere/);
+  assert.match(cssSource, /\.config-input \{[^}]*width: 100%[^}]*min-width: 0/);
 });
 
 test("plugin sidebar rows omit detail metadata", () => {
@@ -114,10 +125,10 @@ test("skill scope group labels are localized", () => {
 
 test("all subpanel detail panes share one content hierarchy", () => {
   const sources = Object.fromEntries(configSources);
-  assert.match(cssSource, /\.config-detail-stack \{[\s\S]*?gap: 16px[\s\S]*?width: 100%/);
+  assert.match(cssSource, /\.config-detail-stack \{[^}]*gap: 24px[^}]*width: 100%[^}]*min-width: 0/);
   assert.doesNotMatch(cssSource, /\.config-detail-stack \{[\s\S]*?max-width: 720px/);
-  assert.match(cssSource, /\.config-field-label \{[\s\S]*?font-size: 11px/);
-  assert.match(cssSource, /\.config-empty-state \{[\s\S]*?font-size: 12px/);
+  assert.match(cssSource, /\.config-field-label \{[^}]*font-size: var\(--font-size-small\)/);
+  assert.match(cssSource, /\.config-empty-state \{[^}]*font-size: var\(--font-size-body\)/);
   for (const source of Object.values(sources)) {
     assert.match(source, /<ConfigDetailStack/);
     assert.match(source, /<ConfigEmptyState/);
@@ -162,7 +173,7 @@ test("subpanel footers share sizing while maintenance actions stay secondary", (
   assert.match(cssSource, /\.config-footer-actions \{[\s\S]*?justify-content: flex-end/);
   assert.match(cssSource, /\.config-footer-actions \.config-button-default \{[\s\S]*?min-width: 96px/);
   assert.match(cssSource, /\.config-button \{[\s\S]*?font-family: inherit/);
-  assert.match(cssSource, /\.config-button-default \{[\s\S]*?height: 32px/);
+  assert.match(cssSource, /\.config-button-default \{[^}]*height: var\(--control-height\)/);
   assert.match(sources.ModelsConfig, /<ConfigButton\s+variant="primary"[\s\S]*?onClick=\{handleSave\}/);
   assert.match(sources.AgentsConfig, /<ConfigButton\s+variant="primary"[\s\S]*?onClick=\{\(\) => void save\(\)\}/);
   assert.match(sources.SkillsConfig, /<ConfigButton variant="secondary" onClick=\{\(\) => void checkForUpdates\(\)\}/);

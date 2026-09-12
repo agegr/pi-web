@@ -1,0 +1,12 @@
+{
+  "fixtureOnly": true,
+  "notice": "视觉验收测试数据；所有条目、安装位置与操作结果均为虚构，禁止用作生产目录或行为验收证据。",
+  "skills": [
+    { "slug": "frontend-design", "description": "构建清晰、一致且具备可访问性的前端界面，梳理组件状态与响应式布局。", "assignments": [["computing", "frontend-design"]], "scope": "global", "updateState": "update-available", "loadState": "effective", "hidden": false },
+    { "slug": "financial-analysis", "description": "整理财务报表中的关键指标，建立有来源依据的经营分析与风险观察清单。", "assignments": [["finance", "financial-analysis"]], "scope": "project", "updateState": "update-available", "loadState": "effective", "hidden": false },
+    { "slug": "quantitative-research", "description": "连接量化研究与代码验证，明确样本范围、研究假设和可重复的数据处理步骤。", "assignments": [["finance", "quantitative-research"], ["computing", "research-tools"]], "scope": "global", "updateState": "up-to-date", "loadState": "effective", "hidden": false },
+    { "slug": "logic-argumentation", "description": "拆解概念、前提与结论，比较论证路径并识别需要补充证据的环节。", "assignments": [["philosophy", "logic-argumentation"]], "scope": "other", "updateState": "unsupported", "loadState": "shadowed", "hidden": false },
+    { "slug": "cognitive-research", "description": "围绕认知过程组织文献问题，区分观察、解释与研究方法的适用范围。", "assignments": [["psychology", "cognitive-psychology"]], "scope": "project", "updateState": "error", "loadState": "effective", "hidden": false },
+    { "slug": "tarot-symbolism", "description": "从象征与文化语境整理塔罗主题，形成便于比较和记录的阅读笔记。", "assignments": [["metaphysics", "tarot-symbolism"]], "scope": "global", "updateState": "up-to-date", "loadState": "excluded", "hidden": true }
+  ]
+}

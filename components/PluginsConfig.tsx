@@ -208,15 +208,7 @@ function SegmentedScope({
 }) {
   const { t } = useI18n();
   return (
-    <div
-      style={{
-        display: "inline-flex",
-        border: "1px solid var(--border)",
-        borderRadius: 7,
-        overflow: "hidden",
-        height: 30,
-      }}
-    >
+    <div className="config-scope-options">
       {(["global", "project"] as PluginScope[]).map((scope) => {
         const active = value === scope;
         const disabled = scope === "project" && !projectResourcesLoaded;
@@ -228,18 +220,9 @@ function SegmentedScope({
             }}
             disabled={disabled}
             title={disabled ? t("trust.projectScopeUnavailable") : undefined}
-            style={{
-              width: 76,
-              border: "none",
-              borderRight: scope === "global" ? "1px solid var(--border)" : "none",
-              background: active ? "var(--bg-selected)" : "none",
-              color: active ? "var(--text)" : "var(--text-muted)",
-              cursor: disabled ? "not-allowed" : "pointer",
-              opacity: disabled ? 0.45 : 1,
-              fontSize: 12,
-            }}
+            aria-pressed={active}
           >
-            {scope}
+            {t(scope === "global" ? "skills.scope.global" : "skills.scope.project")}
           </button>
         );
       })}
@@ -290,28 +273,28 @@ function AddPluginPanel({
               alignItems: "center",
               gap: 5,
               color: "var(--accent)",
-              fontSize: 12,
+              fontSize: "var(--font-size-body)",
               textDecoration: "none",
               whiteSpace: "nowrap",
             }}
           >
             <svg width="28" height="28" viewBox="0 0 800 800" aria-hidden="true" focusable="false" style={{ flexShrink: 0 }}>
               <path
-                fill="#000"
+                fill="currentColor"
                 fillRule="evenodd"
                 d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
               />
-              <path fill="#000" d="M517.36 400H634.72V634.72H517.36Z" />
+              <path fill="currentColor" d="M517.36 400H634.72V634.72H517.36Z" />
             </svg>
             pi.dev/packages
           </a>
         </div>
-        <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
+        <div className="config-install-path">
           {installLocation(scope, cwd)}
         </div>
       </div>
 
-      <ConfigField label="Source">
+      <ConfigField label={t("settings.pluginSource")}>
         <input
           id="plugin-source"
           ref={inputRef}
@@ -326,25 +309,15 @@ function AddPluginPanel({
           }}
           onBlur={(e) => onSourceChange(normalizePluginSourceInput(e.currentTarget.value))}
           placeholder="npm:@scope/package"
-          style={{
-            width: "100%",
-            height: 36,
-            padding: "0 11px",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            background: "var(--bg-panel)",
-            color: "var(--text)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
-            outline: "none",
-          }}
+          className="config-input is-monospace"
+          aria-label={t("settings.pluginSource")}
           onKeyDown={(e) => {
             if (e.key === "Enter" && source.trim() && !busy) onInstall();
           }}
         />
       </ConfigField>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div className="config-scope-row plugin-install-actions">
         <SegmentedScope
           value={scope}
           projectResourcesLoaded={projectResourcesLoaded}
@@ -361,8 +334,8 @@ function AddPluginPanel({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-          Examples
+        <div style={{ fontSize: "var(--font-size-body)", fontWeight: 600, color: "var(--text-muted)" }}>
+          {t("settings.pluginExamples")}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {examples.map((example) => (
@@ -370,27 +343,7 @@ function AddPluginPanel({
               key={example}
               type="button"
               onClick={() => onSourceChange(example)}
-              style={{
-                width: "100%",
-                minHeight: 30,
-                textAlign: "left",
-                padding: "6px 9px",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                background: "var(--bg-panel)",
-                color: "var(--text-dim)",
-                cursor: "pointer",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-muted)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-panel)";
-                e.currentTarget.style.color = "var(--text-dim)";
-              }}
+              className="plugin-source-example"
             >
               {example}
             </button>
@@ -399,7 +352,7 @@ function AddPluginPanel({
       </div>
 
       {actionError && (
-        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
+        <div style={{ fontSize: "var(--font-size-body)", color: "#ef4444", whiteSpace: "pre-wrap" }}>
           {actionError}
         </div>
       )}
@@ -722,7 +675,7 @@ export function PluginsConfig({
             <ConfigSidebarList>
               {loading ? (
                 <div className="config-sidebar-message">
-                  Loading...
+                  {t("i18n.loading")}
                 </div>
               ) : error ? (
                 <div className="config-sidebar-message is-error">
@@ -730,7 +683,7 @@ export function PluginsConfig({
                 </div>
               ) : packages.length === 0 ? (
                 <div className="config-sidebar-message is-empty">
-                  No plugins configured
+                  {t("settings.pluginsEmpty")}
                 </div>
               ) : (
                 groupedPackages.map((group) => (

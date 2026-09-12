@@ -1,0 +1,184 @@
+[
+  {
+    "screen": "00",
+    "title": "五领域总览",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\00-domains.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-00-domains-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "01",
+    "title": "计算机领域",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\01-discover.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-01-discover-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "02",
+    "title": "金融技能详情",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\02-detail.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-02-detail-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "03",
+    "title": "安装确认",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\03-install.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-03-install-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "04",
+    "title": "已安装",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\04-installed.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-04-installed-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "05",
+    "title": "更新",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\05-updates.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-05-updates-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "06",
+    "title": "手机领域总览",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\06-mobile-discover.png",
+    "referencePixels": [
+      853,
+      1844
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-06-mobile-discover.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "07",
+    "title": "手机安装",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\07-mobile-install.png",
+    "referencePixels": [
+      853,
+      1844
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-07-mobile-install.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "08",
+    "title": "手机管理",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\08-mobile-installed.png",
+    "referencePixels": [
+      853,
+      1844
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-08-mobile-installed.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "09",
+    "title": "金融领域",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\09-finance.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-09-finance-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "10",
+    "title": "哲学领域",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\10-philosophy.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-10-philosophy-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "11",
+    "title": "心理学领域",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\11-psychology.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-11-psychology-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  },
+  {
+    "screen": "12",
+    "title": "玄学领域",
+    "reference": "docs\\skills-center-2026-09-12\\screens\\12-metaphysics.png",
+    "referencePixels": [
+      1487,
+      1058
+    ],
+    "actual": "docs\\skills-center-2026-09-12\\implemented\\qa-12-metaphysics-1440.png",
+    "actualPixels": [
+      65536,
+      4292542531
+    ]
+  }
+]

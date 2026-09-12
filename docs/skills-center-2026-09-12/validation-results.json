@@ -1,0 +1,79 @@
+{
+  "status": "PASS",
+  "documentationFiles": 7,
+  "localLinksChecked": 105,
+  "featureSpecs": 22,
+  "acceptanceCases": 71,
+  "domains": 5,
+  "categoryDirections": 21,
+  "revisedOriginalScreens": 8,
+  "screens": [
+    {
+      "file": "00-domains.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "01-discover.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "09-finance.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "10-philosophy.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "11-psychology.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "12-metaphysics.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "02-detail.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "03-install.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "04-installed.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "05-updates.png",
+      "width": 1487,
+      "height": 1058
+    },
+    {
+      "file": "06-mobile-discover.png",
+      "width": 853,
+      "height": 1844
+    },
+    {
+      "file": "07-mobile-install.png",
+      "width": 853,
+      "height": 1844
+    },
+    {
+      "file": "08-mobile-installed.png",
+      "width": 853,
+      "height": 1844
+    }
+  ],
+  "errors": [],
+  "scope": "Document links, feature coverage and asset presence/shape only; no product tests."
+}

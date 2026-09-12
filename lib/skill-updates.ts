@@ -3,6 +3,8 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
+import { createHash } from "node:crypto";
+import { withGitSource } from "./skill-center/git-source";
 import type {
   SkillInstallInfo,
   SkillUpdateResult,
@@ -21,6 +23,7 @@ interface CheckOptions {
   skillsApiBase?: string;
   githubToken?: string;
   resolveGitTreeHash?: GitTreeResolver;
+  resolveContentHashes?: (install: SkillInstallInfo) => Promise<string[]>;
 }
 
 interface GitHubTreeEntry {
@@ -210,6 +213,27 @@ async function checkProjectSkill(
   );
 }
 
+async function resolveContentHashes(install: SkillInstallInfo): Promise<string[]> {
+  const folder = skillFolder(install.skillPath!);
+  return withGitSource(install.source, install.ref ?? null, async repo => {
+    const prefix = folder ? `${folder}/` : "";
+    const files = repo.tree.filter(f => f.type === "blob" && f.mode !== "120000" && f.path.startsWith(prefix) && !f.path.slice(prefix.length).split("/").some(part => part === ".git" || part === "node_modules"));
+    if (!files.some(f => f.path === `${prefix}SKILL.md`)) throw new Error("Remote skill path was not found.");
+    files.sort((a,b) => a.path.slice(prefix.length).localeCompare(b.path.slice(prefix.length)));
+    // skills CLI hashes relative paths + file bytes. Windows Git may check text
+    // out as CRLF, so recognize both representations without equating SHA-256
+    // content hashes with Git SHA-1 tree identities.
+    const raw = createHash("sha256"), crlf = createHash("sha256");
+    for (const file of files) {
+      const content = await repo.readBlob(file.sha), path = file.path.slice(prefix.length);
+      raw.update(path).update(content);
+      const converted = content.includes(0) ? content : Buffer.from(content.toString("latin1").replace(/(?<!\r)\n/g, "\r\n"), "latin1");
+      crlf.update(path).update(converted);
+    }
+    return [raw.digest("hex"), crlf.digest("hex")];
+  });
+}
+
 export async function checkSkillUpdate(
   install: SkillInstallInfo,
   options: CheckOptions = {},
@@ -226,6 +250,13 @@ export async function checkSkillUpdate(
   };
 
   try {
+    if (/^[a-f0-9]{64}$/i.test(install.versionHash)) {
+      // New CLI releases use content hashes in both global and project locks.
+      if (install.ref && !/^[a-f0-9]{40}$/i.test(install.ref)) return result(install, "unsupported", undefined, "Content-hash comparison for a named ref is not supported.");
+      const hashes = await (options.resolveContentHashes ?? resolveContentHashes)(install);
+      if (!hashes.length || hashes.some(hash => !/^[a-f0-9]{64}$/i.test(hash))) throw new Error("Invalid source content hash.");
+      return result(install, hashes.includes(install.versionHash) ? "up-to-date" : "update-available", hashes.includes(install.versionHash) ? install.versionHash : hashes[0]);
+    }
     return install.scope === "global"
       ? await checkGlobalSkill(install, resolvedOptions)
       : await checkProjectSkill(install, resolvedOptions);

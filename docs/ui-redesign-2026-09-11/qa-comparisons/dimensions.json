@@ -1,0 +1,322 @@
+[
+  {
+    "id": "01",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "02",
+    "source": [
+      1681,
+      936
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "03",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "04",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "05",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "06",
+    "source": [
+      1402,
+      1122
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "07",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "08",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "09",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "10",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "11",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "12",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "13",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "14",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "15",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "16",
+    "source": [
+      1672,
+      941
+    ],
+    "actual": [
+      1280,
+      720
+    ],
+    "viewport": [
+      1280,
+      720
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "17",
+    "source": [
+      853,
+      1844
+    ],
+    "actual": [
+      390,
+      844
+    ],
+    "viewport": [
+      390,
+      844
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "18",
+    "source": [
+      853,
+      1844
+    ],
+    "actual": [
+      390,
+      844
+    ],
+    "viewport": [
+      390,
+      844
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "19",
+    "source": [
+      853,
+      1844
+    ],
+    "actual": [
+      390,
+      844
+    ],
+    "viewport": [
+      390,
+      844
+    ],
+    "normalization": "contain; source left, implementation right"
+  },
+  {
+    "id": "20",
+    "source": [
+      853,
+      1844
+    ],
+    "actual": [
+      390,
+      844
+    ],
+    "viewport": [
+      390,
+      844
+    ],
+    "normalization": "contain; source left, implementation right"
+  }
+]

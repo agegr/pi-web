@@ -16,6 +16,31 @@ const {
 const source = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 
+const uiJiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
+const { hasModelConfigChanges } = await uiJiti.import("./ModelsConfig.tsx");
+
+test("model configuration becomes saveable after edits and returns clean after reverting", () => {
+  const saved = { providers: {}, additionalSetting: { keep: true } };
+  const added = { ...saved, providers: { custom: { api: "openai-completions", models: [{ id: "model-a" }] } } };
+
+  assert.equal(hasModelConfigChanges(structuredClone(saved), saved), false);
+  assert.equal(hasModelConfigChanges(added, saved), true);
+  assert.equal(hasModelConfigChanges({ ...added, providers: {} }, saved), false);
+});
+
+test("deleting the final saved provider can still be saved", () => {
+  const saved = { providers: { custom: { api: "openai-completions" } } };
+  assert.equal(hasModelConfigChanges({ providers: {} }, saved), true);
+});
+
+test("saving an earlier snapshot does not hide edits made while the request is pending", () => {
+  const submitted = { providers: { custom: { baseUrl: "https://example.test/v1" } } };
+  const edited = { providers: { custom: { baseUrl: "https://example.test/v2" } } };
+
+  assert.equal(hasModelConfigChanges(edited, submitted), true);
+  assert.equal(hasModelConfigChanges(structuredClone(submitted), submitted), false);
+});
+
 test("uses shared sidebar sizing for providers and matching indented model rows", () => {
   const sidebar = source.slice(source.indexOf("<ConfigSidebar>"), source.indexOf("</ConfigSidebar>"));
 

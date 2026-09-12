@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "date": "2026-09-12",
+  "status": "proposed-design-not-implemented",
+  "workflow": "Product Design / Image Gen",
+  "visualDirection": "Clear Horizon (previously selected third direction)",
+  "fixtureNotice": "demo-team sources, hashes, counts, paths and descriptions are illustrative only.",
+  "screens": [
+    {
+      "id": "01",
+      "name": "发现技能",
+      "file": "01-discover.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target desktop 1440 x 1024, natural aspect ratio. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content. SCREEN '发现技能'. Active tab 发现. Below heading a wide search field with entered query '设计' and cobalt 搜索 button. A subtle row labeled 快捷搜索 with chips 前端设计,代码审查,文档处理,研究规划. This is keyword shortcuts, not claimed catalog categories. Results toolbar '本次返回 6 项' left and a select '源站顺序' right. Source label '来源：skills.sh'. No 'latest' or trending filter since unsupported. Grid three columns by two rows of standalone skill cards, spacious: frontend-design / 界面设计 / '为网页和应用提供布局、排版和视觉设计指引。'; web-guidelines / 界面检查 / '检查界面的一致性与可访问性。'; react-review / React 代码审查 / '帮助发现组件与渲染中的常见问题。'; research-plan / 研究规划 / '将研究任务拆成可验证的步骤。'; doc-workflow / 文档流程 / '按结构编写与检查项目文档。'; test-strategy / 测试策略 / '组织回归测试和验收用例。'. Each shows small demo-team source, brief description, install count '未提供' or omit missing number, bottom '查看详情' and specific install state. frontend-design badge '项目已安装'; web-guidelines badge '全局已安装'; other cards '安装…'. No direct silent install. Add small footer beneath results '已显示本次返回的全部结果，可细化关键词继续查找。'. Focus on browsing and decision clarity.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      },
+      "references": [
+        "../ui-redesign-2026-09-11/implemented/07-workspace.jpg",
+        "../skills-market-research-2026-09-12/screenshots/skillhub-search.png"
+      ]
+    },
+    {
+      "id": "02",
+      "name": "技能详情",
+      "file": "02-detail.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target desktop 1440 x 1024, natural aspect ratio. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  SCREEN 02 '技能详情'. Same shell as attached discovery page. Under tabs, back link '返回发现' then skill heading 'react-review', subtitle 'React 代码审查', source demo-team/product-skills, badge '尚未安装'. Main header CTA '安装…'. Two-column detail layout, main content 70%, slim facts sidebar30%. Main tabs '概览' (selected) 'SKILL.md' '文件'. Content sections '适合什么任务' with two short bullets reviewing React components and spotting repeated render; '使用方式' with short example '检查当前组件的渲染与状态管理'; '使用前须知' text '安装会将技能文件写入所选位置。具体执行能力取决于运行环境。'. Sidebar simple stacked definition list: 来源 GitHub, 仓库 demo-team/product-skills, 技能路径 skills/react-review, 读取版本 8c42a71 (label提交), 安装量 未提供. Add source-link '查看源仓库'. Small bordered info strip '内容来自第三方仓库，请先阅读说明与文件。' Not a security guarantee, no verified badge. At bottom show compact expandable row '文件预览 · 3 个文件' and paths SKILL.md, references/review-checklist.md, scripts/check.mjs. All source content explicitly demo; not fake semver history, no reviews/star ratings/uninstall. Show coherent rich but concise task content. Design screen, not editor screenshot.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      },
+      "references": [
+        "screens/01-discover.png",
+        "../skills-market-research-2026-09-12/screenshots/clawhub-detail.png"
+      ]
+    },
+    {
+      "id": "03",
+      "name": "安装目标确认",
+      "file": "03-install.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target desktop 1440 x 1024, natural aspect ratio. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  SCREEN03 desktop '安装面板'. Keep same discovery shell visible in background subdued by a subtle overlay. A clean right-side installation panel width520 spanning viewport height. Accessible visual dialog header '安装技能', subtitle react-review and source demo-team/product-skills, closeX. Main content: heading '安装位置', two stacked radio tiles '当前项目 · pi-web' selected and '全局 · 此主机的所有项目' unselected. Next heading '目标预览', mono wrapped path '<项目目录>/.pi/skills/react-review', caption '由服务端解析实际位置；此处为示例'. Then plain compact summary definitionrows 来源 demo-team/product-skills, 技能 react-review, Agent Pi. Blue subtle info '安装后在下次加载资源时可用。'; neutral note '内容来自第三方仓库，可返回详情阅读文件。'. Bottom sticky action bar with secondary '取消', cobalt '确认安装'. Show a simple 3-step quiet header '确认目标 → 安装中 → 查看结果' with firstactive, not %progress. Plenty whitespace, no terminalcommand hero, no secretpaths orfakechecksafety. No default acceptance checkbox. This is pre-submit state, no success outcome on same screen.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      },
+      "references": [
+        "screens/01-discover.png",
+        "screens/02-detail.png"
+      ],
+      "revisions": [
+        {
+          "purpose": "纠正安装范围与会话生效语义",
+          "prompt": "Use case ui-mockup precise edit. Edit the attached desktop Pi Web install-panel design (firstimage). Preserve its full landscape composition, all layout dimensions, source fixture, background, white/ice/navy/cobalt Clear Horizon style, typography, radio states, and buttons. Correct ONLY inaccurate scope helper wording in the right installation panel. For the selected option '当前项目 · pi-web', replace its smaller helper sentence with exactly '写入当前项目的技能位置'. For the second radio option, title must be exactly '全局配置'; its smaller helper sentence exactly '写入此主机的全局技能位置'. Never write '所有项目可用' or '仅在该项目中可用'. Above the bottom button footer add a small muted line '是否加载取决于项目与会话配置。', below the current explanatory notes. In the blue info note use exactly '安装完成后，下次加载资源时生效。'. These exact accurate semantics appear in the second reference mobile image, but keep the first image DESKTOP drawer layout and landscape dimensions. Do not add or change other content, do not add deviceframe. This fixes wording, not style.",
+          "references": [
+            "references/03-install-initial.png",
+            "screens/07-mobile-install.png"
+          ],
+          "result": "screens/03-install.png"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "已安装管理",
+      "file": "04-installed.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target desktop 1440 x 1024, natural aspect ratio. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  SCREEN04 desktop '已安装管理'. Active top tab 已安装. Under heading a quiet context line '当前项目与全局的可访问技能'. Toolbar search placeholder '搜索名称、描述或来源', filters '位置：全部' '来源：全部' '向模型展示：全部' '更新：全部'; secondary '刷新'. Compact info banner '1 条资源诊断 · 存在同名技能，查看详情' with expandaction. A clean spacious table with columns 技能 / 位置 / 当前配置加载 / 向模型展示 / 更新 / 操作, total text '显示 5 / 5 项'. Five rows deliberately same installed fixture set: frontend-design source demo-team/product-skills scope 当前项目 loaded 已加载 toggleON status 可更新 button 查看详情; frontend-design same source scope 全局 load 同名未加载 toggleON status 未检查; web-guidelines same source 全局 已加载 toggleOFF status 已是最新; research-plan source demo-team/research-skills 当前项目 已加载 toggleON status 检查失败; local-notes source 本地技能 全局 已加载 toggleON status 不支持. Toggle column tooltip/caption near table bottom '关闭后对模型隐藏，仍可手动调用；修改在下次加载资源时生效。'. No uninstall, no invokepermission wording, no packagewideupdates. Each row moremenu icon, not many competeprimarybuttons. Morewhitebodyspace, hairlineseparators, 72-88pxrows. Exactly5rows. Distinguish names from source, repeat namesareintentional conflict. Bottom neutral sourcecoverage '范围：当前项目 pi-web 与全局配置；未扫描其他项目。'.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      },
+      "references": [
+        "screens/01-discover.png"
+      ]
+    },
+    {
+      "id": "05",
+      "name": "更新中心",
+      "file": "05-updates.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target desktop 1440 x 1024, natural aspect ratio. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  SCREEN05 desktop '更新中心'. Active top tab 更新. One strong button top right '检查全部'. Subtitle '仅更新所选技能；不会自动更新整个仓库。'. Under header a line '上次检查：2026-09-12 12:00' and quiet tabsfilters '全部 5' selected, '可更新 1', '已是最新 1', '不支持 1', '检查失败 1', '未检查 1'. List5 horizontal rows, each with skillname/source, scope, contenthashline if known, state and contextual action. Row1 frontend-design source demo-team/product-skills currentproject pi-web: '内容哈希 8c42a71 → b931e20', amberbadge 可更新, bluebutton '更新…'. Row2 web-guidelines same sourceglobal: '内容哈希 a017df2', green 已是最新, textbutton 查看详情. Row3 local-notes localglobal: reason '来源未追踪，无法检查更新', gray 不支持, 查看详情. Row4 research-plan source demo-team/research-skills project: reason '源站请求失败，请重试', red 检查失败, secondary 重试检查. Row5 frontend-design global: '尚未检查该安装位置', gray 未检查, 检查更新. Bottom slimnote '版本以来源提供的内容标识展示；未提供版本历史与回滚。'. No fakechart/semanticversions orupdateallbutton. Rightalignactions, consistentcollines, plentywhite. This screenisallfiltermanuallyselected, notdefaultrecommendation.",
+      "targetViewport": {
+        "width": 1440,
+        "height": 1024
+      },
+      "references": [
+        "screens/04-installed.png"
+      ]
+    },
+    {
+      "id": "06",
+      "name": "手机发现",
+      "file": "06-mobile-discover.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target a single narrow mobile web viewport 390 x 844, portrait aspect ratio. Do not include device frame, status bar, browser chrome, desktop environment, or multiple screens. All typography must fit 390 CSS-pixel layout. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  MOBILE06 discovery adaptation of attached desktop page. Onecolumn layout, top compact Pi Web / pi-web / closeX. Heading 技能中心 with small 设计示例 label. Three tabs 发现 active / 已安装 / 更新. Search row field '设计' and compact 搜索 button. Wrap keyword shortcuts into two rows using smallchips '前端设计' '代码审查' '文档处理' '研究规划'. Toolbar '本次返回 6 项' and dropdown '源站顺序'. Show two full cards and beginning of third naturally belowfold: frontend-design 界面设计 source demo-team/product-skills description '为网页和应用提供布局、排版和视觉设计指引。' badge 项目已安装 action管理; web-guidelines 界面检查 same source description '检查界面的一致性与可访问性。' badge全局已安装 action管理; third react-review action安装…. Source lines wrap rather than illegiblyshrink. Primary action 查看详情 on cards; no fakecount. Don't cram all6cardsonthefirstscreen. Consistent selectedcobaltwhiteicepalette. Search touchheight44, body16.",
+      "targetViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "references": [
+        "screens/01-discover.png"
+      ]
+    },
+    {
+      "id": "07",
+      "name": "手机安装",
+      "file": "07-mobile-install.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target a single narrow mobile web viewport 390 x 844, portrait. No device frame, no native statusbar, no browser chrome, no desktopwidthshrunkenUI. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  MOBILE07 '安装技能'. Fullscreen mobile web subview, NOT drawer overdesktop. Compact topbar backchevron '安装技能' closeX, smallfooter/designlabel. Content title react-review and source demo-team/product-skills onwrapline. Three compact steps 确认目标 / 安装中 / 查看结果 firstselected. Section 安装位置. Two radiocards: selected '当前项目 · pi-web' with EXACT subtitle '写入当前项目的技能位置'; second '全局配置' with EXACT subtitle '写入此主机的全局技能位置'. NEVER WRITE 所有项目可用 or仅在项目可用, sinceactual loadingdependsonsettings. Targetsection '目标预览', monospace wrapped '<项目目录>/.pi/skills/react-review', smaller '由服务端解析，此处为示例'. Detailrows 技能 react-review / Agent Pi / 来源 demo-team/product-skills. Info note '安装完成后，下次加载资源时生效。' andsmallplain '是否加载取决于项目与会话配置。'. Bottomstickybuttons '取消' secondary and '确认安装' cobalt. Allbody fitsfirstviewwith44pxtouchcontrols,16pxbody equivalent; leaveproperpadding andwhitespace. Use Chinese clean precise typography. Nootherclaims/graphics/no fakeprogress/no automaticinstall.",
+      "targetViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "references": [
+        "references/03-install-initial.png",
+        "screens/06-mobile-discover.png"
+      ]
+    },
+    {
+      "id": "08",
+      "name": "手机已安装",
+      "file": "08-mobile-installed.png",
+      "prompt": "Use case: ui-mockup. Create a realistic production-quality high-fidelity UI design for Pi Web's new Skills Center. This is a DOCUMENTED FUTURE DESIGN, not a screenshot of an implemented product. Continue the USER-SELECTED Clear Horizon style from the attached Pi Web screenshots. Target a single narrow mobile web viewport 390 x 844, portrait. No device frame/statusbar/browserchrome. Bodytext16CSSpx at390layout. Simplified Chinese UI, extremely legible clean system sans-serif, 14-16px body, 28px main title, mono only for paths and source identifiers. Palette: white #ffffff, ice gray #f5f8fc, selected #e7efff, border #dbe3ef, dark navy #122342, muted #536986, cobalt #315bec. Radius controls6 panels8, thin subtle borders, restrained shadows. No illustrations, no decorative gradients, no fake graphs, no giant marketing hero, no cards nested in cards. Use simple professional existing-style line icons.\nAPP SHELL: a full viewport dedicated Skills Center surface, with a 56px top application bar: Pi Web on left, project context pi-web, small '返回工作台' link and close X on right. Below is a compact page heading '技能中心', sentence '发现、安装与管理你的 AI 技能', and horizontal tabs '发现' '已安装' '更新'. Small corner text '设计示例' makes all fixture data clearly illustrative. Keep all screen copy Chinese except canonical skill/source identifiers. Today anchor 2026-09-12; avoid other invented dates. All shown demo sources are demo-team/product-skills or demo-team/research-skills, deliberately illustrative. Primary blue button actions are explicit, missing metadata uses '未提供'. Source scope and local installation scope must not be conflated. Do not draw Figma/editor/browser chrome or add extraneous features. One requested screen only per image. Preserve generous whitespace with task-focused content.  MOBILE08 '已安装'. Same tiny appcontext as mobile reference. Heading技能中心 withdesignexamplelabel. Tabs 发现/已安装 selected/更新. Searchfield '搜索名称、描述或来源' nextline a '筛选'button, selectedchip '位置：全部', '刷新'iconbutton. Bluequietbanner '1 条资源诊断 · 同名技能' with chevron. Count '显示 5 / 5 项'. Replace desktop table with stacked compact instanceblocks. Firstblock frontend-design, source demo-team/product-skills; smallline '当前项目 · pi-web' and green '已加载'; nextline '向模型展示' andblueONtoggle; bottom amber '可更新', action查看详情. Secondblock same frontend-design/source; line 全局 andamber 同名未加载; 向模型展示 ON; bottom 未检查 /查看详情. Thirdblock web-guidelines/global green已加载, 向模型展示 grayOFFtoggle, bottom 已是最新; may extendbelowfold naturally. Sticky smallbottom or flowinformation '关闭后仍可手动调用；下次加载资源生效。'. Don't fit all5rowsbyshrinkingtext. No uninstall, no autoapplypromise. Ensure first two instanceblocks fully visible, source textwrapifneeded. Clearrowboundaries,6pxradiusand restrainedcolor.",
+      "targetViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "references": [
+        "screens/04-installed.png",
+        "screens/06-mobile-discover.png"
+      ]
+    }
+  ],
+  "generationCalls": 9
+}

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "status": "design-proposal-not-runtime-configuration",
+  "note": "用户确定五大领域；二级方向为可调整初稿。此文件没有真实技能归属记录，不是可直接投入生产的数据源。",
+  "domains": [
+    {
+      "id": "computing",
+      "label": "计算机领域",
+      "description": "开发、设计与工程实践",
+      "categories": [
+        {
+          "id": "frontend-design",
+          "label": "前端设计",
+          "order": 1
+        },
+        {
+          "id": "code-review",
+          "label": "代码审查",
+          "order": 2
+        },
+        {
+          "id": "document-engineering",
+          "label": "文档工程",
+          "order": 3
+        },
+        {
+          "id": "test-engineering",
+          "label": "测试工程",
+          "order": 4
+        },
+        {
+          "id": "research-tools",
+          "label": "研究工具",
+          "order": 5
+        }
+      ],
+      "order": 1
+    },
+    {
+      "id": "finance",
+      "label": "金融领域",
+      "description": "财务、投资与风险研究",
+      "categories": [
+        {
+          "id": "financial-analysis",
+          "label": "财务分析",
+          "order": 1
+        },
+        {
+          "id": "investment-research",
+          "label": "投资研究",
+          "order": 2
+        },
+        {
+          "id": "risk-management",
+          "label": "风险管理",
+          "order": 3
+        },
+        {
+          "id": "quantitative-research",
+          "label": "量化研究",
+          "order": 4
+        }
+      ],
+      "order": 2
+    },
+    {
+      "id": "philosophy",
+      "label": "哲学领域",
+      "description": "概念、论证与思想体系",
+      "categories": [
+        {
+          "id": "logic-argumentation",
+          "label": "逻辑与论证",
+          "order": 1
+        },
+        {
+          "id": "ethics",
+          "label": "伦理学",
+          "order": 2
+        },
+        {
+          "id": "epistemology",
+          "label": "知识论",
+          "order": 3
+        },
+        {
+          "id": "history-of-philosophy",
+          "label": "哲学史",
+          "order": 4
+        }
+      ],
+      "order": 3
+    },
+    {
+      "id": "psychology",
+      "label": "心理学领域",
+      "description": "心理机制、行为与研究方法",
+      "categories": [
+        {
+          "id": "cognitive-psychology",
+          "label": "认知心理",
+          "order": 1
+        },
+        {
+          "id": "social-psychology",
+          "label": "社会心理",
+          "order": 2
+        },
+        {
+          "id": "developmental-psychology",
+          "label": "发展心理",
+          "order": 3
+        },
+        {
+          "id": "research-methods",
+          "label": "研究方法",
+          "order": 4
+        }
+      ],
+      "order": 4
+    },
+    {
+      "id": "metaphysics",
+      "label": "玄学领域",
+      "description": "传统术数与象征研究",
+      "categories": [
+        {
+          "id": "yi-studies",
+          "label": "易学",
+          "order": 1
+        },
+        {
+          "id": "destiny-studies",
+          "label": "命理",
+          "order": 2
+        },
+        {
+          "id": "feng-shui",
+          "label": "风水",
+          "order": 3
+        },
+        {
+          "id": "tarot-symbolism",
+          "label": "塔罗与象征",
+          "order": 4
+        }
+      ],
+      "order": 5
+    }
+  ]
+}

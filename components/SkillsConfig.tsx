@@ -332,7 +332,7 @@ function AddSkillPanel({
         <ConfigDetailTitle>{t("i18n.addSkill")}</ConfigDetailTitle>
 
         {/* Search row */}
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="config-search-row">
           <input
             ref={inputRef}
             value={query}
@@ -341,16 +341,8 @@ function AddSkillPanel({
               if (e.key === "Enter") search(query);
             }}
              placeholder={t("i18n.skillSearchPlaceholder")}
-            style={{
-              flex: 1,
-              padding: "7px 10px",
-              fontSize: 12,
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--text)",
-              outline: "none",
-            }}
+            className="config-input"
+            aria-label={t("i18n.skillSearchPlaceholder")}
           />
           <ConfigButton
             variant="primary"
@@ -362,17 +354,8 @@ function AddSkillPanel({
         </div>
 
         {/* Scope + install path row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              display: "flex",
-              borderRadius: 5,
-              border: "1px solid var(--border)",
-              overflow: "hidden",
-              fontSize: 12,
-              flexShrink: 0,
-            }}
-          >
+        <div className="config-scope-row">
+          <div className="config-scope-options">
             {(["global", "project"] as const).map((s) => (
               <button
                 key={s}
@@ -381,43 +364,24 @@ function AddSkillPanel({
                 }}
                 disabled={s === "project" && !projectResourcesLoaded}
                 title={s === "project" && !projectResourcesLoaded ? t("trust.projectScopeUnavailable") : undefined}
-                style={{
-                  padding: "3px 10px",
-                  border: "none",
-                  cursor: s === "project" && !projectResourcesLoaded ? "not-allowed" : "pointer",
-                  background: scope === s ? "var(--bg-selected)" : "none",
-                  color: scope === s ? "var(--text)" : "var(--text-dim)",
-                  fontWeight: scope === s ? 600 : 400,
-                  opacity: s === "project" && !projectResourcesLoaded ? 0.45 : 1,
-                  borderRight:
-                    s === "global" ? "1px solid var(--border)" : "none",
-                }}
+                aria-pressed={scope === s}
               >
-                {s}
+                {t(s === "global" ? "skills.scope.global" : "skills.scope.project")}
               </button>
             ))}
           </div>
-          <span
-            style={{
-              fontSize: 12,
-              color: "var(--text-dim)",
-              fontFamily: "var(--font-mono)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
+          <span className="config-install-path">
             → {installPath}
           </span>
         </div>
 
         {/* Errors */}
         {searchError && (
-          <div style={{ fontSize: 12, color: "#f87171" }}>{searchError}</div>
+          <div style={{ fontSize: "var(--font-size-body)", color: "#f87171" }}>{searchError}</div>
         )}
         {installError && (
           <div
-            style={{ fontSize: 12, color: "#f87171", wordBreak: "break-word" }}
+            style={{ fontSize: "var(--font-size-body)", color: "#f87171", wordBreak: "break-word" }}
           >
             {installError}
           </div>
@@ -471,7 +435,7 @@ function AddSkillPanel({
                     <span
                       style={{
                         fontFamily: "var(--font-mono)",
-                        fontSize: 11,
+                        fontSize: "var(--font-size-small)",
                         color: "var(--text-dim)",
                       }}
                     >
@@ -479,7 +443,7 @@ function AddSkillPanel({
                     </span>
                     <span
                       style={{
-                        fontSize: 12,
+                        fontSize: "var(--font-size-body)",
                         color: "var(--text-muted)",
                         fontWeight: 500,
                       }}
@@ -492,7 +456,7 @@ function AddSkillPanel({
                         target="_blank"
                         rel="noreferrer"
                         style={{
-                          fontSize: 12,
+                          fontSize: "var(--font-size-body)",
                           color: "var(--accent)",
                           textDecoration: "none",
                         }}
@@ -534,7 +498,7 @@ function AddSkillPanel({
           <div
             style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.8 }}
           >
-            Search{" "}
+            {t("settings.skillsEmptyDescription")}{" "}
             <a
               href="https://skills.sh"
               target="_blank"
@@ -542,8 +506,7 @@ function AddSkillPanel({
               style={{ color: "var(--accent)", textDecoration: "none" }}
             >
               skills.sh
-            </a>{" "}
-            to discover and install skills for your agent.
+            </a>
           </div>
         )
       )}
@@ -905,7 +868,12 @@ export function SkillsConfig({
                 onUpdate={() => void updateInstalledSkill(selectedSkill)}
               />
               ) : (
-                <ConfigEmptyState>{t("i18n.selectSkill")}</ConfigEmptyState>
+                <ConfigEmptyState
+                  title={skills.length === 0 ? t("settings.skillsEmptyTitle") : undefined}
+                  action={<ConfigButton variant="primary" onClick={() => setAddMode(true)}>{t("i18n.addSkill")}</ConfigButton>}
+                >
+                  {skills.length === 0 ? t("settings.skillsEmptyDescription") : t("i18n.selectSkill")}
+                </ConfigEmptyState>
               )}
             </ConfigDetailStack>
           </ConfigDetail>

@@ -118,6 +118,11 @@ function getInstallInfo(
   };
 }
 
+/** Read one exact management entry without changing the legacy annotation contract. */
+export function readSkillInstallInfo(lockPath: string, skillName: string, scope: SkillInstallScope): SkillInstallInfo | undefined {
+  return getInstallInfo(readSkillLock(lockPath), skillName, scope);
+}
+
 export function annotateSkillsWithInstallInfo(
   skills: SkillInfo[],
   {

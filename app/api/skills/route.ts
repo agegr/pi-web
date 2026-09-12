@@ -1,3 +1,4 @@
+import { acquireLease } from "@/lib/skill-center/journal";
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
@@ -30,7 +31,9 @@ export async function GET(req: Request) {
 
 // PATCH /api/skills — toggle disable-model-invocation on a SKILL.md file
 export async function PATCH(req: Request) {
+  let lease: ReturnType<typeof acquireLease> | undefined;
   try {
+    lease = acquireLease(null);
     const body = await req.json() as { filePath: string; disableModelInvocation: boolean };
     const { filePath, disableModelInvocation } = body;
     if (!filePath) return NextResponse.json({ error: "filePath required" }, { status: 400 });
@@ -53,5 +56,5 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
-  }
+  } finally { lease?.release(); }
 }

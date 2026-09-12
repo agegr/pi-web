@@ -1,0 +1,34 @@
+// Explicit opt-in live verification. Uses a new isolated HOME and retains evidence.
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createJiti } from 'jiti';
+
+const id = process.argv[2];
+assert.ok(id?.startsWith('skillsmp:') || id?.startsWith('agentskill.sh:'), 'Pass a verified provider canonicalSkillId.');
+const root = mkdtempSync(join(tmpdir(), 'pi-native-live-'));
+process.env.HOME = root; process.env.USERPROFILE = root;
+process.env.PI_CODING_AGENT_DIR = join(root, '.pi', 'agent');
+process.env.XDG_STATE_HOME = join(root, 'state');
+mkdirSync(process.env.PI_CODING_AGENT_DIR, { recursive: true });
+const jiti = createJiti(import.meta.url);
+const { createPlan, submitOperation, getOperation } = await jiti.import('../../../lib/skill-center/mutations.ts');
+const { inventory } = await jiti.import('../../../lib/skill-center/inventory.ts');
+const { detail, snapshotContent } = await jiti.import('../../../lib/skill-center/remote.ts');
+const preview = await detail({ kind: 'remote', canonicalSkillId: id });
+const content = await snapshotContent(preview.snapshotId, 'SKILL.md');
+assert.equal(content.state, 'text');
+const stored = await createPlan({ kind: 'install', canonicalSkillId: id, cwd: null, scope: 'global' });
+assert.equal(stored.plan.state, 'ready'); assert.equal(stored.plan.sourceVersionPinned, true);
+const { operation } = await submitOperation({ planId: stored.plan.planId, idempotencyKey: `live-${stored.plan.planId}`, acknowledgements: stored.plan.requiredAcknowledgements });
+let status; const deadline = Date.now() + 120000;
+do { status = await getOperation(operation.operationId); if (['succeeded', 'failed', 'needs-review'].includes(status.state)) break; await delay(500); } while (Date.now() < deadline);
+assert.equal(status.state, 'succeeded', JSON.stringify(status.error));
+const item = (await inventory(null)).installations.find(i => i.canonicalSkillId === id);
+assert.ok(item?.managed); assert.equal(item.loadState, 'effective'); assert.equal(item.capabilities.update, true);
+assert.equal(readFileSync(item.realPath, 'utf8'), content.text);
+const evidence = { root, canonicalSkillId: id, files: preview.fileSummary.count, operation: status.state, sourceStatus: status.result.currentSourceStatus, installedVersion: item.installedVersion, managed: item.managed, loadState: item.loadState, verifiedAt: new Date().toISOString() };
+writeFileSync(join(root, 'verification.json'), JSON.stringify(evidence, null, 2));
+console.log(JSON.stringify(evidence, null, 2));
