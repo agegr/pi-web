@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, statSync } from "fs";
-import { basename, dirname, extname, join, relative } from "path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import {
   DefaultPackageManager,
   getAgentDir,
@@ -114,7 +114,9 @@ function getRelativePath(resource: ResolvedResource): string {
   const baseDir = resource.metadata.baseDir;
   if (!baseDir) return resource.path;
   const rel = relative(baseDir, resource.path);
-  return rel && !rel.startsWith("..") ? rel : resource.path;
+  // Normalize to forward slashes so API output is stable across platforms
+  // (Node's path.relative returns backslashes on Windows).
+  return rel && !rel.startsWith("..") ? rel.split(sep).join("/") : resource.path;
 }
 
 function toResourceInfo(resource: ResolvedResource, kind: PluginResourceKind): PluginResourceInfo {
