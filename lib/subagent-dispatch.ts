@@ -45,8 +45,8 @@ export interface SubagentDispatchParams {
   denyExtensions?: string[];
   /** G3 additional tool exclusion. The three reserved names are always excluded. */
   excludeTools?: string[];
-  /** G6 when true the child session is not persisted to disk. */
-  ephemeral?: boolean;
+  /** G6 when false the child session is not persisted to disk. */
+  persistSession?: boolean;
   maxTurns?: number;
   inheritContext?: boolean;
   inputFiles?: string[];
@@ -122,8 +122,8 @@ export interface ResolvedSubagentResources {
   effectiveModel: string;
   /** G4: effective thinking after three-level fallback. */
   effectiveThinking: string | null;
-  /** G6: whether to use in-memory session manager. */
-  ephemeral: boolean;
+  /** G6: whether to persist the child session to disk. */
+  persistSession: boolean;
 }
 
 /**
@@ -143,7 +143,7 @@ export function resolveSubagentResources(params: {
   dispatchExtensions?: string[];
   dispatchDenyExtensions?: string[];
   dispatchExcludeTools?: string[];
-  dispatchEphemeral?: boolean;
+  dispatchPersistSession?: boolean;
   dispatchModel?: string;
   dispatchThinking?: string;
   profileTools: string[];
@@ -172,8 +172,8 @@ export function resolveSubagentResources(params: {
   // G4: three-level thinking fallback.
   const effectiveThinking = params.dispatchThinking ?? params.parentThinking ?? null;
 
-  // G6: ephemeral flag defaults to false.
-  const ephemeral = params.dispatchEphemeral ?? false;
+  // G6: persistSession defaults to true (persist to disk).
+  const persistSession = params.dispatchPersistSession ?? true;
 
   return {
     effectiveTools,
@@ -183,7 +183,7 @@ export function resolveSubagentResources(params: {
     effectiveDenyExtensions,
     effectiveModel,
     effectiveThinking,
-    ephemeral,
+    persistSession,
   };
 }
 
@@ -236,7 +236,7 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
       excludeTools: params.excludeTools,
       extensions: params.extensions,
       denyExtensions: params.denyExtensions,
-      ephemeral: params.ephemeral ?? false,
+      persistSession: params.persistSession,
       maxTurns: params.maxTurns,
       inheritContext: params.inheritContext,
       inputFiles: params.inputFiles,
@@ -262,6 +262,10 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
       }
       throw err;
     }
+
+    // Expose the child session id on the request so callers that recorded
+    // the request (e.g. test fakes) can correlate it with the run.
+    (request as unknown as Record<string, unknown>).sessionId = childRun.sessionId;
 
     // Register this dispatch as active.
     const active = getActiveDispatches();

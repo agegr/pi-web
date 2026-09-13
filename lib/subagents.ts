@@ -62,6 +62,10 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  /** G4: authoritative effective model after three-level fallback resolution. */
+  model?: string;
+  /** G4: authoritative effective thinking level after three-level fallback resolution. */
+  thinking?: string | null;
   exactSystemPrompt?: string;
 }
 

@@ -45,6 +45,18 @@ export interface StartSubagentRequest {
   maxTurns?: number;
   inheritContext?: boolean;
   isolation?: "worktree";
+  /** G2 per-dispatch tool allowlist. Extension tool names are admitted. */
+  tools?: string[];
+  /** G2 per-dispatch tool blacklist. Takes precedence over `tools`. */
+  disallowedTools?: string[];
+  /** G3 per-extension allow list (by package name). */
+  extensions?: string[];
+  /** G3 per-extension deny list (by package name). Deny wins over allow. */
+  denyExtensions?: string[];
+  /** G3 additional tool exclusion. Reserved control names stay excluded. */
+  excludeTools?: string[];
+  /** G6 when false the child session is not persisted to disk (in-memory only). */
+  persistSession?: boolean;
   signal?: AbortSignal;
   onUpdate?: (run: SubagentRunInfo) => void;
 }
