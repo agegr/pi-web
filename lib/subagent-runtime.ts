@@ -263,6 +263,7 @@ export function createSubagentController(
         dispatchModel: request.model,
         dispatchThinking: request.thinking,
         profileTools: profile.tools,
+        profilePersistSession: profile.persistSession,
         // Profile currently has no extensions/denyExtensions fields;
         // dispatch params are the sole filter source when present.
         profileExtensions: undefined,

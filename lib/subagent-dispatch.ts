@@ -147,6 +147,7 @@ export function resolveSubagentResources(params: {
   dispatchModel?: string;
   dispatchThinking?: string;
   profileTools: string[];
+  profilePersistSession?: boolean;
   profileExtensions?: string[];
   profileDenyExtensions?: string[];
   parentModel?: string;
@@ -172,8 +173,8 @@ export function resolveSubagentResources(params: {
   // G4: three-level thinking fallback.
   const effectiveThinking = params.dispatchThinking ?? params.parentThinking ?? null;
 
-  // G6: persistSession defaults to true (persist to disk).
-  const persistSession = params.dispatchPersistSession ?? true;
+  // G6: three-level persistSession fallback (dispatch → profile → true).
+  const persistSession = params.dispatchPersistSession ?? params.profilePersistSession ?? true;
 
   return {
     effectiveTools,
