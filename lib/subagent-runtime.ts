@@ -36,6 +36,7 @@ import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-inp
 import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
+import { resolveSubagentResources } from "./subagent-dispatch";
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
@@ -250,18 +251,33 @@ export function createSubagentController(
           : {}),
       });
 
-      // G3: filter extensions using dispatch-level allow/deny lists, falling
-      // back to profile-level when dispatch params are absent.  The upstream
-      // profile has no extensions/denyExtensions fields, so dispatch params
-      // are the only filter when profile fields are undefined.
+      // Unified resolution pipeline: resolve all per-dispatch overrides through
+      // the shared pipeline so the same logic is never inlined twice.
+      const plan = resolveSubagentResources({
+        dispatchTools: request.tools,
+        dispatchDisallowedTools: request.disallowedTools,
+        dispatchExtensions: request.extensions,
+        dispatchDenyExtensions: request.denyExtensions,
+        dispatchExcludeTools: request.excludeTools,
+        dispatchPersistSession: request.persistSession,
+        dispatchModel: request.model,
+        dispatchThinking: request.thinking,
+        profileTools: profile.tools,
+        // Profile currently has no extensions/denyExtensions fields;
+        // dispatch params are the sole filter source when present.
+        profileExtensions: undefined,
+        profileDenyExtensions: undefined,
+        parentModel: effectiveModel || undefined,
+        parentThinking: thinking ?? null,
+      });
+
+      // G3: filter extensions using the plan's effective allow/deny lists.
       const allExtensions = profile.loadExtensions
         ? services.resourceLoader.getExtensions().extensions
         : [];
-      const effectiveExtensions = request.extensions;
-      const effectiveDenyExtensions = request.denyExtensions;
       const filteredExtensions = filterExtensionsBySource(allExtensions, {
-        allow: effectiveExtensions,
-        deny: effectiveDenyExtensions,
+        allow: plan.effectiveExtensions,
+        deny: plan.effectiveDenyExtensions,
       });
       // Resolve extension tool names from filtered extensions.  When the
       // profile has ext: selectors, apply them against the filtered set;
@@ -269,23 +285,15 @@ export function createSubagentController(
       const extensionToolNames = profile.extensionTools?.length
         ? selectSubagentExtensionTools(filteredExtensions, profile.extensionTools)
         : filteredExtensions.flatMap((extension) => [...extension.tools.keys()]);
-      // G2: when request.tools is present, it replaces profile.tools as the
-      // base tool list.  Extension tool names are merged in via the standard
-      // withSubagentExtensionTools helper (which also filters reserved names).
-      const baseTools = request.tools ?? profile.tools;
-      let activeTools = resolveShellTools(
-        withSubagentExtensionTools(baseTools, extensionToolNames),
+      // G2: merge plan's base tools with extension tools, then apply
+      // platform-specific shell tool resolution.
+      const activeTools = resolveShellTools(
+        withSubagentExtensionTools(plan.effectiveTools, extensionToolNames),
         settingsManager.getDefaultTools(),
       );
-      // G2: disallowedTools takes precedence — subtract after merge.
-      if (request.disallowedTools) {
-        const disallowed = new Set(request.disallowedTools);
-        activeTools = activeTools.filter((tool) => !disallowed.has(tool));
-      }
 
-      // G6: resolve persistSession with three-level fallback.
-      // When false, the child session lives only in memory — no .jsonl is written.
-      const persistSession = request.persistSession ?? profile.persistSession ?? true;
+      // G6: persistSession from the unified resolution plan.
+      const { persistSession } = plan;
       const sessionManager = persistSession
         ? (isolatedWorktree
           ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
