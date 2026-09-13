@@ -263,10 +263,6 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
       throw err;
     }
 
-    // Expose the child session id on the request so callers that recorded
-    // the request (e.g. test fakes) can correlate it with the run.
-    (request as unknown as Record<string, unknown>).sessionId = childRun.sessionId;
-
     // Register this dispatch as active.
     const active = getActiveDispatches();
     active.set(dispatchId, parentSessionId);
