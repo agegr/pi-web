@@ -49,9 +49,13 @@ function applyDelta(
 ): StreamingState {
   switch (event.type) {
     case "text_start":
-      return updateContentBlock(state, event.contentIndex, (current) => (
-        current?.type === "text" ? current : { type: "text", text: "" }
-      ));
+      // pi-ai documents `partial` as a shared live response-so-far helper, not
+      // an event-time snapshot, and blocks as empty at their `*_start` and
+      // grown only by `*_delta` until the authoritative `*_end`. By the time
+      // this start is consumed the helper may already carry the block's first
+      // delta, so a start must reset the block instead of keeping snapshot
+      // text: otherwise that chunk renders twice until `text_end` arrives.
+      return updateContentBlock(state, event.contentIndex, () => ({ type: "text", text: "" }));
     case "text_delta":
       return updateContentBlock(state, event.contentIndex, (current) => (
         current?.type === "text"
@@ -65,9 +69,9 @@ function applyDelta(
         text: event.content,
       }));
     case "thinking_start":
-      return updateContentBlock(state, event.contentIndex, (current) => (
-        current?.type === "thinking" ? current : { type: "thinking", thinking: "" }
-      ));
+      // Same snapshot leak as text_start: reset, or the first thinking chunk
+      // renders twice until `thinking_end` replaces the block.
+      return updateContentBlock(state, event.contentIndex, () => ({ type: "thinking", thinking: "" }));
     case "thinking_delta":
       return updateContentBlock(state, event.contentIndex, (current) => (
         current?.type === "thinking"
@@ -87,7 +91,8 @@ function applyDelta(
             ...current,
             toolCallId: event.id ?? current.toolCallId,
             toolName: event.toolName ?? current.toolName,
-            rawInput: current.rawInput ?? "",
+            // Same snapshot leak as text_start: the deltas rebuild rawInput.
+            rawInput: "",
           };
         }
         if (typeof event.toolName !== "string") return null;
