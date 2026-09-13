@@ -283,9 +283,17 @@ export function createSubagentController(
         activeTools = activeTools.filter((tool) => !disallowed.has(tool));
       }
 
-      const sessionManager = isolatedWorktree
-        ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
-        : SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
+      // G6: resolve persistSession with three-level fallback.
+      // When false, the child session lives only in memory — no .jsonl is written.
+      const persistSession = request.persistSession ?? profile.persistSession ?? true;
+      const sessionManager = persistSession
+        ? (isolatedWorktree
+          ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
+          : SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile }))
+        : SessionManager.inMemory(parent.cwd, { parentSession: parent.sessionFile });
+      // G6: in-memory sessions redirect lifecycle entries to the parent so the
+      // audit trail survives after the child's session object is garbage collected.
+      const auditSessionManager = persistSession ? sessionManager : parent.inner.sessionManager;
       const createdAt = new Date().toISOString();
       const metadata: SubagentMetadata = {
         version: 1,
@@ -310,8 +318,15 @@ export function createSubagentController(
         },
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
-      sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
-      sessionManager.appendSessionInfo(metadata.description);
+      // G6: in-memory sessions write audit metadata to the parent session so
+      // the dispatch trail is not lost when the in-memory session vanishes.
+      // Persisted sessions write to their own session file as before.
+      if (persistSession) {
+        sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
+        sessionManager.appendSessionInfo(metadata.description);
+      } else {
+        parent.inner.sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
+      }
 
       const { session: inner } = await createAgentSessionFromServices({
         services,
@@ -386,7 +401,7 @@ export function createSubagentController(
       const execute = async (): Promise<SubagentRunInfo> => {
         if (stored.abortRequested) {
           const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
-          sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
+          auditSessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
           await cleanupWorktree(parent.cwd, isolatedWorktree);
           stored.run = result;
           request.onUpdate?.(result);
@@ -395,7 +410,7 @@ export function createSubagentController(
           return result;
         }
         stored.run = { ...stored.run, status: "running" };
-        sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
+        auditSessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
         request.onUpdate?.(stored.run);
         dependencies.invalidateSessionList();
         let result: SubagentRunInfo;
@@ -447,7 +462,7 @@ export function createSubagentController(
           ...(result.error ? { error: result.error } : {}),
           ...(result.worktreeCleanupError ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
         };
-        sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, persisted);
+        auditSessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, persisted);
         stored.run = result;
         request.onUpdate?.(result);
         getSubagentRuns().delete(initialRun.sessionId);
@@ -460,7 +475,7 @@ export function createSubagentController(
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
         const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
         const finalResult = cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result;
-        sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
+        auditSessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
         stored.run = finalResult;
         request.onUpdate?.(finalResult);
         getSubagentRuns().delete(initialRun.sessionId);
@@ -473,7 +488,7 @@ export function createSubagentController(
         execute,
         (state) => {
           if (state === "queued") {
-            sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
+            auditSessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
           }
           request.onUpdate?.({ ...stored.run, status: state });
           stored.run = { ...stored.run, status: state };

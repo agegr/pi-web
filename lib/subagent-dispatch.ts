@@ -36,8 +36,8 @@ export interface SubagentDispatchParams {
   denyExtensions?: string[];
   /** G3 additional tool exclusion. The three reserved names are always excluded. */
   excludeTools?: string[];
-  /** G6 when true the child session is not persisted to disk. */
-  ephemeral?: boolean;
+  /** G6 when false the child session is not persisted to disk. */
+  persistSession?: boolean;
   maxTurns?: number;
   inheritContext?: boolean;
   inputFiles?: string[];
@@ -138,7 +138,7 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
       runInBackground: params.runInBackground,
       model: params.model,
       thinking: params.thinking,
-      ephemeral: params.ephemeral ?? false,
+      persistSession: params.persistSession,
       maxTurns: params.maxTurns,
       inheritContext: params.inheritContext,
       inputFiles: params.inputFiles,
