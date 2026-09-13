@@ -100,33 +100,6 @@ function assistantTextNodes(root: HTMLElement): Text[] {
   return nodes;
 }
 
-function textOffset(container: Node, offset: number, nodes: Text[]): number | null {
-  if (container.nodeType === Node.TEXT_NODE) {
-    const index = nodes.indexOf(container as Text);
-    if (index < 0) return null;
-    return nodes.slice(0, index).reduce((total, node) => total + node.data.length, 0)
-      + Math.max(0, Math.min(offset, (container as Text).data.length));
-  }
-  if (container.nodeType !== Node.ELEMENT_NODE) return null;
-  const element = container as Element;
-  if (!nodes.some((node) => element.contains(node))) return null;
-  const boundary = document.createRange();
-  boundary.setStart(container, Math.max(0, Math.min(offset, container.childNodes.length)));
-  boundary.collapse(true);
-  let total = 0;
-  for (const node of nodes) {
-    const nodeRange = document.createRange();
-    nodeRange.selectNodeContents(node);
-    if (boundary.compareBoundaryPoints(Range.START_TO_END, nodeRange) >= 0) {
-      total += node.data.length;
-      continue;
-    }
-    if (boundary.compareBoundaryPoints(Range.START_TO_START, nodeRange) <= 0) return total;
-    return total;
-  }
-  return total;
-}
-
 function rangeFromTextOffsets(root: HTMLElement, startOffset: number, endOffset: number, fallbackText?: string): Range | null {
   const nodes = assistantTextNodes(root);
   if (nodes.length === 0) return null;
