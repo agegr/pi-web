@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
@@ -39,6 +40,40 @@ import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-sett
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
+
+// ---------------------------------------------------------------------------
+// Extension filter helpers (exported for direct behavior testing)
+// ---------------------------------------------------------------------------
+
+/** Derive a stable match key from an extension source string. npm sources
+ *  yield the package name (stripping prefix and version); file-path sources
+ *  yield the basename without extension. */
+export function extensionFilterKey(source: string): string {
+  if (source.startsWith("npm:")) {
+    return source.replace(/^npm:/, "").replace(/@[^@]*$/, "");
+  }
+  return basename(source).replace(/\.[^.]+$/, "");
+}
+
+/** Filter an extension list against allow/deny sets using extensionFilterKey.
+ *  For npm sources the key is derived from the package name; for file-path
+ *  and auto-discovered sources the key is the basename without extension,
+ *  extracted from sourceInfo.path (sourceInfo.source is "auto" for all
+ *  auto-discovered extensions and cannot distinguish them). */
+export function filterExtensionsBySource<T extends { sourceInfo?: { source?: string; path?: string } }>(
+  extensions: T[],
+  { allow, deny }: { allow?: string[]; deny?: string[] },
+): T[] {
+  return extensions.filter((ext) => {
+    const source = ext.sourceInfo?.source ?? "";
+    const key = source.startsWith("npm:")
+      ? extensionFilterKey(source)
+      : extensionFilterKey(ext.sourceInfo?.path ?? source);
+    if (allow && !allow.includes(key)) return false;
+    if (deny && deny.includes(key)) return false;
+    return true;
+  });
+}
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -204,15 +239,38 @@ export function createSubagentController(
           : {}),
       });
 
-      const extensionToolNames = profile.loadExtensions
-        ? profile.extensionTools?.length
-          ? selectSubagentExtensionTools(services.resourceLoader.getExtensions().extensions, profile.extensionTools)
-          : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
+      // G3: filter extensions using dispatch-level allow/deny lists, falling
+      // back to profile-level when dispatch params are absent.  The upstream
+      // profile has no extensions/denyExtensions fields, so dispatch params
+      // are the only filter when profile fields are undefined.
+      const allExtensions = profile.loadExtensions
+        ? services.resourceLoader.getExtensions().extensions
         : [];
-      const activeTools = resolveShellTools(
-        withSubagentExtensionTools(profile.tools, extensionToolNames),
+      const effectiveExtensions = request.extensions;
+      const effectiveDenyExtensions = request.denyExtensions;
+      const filteredExtensions = filterExtensionsBySource(allExtensions, {
+        allow: effectiveExtensions,
+        deny: effectiveDenyExtensions,
+      });
+      // Resolve extension tool names from filtered extensions.  When the
+      // profile has ext: selectors, apply them against the filtered set;
+      // otherwise admit all tool names from filtered extensions.
+      const extensionToolNames = profile.extensionTools?.length
+        ? selectSubagentExtensionTools(filteredExtensions, profile.extensionTools)
+        : filteredExtensions.flatMap((extension) => [...extension.tools.keys()]);
+      // G2: when request.tools is present, it replaces profile.tools as the
+      // base tool list.  Extension tool names are merged in via the standard
+      // withSubagentExtensionTools helper (which also filters reserved names).
+      const baseTools = request.tools ?? profile.tools;
+      let activeTools = resolveShellTools(
+        withSubagentExtensionTools(baseTools, extensionToolNames),
         settingsManager.getDefaultTools(),
       );
+      // G2: disallowedTools takes precedence — subtract after merge.
+      if (request.disallowedTools) {
+        const disallowed = new Set(request.disallowedTools);
+        activeTools = activeTools.filter((tool) => !disallowed.has(tool));
+      }
 
       const sessionManager = isolatedWorktree
         ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
@@ -249,7 +307,9 @@ export function createSubagentController(
         model: requestedModel ?? parentModel,
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
         tools: activeTools,
-        excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES],
+        // G3: reserved control names stay unconditionally excluded (re-dispatch
+        // guard); caller-supplied excludeTools are appended.
+        excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES, ...(request.excludeTools ?? [])],
       });
       dependencies.registerSession(inner, {
         ...(promptPlan.exactSystemPrompt !== undefined
