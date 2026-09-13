@@ -8,7 +8,8 @@ test("offers compact quoting controls and sends branch questions through the mai
 
   assert.match(chatSource, /onPointerUp=\{captureQuotedSelection\}/);
   assert.match(chatSource, /closest<HTMLElement>\("\[data-message-role=/);
-  assert.match(chatSource, /chatInputRef\?\.current\?\.insertText\(buildQuotedSelection/);
+  assert.match(chatSource, /chatInputRef\?\.current\?\.addSelectionContext\(\{[\s\S]*?sourceEntryId: quotedSelection\.sourceEntryId/);
+  assert.match(chatSource, /quoteChatInputRef\.current\?\.insertIfEmpty\(buildQuotedSelection/);
   assert.match(chatSource, /onAskInNewChat\([\s\S]*?sourceSessionId,[\s\S]*?quotedSelection\.sourceEntryId/);
   assert.match(shellSource, /type: "fork_branch"/);
   assert.match(shellSource, /initialPrompt=\{pendingQuotePrompt\?\.sessionId === selectedSession\?\.id/);

@@ -295,6 +295,27 @@ test("renders the compact composer with the standard Send button and no session 
   assert.doesNotMatch(html, /type="file"|Attach image|Change tool preset/);
 });
 
+test("renders a quoted context strip without putting the quote into the textarea", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+        initialSelectionContexts: [{ id: "selection-1", text: "A selected assistant passage", label: "Selected text" }],
+      }),
+    ),
+  );
+
+  assert.match(html, /Quoted context/);
+  assert.match(html, /A selected assistant passage/);
+  assert.doesNotMatch(html, /Edit quoted context/);
+  assert.match(html, /Remove quoted context/);
+  assert.match(html, /<textarea[^>]*><\/textarea>/);
+});
+
 test("shows and locks the optimistic model while a switch is pending", () => {
   const html = renderToStaticMarkup(
     React.createElement(

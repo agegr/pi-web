@@ -51,7 +51,7 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
-  assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
+  assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey, contexts, question\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
   assert.doesNotMatch(
     sendSource,
     /rpcPromptPendingRef\.current = false;\s*agentRunningRef\.current = false;\s*closeEvents\(\)/,
@@ -186,7 +186,7 @@ test("existing-session prompts rely on the persisted tool selection", () => {
 
 test("submission recovery updates live refs before a possible session rekey", () => {
   const restoreMethod = chatInputSource.slice(
-    chatInputSource.indexOf("    restoreSubmission(text:"),
+    chatInputSource.indexOf("    restoreSubmission(\n"),
     chatInputSource.indexOf("    insertText(text:"),
   );
 

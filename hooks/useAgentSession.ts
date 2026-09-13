@@ -33,6 +33,7 @@ import {
   streamReducer,
   type ClientAssistantMessageEvent,
 } from "@/lib/streaming-message";
+import type { SelectionContext, SessionReference } from "@/lib/composer-context";
 
 export interface SessionData {
   sessionId: string;
@@ -248,7 +249,14 @@ export interface ChatInputHandle {
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
-  restoreSubmission: (text: string, images?: Array<{ data: string; mimeType: string }>, targetDraftKey?: string) => void;
+  restoreSubmission: (
+    text: string,
+    images?: Array<{ data: string; mimeType: string }>,
+    targetDraftKey?: string,
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
+  ) => void;
 }
 
 export interface AttachedImage {
@@ -430,6 +438,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     text: string,
     images: AttachedImage[] | undefined,
     targetDraftKey: string | undefined,
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
   ) => {
     const draftImages = images?.map(({ data, mimeType }) => ({ data, mimeType }));
     const destinationDraftKey = resolveComposerDraftKey(targetDraftKey);
@@ -440,9 +451,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) return;
     const input = opts.chatInputRef?.current;
     if (input) {
-      input.restoreSubmission(text, draftImages, destinationDraftKey);
+      input.restoreSubmission(text, draftImages, destinationDraftKey, contexts, question, sessionReferences);
     } else if (destinationDraftKey) {
-      restoreDraftSubmission(destinationDraftKey, text, draftImages);
+      restoreDraftSubmission(destinationDraftKey, question ?? text, draftImages, contexts, sessionReferences);
     }
   }, [newSessionDraftKey, opts.chatInputRef, resolveComposerDraftKey]);
 
@@ -1366,11 +1377,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (
+    message: string,
+    images?: AttachedImage[],
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
+  ) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
-      restoreSubmission(message, images, composerDraftKey);
+      if (sessionReferences?.length) {
+        restoreSubmission(message, images, composerDraftKey, contexts, question, sessionReferences);
+      } else {
+        restoreSubmission(message, images, composerDraftKey, contexts, question);
+      }
       return;
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
@@ -1380,7 +1401,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const isExcluded = trimmedMessage.startsWith("!!");
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
       if (!bashCmd) {
-        restoreSubmission(message, images, composerDraftKey);
+        if (sessionReferences?.length) {
+          restoreSubmission(message, images, composerDraftKey, contexts, question, sessionReferences);
+        } else {
+          restoreSubmission(message, images, composerDraftKey, contexts, question);
+        }
         return;
       }
       await executeBashRef.current?.(bashCmd, isExcluded);
@@ -1468,7 +1493,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           : [...prev.slice(0, optimisticIndex), ...prev.slice(optimisticIndex + 1)];
       });
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      restoreSubmission(message, images, composerDraftKey);
+      if (sessionReferences?.length) {
+        restoreSubmission(message, images, composerDraftKey, contexts, question, sessionReferences);
+      } else {
+        restoreSubmission(message, images, composerDraftKey, contexts, question);
+      }
       optimisticUserMessageKeyRef.current = null;
       // Rejection only describes this submission. Another tab or an event we
       // missed may still have a real run active for the same session, so keep
@@ -1803,9 +1832,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
   ) => {
     const sid = sessionIdRef.current;
-    const restore = () => restoreSubmission(message, images, composerDraftKey);
+    const restore = () => restoreSubmission(message, images, composerDraftKey, contexts, question, sessionReferences);
     if (!sid) {
       restore();
       addNotice({ type: "error", message: "No active session for the queued message" });
@@ -1832,20 +1864,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, composerDraftKey, restoreSubmission]);
 
-  const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
-    await sendStreamingPrompt(message, "steer", images);
+  const handleSteer = useCallback(async (
+    message: string,
+    images?: AttachedImage[],
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
+  ) => {
+    await sendStreamingPrompt(message, "steer", images, contexts, question, sessionReferences);
   }, [sendStreamingPrompt]);
 
   const handlePromptWithStreamingBehavior = useCallback(async (
     message: string,
     behavior: "steer" | "followUp",
     images?: AttachedImage[],
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
   ) => {
-    await sendStreamingPrompt(message, behavior, images);
+    await sendStreamingPrompt(message, behavior, images, contexts, question, sessionReferences);
   }, [sendStreamingPrompt]);
 
-  const handleFollowUp = useCallback(async (message: string, images?: AttachedImage[]) => {
-    await sendStreamingPrompt(message, "followUp", images);
+  const handleFollowUp = useCallback(async (
+    message: string,
+    images?: AttachedImage[],
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
+  ) => {
+    await sendStreamingPrompt(message, "followUp", images, contexts, question, sessionReferences);
   }, [sendStreamingPrompt]);
 
   const handleAbortCompaction = useCallback(async () => {

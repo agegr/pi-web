@@ -28,6 +28,15 @@ import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { ComposerContextStrip } from "./ComposerContextStrip";
+import {
+  normalizeSelectionContext,
+  normalizeSessionReference,
+  parseSessionReferenceClipboard,
+  serializeComposerMessage,
+  type SelectionContext,
+  type SessionReference,
+} from "@/lib/composer-context";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -38,11 +47,11 @@ export interface AttachedImage {
 }
 
 interface Props {
-  onSend: (message: string, images?: AttachedImage[]) => void;
+  onSend: (message: string, images?: AttachedImage[], contexts?: SelectionContext[], question?: string, sessionReferences?: SessionReference[]) => void;
   onAbort: () => void;
-  onSteer?: (message: string, images?: AttachedImage[]) => void;
-  onFollowUp?: (message: string, images?: AttachedImage[]) => void;
-  onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
+  onSteer?: (message: string, images?: AttachedImage[], contexts?: SelectionContext[], question?: string, sessionReferences?: SessionReference[]) => void;
+  onFollowUp?: (message: string, images?: AttachedImage[], contexts?: SelectionContext[], question?: string, sessionReferences?: SessionReference[]) => void;
+  onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[], contexts?: SelectionContext[], question?: string, sessionReferences?: SessionReference[]) => void;
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
   compact?: boolean;
@@ -78,6 +87,12 @@ interface Props {
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
   draftKey?: string;
+  /** Initial context items for a focused composer, such as the new-chat quote popover. */
+  initialSelectionContexts?: SelectionContext[];
+  /** Locate the original assistant message for a saved selection context. */
+  onLocateSelectionContext?: (context: SelectionContext) => void;
+  /** Open a referenced historical session when its composer chip is clicked. */
+  onOpenSessionReference?: (reference: SessionReference) => void;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
 }
@@ -88,8 +103,21 @@ export interface ChatInputHandle {
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  addSelectionContext: (context: SelectionContext) => void;
+  removeSelectionContext: (id: string) => void;
+  clearSelectionContexts: () => void;
+  addSessionReference: (reference: SessionReference) => void;
+  removeSessionReference: (id: string) => void;
+  clearSessionReferences: () => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
-  restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
+  restoreSubmission: (
+    text: string,
+    images?: ChatDraftImage[],
+    targetDraftKey?: string,
+    contexts?: SelectionContext[],
+    question?: string,
+    sessionReferences?: SessionReference[],
+  ) => void;
 }
 
 const TOOL_PRESETS = ["chat-only", "read-only", "default", "full"] as const;
@@ -552,18 +580,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
   draftKey,
+  initialSelectionContexts,
+  onLocateSelectionContext,
+  onOpenSessionReference,
   cwd,
   compact = false,
 }: Props, ref) {
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
   const isMobile = useIsMobile();
-  const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
+  const initialDraft = draftKey ? getDraft(draftKey) : null;
+  const [value, setValue] = useState(() => initialDraft?.value ?? "");
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
-    draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
+    draftImagesToAttachedImages(initialDraft?.images)
+  ));
+  const [selectionContexts, setSelectionContexts] = useState<SelectionContext[]>(() => (
+    (initialDraft?.contexts ?? initialSelectionContexts ?? []).flatMap((context) => {
+      const normalized = normalizeSelectionContext(context);
+      return normalized ? [normalized] : [];
+    })
+  ));
+  const [sessionReferences, setSessionReferences] = useState<SessionReference[]>(() => (
+    (initialDraft?.sessionReferences ?? []).flatMap((reference) => {
+      const normalized = normalizeSessionReference(reference);
+      return normalized ? [normalized] : [];
+    })
   ));
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
@@ -608,11 +652,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileIndexMetaRef = useRef<{ cwd: string; fetchedAt: number } | null>(null);
   const fileIndexFetchingRef = useRef<string | null>(null);
   const draftKeyRef = useRef(draftKey);
+  const initialSelectionContextsRef = useRef(initialSelectionContexts);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const selectionContextsRef = useRef(selectionContexts);
+  const sessionReferencesRef = useRef(sessionReferences);
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  selectionContextsRef.current = selectionContexts;
+  sessionReferencesRef.current = sessionReferences;
+  initialSelectionContextsRef.current = initialSelectionContexts;
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -641,6 +691,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setValue(restoredText);
       setAtQuery(null);
       setHistoryMenuOpen(false);
+      selectionContextsRef.current = [];
+      setSelectionContexts([]);
       setAttachedImages((prev) => {
         prev.forEach(revokeImagePreview);
         return restoredImages;
@@ -680,13 +732,35 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const currentDraft = {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        contexts: selectionContextsRef.current,
+        sessionReferences: sessionReferencesRef.current,
       };
-      const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [] };
+      const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [], contexts: [], sessionReferences: [] };
       const unchanged = moved.value === currentDraft.value
         && moved.images.length === currentDraft.images.length
         && moved.images.every((image, index) => (
           image.data === currentDraft.images[index]?.data
           && image.mimeType === currentDraft.images[index]?.mimeType
+        ))
+        && (moved.contexts?.length ?? 0) === currentDraft.contexts.length
+        && (moved.contexts ?? []).every((context, index) => {
+          const current = currentDraft.contexts[index];
+          return current
+            && context.id === current.id
+            && context.text === current.text
+            && context.sourceFilePath === current.sourceFilePath
+            && context.sourceAbsolutePath === current.sourceAbsolutePath
+            && context.sourceSessionId === current.sourceSessionId
+            && context.sourceEntryId === current.sourceEntryId
+            && context.sourceStartOffset === current.sourceStartOffset
+            && context.sourceEndOffset === current.sourceEndOffset
+            && context.label === current.label;
+        })
+        && (moved.sessionReferences?.length ?? 0) === currentDraft.sessionReferences.length
+        && (moved.sessionReferences ?? []).every((reference, index) => (
+          reference.id === currentDraft.sessionReferences[index]?.id
+          && reference.title === currentDraft.sessionReferences[index]?.title
+          && reference.cwd === currentDraft.sessionReferences[index]?.cwd
         ));
       draftKeyRef.current = nextKey;
       if (unchanged) return;
@@ -699,10 +773,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         current.forEach(revokeImagePreview);
         return movedImages;
       });
+      const movedContexts = (moved.contexts ?? []).flatMap((context) => {
+        const normalized = normalizeSelectionContext(context);
+        return normalized ? [normalized] : [];
+      });
+      selectionContextsRef.current = movedContexts;
+      setSelectionContexts(movedContexts);
+      const movedSessionReferences = (moved.sessionReferences ?? []).flatMap((reference) => {
+        const normalized = normalizeSessionReference(reference);
+        return normalized ? [normalized] : [];
+      });
+      sessionReferencesRef.current = movedSessionReferences;
+      setSessionReferences(movedSessionReferences);
       setAtQuery(null);
       setHistoryMenuOpen(false);
     },
-    restoreSubmission(text: string, images?: ChatDraftImage[], targetDraftKey?: string) {
+    restoreSubmission(
+      text: string,
+      images?: ChatDraftImage[],
+      targetDraftKey?: string,
+      contexts?: SelectionContext[],
+      question?: string,
+      submittedSessionReferences?: SessionReference[],
+    ) {
       if (!text.trim() && !images?.length) return;
 
       // clearInput is queued before the submission handler runs. Compose with
@@ -715,12 +808,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ? getDraft(destinationDraftKey)
         : null;
       const restoredDraft = mergeRestoredSubmissionDraft(
-        text,
+        question ?? text,
         images,
         targetsCurrentComposer ? valueRef.current : (storedDraft?.value ?? ""),
         targetsCurrentComposer
           ? attachedImagesRef.current.map(imageToDraftImage)
           : (storedDraft?.images ?? []),
+        contexts,
+        targetsCurrentComposer ? selectionContextsRef.current : storedDraft?.contexts,
+        submittedSessionReferences,
+        targetsCurrentComposer ? sessionReferencesRef.current : storedDraft?.sessionReferences,
       );
       // The first optimistic message switches ChatWindow out of its empty-state
       // layout and remounts this component. Persist synchronously so recovery is
@@ -741,12 +838,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       valueRef.current = restoredDraft.value;
       attachedImagesRef.current = restoredImages;
       setValue((current) => {
-        const restored = mergeRestoredSubmissionText(text, current);
+        const restored = mergeRestoredSubmissionText(question ?? text, current);
         valueRef.current = restored;
         return restored;
       });
       setAtQuery(null);
       setHistoryMenuOpen(false);
+      if (restoredDraft.contexts !== undefined) {
+        const normalizedContexts = restoredDraft.contexts.flatMap((context) => {
+          const normalized = normalizeSelectionContext(context);
+          return normalized ? [normalized] : [];
+        });
+        selectionContextsRef.current = normalizedContexts;
+        setSelectionContexts(normalizedContexts);
+      }
+      if (restoredDraft.sessionReferences !== undefined) {
+        const normalizedReferences = restoredDraft.sessionReferences.flatMap((reference) => {
+          const normalized = normalizeSessionReference(reference);
+          return normalized ? [normalized] : [];
+        });
+        sessionReferencesRef.current = normalizedReferences;
+        setSessionReferences(normalizedReferences);
+      }
       if (images?.length) {
         setAttachedImages((current) => {
           const available = Math.max(0, MAX_ATTACHED_IMAGES - current.length);
@@ -792,6 +905,64 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    addSelectionContext(context: SelectionContext) {
+      const normalized = normalizeSelectionContext(context);
+      if (!normalized) return;
+      setSelectionContexts((current) => {
+        if (current.some((item) => (
+          item.sourceFilePath === normalized.sourceFilePath
+          && item.sourceAbsolutePath === normalized.sourceAbsolutePath
+          && item.sourceStartLine === normalized.sourceStartLine
+          && item.sourceEndLine === normalized.sourceEndLine
+          && item.sourceSessionId === normalized.sourceSessionId
+          && item.sourceEntryId === normalized.sourceEntryId
+          && item.sourceStartOffset === normalized.sourceStartOffset
+          && item.sourceEndOffset === normalized.sourceEndOffset
+          && item.text === normalized.text
+        ))) {
+          return current;
+        }
+        const next = [...current, normalized];
+        selectionContextsRef.current = next;
+        return next;
+      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    removeSelectionContext(id: string) {
+      setSelectionContexts((current) => {
+        const next = current.filter((context) => context.id !== id);
+        selectionContextsRef.current = next;
+        return next;
+      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    clearSelectionContexts() {
+      selectionContextsRef.current = [];
+      setSelectionContexts([]);
+    },
+    addSessionReference(reference: SessionReference) {
+      const normalized = normalizeSessionReference(reference);
+      if (!normalized) return;
+      setSessionReferences((current) => {
+        if (current.some((item) => item.id === normalized.id)) return current;
+        const next = [...current, normalized];
+        sessionReferencesRef.current = next;
+        return next;
+      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    removeSessionReference(id: string) {
+      setSessionReferences((current) => {
+        const next = current.filter((reference) => reference.id !== id);
+        sessionReferencesRef.current = next;
+        return next;
+      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    clearSessionReferences() {
+      sessionReferencesRef.current = [];
+      setSessionReferences([]);
     },
   }));
 
@@ -846,6 +1017,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const clearInput = useCallback(() => {
     valueRef.current = "";
     setValue("");
+    selectionContextsRef.current = [];
+    setSelectionContexts([]);
+    sessionReferencesRef.current = [];
+    setSessionReferences([]);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
@@ -861,8 +1036,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      contexts: selectionContexts,
+      sessionReferences,
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedImages, draftKey, selectionContexts, sessionReferences, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -872,6 +1049,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setDraft(previousDraftKey, {
         value: valueRef.current,
         images: attachedImagesRef.current.map(imageToDraftImage),
+        contexts: selectionContextsRef.current,
+        sessionReferences: sessionReferencesRef.current,
       });
     }
 
@@ -879,9 +1058,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     draftKeyRef.current = draftKey;
     const nextValue = draft?.value ?? "";
     const nextImages = draftImagesToAttachedImages(draft?.images);
+    const nextContexts = (draft?.contexts ?? initialSelectionContextsRef.current ?? []).flatMap((context) => {
+      const normalized = normalizeSelectionContext(context);
+      return normalized ? [normalized] : [];
+    });
+    const nextSessionReferences = (draft?.sessionReferences ?? []).flatMap((reference) => {
+      const normalized = normalizeSessionReference(reference);
+      return normalized ? [normalized] : [];
+    });
     valueRef.current = nextValue;
     attachedImagesRef.current = nextImages;
+    selectionContextsRef.current = nextContexts;
+    sessionReferencesRef.current = nextSessionReferences;
     setValue(nextValue);
+    setSelectionContexts(nextContexts);
+    setSessionReferences(nextSessionReferences);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
@@ -936,15 +1127,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
-    const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    const question = value.trim();
+    if (!question && !attachedImages.length) return;
+    const contexts = selectionContextsRef.current;
+    const references = sessionReferencesRef.current;
+    const msg = serializeComposerMessage(question, contexts, t("chat.quoteIntro"), references);
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || canRunBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
     if (isStreaming) return;
     clearInput();
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+    onSend(msg, attachedImages.length ? attachedImages : undefined, contexts, question, references);
+  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock, t]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1174,8 +1368,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
-    const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    const question = value.trim();
+    if (!question && !attachedImages.length) return;
+    const contexts = selectionContextsRef.current;
+    const references = sessionReferencesRef.current;
+    const msg = serializeComposerMessage(question, contexts, t("chat.quoteIntro"), references);
     onAudioUnlock?.();
     if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
       void runBuiltinCommand(msg);
@@ -1184,16 +1381,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
       clearInput();
-      onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined);
+      onPromptWithStreamingBehavior(msg, streamingBehavior, attachedImages.length ? attachedImages : undefined, contexts, question, references);
       return;
     }
     clearInput();
     if (mode === "steer" && onSteer) {
-      onSteer(msg, attachedImages.length ? attachedImages : undefined);
+      onSteer(msg, attachedImages.length ? attachedImages : undefined, contexts, question, references);
     } else if (mode === "followup" && onFollowUp) {
-      onFollowUp(msg, attachedImages.length ? attachedImages : undefined);
+      onFollowUp(msg, attachedImages.length ? attachedImages : undefined, contexts, question, references);
     }
-  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand, t]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1394,6 +1591,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
+    const sessionReference = parseSessionReferenceClipboard(text);
+    if (sessionReference) {
+      e.preventDefault();
+      const normalized = normalizeSessionReference(sessionReference);
+      if (normalized) {
+        setSessionReferences((current) => {
+          if (current.some((reference) => reference.id === normalized.id)) return current;
+          const next = [...current, normalized];
+          sessionReferencesRef.current = next;
+          return next;
+        });
+      }
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
+    }
     if (!html || !text) return;
     const document = new DOMParser().parseFromString(html, "text/html");
     const links = Array.from(document.querySelectorAll("a[href]"), (link) => {
@@ -1570,7 +1782,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         border: 0,
         background: "transparent",
         padding: compact ? 0 : "0 16px 8px",
-        paddingRight: compact ? 0 : isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
+        paddingRight: compact ? 0 : 16,
         opacity: builtinCommandPending ? 0.5 : 1,
         transition: "opacity 0.15s",
       }}
@@ -1718,6 +1930,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {compactError}
           </div>
         )}
+        <ComposerContextStrip
+          contexts={selectionContexts}
+          sessionReferences={sessionReferences}
+          disabled={builtinCommandPending || isStreaming}
+          onLocate={onLocateSelectionContext}
+          onOpenSessionReference={onOpenSessionReference}
+          onRemove={(id) => {
+            setSelectionContexts((current) => {
+              const next = current.filter((context) => context.id !== id);
+              selectionContextsRef.current = next;
+              return next;
+            });
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }}
+          onRemoveSessionReference={(id) => {
+            setSessionReferences((current) => {
+              const next = current.filter((reference) => reference.id !== id);
+              sessionReferencesRef.current = next;
+              return next;
+            });
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }}
+        />
         {/* Image previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>

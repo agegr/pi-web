@@ -1,0 +1,8 @@
+@supports selector(::highlight(pi-location-highlight)) {
+  ::highlight(pi-location-highlight) {
+    background-color: color-mix(in srgb, var(--accent) 24%, var(--bg));
+    color: var(--text);
+    text-decoration: underline 2px color-mix(in srgb, var(--accent) 72%, transparent);
+    text-underline-offset: 3px;
+  }
+}
