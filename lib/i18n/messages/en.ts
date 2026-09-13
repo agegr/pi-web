@@ -281,6 +281,7 @@ export const enLocale: LocalePlugin = {
     "files.insertPath": "Insert path into chat",
     "files.mention": "mention",
     "files.download": "Download file",
+    "files.edit": "Edit Markdown file",
     "files.dismissError": "Dismiss error",
     "files.addUploadedFile": "Add uploaded file to chat",
     "files.addAllUploadedFiles": "Add all uploaded files to chat",
