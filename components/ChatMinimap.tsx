@@ -23,6 +23,7 @@ interface Props {
 const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
+const MINIMAP_TRIGGER_TAIL = 16;
 const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
@@ -240,6 +241,7 @@ export function ChatMinimap({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
   const [minimapHovered, setMinimapHovered] = useState(false);
+  const [previewPinned, setPreviewPinned] = useState(false);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -542,22 +544,38 @@ export function ChatMinimap({
 
   const schedulePreviewHide = useCallback(() => {
     cancelPreviewHide();
+    if (previewPinned) return;
     previewHideTimerRef.current = setTimeout(() => {
       previewHideTimerRef.current = null;
       setMinimapHovered(false);
       setMouseYRatio(null);
     }, PREVIEW_HIDE_DELAY);
-  }, [cancelPreviewHide]);
+  }, [cancelPreviewHide, previewPinned]);
 
   useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
+
+  const getTriggerBottom = useCallback(() => {
+    const height = containerRef.current?.clientHeight ?? minimapHeight;
+    const lastNode = nodeLayoutRef.current.nodes.at(-1);
+    if (!lastNode || height <= 0) return 0;
+    return Math.min(
+      height,
+      lastNode.topRatio * height + MINIMAP_TRIGGER_TAIL,
+    );
+  }, [minimapHeight]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
 
     draggingRef.current = true;
-    showPreview();
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerRatio = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    const pointerY = event.clientY - rect.top;
+    if (pointerY <= getTriggerBottom()) {
+      showPreview();
+    } else {
+      schedulePreviewHide();
+    }
     setMouseYRatio(pointerRatio);
     const jumpToPointer = (clientY: number, behavior: ScrollBehavior) => {
       const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
@@ -579,7 +597,7 @@ export function ChatMinimap({
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [findNearestNode, scrollToNode, showPreview, visible]);
+  }, [findNearestNode, getTriggerBottom, schedulePreviewHide, scrollToNode, showPreview, visible]);
 
   const nearestNode = mouseYRatio === null ? null : findNearestNode(mouseYRatio);
   const nearestNodeIndex = nearestNode?.index ?? null;
@@ -605,16 +623,32 @@ export function ChatMinimap({
     <div
       ref={containerRef}
       onMouseDown={handleMouseDown}
-      onMouseEnter={showPreview}
+      onMouseEnter={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const pointerY = event.clientY - rect.top;
+        if (pointerY > getTriggerBottom()) return;
+        showPreview();
+        setMouseYRatio(Math.max(0, Math.min(1, pointerY / rect.height)));
+      }}
       onMouseLeave={schedulePreviewHide}
       onMouseMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        setMouseYRatio((event.clientY - rect.top) / rect.height);
+        const pointerY = event.clientY - rect.top;
+        if (!draggingRef.current && pointerY > getTriggerBottom()) {
+          schedulePreviewHide();
+          return;
+        }
+        if (!draggingRef.current) showPreview();
+        setMouseYRatio(Math.max(0, Math.min(1, pointerY / rect.height)));
       }}
       style={{
         width: MINIMAP_WIDTH,
         flexShrink: 0,
         position: "relative",
+        gridColumn: "2",
+        gridRow: "1 / span 2",
+        // Keep preview content above messages but beneath the composer.
+        zIndex: 1,
         cursor: "pointer",
         userSelect: "none",
         borderLeft: "1px solid var(--border)",
@@ -676,71 +710,91 @@ export function ChatMinimap({
 
       {minimapHovered && allNodes.length > 0 && (
         <div
-          ref={previewBoxRef}
           className={styles.preview}
           data-minimap-preview-box=""
+          data-pinned={previewPinned || undefined}
           onMouseEnter={showPreview}
           onMouseDown={(event) => event.stopPropagation()}
           onMouseMove={(event) => event.stopPropagation()}
         >
-          {allNodes.map((node) => {
-            const isLocated = nearestNodeIndex === node.index;
-            return (
-              <div
-                key={node.index}
-                ref={(element) => {
-                  if (element) previewItemRefs.current.set(node.index, element);
-                  else previewItemRefs.current.delete(node.index);
-                }}
-                className={styles.turn}
-                data-minimap-preview-index={node.index}
-                data-located={isLocated ? "true" : undefined}
-              >
-                <span className={styles.number} aria-hidden="true">
-                  {String(node.index + 1).padStart(2, "0")}
-                </span>
-                <div className={styles.content}>
-                  <button
-                    type="button"
-                    className={styles.user}
-                    data-minimap-preview-user={node.index}
-                    onClick={() => {
-                      scrollToNode(node, "smooth");
-                    }}
-                  >
-                    <span className={styles.userText}>
-                      {getUserPreview(node.targetTurn.userMessage)}
-                    </span>
-                  </button>
-
-                  {node.targetTurn.assistantPreviews.map((assistant, assistantIndex) => (
-                    <div
-                      key={assistantIndex}
-                      className={styles.assistant}
+          <button
+            type="button"
+            className={styles.pin}
+            aria-pressed={previewPinned}
+            aria-label={t(previewPinned ? "chatMinimap.unpinPreview" : "chatMinimap.pinPreview")}
+            title={t(previewPinned ? "chatMinimap.unpinPreview" : "chatMinimap.pinPreview")}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setPreviewPinned((pinned) => !pinned);
+              showPreview();
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 4h6l-1 6 3 3v1H7v-1l3-3-1-6Z" />
+              <path d="M12 14v6" />
+            </svg>
+          </button>
+          <div ref={previewBoxRef} className={styles.list}>
+            {allNodes.map((node) => {
+              const isLocated = nearestNodeIndex === node.index;
+              return (
+                <div
+                  key={node.index}
+                  ref={(element) => {
+                    if (element) previewItemRefs.current.set(node.index, element);
+                    else previewItemRefs.current.delete(node.index);
+                  }}
+                  className={styles.turn}
+                  data-minimap-preview-index={node.index}
+                  data-located={isLocated ? "true" : undefined}
+                >
+                  <span className={styles.number} aria-hidden="true">
+                    {String(node.index + 1).padStart(2, "0")}
+                  </span>
+                  <div className={styles.content}>
+                    <button
+                      type="button"
+                      className={styles.user}
+                      data-minimap-preview-user={node.index}
+                      onClick={() => {
+                        scrollToNode(node, "smooth");
+                      }}
                     >
-                      <button
-                        type="button"
-                        className={styles.assistantJump}
-                        data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
-                        onClick={() => scrollToAssistant(node, assistantIndex)}
-                        aria-label={t("chatMinimap.locateAssistant")}
-                        title={t("chatMinimap.locateAssistant")}
+                      <span className={styles.userText}>
+                        {getUserPreview(node.targetTurn.userMessage)}
+                      </span>
+                    </button>
+
+                    {node.targetTurn.assistantPreviews.map((assistant, assistantIndex) => (
+                      <div
+                        key={assistantIndex}
+                        className={styles.assistant}
                       >
-                        A
-                      </button>
-                      <AssistantOutline
-                        markdown={assistant.markdown}
-                        onAnswerClick={() => scrollToAssistant(node, assistantIndex)}
-                        onHeadingClick={(headingIndex) => (
-                          scrollToHeading(node, assistantIndex, headingIndex)
-                        )}
-                      />
-                    </div>
-                  ))}
+                        <button
+                          type="button"
+                          className={styles.assistantJump}
+                          data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
+                          onClick={() => scrollToAssistant(node, assistantIndex)}
+                          aria-label={t("chatMinimap.locateAssistant")}
+                          title={t("chatMinimap.locateAssistant")}
+                        >
+                          A
+                        </button>
+                        <AssistantOutline
+                          markdown={assistant.markdown}
+                          onAnswerClick={() => scrollToAssistant(node, assistantIndex)}
+                          onHeadingClick={(headingIndex) => (
+                            scrollToHeading(node, assistantIndex, headingIndex)
+                          )}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

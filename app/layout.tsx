@@ -6,6 +6,34 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
 
+// A previously installed production worker can cache Turbopack chunks under the
+// same local origin. Run this before Next's client code in development so a
+// preview always represents the files currently being edited.
+const DEV_SERVICE_WORKER_CLEANUP_SCRIPT = `
+(() => {
+  if (!('serviceWorker' in navigator) || !('caches' in window)) return;
+
+  void (async () => {
+    const [registrations, cacheNames] = await Promise.all([
+      navigator.serviceWorker.getRegistrations(),
+      caches.keys(),
+    ]);
+    const piWebCaches = cacheNames.filter((name) => name.startsWith('pi-web-'));
+
+    await Promise.all([
+      ...registrations.map((registration) => registration.unregister()),
+      ...piWebCaches.map((name) => caches.delete(name)),
+    ]);
+
+    if (registrations.length > 0 || piWebCaches.length > 0 || navigator.serviceWorker.controller) {
+      window.location.reload();
+    }
+  })().catch(() => {
+    // A failed best-effort cleanup must not block the development preview.
+  });
+})();
+`;
+
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
   variable: "--font-noto-mono",
@@ -63,6 +91,14 @@ export default function RootLayout({
     <html lang="en" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
       <head>
         <meta name="google" content="notranslate" />
+        <link rel="stylesheet" href="/location-highlight.css" />
+        {process.env.NODE_ENV === "development" && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: DEV_SERVICE_WORKER_CLEANUP_SCRIPT,
+            }}
+          />
+        )}
         <script
           dangerouslySetInnerHTML={{
             __html: THEME_INIT_SCRIPT,

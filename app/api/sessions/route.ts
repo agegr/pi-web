@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonResponse } from "@/lib/json-response";
+import { ensurePiSessionsIndex } from "@/lib/pi-session-index";
 import {
   attachSessionProjectInfo,
   getSessionListVersion,
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
+    ensurePiSessionsIndex();
     const force = new URL(req.url).searchParams.get("force") === "1";
     const persistedSessionsPromise = listAllSessions({ force });
     // Capture before awaiting: mutations during the scan still require a later refresh.

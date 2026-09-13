@@ -6,7 +6,7 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
-import { FileViewer } from "./FileViewer";
+import { FileViewer, type FileLocationTarget, type FileSelectionContext } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -25,8 +25,9 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
-import { getFileName } from "@/lib/file-paths";
-import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
+import { getFileName, joinFilePath, sameFilePath } from "@/lib/file-paths";
+import { getFileExt } from "@/lib/file-types";
+import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
   shouldShowBrowserNotification,
@@ -35,6 +36,15 @@ import {
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import { rekeyDraft } from "@/lib/draft-store";
+import {
+  createSelectionContextId,
+  serializeSessionReferenceClipboard,
+  type SessionReference,
+} from "@/lib/composer-context";
+import {
+  SESSION_ROW_CONTEXT_MENU_EVENT,
+  type SessionRowContextMenuDetail,
+} from "@/lib/session-row-context-menu";
 import {
   clearLastOpen,
   getLastOpenSession,
@@ -85,6 +95,7 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
+  const appShellRef = useRef<HTMLDivElement>(null);
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -169,6 +180,9 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  // The grid tracks never swap. This flag only changes which persistent
+  // surface occupies the main region and the secondary workspace region.
+  const [workspaceSwapped, setWorkspaceSwapped] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
@@ -202,6 +216,7 @@ export function AppShell() {
   const sidebarResizer = useResizablePanel({
     ariaLabel: translate("layout.resizeSidebar"),
     cssVariable: "--sidebar-width",
+    cssVariableMirrorRef: appShellRef,
     defaultWidth: SIDEBAR_DEFAULT_WIDTH,
     getMaxWidth: getResponsiveSidebarMaxWidth,
     growthDirection: "right",
@@ -211,11 +226,13 @@ export function AppShell() {
     widthRef: sidebarWidthRef,
   });
   const rightPanelResizer = useResizablePanel({
-    ariaLabel: translate("layout.resizeFilePanel"),
+    ariaLabel: translate("layout.resizeSecondaryWorkspace"),
     cssVariable: "--right-panel-width",
     defaultWidth: RIGHT_PANEL_FALLBACK_WIDTH,
     getDefaultWidth: getResponsiveRightPanelWidth,
     getMaxWidth: getResponsiveRightPanelMaxWidth,
+    // The secondary workspace is always on the right, even after its content
+    // swaps with the main region.
     growthDirection: "left",
     maxWidth: RIGHT_PANEL_MAX_WIDTH,
     minWidth: RIGHT_PANEL_MIN_WIDTH,
@@ -227,7 +244,12 @@ export function AppShell() {
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   useEffect(() => {
-    if (isMobile) setSidebarOpen(false);
+    if (isMobile) {
+      setSidebarOpen(false);
+      // Phones use a single full-screen secondary workspace, so there is no
+      // desktop-style role swap to preserve at this breakpoint.
+      setWorkspaceSwapped(false);
+    }
   }, [isMobile]);
   useEffect(() => {
     setMobileSidebarReady(true);
@@ -237,8 +259,13 @@ export function AppShell() {
     reclampSidebarWidth();
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
+  // Opening and closing belongs to the fixed secondary-workspace role. The
+  // editor remains visible whenever it has been assigned to the main region.
+  const editorVisible = workspaceSwapped || rightPanelOpen;
+  const secondaryWorkspaceId = workspaceSwapped ? "chat-secondary-workspace" : "file-panel";
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
+  const [pendingNewSessionPrompt, setPendingNewSessionPrompt] = useState<{ draftId: string; cwd: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
@@ -290,6 +317,8 @@ export function AppShell() {
   }, []);
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sessionContextMenu, setSessionContextMenu] = useState<SessionRowContextMenuDetail | null>(null);
+  const sessionContextMenuRef = useRef<HTMLDivElement>(null);
   const handleCopySessionField = useCallback((field: SessionCopyField, value: string) => {
     void copyText(value).then(() => {
       if (sessionCopyTimerRef.current) clearTimeout(sessionCopyTimerRef.current);
@@ -386,6 +415,11 @@ export function AppShell() {
     setRightPanelOpen((open) => !open);
   }, [isMobile]);
 
+  const handleWorkspacePositionToggle = useCallback(() => {
+    if (isMobile) return;
+    setWorkspaceSwapped((swapped) => !swapped);
+  }, [isMobile]);
+
   useEffect(() => {
     if (!mobileToolbarMoreOpen) return;
 
@@ -436,6 +470,7 @@ export function AppShell() {
   // Files unmount when inactive; workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  const [pendingFileLocation, setPendingFileLocation] = useState<FileLocationTarget | null>(null);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [terminalsRestored, setTerminalsRestored] = useState(false);
   const panelTabs: Tab[] = [...fileTabs, ...terminalTabs.map((tab) => ({
@@ -477,6 +512,54 @@ export function AppShell() {
     setFileTabs((prev) => saveFileViewerState(prev, tabId, viewerRevision, viewerState));
   }, []);
 
+  useEffect(() => {
+    const handleSessionContextMenu = (event: CustomEvent<SessionRowContextMenuDetail>) => {
+      event.preventDefault();
+      setSessionContextMenu(event.detail);
+    };
+    window.addEventListener(SESSION_ROW_CONTEXT_MENU_EVENT, handleSessionContextMenu as EventListener);
+    return () => window.removeEventListener(SESSION_ROW_CONTEXT_MENU_EVENT, handleSessionContextMenu as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionContextMenu) return;
+    const close = (event?: Event) => {
+      if (event && sessionContextMenuRef.current?.contains(event.target as Node)) return;
+      setSessionContextMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
+    };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [sessionContextMenu]);
+
+  const copySessionReference = useCallback(async (detail: SessionRowContextMenuDetail) => {
+    const reference: SessionReference = {
+      id: detail.id,
+      title: detail.name || detail.id.slice(0, 12),
+      cwd: detail.cwd,
+    };
+    const text = serializeSessionReferenceClipboard(reference);
+    if (!text) return;
+    await copyText(text);
+    setSessionContextMenu(null);
+  }, []);
+
+  const handleFileLocationHandled = useCallback((target: FileLocationTarget) => {
+    setPendingFileLocation((current) => current === target ? null : current);
+  }, []);
+
+  const handleFileLocationFailed = useCallback((target: FileLocationTarget) => {
+    setPendingFileLocation((current) => current === target ? null : current);
+  }, []);
+
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
@@ -490,8 +573,17 @@ export function AppShell() {
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [isMobile]);
 
-  const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number) => {
-    chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
+  const handleFileLineMention = useCallback((selection: FileSelectionContext) => {
+    chatInputRef.current?.addSelectionContext({
+      id: createSelectionContextId(),
+      text: selection.text,
+      sourceFilePath: selection.relativePath,
+      sourceAbsolutePath: selection.filePath,
+      sourceStartLine: selection.startLine,
+      sourceEndLine: selection.endLine,
+      sourceLanguage: selection.language,
+      sourceSessionId: selection.sourceSessionId ?? undefined,
+    });
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [isMobile]);
 
@@ -670,14 +762,14 @@ export function AppShell() {
       setFileTabs([]);
       if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
         setActiveFileTabId(null);
-        setRightPanelOpen(false);
+        if (!workspaceSwapped) setRightPanelOpen(false);
       }
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
       restoreWorkspaceContext(newProject, cwd);
     }
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
-  }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
+  }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext, workspaceSwapped]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
@@ -694,7 +786,7 @@ export function AppShell() {
       setFileTabs([]);
       if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
         setActiveFileTabId(null);
-        setRightPanelOpen(false);
+        if (!workspaceSwapped) setRightPanelOpen(false);
       }
       setActiveTopPanel(null);
     }
@@ -733,7 +825,7 @@ export function AppShell() {
     if (!isRestore) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
+  }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession, workspaceSwapped]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
@@ -942,6 +1034,14 @@ export function AppShell() {
     handleSessionForked(result.newSessionId);
   }, [handleSessionForked, translate]);
 
+  const handleFileSelectionInNewChat = useCallback(async (prompt: string) => {
+    const cwd = selectedSession?.cwd ?? activeCwd;
+    if (!cwd) throw new Error("当前工作区不可用，无法创建新对话。");
+    const draftId = `file-selection-${createSelectionContextId()}`;
+    setPendingNewSessionPrompt({ draftId, cwd, text: prompt });
+    handleNewSession(draftId, cwd);
+  }, [activeCwd, handleNewSession, selectedSession?.cwd]);
+
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
   }, []);
@@ -972,11 +1072,12 @@ export function AppShell() {
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
-    options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+    options?: { sourceSessionId?: string | null; modeHint?: "preview" | "diff"; locationTarget?: Omit<FileLocationTarget, "filePath"> },
   ) => {
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;
+    setPendingFileLocation(options?.locationTarget ? { filePath, ...options.locationTarget } : null);
     setFileTabs((prev) => openFileTab(prev, {
       fileName,
       filePath,
@@ -985,30 +1086,41 @@ export function AppShell() {
       tabId,
     }));
     setActiveFileTabId(tabId);
-    setRightPanelOpen(true);
+    // When the editor is the main region, opening a file should not also
+    // reveal the secondary chat workspace.
+    if (!workspaceSwapped) setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
+  }, [isMobile, workspaceSwapped]);
 
-  const handleOpenLinkedFile = useCallback((filePath: string) => {
-    handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
-  }, [handleOpenFile, selectedSession?.id]);
+  const handleOpenLinkedFile = useCallback((filePath: string, locationTarget?: Omit<FileLocationTarget, "filePath">) => {
+    const baseCwd = selectedSession?.cwd ?? activeCwd;
+    const absolutePath = baseCwd && !/^(?:[a-zA-Z]:[\\/]|\\\\|\/)/.test(filePath)
+      ? joinFilePath(baseCwd, filePath)
+      : filePath;
+    const sourceSessionId = locationTarget?.sourceSessionId ?? selectedSession?.id ?? null;
+    handleOpenFile(absolutePath, getFileName(absolutePath), {
+      sourceSessionId,
+      modeHint: locationTarget && getFileExt(absolutePath) === "md" ? "preview" : undefined,
+      locationTarget,
+    });
+  }, [activeCwd, handleOpenFile, selectedSession?.cwd, selectedSession?.id]);
 
   const handleOpenTerminal = useCallback((cwd: string) => {
     const existing = terminalTabs.find((tab) => tab.cwd === cwd);
     const tab = existing ?? newTerminalTab(cwd);
     if (!existing) setTerminalTabs((tabs) => [...tabs, tab]);
     setActiveFileTabId(tab.id);
-    setRightPanelOpen(true);
+    if (!workspaceSwapped) setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
-  }, [terminalTabs, isMobile]);
+  }, [terminalTabs, isMobile, workspaceSwapped]);
 
   const handleTerminalClosed = (tab: TerminalTab) => {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
     setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? null);
-    if (!replacement && !remaining.length && !fileTabs.length) setRightPanelOpen(false);
+    if (!workspaceSwapped && !replacement && !remaining.length && !fileTabs.length) setRightPanelOpen(false);
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
@@ -1018,7 +1130,7 @@ export function AppShell() {
     }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0) setRightPanelOpen(false);
+      if (!workspaceSwapped && next.length === 0 && terminalTabs.length === 0) setRightPanelOpen(false);
       return next;
     });
     setActiveFileTabId((cur) => {
@@ -1026,7 +1138,7 @@ export function AppShell() {
       const remaining = fileTabs.filter((t) => t.id !== tabId);
       return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? null;
     });
-  }, [fileTabs, terminalTabs]);
+  }, [fileTabs, terminalTabs, workspaceSwapped]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1696,33 +1808,88 @@ export function AppShell() {
     );
   };
 
+  const renderSidebarToggle = (mobile: boolean) => (
+    <button
+      type="button"
+      onClick={handleSidebarToggle}
+      className={mobile ? undefined : "desktop-sidebar-toggle"}
+      aria-controls="session-sidebar"
+      aria-expanded={sidebarOpen}
+      title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+      aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
+      style={{
+        position: mobile ? "relative" : "absolute",
+        top: mobile ? undefined : 0,
+        // The sidebar resizer writes this inherited variable on every pointer
+        // move. Reading it here keeps the boundary button in lockstep instead
+        // of waiting for React to commit the final width on pointer-up.
+        left: mobile ? undefined : sidebarOpen ? "var(--sidebar-width)" : "0px",
+        zIndex: mobile ? undefined : 230,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+        background: "var(--bg-panel)", border: "none", borderRight: "1px solid var(--border)",
+        color: "var(--text-muted)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
+    >
+      {sidebarOpen ? (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+        </svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      )}
+    </button>
+  );
+
   const renderMainFileToggle = (mobile: boolean) => {
     const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
+    const label = mobile
+      ? rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")
+      : rightPanelOpen ? translate("layout.hideSecondaryWorkspace") : translate("layout.showSecondaryWorkspace");
     return (
       <button
         type="button"
         onClick={handleRightPanelToggle}
+        className={mobile ? undefined : "desktop-secondary-workspace-toggle"}
         disabled={covered}
         tabIndex={covered ? -1 : undefined}
-        aria-controls="file-panel"
+        aria-controls={mobile ? "file-panel" : secondaryWorkspaceId}
         aria-expanded={rightPanelOpen}
         aria-hidden={covered ? true : undefined}
-        title={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
-        aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
+        title={label}
+        aria-label={label}
         data-mobile-toolbar-file={mobile ? "true" : undefined}
         style={{
-          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
+          position: mobile ? "relative" : "absolute",
+          top: mobile ? undefined : 0,
+          // The resizer writes this CSS variable on every pointer move, while
+          // React state is intentionally committed only when dragging ends.
+          // Reading the variable here keeps the divider control in lockstep.
+          // When the secondary region is collapsed, the role-switch control
+          // is absent, so this is the only remaining desktop control.
+          right: mobile ? undefined : rightPanelOpen
+            ? "var(--right-panel-width)"
+            : "0px",
+          zIndex: mobile ? undefined : 260,
+          marginLeft: 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
           pointerEvents: covered ? "none" : "auto",
-          background: rightPanelOpen ? "var(--bg-selected)" : "none",
+          // Keep the boundary control on the same light surface as the
+          // header. The open state is conveyed by the accent color instead
+          // of a heavy selected background.
+          background: rightPanelOpen ? "var(--bg-panel)" : "none",
           border: "none", borderLeft: "1px solid var(--border)",
-          color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+          color: rightPanelOpen ? "var(--accent)" : "var(--text-muted)",
           cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
         }}
         onMouseEnter={(event) => { if (!covered) event.currentTarget.style.color = "var(--text)"; }}
-        onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+        onMouseLeave={(event) => { event.currentTarget.style.color = rightPanelOpen ? "var(--accent)" : "var(--text-muted)"; }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
@@ -1730,6 +1897,36 @@ export function AppShell() {
       </button>
     );
   };
+
+  const renderWorkspaceRoleToggle = () => (
+    <button
+      type="button"
+      onClick={handleWorkspacePositionToggle}
+      className="desktop-workspace-role-toggle"
+      aria-pressed={workspaceSwapped}
+      data-layout-switch="workspace-chat"
+      title={translate("layout.switchChatWorkspace")}
+      aria-label={translate("layout.switchChatWorkspace")}
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        zIndex: 261,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+        background: workspaceSwapped ? "var(--bg-selected)" : "var(--bg-panel)",
+        border: "none", borderLeft: "1px solid var(--border)",
+        color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+      }}
+      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
+      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M7 7h12" /><polyline points="15 3 19 7 15 11" />
+        <path d="M17 17H5" /><polyline points="9 13 5 17 9 21" />
+      </svg>
+    </button>
+  );
 
   return (
     <>
@@ -1817,15 +2014,17 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
+    <div ref={appShellRef} className="app-shell-layout" style={{
+      position: "relative",
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
+      "--sidebar-width": `${sidebarResizer.width}px`,
       paddingLeft: "env(safe-area-inset-left)",
       paddingRight: "env(safe-area-inset-right)",
       overflow: "hidden",
       background: "var(--bg)",
-    }}>
+    } as React.CSSProperties}>
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -1869,13 +2068,36 @@ export function AppShell() {
           title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
         />
       )}
+      {!isMobile && renderSidebarToggle(false)}
 
-      {/* Center: chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+       <div
+         ref={rightPanelResizer.panelRef}
+         className={`main-panels${workspaceSwapped ? " workspace-swapped" : ""}${rightPanelOpen ? " workspace-panel-open" : " workspace-panel-closed"}${rightPanelResizer.isResizing ? " main-panels-resizing" : ""}`}
+         style={{
+           "--right-panel-width": `${rightPanelResizer.width}px`,
+           // The sidebar control is deliberately outside the workspace header.
+           // Reserve its hit-target width inside whichever surface is currently
+           // in the main region, so the control never covers its first action.
+           "--main-workspace-header-leading-inset": `${TOP_BAR_ICON_BUTTON_SIZE}px`,
+           // The right-edge role control is independent of both content
+           // surfaces, so keep it out of the last header action as well.
+           "--main-workspace-header-trailing-inset": `${TOP_BAR_ICON_BUTTON_SIZE}px`,
+         } as React.CSSProperties}
+       >
+       {!isMobile && renderMainFileToggle(false)}
+       {!isMobile && rightPanelOpen && renderWorkspaceRoleToggle()}
+       {/* Chat slot */}
+       <div
+        id={workspaceSwapped ? "chat-secondary-workspace" : undefined}
+        aria-hidden={workspaceSwapped && !rightPanelOpen ? true : undefined}
+        inert={workspaceSwapped && !rightPanelOpen ? true : undefined}
+        className={`chat-slot${workspaceSwapped ? ` secondary-workspace${rightPanelOpen ? " secondary-workspace-open" : " secondary-workspace-closed"}` : " main-workspace"}`}
+        style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}
+       >
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
-          <button
+        <div className="main-workspace-header" style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+          {isMobile && <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
              aria-label={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -1897,7 +2119,7 @@ export function AppShell() {
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             )}
-          </button>
+          </button>}
           {isMobile && (
             <div
               ref={mobileToolbarRef}
@@ -1977,7 +2199,6 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
-          {!isMobile && renderMainFileToggle(false)}
           {isMobile && sessionHasBranches && (
             <BranchNavigator
               tree={branchTree}
@@ -2269,8 +2490,12 @@ export function AppShell() {
               onOpenSession={handleOpenSession}
               onAskInNewChat={handleAskInNewChat}
               quoteSelectionEnabled={quoteSelectionEnabled}
-              initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
-              onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
+              initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id
+                ? pendingQuotePrompt?.text
+                : pendingNewSessionPrompt?.draftId === newSessionDraftId && pendingNewSessionPrompt.cwd === effectiveNewSessionCwd
+                  ? pendingNewSessionPrompt.text
+                  : undefined}
+              onInitialPromptConsumed={() => { setPendingQuotePrompt(null); setPendingNewSessionPrompt(null); }}
               soundEnabled={soundEnabled}
               onSoundToggle={onSoundToggle}
               playDoneSound={playDoneSound}
@@ -2328,28 +2553,27 @@ export function AppShell() {
       {rightPanelOpen && (
         <div
           {...rightPanelResizer.separatorProps}
-          aria-controls="file-panel"
+          aria-controls={secondaryWorkspaceId}
           className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="right-panel"
-          title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
+          title={`${translate("layout.resizeSecondaryWorkspace")}: ${translate("layout.resizeHint")}`}
         />
       )}
 
       {/* Right panel: file viewer — always mounted, width animated via CSS */}
       <div
-        ref={rightPanelResizer.panelRef}
         id="file-panel"
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
+        aria-hidden={!workspaceSwapped && !rightPanelOpen ? true : undefined}
+        inert={!workspaceSwapped && !rightPanelOpen ? true : undefined}
+        className={`right-panel-container workspace-slot${workspaceSwapped ? " main-workspace" : ` secondary-workspace${rightPanelOpen ? " secondary-workspace-open" : " secondary-workspace-closed"}`}${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
         style={{
-          "--right-panel-width": `${rightPanelResizer.width}px`,
           display: "flex",
           flexDirection: "column",
-          borderLeft: "1px solid var(--border)",
           background: "var(--bg)",
         } as React.CSSProperties}
       >
         {/* Right panel tab bar */}
-        <div style={{
+        <div className="main-workspace-header" style={{
           display: "flex",
           alignItems: "center",
           flexShrink: 0,
@@ -2366,26 +2590,28 @@ export function AppShell() {
               onCloseTab={handleCloseFileTab}
             />
           </div>
-          <button
-            type="button"
-            onClick={() => setRightPanelOpen(false)}
-            aria-controls="file-panel"
-            aria-expanded={rightPanelOpen}
-            title={translate("files.hidePanel")}
-            aria-label={translate("files.hidePanel")}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-              background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
-              color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-            }}
-            onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
-            </svg>
-          </button>
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => setRightPanelOpen(false)}
+              aria-controls="file-panel"
+              aria-expanded={rightPanelOpen}
+              title={translate("files.hidePanel")}
+              aria-label={translate("files.hidePanel")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+                background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
+                color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+              }}
+              onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
@@ -2396,16 +2622,22 @@ export function AppShell() {
               filePath={activeFileTab.filePath}
               cwd={activeCwd ?? undefined}
               sourceSessionId={activeFileTab.sourceSessionId}
+              locationTarget={pendingFileLocation && sameFilePath(pendingFileLocation.filePath, activeFileTab.filePath)
+                ? pendingFileLocation
+                : null}
+              onLocationHandled={handleFileLocationHandled}
+              onLocationFailed={handleFileLocationFailed}
               gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}
               initialState={activeFileTab.viewerState}
-              watchEnabled={rightPanelOpen}
+              watchEnabled={editorVisible}
               onStateChange={(viewerState) => handleFileViewerStateChange(
                 activeFileTab.id,
                 activeFileTab.viewerRevision ?? 0,
                 viewerState,
               )}
-              onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+              onMentionLines={editorVisible ? handleFileLineMention : undefined}
+              onAskInNewChat={editorVisible ? handleFileSelectionInNewChat : undefined}
               onAtMention={handleAtMention}
               onOpenFile={(filePath) => handleOpenFile(
                 filePath,
@@ -2422,7 +2654,7 @@ export function AppShell() {
             <div key={tab.id} hidden={tab.id !== activeFileTabId} style={{ width: "100%", height: "100%" }}>
               <TerminalPanel
                 tab={tab}
-                active={rightPanelOpen && tab.id === activeFileTabId}
+                active={editorVisible && tab.id === activeFileTabId}
                 onRestart={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: "restart" } : item))}
                 onClosed={() => handleTerminalClosed(tab)}
                 onCloseError={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: undefined } : item))}
@@ -2431,7 +2663,56 @@ export function AppShell() {
           ))}
         </div>
       </div>
+      </div>
     </div>
+    {sessionContextMenu && (
+      <div
+        ref={sessionContextMenuRef}
+        role="menu"
+        onContextMenu={(event) => event.preventDefault()}
+        style={{
+          position: "fixed",
+          zIndex: 300,
+          top: Math.min(sessionContextMenu.clientY, Math.max(8, (typeof window !== "undefined" ? window.innerHeight : 800) - 64)),
+          left: Math.min(sessionContextMenu.clientX, Math.max(8, (typeof window !== "undefined" ? window.innerWidth : 1200) - 180)),
+          minWidth: 150,
+          padding: 4,
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          background: "var(--bg-panel)",
+          boxShadow: "0 10px 28px rgba(0,0,0,0.22)",
+        }}
+      >
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => void copySessionReference(sessionContextMenu)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: "100%",
+            minHeight: 34,
+            padding: "0 9px",
+            border: "none",
+            borderRadius: 5,
+            background: "transparent",
+            color: "var(--text)",
+            cursor: "pointer",
+            textAlign: "left",
+            fontSize: 12,
+          }}
+          onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(event) => { event.currentTarget.style.background = "transparent"; }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          <span>{translate("session.copyReference")}</span>
+        </button>
+      </div>
+    )}
     {settingsSection && (
       <SettingsPanel
         cwd={projectTrustCwd}

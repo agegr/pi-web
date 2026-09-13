@@ -13,12 +13,19 @@ const { clampChatContentWidth, clampChatContentFontSize } = await jiti.import(".
 
 const widthVariable = /var\(--chat-content-max-width, 820px\)/g;
 
-test("chat content keeps the existing 820px default behind one shared variable", () => {
+test("chat content uses its own adjustable width variable", () => {
   assert.equal((chatWindow.match(widthVariable) ?? []).length, 2);
   assert.equal((chatInput.match(widthVariable) ?? []).length, 1);
   assert.match(globals, /--chat-content-max-width: 820px;/);
   assert.doesNotMatch(chatWindow, /max-w-\[820px\]|maxWidth: 820/);
   assert.doesNotMatch(chatInput, /maxWidth: 820/);
+});
+
+test("Markdown reading and editing keep an independent fixed 900px measure", () => {
+  assert.match(globals, /--readable-content-max-width: 900px;/);
+  assert.match(chatAppearanceHook, /--chat-content-max-width/);
+  assert.doesNotMatch(chatAppearanceHook, /setProperty\("--readable-content-max-width"/);
+  assert.match(globals, /\.markdown-readable-column[\s\S]*var\(--readable-content-max-width, 900px\)/);
 });
 
 test("General chat settings own the chat width preference", () => {

@@ -23,6 +23,7 @@ interface DragState {
 interface UseResizablePanelOptions {
   ariaLabel: string;
   cssVariable: `--${string}`;
+  cssVariableMirrorRef?: MutableRefObject<HTMLElement | null>;
   defaultWidth: number;
   getDefaultWidth?: () => number;
   getMaxWidth: () => number;
@@ -61,6 +62,7 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
   const {
     ariaLabel,
     cssVariable,
+    cssVariableMirrorRef,
     defaultWidth,
     getDefaultWidth,
     getMaxWidth,
@@ -91,7 +93,8 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
   const applyLiveWidth = useCallback((nextWidth: number) => {
     widthRef.current = nextWidth;
     panelRef.current?.style.setProperty(cssVariable, `${nextWidth}px`);
-  }, [cssVariable, widthRef]);
+    cssVariableMirrorRef?.current?.style.setProperty(cssVariable, `${nextWidth}px`);
+  }, [cssVariable, cssVariableMirrorRef, widthRef]);
 
   const commitWidth = useCallback((candidate: number, commitOptions: CommitOptions = {}) => {
     const { forcePersist = false, persist = true } = commitOptions;

@@ -5,17 +5,63 @@
   right: 100%;
   z-index: 100;
   width: 320px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
   background: var(--bg);
   border-left: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   box-shadow: -10px 0 26px rgba(0, 0, 0, 0.07);
   pointer-events: auto;
   cursor: default;
   user-select: text;
+}
+
+.pin {
+  position: relative;
+  flex: 0 0 36px;
+  z-index: 3;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 5px 6px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: 0 3px 5px var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pin:hover,
+.pin:focus-visible,
+.preview[data-pinned] .pin {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--bg-selected);
+  color: var(--accent);
+}
+
+.list {
+  position: relative;
+  z-index: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.pin:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .turn {
