@@ -83,8 +83,6 @@ export interface SubagentDispatchHandle {
 export interface DispatchRuntimeDeps {
   /** Return the in-process SubagentController. */
   getController(): SubagentController;
-  /** Read the current subagent settings (maxConcurrentSubagents, etc.). */
-  readSettings(): { maxConcurrentSubagents?: number };
   /** Return the parent session's live model/thinking state. */
   getParentState(): { model?: string; thinking?: string | null };
   /**

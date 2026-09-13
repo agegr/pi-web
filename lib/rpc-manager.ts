@@ -40,7 +40,7 @@ import {
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { registerDispatchRuntime } from "./subagent-dispatch";
-import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
+import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import {
@@ -1719,13 +1719,6 @@ const SUBAGENT_CONTROLLER = createSubagentController({
 // Hot-reload safe: globalThis survives Next.js HMR; re-registration overwrites.
 registerDispatchRuntime({
   getController: () => SUBAGENT_CONTROLLER,
-  readSettings: () => {
-    try {
-      return readSubagentSettings();
-    } catch {
-      return {};
-    }
-  },
   getParentState: () => ({}),
   getParentContext: (parentSessionId) => {
     const wrapper = getRegistry().get(parentSessionId);
