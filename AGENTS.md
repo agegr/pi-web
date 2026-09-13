@@ -85,6 +85,7 @@ lib/
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
+  subagent-dispatch.ts  programmatic subagent dispatch API (globalThis.__piSubagentDispatch)
   subagent-settings.ts  read/write ~/.pi/agent/agents/settings.json
   tool-presets.ts     PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
   tool-preset-preference.ts  browser-persisted default for fresh sessions
@@ -183,6 +184,10 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
 - `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
+
+### Programmatic subagent dispatch API
+
+`globalThis.__piSubagentDispatch.startSubagentDispatch(parentSessionId, params)` lets extensions dispatch subagents without a tool call; the registry survives hot reload. Per-dispatch params override the profile for tools, disallowed tools, extension allow/deny lists, and `persistSession` — with `persistSession: false` the child runs fully in memory and its audit trail is routed to the parent session. Concurrency stays with the upstream SubagentQueue.
 
 ### Built-in subagents
 - The global `builtInEnabled` switch is persisted in `~/.pi/agent/agents/settings.json` and defaults to `false` when the file or field is absent. Malformed settings fail closed; atomic updates preserve unknown fields.
