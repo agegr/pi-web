@@ -1,6 +1,6 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +59,7 @@ export async function GET(
 
   const stream = new ReadableStream({
     async start(controller) {
-      const modelRuntime = await ModelRuntime.create();
+      const modelRuntime = await createModelRuntimeWithExtensions();
       if (!modelRuntime.getProvider(provider)?.auth.oauth) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
         controller.close();
