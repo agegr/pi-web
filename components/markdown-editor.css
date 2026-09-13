@@ -1,0 +1,21 @@
+/* Editing behavior only. Typography, colors and spacing remain the file preview's. */
+.markdown-editable { width: min(100%, var(--readable-content-max-width, 900px)); max-width: var(--readable-content-max-width, 900px); min-width: 0; margin-inline: auto; box-sizing: border-box; padding: 24px 32px; outline: none; white-space: pre-wrap; overflow-wrap: break-word; flex: 1; }
+.markdown-editable [contenteditable="false"] { white-space: normal; }
+.markdown-editable .ProseMirror-selectednode { outline: 1px solid var(--border); }
+.markdown-editable > .location-highlight,
+.markdown-editable > .file-location-highlight {
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 34%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 34%, transparent),
+    0 5px 14px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.markdown-editable .ProseMirror-trailingBreak { display: initial; }
+.markdown-editable .ProseMirror-separator { display: inline; border: none; margin: 0; width: 0; height: 0; }
+.markdown-complex-source { white-space: pre-wrap; }
+.markdown-complex-block [hidden] { display: none; }
+.markdown-sync-notice { position: sticky; top: 0; z-index: 2; padding: 8px 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.markdown-sync-notice button { margin: 0 8px; color: var(--accent); cursor: pointer; }
+.markdown-sync-notice summary { cursor: pointer; }
+.markdown-conflict { padding: 8px 0; }
+.markdown-conflict pre { white-space: pre-wrap; max-height: 160px; overflow: auto; }

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 import {
   Prism as SyntaxHighlighter,
   createElement as renderSyntaxNode,
@@ -8,22 +10,23 @@ import {
 } from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   DOCX_PREVIEW_MAX_BYTES,
   getFileExt,
+  isEditableTextPath,
   isAudioPath,
   isDocumentPreviewPath,
   isImagePath,
   isVideoPath,
 } from "@/lib/file-types";
-import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
-import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
-import { parseFrontmatter } from "@/lib/frontmatter";
-import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
-import { CodeBlock, MermaidBlock } from "./MermaidBlock";
-import { FrontmatterCard } from "./FrontmatterCard";
+import { encodeFilePathForApi, getFileName, getRelativeFilePath, sameFilePath } from "@/lib/file-paths";
+import { buildFileLineMentionText } from "@/lib/file-fuzzy";
+import { clearLocationTextHighlight, LOCATION_HIGHLIGHT_CLASS } from "@/lib/location-highlight";
+import { MarkdownFilePreview } from "./MarkdownFilePreview";
+import type { MarkdownEditorLocationApi, MarkdownEditorSelection } from "./MarkdownFileEditor";
+import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -35,12 +38,27 @@ import {
 
 export type { FileViewerState } from "@/lib/file-viewer-state";
 
+export interface FileLocationTarget {
+  filePath: string;
+  sourceSessionId?: string | null;
+  startLine?: number;
+  endLine?: number;
+  text: string;
+}
+
+const MarkdownFileEditor = dynamic(() => import("./MarkdownFileEditor"), { ssr: false });
+const CodeFileEditor = dynamic(() => import("./CodeFileEditor"), { ssr: false });
+
 interface Props {
   filePath: string;
   cwd?: string;
   sourceSessionId?: string | null;
   onOpenFile?: (filePath: string) => void;
-  onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
+  locationTarget?: FileLocationTarget | null;
+  onLocationHandled?: (target: FileLocationTarget) => void;
+  onLocationFailed?: (target: FileLocationTarget) => void;
+  onMentionLines?: (selection: FileSelectionContext) => void;
+  onAskInNewChat?: (prompt: string) => Promise<void>;
   /** Insert this file's relative path into the chat input (@ mention). */
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   gitRefreshKey?: number;
@@ -56,6 +74,7 @@ interface FileData {
   size: number;
   nextOffset: number;
   truncated: boolean;
+  editable?: boolean;
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
@@ -96,6 +115,22 @@ type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["re
 interface SelectedLineRange {
   startLine: number;
   endLine: number;
+}
+
+interface PendingFileSelection extends SelectedLineRange {
+  text: string;
+  top: number;
+  left: number;
+}
+
+export interface FileSelectionContext {
+  relativePath: string;
+  filePath: string;
+  sourceSessionId?: string | null;
+  text: string;
+  startLine: number;
+  endLine: number;
+  language?: string;
 }
 
 function MentionIcon() {
@@ -163,6 +198,118 @@ function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | nu
 
   if (startLine > endLine) return null;
   return { startLine, endLine };
+}
+
+function closestMarkdownSourceRange(node: Node): HTMLElement | null {
+  const element = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement;
+  return element?.closest<HTMLElement>("[data-source-start-line][data-source-end-line]") ?? null;
+}
+
+function getSelectedMarkdownLineRange(root: HTMLElement, selection: Selection | null): SelectedLineRange | null {
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  const startElement = closestMarkdownSourceRange(range.startContainer);
+  const endElement = closestMarkdownSourceRange(range.endContainer);
+  const startLine = Number(startElement?.dataset.sourceStartLine);
+  const endLine = Number(endElement?.dataset.sourceEndLine);
+  return Number.isInteger(startLine) && Number.isInteger(endLine) && startLine > 0 && endLine >= startLine
+    ? { startLine, endLine }
+    : null;
+}
+
+interface LocationTextPoint {
+  node: Text;
+  offset: number;
+}
+
+function normalizeLocationText(value: string) {
+  return value.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Find a rendered-text range without relying on Markdown punctuation or the
+ * source line breaks that the preview renderer intentionally removes. The
+ * returned range is used for scrolling only; it never changes the user's
+ * native selection.
+ */
+function findLocationTextRangeInRoots(roots: readonly Node[], text: string): Range | null {
+  const target = normalizeLocationText(text);
+  if (!target) return null;
+
+  const points: LocationTextPoint[] = [];
+  let normalized = "";
+  let hasContent = false;
+  for (const root of roots) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        return parent?.closest("[hidden]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const textNodes: Text[] = [];
+    let node = walker.nextNode() as Text | null;
+    while (node) {
+      if (node.nodeValue) textNodes.push(node);
+      node = walker.nextNode() as Text | null;
+    }
+    if (textNodes.length === 0) continue;
+
+    // Treat adjacent source blocks as a whitespace boundary so a selection
+    // spanning two paragraphs can still be located as one rendered range.
+    if (hasContent && normalized && normalized.at(-1) !== " ") {
+      normalized += " ";
+      points.push({ node: textNodes[0], offset: 0 });
+    }
+    for (const textNode of textNodes) {
+      const value = textNode.nodeValue ?? "";
+      for (let offset = 0; offset < value.length; offset += 1) {
+        const character = value[offset];
+        if (/\s/.test(character)) {
+          if (normalized && normalized.at(-1) !== " ") {
+            normalized += " ";
+            points.push({ node: textNode, offset });
+          }
+        } else {
+          normalized += character;
+          points.push({ node: textNode, offset });
+        }
+      }
+    }
+    hasContent = true;
+  }
+
+  const match = normalized.indexOf(target);
+  if (match < 0) return null;
+  const start = points[match];
+  const end = points[match + target.length - 1];
+  if (!start || !end) return null;
+
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset + 1);
+  return range;
+}
+
+function findLocationTextRange(root: Node, text: string) {
+  return findLocationTextRangeInRoots([root], text);
+}
+
+function scrollLocationRangeIntoView(scroller: HTMLElement, range: Range) {
+  const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+  if (!rect || (!rect.width && !rect.height)) return false;
+
+  const scrollerRect = scroller.getBoundingClientRect();
+  const padding = Math.min(48, Math.max(16, scroller.clientHeight * 0.2));
+  const visibleTop = scrollerRect.top + padding;
+  const visibleBottom = scrollerRect.bottom - padding;
+  if (rect.top >= visibleTop && rect.bottom <= visibleBottom) return true;
+
+  scroller.scrollBy({
+    top: (rect.top + rect.bottom) / 2 - (scrollerRect.top + scrollerRect.bottom) / 2,
+    behavior: "auto",
+  });
+  return true;
 }
 
 function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
@@ -1087,7 +1234,11 @@ export function FileViewer({
   cwd,
   sourceSessionId,
   onOpenFile,
+  locationTarget,
+  onLocationHandled,
+  onLocationFailed,
   onMentionLines,
+  onAskInNewChat,
   onAtMention,
   gitRefreshKey,
   initialDisplayMode,
@@ -1113,7 +1264,11 @@ export function FileViewer({
       cwd={cwd}
       sourceSessionId={sourceSessionId}
       onOpenFile={onOpenFile}
+      locationTarget={locationTarget}
+      onLocationHandled={onLocationHandled}
+      onLocationFailed={onLocationFailed}
       onMentionLines={onMentionLines}
+      onAskInNewChat={onAskInNewChat}
       onAtMention={onAtMention}
       gitRefreshKey={gitRefreshKey}
       initialDisplayMode={initialDisplayMode}
@@ -1129,7 +1284,11 @@ function TextFileViewer({
   cwd,
   sourceSessionId,
   onOpenFile,
+  locationTarget,
+  onLocationHandled,
+  onLocationFailed,
   onMentionLines,
+  onAskInNewChat,
   onAtMention,
   gitRefreshKey,
   initialDisplayMode,
@@ -1138,6 +1297,7 @@ function TextFileViewer({
   watchEnabled = true,
 }: Props) {
   const { isDark } = useTheme();
+  const isMobile = useIsMobile();
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
@@ -1160,8 +1320,11 @@ function TextFileViewer({
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
   const gitDiffRequestRef = useRef(0);
+  const loadedFilePathRef = useRef<string | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const editingRef = useRef(false);
+  const liveEditingRef = useRef(false);
+  const previousModeRef = useRef(displayMode);
   const editReturnModeRef = useRef<DisplayMode>("source");
   const autoDiffAppliedRef = useRef(false);
   const defaultPreviewEligibleRef = useRef(
@@ -1176,12 +1339,30 @@ function TextFileViewer({
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [selectionAction, setSelectionAction] = useState<PendingFileSelection | null>(null);
+  const [fileQuoteInputOpen, setFileQuoteInputOpen] = useState(false);
+  const [fileQuoteSubmitting, setFileQuoteSubmitting] = useState(false);
+  const [fileQuoteError, setFileQuoteError] = useState<string | null>(null);
+  const fileQuotePopoverRef = useRef<HTMLDivElement | null>(null);
+  const fileQuoteChatInputRef = useRef<ChatInputHandle | null>(null);
+  const locationHighlightRef = useRef<HTMLElement[]>([]);
+  const markdownLocationApiRef = useRef<MarkdownEditorLocationApi | null>(null);
+  const [markdownLocationReadyVersion, setMarkdownLocationReadyVersion] = useState(0);
+
+  const handleMarkdownLocationReady = useCallback((api: MarkdownEditorLocationApi | null) => {
+    markdownLocationApiRef.current = api;
+    setMarkdownLocationReadyVersion((version) => version + 1);
+  }, []);
 
   onStateChangeRef.current = onStateChange;
 
   const updateDisplayMode = useCallback((nextDisplayMode: DisplayMode) => {
     viewerStateRef.current.displayMode = nextDisplayMode;
     setDisplayMode(nextDisplayMode);
+    // Keep the tab's lightweight state current while the viewer remains
+    // mounted. A later location request can then reuse the live preview
+    // instead of treating its preview mode as a fresh mount.
+    onStateChangeRef.current?.({ ...viewerStateRef.current });
   }, []);
 
   const toggleWrapLines = useCallback(() => {
@@ -1267,13 +1448,25 @@ function TextFileViewer({
     }
   }, [cwd]);
 
+  useEffect(() => {
+    if (previousModeRef.current === "preview" && displayMode !== "preview" && !isEditing && getFileExt(filePath) === "md") {
+      void fetchContent(filePath);
+    }
+    previousModeRef.current = displayMode;
+  }, [displayMode, fetchContent, filePath, isEditing]);
+
   // Reset and load the file itself when its identity changes. Live watching is
   // managed separately so pausing it never clears the displayed content.
   useEffect(() => {
     let active = true;
+    const fileChanged = loadedFilePathRef.current !== filePath;
+    loadedFilePathRef.current = filePath;
     setLoading(true);
     setError(null);
-    setData(null);
+    // A location request can add a source session id to an already-open file.
+    // Keep the current document mounted while that same file is revalidated;
+    // clearing it here makes the whole editor flash and jump on first locate.
+    if (fileChanged) setData(null);
     setGitDiff(null);
     setGitDiffResolved(false);
     setWatching(false);
@@ -1304,7 +1497,7 @@ function TextFileViewer({
 
     const synchronize = () => {
       if (editingRef.current) return;
-      void fetchContent(filePath);
+      if (!liveEditingRef.current) void fetchContent(filePath);
       void fetchGitDiff(filePath);
     };
 
@@ -1367,35 +1560,238 @@ function TextFileViewer({
     }
   }, [requestedInitialDisplayMode, hasGitDiff, updateDisplayMode]);
 
-  const markdownPreview = useMemo(
-    () => (data?.language === "markdown" ? normalizeDisplayMath(data.content) : ""),
-    [data],
-  );
-
-  const frontmatter = useMemo(
-    () => (data?.language === "markdown" ? parseFrontmatter(data.content) : null),
-    [data],
-  );
-
   const viewerContent = data?.content ?? "";
   const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
   const language = data?.language ?? "text";
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
+  const isCodeText = isEditableTextPath(filePath) && !isMarkdown;
   const hasPreview = !data?.truncated && (isHtml || isMarkdown);
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   const draftDirty = isEditing && data !== null && draftContent !== data.content;
+  const liveEditing = !isMobile && data?.editable === true && !data.truncated
+    && !isEditing && !isDeletedDiff
+    && ((isMarkdown && getFileExt(filePath) === "md" && effectiveDisplayMode === "preview")
+      || (isCodeText && effectiveDisplayMode === "source"));
+  liveEditingRef.current = liveEditing;
 
-  const enterEditMode = useCallback(() => {
-    if (!data || !isMarkdown || data.truncated || isDeletedDiff) return;
-    editReturnModeRef.current = effectiveDisplayMode === "preview" ? "preview" : "source";
-    setDraftContent(data.content);
-    setSaveState("idle");
-    setSaveError(null);
-    editingRef.current = true;
-    setIsEditing(true);
-    updateDisplayMode("source");
-  }, [data, effectiveDisplayMode, isDeletedDiff, isMarkdown, updateDisplayMode]);
+  useEffect(() => () => {
+    for (const element of locationHighlightRef.current) element.classList.remove(LOCATION_HIGHLIGHT_CLASS);
+    markdownLocationApiRef.current?.clearLocation();
+    clearLocationTextHighlight();
+    locationHighlightRef.current = [];
+  }, []);
+
+  // A file annotation stays in the viewer's current mode. Markdown preview and
+  // editing are one persistent instance, so navigation must wait for that
+  // instance's DOM instead of switching modes and remounting it.
+  useEffect(() => {
+    if (!locationTarget || !data || loading || error) return;
+
+    let cancelled = false;
+    let frame: number | null = null;
+    let attempts = 0;
+    let observer: MutationObserver | null = null;
+    let locationVisible = false;
+    const MAX_LOCATION_ATTEMPTS = 120;
+
+    const stopObserver = () => {
+      observer?.disconnect();
+      observer = null;
+    };
+
+    const finishLocation = (handled: boolean) => {
+      stopObserver();
+      locationVisible = false;
+      for (const element of locationHighlightRef.current) element.classList.remove(LOCATION_HIGHLIGHT_CLASS);
+      markdownLocationApiRef.current?.clearLocation();
+      clearLocationTextHighlight();
+      locationHighlightRef.current = [];
+      if (handled) onLocationHandled?.(locationTarget);
+      else onLocationFailed?.(locationTarget);
+    };
+
+    const completeLocation = (elements: HTMLElement[], editorOwnsHighlight = false) => {
+      stopObserver();
+      locationVisible = true;
+      for (const element of locationHighlightRef.current) element.classList.remove(LOCATION_HIGHLIGHT_CLASS);
+      if (editorOwnsHighlight) {
+        // The ProseMirror editor owns its block DOM. It applies and clears the
+        // class itself so the parent effect cannot remove it during the
+        // location callback or when the pending target is consumed.
+        locationHighlightRef.current = [];
+      } else {
+        for (const element of elements) element.classList.add(LOCATION_HIGHLIGHT_CLASS);
+        locationHighlightRef.current = elements;
+      }
+    };
+
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      if (event.button === 0 && locationVisible) finishLocation(true);
+    };
+    const dismissOnKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && locationVisible) finishLocation(true);
+    };
+    document.addEventListener("pointerdown", dismissOnPointerDown, true);
+    document.addEventListener("keydown", dismissOnKeyDown, true);
+
+    const locate = () => {
+      if (cancelled) return;
+      const root = contentRef.current;
+      if (!root) {
+        if (attempts++ < MAX_LOCATION_ATTEMPTS) frame = window.requestAnimationFrame(locate);
+        else finishLocation(false);
+        return;
+      }
+
+      // A live editor is dynamically imported and owns its own location API.
+      // Keep the request pending until its reveal API is ready instead of
+      // treating a slow import as a failed location.
+      if (liveEditing && !markdownLocationApiRef.current) {
+        frame = window.requestAnimationFrame(locate);
+        return;
+      }
+
+      // Observe the short mounting window so a slow dynamic import or a late
+      // editor DOM update cannot consume the location request.
+      if (!observer && typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(() => locate());
+        observer.observe(root, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-source-line", "data-source-start-line", "data-source-end-line"],
+        });
+      }
+
+      // Location navigation should behave like conversation navigation: it
+      // highlights the target without creating a native text selection (and
+      // therefore without opening the selection action popover).
+      window.getSelection()?.removeAllRanges();
+
+      const lines = data.content.split("\n");
+      const requestedStart = Number.isInteger(locationTarget.startLine) ? locationTarget.startLine! : 0;
+      const requestedEnd = Number.isInteger(locationTarget.endLine) ? locationTarget.endLine! : requestedStart;
+      let startLine = requestedStart;
+      let endLine = requestedEnd;
+      const snapshot = locationTarget.text.trim();
+      // The snapshot comes from rendered Preview text, while `data.content`
+      // still contains Markdown syntax (and may have different soft-breaks).
+      // A valid line hint must therefore not be rejected just because the raw
+      // source does not literally contain the rendered snapshot. Doing so
+      // previously fell back to the first global text match, which was wrong
+      // whenever the same phrase appeared more than once.
+      const hasValidLineRange = startLine > 0 && endLine >= startLine && startLine <= lines.length;
+      if (!hasValidLineRange && snapshot) {
+        const match = data.content.indexOf(snapshot);
+        if (match >= 0) {
+          startLine = data.content.slice(0, match).split("\n").length;
+          endLine = startLine + snapshot.split("\n").length - 1;
+        }
+      }
+
+      let elements: HTMLElement[] = [];
+      if (liveEditing) {
+        elements = markdownLocationApiRef.current?.revealLocation({
+          text: snapshot,
+          startLine,
+          endLine,
+        }) ?? [];
+        if (elements.length > 0) {
+          completeLocation(elements, true);
+          return;
+        }
+      } else if (isMarkdown && effectiveDisplayMode === "preview") {
+        const sourceLineElements = Array.from(root.querySelectorAll<HTMLElement>(".markdown-source-line[data-source-line]"));
+        const sourceRangeElements = Array.from(root.querySelectorAll<HTMLElement>("[data-source-start-line][data-source-end-line]")).filter((element) => {
+          const blockStart = Number(element.dataset.sourceStartLine);
+          const blockEnd = Number(element.dataset.sourceEndLine);
+          return Number.isInteger(blockStart) && Number.isInteger(blockEnd)
+            && (!startLine || blockEnd >= startLine) && (!endLine || blockStart <= endLine);
+        });
+        const outerSourceRangeElements = sourceRangeElements.filter((element) =>
+          !element.parentElement?.closest("[data-source-start-line][data-source-end-line]"),
+        );
+        if (startLine > 0 && endLine >= startLine) {
+          elements = sourceLineElements.filter((element) => {
+            const line = Number(element.dataset.sourceLine);
+            return Number.isInteger(line) && line >= startLine && line <= endLine;
+          });
+        }
+        // Older rendered nodes and complex blocks may not expose per-line
+        // spans. Keep the previous block-range behavior as a safe fallback.
+        if (elements.length === 0) elements = outerSourceRangeElements;
+        if (elements.length === 0 && snapshot) {
+          elements = Array.from(root.querySelectorAll<HTMLElement>("[data-source-start-line][data-source-end-line]"))
+            .filter((element) => !element.parentElement?.closest("[data-source-start-line][data-source-end-line]"))
+            .filter((element) => findLocationTextRange(element, snapshot) !== null);
+        }
+
+        // Line metadata chooses the right block; the rendered text range then
+        // chooses the exact phrase inside that block. This is what makes a
+        // multiline paragraph or formatted text land at the actual selection
+        // instead of merely centering the paragraph's first line.
+        const textCandidates = outerSourceRangeElements.length > 0 ? outerSourceRangeElements : elements;
+        const locationRange = snapshot ? findLocationTextRangeInRoots(textCandidates, snapshot) : null;
+        if (locationRange && scrollLocationRangeIntoView(root, locationRange)) {
+          completeLocation(elements);
+          return;
+        }
+      } else if (effectiveDisplayMode === "source" && startLine > 0) {
+        elements = Array.from({ length: Math.max(1, endLine - startLine + 1) }, (_, index) =>
+          root.querySelector<HTMLElement>(`.file-source-line[data-line-number=\"${startLine + index}\"]`),
+        ).filter((element): element is HTMLElement => Boolean(element));
+      }
+
+      const first = elements[0];
+      if (!first) {
+        if (attempts++ < MAX_LOCATION_ATTEMPTS) {
+          frame = window.requestAnimationFrame(locate);
+        } else {
+          finishLocation(false);
+        }
+        return;
+      }
+      const scroller = first.closest<HTMLElement>(".file-viewer-content") ?? root;
+      const firstRect = first.getBoundingClientRect();
+      const scrollerRect = scroller.getBoundingClientRect();
+      const padding = Math.min(48, Math.max(16, scroller.clientHeight * 0.2));
+      const visibleTop = scrollerRect.top + padding;
+      const visibleBottom = scrollerRect.bottom - padding;
+      if (firstRect.top < visibleTop || firstRect.bottom > visibleBottom) {
+        scroller.scrollBy({
+          top: (firstRect.top + firstRect.bottom) / 2 - (scrollerRect.top + scrollerRect.bottom) / 2,
+          behavior: "auto",
+        });
+      }
+      completeLocation(elements);
+    };
+
+    frame = window.requestAnimationFrame(locate);
+    return () => {
+      cancelled = true;
+      stopObserver();
+      document.removeEventListener("pointerdown", dismissOnPointerDown, true);
+      document.removeEventListener("keydown", dismissOnKeyDown, true);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      for (const element of locationHighlightRef.current) element.classList.remove(LOCATION_HIGHLIGHT_CLASS);
+      markdownLocationApiRef.current?.clearLocation();
+      clearLocationTextHighlight();
+      locationHighlightRef.current = [];
+    };
+  }, [
+    data,
+    displayMode,
+    effectiveDisplayMode,
+    error,
+    isMarkdown,
+    liveEditing,
+    loading,
+    locationTarget,
+    markdownLocationReadyVersion,
+    onLocationFailed,
+    onLocationHandled,
+  ]);
 
   const cancelEdit = useCallback(() => {
     setDraftContent(data?.content ?? "");
@@ -1415,7 +1811,7 @@ function TextFileViewer({
       const response = await fetch(getFileApiBaseUrl(filePath), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: draftContent }),
+        body: JSON.stringify({ content: draftContent, baseContent: data.content }),
       });
       const result = await response.json().catch(() => null) as { error?: unknown; size?: unknown } | null;
       if (!response.ok) {
@@ -1518,34 +1914,154 @@ function TextFileViewer({
 
   useEffect(() => {
     const updateSelectedLineRange = () => {
+      if (locationTarget && sameFilePath(locationTarget.filePath, filePath)) {
+        setSelectedLineRange(null);
+        setSelectionAction(null);
+        return;
+      }
       const root = contentRef.current;
+      const selection = window.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      const supportsDomSelection = displayMode === "source" || (isMarkdown && effectiveDisplayMode === "preview" && !liveEditing);
+      if (fileQuoteInputOpen) return;
+      if (liveEditing) return;
+      const lineRange = onMentionLines && supportsDomSelection && root
+        ? displayMode === "source"
+          ? getSelectedSourceLineRange(root, selection)
+          : getSelectedMarkdownLineRange(root, selection)
+        : null;
       setSelectedLineRange((current) => {
-        const next = onMentionLines && displayMode === "source" && root
-          ? getSelectedSourceLineRange(root, window.getSelection())
-          : null;
+        const next = lineRange;
         // Skip no-op updates: selectionchange fires continuously while dragging,
         // and a fresh-but-equal range object would re-render the whole viewer.
         if (current === null && next === null) return current;
         if (current && next && current.startLine === next.startLine && current.endLine === next.endLine) return current;
         return next;
       });
+      if (!onMentionLines || !supportsDomSelection || !root || !range) {
+        setSelectionAction(null);
+        return;
+      }
+      const text = selection?.toString().trim();
+      if (!lineRange || !text) {
+        setSelectionAction(null);
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      setSelectionAction((current) => {
+        const next = {
+          ...lineRange,
+          text,
+          top: Math.min(window.innerHeight - 44, rect.bottom + 8),
+          left: Math.max(8, Math.min(window.innerWidth - 8, rect.left + rect.width / 2)),
+        };
+        return current
+          && current.startLine === next.startLine
+          && current.endLine === next.endLine
+          && current.text === next.text
+          && current.top === next.top
+          && current.left === next.left
+          ? current
+          : next;
+      });
     };
 
     updateSelectedLineRange();
-    if (!onMentionLines || displayMode !== "source") return;
+    const supportsDomSelection = displayMode === "source" || (isMarkdown && effectiveDisplayMode === "preview" && !liveEditing);
+    if (!onMentionLines || !supportsDomSelection) return;
 
     document.addEventListener("selectionchange", updateSelectedLineRange);
     return () => document.removeEventListener("selectionchange", updateSelectedLineRange);
-  }, [data?.content, displayMode, onMentionLines]);
+  }, [data?.content, displayMode, effectiveDisplayMode, filePath, fileQuoteInputOpen, isMarkdown, liveEditing, locationTarget, onMentionLines]);
+
+  const addFileSelection = useCallback((lineRange: SelectedLineRange | null, text: string) => {
+    if (!onMentionLines || !lineRange) return;
+    if (!text) return;
+    onMentionLines({
+      relativePath: getRelativeFilePath(filePath, cwd),
+      filePath,
+      sourceSessionId,
+      text,
+      startLine: lineRange.startLine,
+      endLine: lineRange.endLine,
+      language: data?.language,
+    });
+  }, [cwd, data?.language, filePath, onMentionLines, sourceSessionId]);
 
   const mentionLineRange = useCallback((lineRange: SelectedLineRange | null) => {
-    if (!onMentionLines || !lineRange) return;
-    onMentionLines(
+    const text = selectionAction
+      && lineRange
+      && selectionAction.startLine === lineRange.startLine
+      && selectionAction.endLine === lineRange.endLine
+      ? selectionAction.text
+      : window.getSelection()?.toString().trim() ?? "";
+    addFileSelection(lineRange, text);
+  }, [addFileSelection, selectionAction]);
+
+  const addSelectedFileContext = useCallback(() => {
+    if (!selectionAction) return;
+    addFileSelection(selectionAction, selectionAction.text);
+    window.getSelection()?.removeAllRanges();
+    setSelectionAction(null);
+  }, [addFileSelection, selectionAction]);
+
+  const closeFileQuote = useCallback(() => {
+    if (fileQuoteSubmitting) return;
+    setFileQuoteInputOpen(false);
+    setFileQuoteError(null);
+  }, [fileQuoteSubmitting]);
+
+  // Keep the file selector's menu pixel-for-pixel aligned with the chat
+  // selector: fixed popovers need a measured left edge, not a transform that
+  // lets the browser shrink buttons near a viewport edge.
+  useLayoutEffect(() => {
+    const popover = fileQuotePopoverRef.current;
+    if (!popover || !selectionAction) return;
+    const viewport = window.visualViewport;
+    const position = () => {
+      const rect = popover.getBoundingClientRect();
+      const top = viewport?.offsetTop ?? 0;
+      const left = viewport?.offsetLeft ?? 0;
+      popover.style.top = `${Math.max(top + 8, Math.min(selectionAction.top, top + (viewport?.height ?? window.innerHeight) - rect.height - 8))}px`;
+      popover.style.left = `${Math.max(left + 8, Math.min(selectionAction.left - rect.width / 2, left + (viewport?.width ?? window.innerWidth) - rect.width - 8))}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(popover);
+    viewport?.addEventListener("resize", position);
+    viewport?.addEventListener("scroll", position);
+    return () => {
+      observer.disconnect();
+      viewport?.removeEventListener("resize", position);
+      viewport?.removeEventListener("scroll", position);
+    };
+  }, [fileQuoteError, fileQuoteInputOpen, selectionAction]);
+
+  useEffect(() => {
+    if (!fileQuoteInputOpen || !selectionAction) return;
+    fileQuoteChatInputRef.current?.insertIfEmpty(buildFileLineMentionText(
       getRelativeFilePath(filePath, cwd),
-      lineRange.startLine,
-      lineRange.endLine,
-    );
-  }, [cwd, filePath, onMentionLines]);
+      selectionAction.startLine,
+      selectionAction.endLine,
+    ));
+  }, [cwd, filePath, fileQuoteInputOpen, selectionAction]);
+
+  const askFileSelectionInNewChat = useCallback(async (prompt: string) => {
+    if (!onAskInNewChat || !prompt.trim()) return;
+    setFileQuoteSubmitting(true);
+    setFileQuoteError(null);
+    try {
+      await onAskInNewChat(prompt);
+      window.getSelection()?.removeAllRanges();
+      setSelectionAction(null);
+      setFileQuoteInputOpen(false);
+    } catch (error) {
+      fileQuoteChatInputRef.current?.restoreSubmission(prompt);
+      setFileQuoteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFileQuoteSubmitting(false);
+    }
+  }, [onAskInNewChat]);
 
   useEffect(() => {
     if (!onMentionLines || displayMode !== "source") return;
@@ -1554,10 +2070,13 @@ function TextFileViewer({
       if (event.repeat || event.key.toLowerCase() !== "i" || (!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
 
       const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+      if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")
+        && !target.closest(".cm-editor")) return;
 
       const root = contentRef.current;
-      const lineRange = root ? getSelectedSourceLineRange(root, window.getSelection()) : null;
+      const lineRange = liveEditing
+        ? selectedLineRange
+        : root ? getSelectedSourceLineRange(root, window.getSelection()) : null;
       if (!lineRange) return;
 
       event.preventDefault();
@@ -1566,7 +2085,7 @@ function TextFileViewer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [displayMode, mentionLineRange, onMentionLines]);
+  }, [displayMode, liveEditing, mentionLineRange, onMentionLines, selectedLineRange]);
 
   useEffect(() => {
     if (!scrollRestorePendingRef.current || loading) return;
@@ -1591,7 +2110,7 @@ function TextFileViewer({
     requestedInitialDisplayMode,
   ]);
 
-  if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
+  if ((loading && !data) || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
         {t("i18n.loading")}
@@ -1610,7 +2129,6 @@ function TextFileViewer({
   if (!data && !isDeletedDiff) return null;
 
   const content = viewerContent;
-  const markdownDirectory = getFileDirectory(filePath);
   const lines = sourceLines;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
@@ -1711,7 +2229,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
-            {!isEditing && effectiveDisplayMode === "source" && (
+            {!isEditing && !liveEditing && effectiveDisplayMode === "source" && (
               <>
                 <button
                   type="button"
@@ -1733,20 +2251,6 @@ function TextFileViewer({
                   </svg>
                 </button>
               </>
-            )}
-            {!isEditing && isMarkdown && !data?.truncated && !isDeletedDiff && (
-              <button
-                type="button"
-                onClick={enterEditMode}
-                title={t("files.edit")}
-                aria-label={t("files.edit")}
-                className="file-viewer-icon-button"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
-                </svg>
-              </button>
             )}
             {isEditing && (
               <>
@@ -1838,6 +2342,31 @@ function TextFileViewer({
               <div className="file-viewer-save-error" role="alert">{saveError}</div>
             )}
           </div>
+        ) : liveEditing && isCodeText ? (
+          <CodeFileEditor
+            filePath={filePath}
+            content={content}
+            sourceSessionId={sourceSessionId}
+            watchEnabled={watchEnabled}
+            initialScrollTop={initialScrollTop}
+            initialScrollLeft={initialScrollLeft}
+            hasPendingLocation={Boolean(locationTarget)}
+            onScrollPositionChange={({ scrollTop, scrollLeft }) => {
+              viewerStateRef.current.scrollTop = scrollTop;
+              viewerStateRef.current.scrollLeft = scrollLeft;
+              onStateChangeRef.current?.({ ...viewerStateRef.current });
+            }}
+            onLocationReady={handleMarkdownLocationReady}
+            onSelectionChange={(selection: MarkdownEditorSelection | null) => {
+              if (!selection) {
+                setSelectedLineRange(null);
+                setSelectionAction(null);
+                return;
+              }
+              setSelectedLineRange({ startLine: selection.startLine, endLine: selection.endLine });
+              setSelectionAction(selection);
+            }}
+          />
         ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
@@ -1847,71 +2376,23 @@ function TextFileViewer({
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
              title={t("i18n.htmlPreview")}
           />
+        ) : liveEditing ? (
+          <MarkdownFileEditor key={filePath} filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId}
+            onOpenFile={onOpenFile} content={content} watchEnabled={watchEnabled}
+            onLocationReady={handleMarkdownLocationReady}
+            onSelectionChange={(selection: MarkdownEditorSelection | null) => {
+              if (!selection) {
+                setSelectedLineRange(null);
+                setSelectionAction(null);
+                return;
+              }
+              setSelectedLineRange({ startLine: selection.startLine, endLine: selection.endLine });
+              setSelectionAction(selection);
+            }} />
         ) : isMarkdown && effectiveDisplayMode === "preview" ? (
-          <div
-            className="markdown-body markdown-file-preview"
-            style={{ padding: "24px 32px" }}
-          >
-            {frontmatter?.data && <FrontmatterCard data={frontmatter.data} />}
-            <ReactMarkdown
-              remarkPlugins={markdownPreviewRemarkPlugins}
-              rehypePlugins={markdownPreviewRehypePlugins}
-              urlTransform={onOpenFile ? markdownUrlTransform : undefined}
-              components={{
-                code({ className, children, ...props }) {
-                  const lang = className?.replace("language-", "").toLowerCase() ?? "";
-                  const raw = String(children);
-                  const isBlock = className?.includes("language-") || raw.includes("\n");
-                  if (isBlock) {
-                    if (lang === "mermaid") {
-                      return <MermaidBlock code={raw.replace(/\n$/, "")} defaultPreview />;
-                    }
-                    return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
-                  }
-                  return (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-                pre({ children }) {
-                  // Render the code block directly — CodeBlock provides its own wrapping.
-                  // For non-mermaid blocks, pass through to default pre rendering.
-                  return <>{children}</>;
-                },
-                a({ href, children, ...props }) {
-                  delete props.node;
-                  const linkedFile = onOpenFile
-                    ? resolveLocalFileHref(href, markdownDirectory, cwd ?? markdownDirectory)
-                    : null;
-                  if (!linkedFile || !onOpenFile) {
-                    return <a href={href} {...props}>{children}</a>;
-                  }
-
-                  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-                    if (!shouldOpenLocalFileInApp(event)) return;
-                    event.preventDefault();
-                    onOpenFile(linkedFile);
-                  };
-
-                  return <a href={href} {...props} onClick={handleClick}>{children}</a>;
-                },
-                img({ src, alt, ...props }) {
-                  delete props.node;
-                  const imagePath = typeof src === "string"
-                    ? resolveLocalFileHref(src, markdownDirectory, cwd ?? markdownDirectory)
-                    : null;
-                  const imageSrc = imagePath
-                    ? getFileApiUrl(imagePath, "read", sourceSessionId)
-                    : src;
-                  // Dynamic local paths are served directly by the file API.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
-                },
-              }}
-            >
-              {markdownPreview}
-            </ReactMarkdown>
+          <div className="markdown-body markdown-file-preview markdown-readable-column" style={{ padding: "24px 32px" }}>
+            <MarkdownFilePreview content={content} filePath={filePath} cwd={cwd}
+              sourceSessionId={sourceSessionId} onOpenFile={onOpenFile} />
           </div>
         ) : useLightweightSource ? (
           <div
@@ -1930,6 +2411,74 @@ function TextFileViewer({
           highlightedSource
         )}
       </div>
+      {selectionAction && !locationTarget && onMentionLines && createPortal(
+        <div
+          ref={fileQuotePopoverRef}
+          role={fileQuoteInputOpen ? "dialog" : "toolbar"}
+          aria-label={t(fileQuoteInputOpen ? "chat.newQuoteChat" : "chat.askSelection")}
+          style={{
+            position: "fixed",
+            top: selectionAction.top,
+            left: selectionAction.left,
+            zIndex: 130,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 3,
+            width: fileQuoteInputOpen ? "min(420px, calc(100vw - 16px))" : undefined,
+            maxWidth: "calc(100vw - 16px)",
+            maxHeight: "calc(var(--app-viewport-height, 100dvh) - 16px)",
+            overflowY: "auto",
+            padding: fileQuoteInputOpen ? 12 : 3,
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "var(--bg)",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+          }}
+        >
+          {fileQuoteInputOpen ? (
+            <fieldset disabled={fileQuoteSubmitting} aria-busy={fileQuoteSubmitting} style={{ width: "100%", minWidth: 0, margin: 0, padding: 0, border: "none", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600 }}>{t("chat.askInNewChat")}</span>
+                <button type="button" className="file-viewer-icon-button" title={t("i18n.close")} aria-label={t("i18n.close")} disabled={fileQuoteSubmitting} onClick={closeFileQuote} style={{ border: "none" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                </button>
+              </div>
+              <ChatInput ref={fileQuoteChatInputRef} compact onSend={askFileSelectionInNewChat} onAbort={closeFileQuote} isStreaming={false} />
+              {fileQuoteError && <div role="alert" style={{ color: "#dc2626", fontSize: 12, overflowWrap: "anywhere" }}>{fileQuoteError}</div>}
+            </fieldset>
+          ) : <>
+            <button
+              type="button"
+              className="file-viewer-icon-button"
+              title={t("chat.askInCurrent")}
+              aria-label={t("chat.askInCurrent")}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={addSelectedFileContext}
+              style={{ width: "auto", height: 35, flex: "0 0 auto", gap: 5, padding: "0 10px", border: "none", fontSize: 12, fontWeight: 500 }}
+            >
+              <span aria-hidden="true" style={{ fontSize: 15 }}>@</span>
+              <span>{t("chat.askInCurrent")}</span>
+            </button>
+            {onAskInNewChat && (
+              <button
+                type="button"
+                className="file-viewer-icon-button"
+                title={t("chat.askInNewChat")}
+                aria-label={t("chat.askInNewChat")}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => setFileQuoteInputOpen(true)}
+                style={{ width: "auto", height: 35, flex: "0 0 auto", gap: 5, padding: "0 10px", border: "none", fontSize: 12, fontWeight: 500 }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 3v12M18 9a9 9 0 0 1-9 9" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
+                </svg>
+                <span>{t("chat.askInNewChat")}</span>
+              </button>
+            )}
+          </>}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

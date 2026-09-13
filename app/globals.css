@@ -37,6 +37,7 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  --readable-content-max-width: 900px;
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
 }
@@ -1383,6 +1384,22 @@ pre, code {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+.code-file-editor-shell {
+  height: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.code-file-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.code-file-editor .cm-editor {
+  height: 100%;
+}
+
 .file-viewer-save-error {
   flex: 0 0 auto;
   color: #f87171;
@@ -1423,6 +1440,19 @@ pre, code {
 .markdown-file-preview h2 { font-size: 1.4em; }
 .markdown-file-preview h3 { font-size: 1.15em; }
 .markdown-file-preview p { margin: 0 0 12px; }
+.markdown-readable-column {
+  width: min(100%, var(--readable-content-max-width, 900px));
+  max-width: var(--readable-content-max-width, 900px);
+  min-width: 0;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+.markdown-readable-column img,
+.markdown-readable-column pre,
+.markdown-readable-column .markdown-table-wrap,
+.markdown-readable-column .katex-display {
+  max-width: 100%;
+}
 .markdown-file-preview pre {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -1443,6 +1473,25 @@ pre, code {
 .markdown-file-preview pre code {
   background: none;
   padding: 0;
+}
+
+.location-highlight,
+.file-location-highlight {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg)) !important;
+  outline: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border));
+  outline-offset: 3px;
+  border-radius: 5px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 34%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 34%, transparent),
+    0 5px 14px color-mix(in srgb, var(--accent) 12%, transparent);
+  transition: background 0.16s ease, outline-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.file-location-text-highlight {
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg)) !important;
+  text-decoration: underline 2px color-mix(in srgb, var(--accent) 72%, transparent);
+  text-underline-offset: 3px;
 }
 
 /* YAML frontmatter metadata card (file preview) */
@@ -1653,26 +1702,118 @@ span.token.table {
   }
 }
 
-/* Wide desktop file panel: participate in the split layout. */
+/* The explorer toolbar has several fixed-size actions. Collapse its label
+   before the sidebar gets narrow enough for the title to wrap vertically. */
+.file-explorer-section {
+  container-type: inline-size;
+}
+.file-explorer-header {
+  min-width: 0;
+  overflow: hidden;
+}
+.file-explorer-toggle {
+  min-width: 0;
+  overflow: hidden;
+}
+.file-explorer-title-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-explorer-compact-icon {
+  display: none;
+  flex-shrink: 0;
+}
+@container (max-width: 220px) {
+  .file-explorer-toggle {
+    flex: 0 0 34px !important;
+    width: 34px !important;
+    justify-content: center;
+    gap: 3px !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .file-explorer-title-label {
+    display: none;
+  }
+  .file-explorer-compact-icon {
+    display: block;
+  }
+}
+
+/* The two grid tracks are permanent: a main region and a right-side secondary
+   workspace. Switching only reassigns the persistent chat/editor surfaces to
+   those tracks, so neither surface remounts and the controls stay anchored. */
+.main-panels {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.chat-slot,
+.workspace-slot {
+  min-width: 0;
+  min-height: 0;
+}
+.chat-slot {
+  /* On compact layouts this slot can become a fixed overlay.  Give the chat
+     its own opaque surface so an editor beneath it never shows through. */
+  background: var(--bg);
+}
+
+/* Wide desktop: keep the column order and separator fixed; only grid areas
+   change when the user swaps chat and editor roles. */
 @media (min-width: 960px) {
+  .main-panels {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 0 minmax(0, 0px);
+    grid-template-areas: "main separator secondary";
+    transition: grid-template-columns 0.2s ease;
+  }
+  .main-panels.workspace-panel-open {
+    /* The resize target has negative inline margins, so its 12px hit area
+       straddles this zero-width boundary instead of reserving a blank gutter. */
+    grid-template-columns: minmax(0, 1fr) 0 var(--right-panel-width, clamp(360px, 42vw, 640px));
+  }
+  .main-panels.main-panels-resizing {
+    transition: none;
+  }
+  .main-panels:not(.workspace-swapped) .chat-slot,
+  .main-panels.workspace-swapped .right-panel-container {
+    grid-area: main;
+  }
+  .main-panels:not(.workspace-swapped) .right-panel-container,
+  .main-panels.workspace-swapped .chat-slot {
+    grid-area: secondary;
+  }
+  .right-panel-resize-handle {
+    grid-area: separator;
+  }
   .right-panel-container {
     overflow: hidden;
-    transition: width 0.2s ease, min-width 0.2s ease;
+    width: 100% !important;
+    min-width: 0 !important;
     flex-shrink: 0;
   }
-  .right-panel-container.right-panel-open {
-    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
-    min-width: 300px;
+  .main-panels:not(.workspace-swapped) .right-panel-container.secondary-workspace {
+    border-left: 1px solid var(--border);
   }
-  .right-panel-container.right-panel-closed {
-    width: 0;
-    min-width: 0;
-    border-left: none !important;
+  .main-panels.workspace-swapped .chat-slot.secondary-workspace {
+    border-left: 1px solid var(--border);
   }
-  /* keep inner content at fixed width so it doesn't reflow during animation */
+  .main-panels.workspace-swapped .right-panel-container.main-workspace {
+    border-right: 1px solid var(--border);
+  }
+  .main-panels:not(.workspace-swapped) .right-panel-container.secondary-workspace.secondary-workspace-closed {
+    border-left: none;
+  }
+  /* Keep inner content at fixed width so it does not reflow during animation. */
   .right-panel-container > * {
-    width: var(--right-panel-width, clamp(360px, 42vw, 640px));
-    min-width: 300px;
+    width: 100%;
+    min-width: 0;
   }
   .right-panel-container.right-panel-resizing,
   .right-panel-container.right-panel-resizing > * {
@@ -1680,8 +1821,27 @@ span.token.table {
   }
 }
 
-/* Compact desktop file panel: overlay the chat instead of collapsing it. */
+/* The sidebar toggle lives above the physical boundary.  Keep the first
+   control in whichever surface is currently the main workspace outside that
+   fixed hit target.  The secondary workspace must not receive this inset. */
+@media (min-width: 641px) {
+  .main-panels > .main-workspace .main-workspace-header {
+    padding-inline-start: var(--main-workspace-header-leading-inset, 36px);
+  }
+  .main-panels .main-workspace-header {
+    padding-inline-end: var(--main-workspace-header-trailing-inset, 36px);
+  }
+}
+
+/* Compact desktop: the current secondary workspace overlays the main region.
+   It can therefore contain either the editor (normal) or the chat (swapped). */
 @media (min-width: 641px) and (max-width: 959px) {
+  .desktop-secondary-workspace-toggle {
+    right: min(560px, calc(100vw - 48px)) !important;
+  }
+  .main-panels.workspace-panel-closed .desktop-secondary-workspace-toggle {
+    right: 0 !important;
+  }
   .right-panel-resize-handle {
     display: none;
   }
@@ -1699,7 +1859,7 @@ span.token.table {
     opacity: 1;
     pointer-events: auto;
   }
-  .right-panel-container {
+  .secondary-workspace {
     position: fixed;
     top: 0;
     right: env(safe-area-inset-right);
@@ -1711,13 +1871,26 @@ span.token.table {
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
     transition: transform 0.2s ease;
   }
-  .right-panel-container.right-panel-open {
+  .secondary-workspace.secondary-workspace-open {
     transform: translateX(0);
   }
-  .right-panel-container.right-panel-closed {
+  .secondary-workspace.secondary-workspace-closed {
     transform: translateX(100%);
     pointer-events: none;
   }
+  .main-panels.workspace-swapped .right-panel-container.main-workspace {
+    position: relative;
+    inset: auto;
+    z-index: auto;
+    flex: 1 1 auto;
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden;
+    transform: none !important;
+    pointer-events: auto;
+    box-shadow: none;
+  }
+  .secondary-workspace > *,
   .right-panel-container > * {
     width: 100%;
     min-width: 0;
@@ -1748,7 +1921,7 @@ span.token.table {
     box-shadow: none;
   }
 
-  .right-panel-container {
+  .secondary-workspace {
     position: fixed;
     inset: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
     height: var(--app-viewport-height, 100dvh);
@@ -1756,17 +1929,17 @@ span.token.table {
     overflow: hidden;
     transition: transform 0.2s ease;
   }
-  .right-panel-container.right-panel-open {
+  .secondary-workspace.secondary-workspace-open {
     width: auto;
     min-width: 0;
   }
-  .right-panel-container.right-panel-closed {
+  .secondary-workspace.secondary-workspace-closed {
     width: 0 !important;
     min-width: 0 !important;
     border-left: none !important;
     display: none !important;
   }
-  .right-panel-container > * {
+  .secondary-workspace > * {
     width: 100%;
     min-width: 0;
   }

@@ -15,6 +15,7 @@ import {
   getFileExt,
   getImageMime,
   getVideoMime,
+  isEditableTextPath,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
@@ -27,6 +28,7 @@ import {
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { readTextPreviewChunk } from "@/lib/text-preview";
+import { writeTextFile, MarkdownFileError, MAX_TEXT_EDIT_BYTES } from "@/lib/markdown-file";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -43,7 +45,6 @@ const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
-const MAX_MARKDOWN_EDIT_BYTES = 5 * 1024 * 1024;
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -116,11 +117,6 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
-function isEditableMarkdownPath(filePath: string): boolean {
-  const extension = getFileExt(filePath);
-  return extension === "md" || extension === "mdx";
-}
-
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -135,8 +131,8 @@ export async function PATCH(
   try {
     const { path: segments } = await params;
     const filePath = filePathFromApiSegments(segments);
-    if (!isEditableMarkdownPath(filePath)) {
-      return NextResponse.json({ error: "Only Markdown files can be edited" }, { status: 400 });
+    if (!isEditableTextPath(filePath)) {
+      return NextResponse.json({ error: "This file type cannot be edited" }, { status: 400 });
     }
 
     const allowedRoots = await getAllowedFileRoots();
@@ -144,7 +140,6 @@ export async function PATCH(
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    let fileStat: fs.Stats;
     try {
       const linkStat = fs.lstatSync(filePath);
       if (linkStat.isSymbolicLink()) {
@@ -156,28 +151,34 @@ export async function PATCH(
       if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
         return NextResponse.json({ error: "Access denied" }, { status: 403 });
       }
-      fileStat = linkStat;
     } catch {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const body = await request.json().catch(() => null) as { content?: unknown } | null;
+    const body = await request.json().catch(() => null) as { content?: unknown; baseContent?: unknown } | null;
     if (!body || typeof body.content !== "string") {
       return NextResponse.json({ error: "content must be a string" }, { status: 400 });
     }
+    if (typeof body.baseContent !== "string") {
+      return NextResponse.json({ error: "A file baseline is required; reload before saving" }, { status: 428 });
+    }
     const contentBytes = Buffer.byteLength(body.content, "utf8");
-    if (contentBytes > MAX_MARKDOWN_EDIT_BYTES) {
-      return NextResponse.json({ error: "Markdown file is too large to edit" }, { status: 413 });
+    if (contentBytes > MAX_TEXT_EDIT_BYTES) {
+      return NextResponse.json({ error: "Text file is too large to edit" }, { status: 413 });
     }
 
-    fs.writeFileSync(filePath, body.content, "utf8");
-    fileStat = fs.statSync(filePath);
+    const result = writeTextFile(filePath, body.content, body.baseContent,
+      () => isExistingFilePathAllowed(filePath, allowedRoots));
+    if (result.conflict) {
+      return NextResponse.json({ error: "File changed", content: result.content }, { status: 409 });
+    }
     return NextResponse.json({
       success: true,
-      size: fileStat.size,
-      modified: fileStat.mtime.toISOString(),
+      size: result.size,
+      modified: result.modified,
     });
   } catch (error) {
+    if (error instanceof MarkdownFileError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
@@ -556,7 +557,11 @@ export async function GET(
       }
       const chunk = readTextPreviewChunk(filePath, stat.size, offset);
       const language = getLanguage(filePath);
-      return NextResponse.json({ ...chunk, language, size: stat.size });
+      const editable = isEditableTextPath(filePath) && offset === 0 && !chunk.truncated
+        && !fs.lstatSync(filePath).isSymbolicLink() && !chunk.content.includes("\0")
+        && isFilePathAllowed(filePath, allowedRoots) && isExistingFilePathAllowed(filePath, allowedRoots)
+        && Buffer.from(chunk.content, "utf8").equals(fs.readFileSync(filePath));
+      return NextResponse.json({ ...chunk, language, size: stat.size, editable });
     }
 
     if (type === "download") {

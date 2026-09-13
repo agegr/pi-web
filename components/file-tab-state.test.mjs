@@ -47,10 +47,10 @@ test("opening an existing tab normally preserves its state and revision", () => 
   assert.strictEqual(openFileTab(tabs, openA), tabs);
 });
 
-test("changing the source session remounts the viewer without losing its state", () => {
+test("changing the source session preserves the mounted viewer and its state", () => {
   const [next] = openFileTab([tabA], { ...openA, sourceSessionId: "session-2" });
   assert.equal(next.sourceSessionId, "session-2");
-  assert.equal(next.viewerRevision, 1);
+  assert.equal(next.viewerRevision, 0);
   assert.strictEqual(next.viewerState, tabA.viewerState);
 });
 
@@ -88,6 +88,33 @@ test("every explicit diff activation resets the mode and increments the revision
   const second = openFileTab(returnedToSource, { ...openA, modeHint: "diff" });
   assert.equal(second[0].viewerRevision, 2);
   assert.equal(second[0].viewerState.displayMode, "diff");
+});
+
+test("locating in an already-open preview tab preserves the editor instance", () => {
+  const previewTab = {
+    ...tabA,
+    viewerState: { ...tabA.viewerState, displayMode: "preview" },
+    initialDisplayMode: "preview",
+  };
+  const tabs = [previewTab];
+  assert.strictEqual(openFileTab(tabs, { ...openA, modeHint: "preview" }), tabs);
+});
+
+test("locating from another source session preserves an already-open preview editor", () => {
+  const previewTab = {
+    ...tabA,
+    sourceSessionId: "session-1",
+    viewerState: { ...tabA.viewerState, displayMode: "preview" },
+    initialDisplayMode: "preview",
+  };
+  const [next] = openFileTab([previewTab], {
+    ...openA,
+    sourceSessionId: "session-2",
+    modeHint: "preview",
+  });
+  assert.equal(next.sourceSessionId, "session-2");
+  assert.equal(next.viewerRevision, previewTab.viewerRevision);
+  assert.strictEqual(next.viewerState, previewTab.viewerState);
 });
 
 test("a remounted viewer ignores the previous revision's late cleanup", () => {

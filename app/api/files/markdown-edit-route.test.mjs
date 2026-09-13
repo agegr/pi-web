@@ -18,9 +18,11 @@ test("Markdown editing keeps the file API request and path guards", () => {
   assert.match(patchBlock, /isSymbolicLink\(\)/);
 });
 
-test("Markdown editing validates content and bounds the write size", () => {
-  assert.match(source, /extension === "md" \|\| extension === "mdx"/);
+test("text editing validates content and bounds the write size", () => {
+  assert.match(source, /isEditableTextPath\(filePath\)/);
   assert.match(patchBlock, /typeof body\.content !== "string"/);
-  assert.match(patchBlock, /MAX_MARKDOWN_EDIT_BYTES/);
-  assert.match(patchBlock, /writeFileSync\(filePath, body\.content, "utf8"\)/);
+  assert.match(patchBlock, /MAX_TEXT_EDIT_BYTES/);
+  assert.match(patchBlock, /typeof body\.baseContent !== "string"/);
+  assert.match(patchBlock, /writeTextFile\(filePath, body\.content, body\.baseContent/);
+  assert.match(patchBlock, /status: 409/);
 });

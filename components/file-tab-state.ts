@@ -4,7 +4,7 @@ import type { Tab } from "./TabBar";
 interface OpenFileTabInput {
   fileName: string;
   filePath: string;
-  modeHint?: "diff";
+  modeHint?: "preview" | "diff";
   sourceSessionId?: string | null;
   tabId: string;
 }
@@ -32,13 +32,16 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
   );
   const sourceUnchanged = !sourceChanged;
-  if (sourceUnchanged && !input.modeHint) return tabs;
+  const previewAlreadyActive = input.modeHint === "preview"
+    && (existing.viewerState?.displayMode === "preview" || existing.initialDisplayMode === "preview");
+  if (sourceUnchanged && (!input.modeHint || previewAlreadyActive)) return tabs;
 
   return tabs.map((tab) => {
     if (tab.id !== input.tabId) return tab;
     const next: Tab = { ...tab };
     if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
-    if (input.modeHint) {
+    const modeAlreadyActive = input.modeHint === "preview" && previewAlreadyActive;
+    if (input.modeHint && !modeAlreadyActive) {
       next.initialDisplayMode = input.modeHint;
       next.viewerState = {
         displayMode: input.modeHint,
@@ -46,8 +49,6 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
         scrollTop: 0,
         scrollLeft: 0,
       };
-      next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
-    } else if (sourceChanged) {
       next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
     }
     return next;

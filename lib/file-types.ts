@@ -2,6 +2,19 @@ export const TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
 export const IMAGE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 export const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
+// These are source/config formats that are safe to edit as UTF-8 text. Files
+// outside this allow-list keep the existing read-only viewer behavior.
+const EDITABLE_TEXT_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs",
+  "py", "rb", "go", "rs", "java", "kt", "swift",
+  "c", "cpp", "h", "hpp", "cs",
+  "html", "htm", "css", "scss", "less",
+  "json", "jsonl", "yaml", "yml", "toml", "xml",
+  "sh", "bash", "zsh", "fish", "sql", "graphql", "gql",
+  "tf", "hcl", "dockerfile", "env", "gitignore", "makefile", "txt",
+  "md", "mdx",
+]);
+
 export type DocumentPreviewKind = "pdf" | "docx";
 
 export const IMAGE_EXT_TO_MIME: Record<string, string> = {
@@ -47,6 +60,10 @@ function getBaseName(filePath: string): string {
 
 export function getFileExt(filePath: string): string {
   return getBaseName(filePath).toLowerCase().split(".").pop() ?? "";
+}
+
+export function isEditableTextPath(filePath: string): boolean {
+  return EDITABLE_TEXT_EXTENSIONS.has(getFileExt(filePath));
 }
 
 export function getImageMime(filePath: string): string | null {
