@@ -155,10 +155,6 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
       throw err;
     }
 
-    // Expose the child session id on the request so callers that recorded
-    // the request (e.g. test fakes) can correlate it with the run.
-    (request as unknown as Record<string, unknown>).sessionId = childRun.sessionId;
-
     // Controllable completion: resolved from the abort path or from the raw
     // controller completion, whichever fires first.
     let resolveCompletion!: (event: SubagentDispatchEvent) => void;
