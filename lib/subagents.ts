@@ -106,6 +106,98 @@ export interface SubagentRunInfo {
   worktreeCleanupError?: string;
 }
 
+/**
+ * Run identity a third-party subagent extension persisted in the PARENT session.
+ *
+ * pi-subagents writes a `subagents:record` custom entry per finished run "for
+ * cross-extension history reconstruction", and its spawn tool results carry the same
+ * run id in `details.agentId` while the agent is still running. Those entries are the
+ * only durable link to a child session it created, so grouping keys off them instead
+ * of guessing from the child's `<profile>#<id[0:8]>` session name alone.
+ */
+export interface ExternalSubagentRun {
+  id: string;
+  profile: string;
+  description: string;
+  status: SubagentStatus;
+}
+
+export const EXTERNAL_SUBAGENT_RECORD_TYPE = "subagents:record";
+
+function externalRunStatus(status: unknown, fallback: SubagentStatus): SubagentStatus {
+  switch (typeof status === "string" ? status : "") {
+    case "starting": return "starting";
+    case "queued": return "queued";
+    case "running": case "background": case "streaming": return "running";
+    // pi-subagents reports a steered run as terminal, with the steering recorded
+    // separately from the outcome.
+    case "completed": case "succeed": case "success": case "done": case "steered": return "completed";
+    case "failed": case "error": return "failed";
+    case "aborted": case "cancelled": case "canceled": return "aborted";
+    case "stopped": case "interrupted": return "interrupted";
+    default: return fallback;
+  }
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Read a foreign run identity out of one session entry. Finished runs are read from
+ * the extension's record entry; a background spawn is readable earlier from its tool
+ * result, because the run id is reported then (so running agents stay identifiable).
+ * Later entries for the same run carry the terminal state, so callers must let them
+ * replace earlier ones.
+ */
+export function externalSubagentRunFromEntry(entry: unknown): ExternalSubagentRun | null {
+  if (!isRecord(entry)) return null;
+
+  if (entry.type === "custom" && entry.customType === EXTERNAL_SUBAGENT_RECORD_TYPE) {
+    const data = entry.data;
+    if (!isRecord(data)) return null;
+    const id = nonEmptyString(data.id);
+    if (!id) return null;
+    return {
+      id,
+      profile: nonEmptyString(data.type) ?? "subagent",
+      description: nonEmptyString(data.description) ?? "",
+      // A record only exists once the run reached a terminal state.
+      status: externalRunStatus(data.status, "completed"),
+    };
+  }
+
+  const message = entry.type === "message" ? entry.message : undefined;
+  if (!isRecord(message) || message.role !== "toolResult") return null;
+  const details = message.details;
+  if (!isRecord(details)) return null;
+  const id = nonEmptyString(details.agentId);
+  if (!id) return null;
+  return {
+    id,
+    profile: nonEmptyString(details.subagentType) ?? nonEmptyString(details.displayName) ?? "subagent",
+    description: nonEmptyString(details.description) ?? "",
+    status: externalRunStatus(details.status, "running"),
+  };
+}
+
+/**
+ * Match a child session name against the runs its OWN parent recorded. The suffix
+ * check alone would just pattern-match a name; requiring a recorded id means a fork
+ * (or any session the parent never spawned) can never be misread as a subagent.
+ */
+export function matchExternalSubagentRun(
+  runs: readonly ExternalSubagentRun[] | undefined,
+  sessionName: string | undefined,
+): ExternalSubagentRun | undefined {
+  if (!runs?.length || !sessionName) return undefined;
+  const separator = sessionName.lastIndexOf("#");
+  if (separator < 0) return undefined;
+  const suffix = sessionName.slice(separator + 1).toLowerCase();
+  if (!/^[0-9a-f]{8}$/.test(suffix)) return undefined;
+  return runs.find((run) => run.id.toLowerCase().startsWith(suffix));
+}
+
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const BUILTIN_TOOLS = new Set(DEFAULT_TOOLS);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);

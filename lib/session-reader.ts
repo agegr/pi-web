@@ -12,7 +12,7 @@ import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
-import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
+import { readSubagentRun, SUBAGENT_META_TYPE, matchExternalSubagentRun, type ExternalSubagentRun } from "./subagents";
 import { listSessionsIncremental } from "./session-list-scanner";
 
 export { getAgentDir };
@@ -143,7 +143,13 @@ export function mergeSessionLists(
 async function loadAllSessions(): Promise<SessionInfo[]> {
   const scanned = await listSessionsIncremental();
   const pathToId = new Map<string, string>();
-  for (const s of scanned) pathToId.set(sessionPathKey(s.path), s.id);
+  // Run identities a parent file reports for the children it spawned. Needed for
+  // third-party subagent sessions, which carry no metadata of their own.
+  const externalRunsByParent = new Map<string, ExternalSubagentRun[]>();
+  for (const s of scanned) {
+    pathToId.set(sessionPathKey(s.path), s.id);
+    if (s.subagentRuns?.length) externalRunsByParent.set(sessionPathKey(s.path), s.subagentRuns);
+  }
 
   const sessions = scanned.map((s) => {
     cacheSessionPath(s.id, s.path);
@@ -154,6 +160,19 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
         subagent = readSubagentRun(readSessionRelationEntries(s.path), s.id, s.path);
       } catch { /* malformed or concurrently removed session */ }
     }
+    // A parent-recorded run id is the only durable proof that a child without
+    // Pi Web metadata is an agent rather than a fork. Without a resolvable parent
+    // the session stays a visible top-level row, so nothing disappears.
+    const externalRun = !subagent && s.parentSessionPath && originSessionId
+      ? matchExternalSubagentRun(externalRunsByParent.get(sessionPathKey(s.parentSessionPath)), s.name)
+      : undefined;
+    const relation: SessionInfo["relation"] = subagent
+      ? { kind: "subagent", parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status }
+      : externalRun && originSessionId
+        ? { kind: "subagent", parentSessionId: originSessionId, profile: externalRun.profile, description: externalRun.description, status: externalRun.status, source: "external" }
+        : s.parentSessionPath
+          ? { kind: "fork", ...(originSessionId ? { originSessionId } : {}) }
+          : undefined;
     return {
       path: s.path,
       id: s.id,
@@ -164,11 +183,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       messageCount: s.messageCount,
       firstMessage: s.firstMessage || "(no messages)",
       parentSessionId: originSessionId,
-      ...(subagent
-        ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
-        : s.parentSessionPath
-          ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
-          : {}),
+      ...(relation ? { relation } : {}),
       transient: false,
     };
   });

@@ -70,6 +70,12 @@ export async function GET(
     const subagent = header
       ? readSubagentRun(entries as never, header.id, filePath)
       : null;
+    // A third-party subagent session has no metadata of its own, so its relation
+    // comes from the cached catalogue (the parent's recorded runs) rather than a
+    // second read of the parent file here.
+    const externalRelation = !subagent && header?.parentSession && parentSessionId
+      ? (await listAllSessions()).find((session) => session.id === header.id)?.relation
+      : undefined;
     const toolNames = readSubagentSessionResources(entries as never)?.tools
       ?? readSessionToolSelection(entries as never);
     const info = header ? (await attachSessionProjectInfo([{
@@ -89,9 +95,11 @@ export async function GET(
       parentSessionId,
       ...(subagent
         ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: liveRpc?.isRunning() ? "running" as const : subagent.status } }
-        : header.parentSession
-          ? { relation: { kind: "fork" as const, ...(parentSessionId ? { originSessionId: parentSessionId } : {}) } }
-          : {}),
+        : externalRelation?.kind === "subagent"
+          ? { relation: externalRelation }
+          : header.parentSession
+            ? { relation: { kind: "fork" as const, ...(parentSessionId ? { originSessionId: parentSessionId } : {}) } }
+            : {}),
       transient: !filePath || !existsSync(filePath),
     }]))[0] : null;
 
@@ -177,7 +185,10 @@ export async function DELETE(
     );
     const childrenByParent = new Map<string, string[]>();
     for (const session of sessions) {
-      if (session.relation?.kind !== "subagent") continue;
+      // Third-party subagent runs are someone else's transcripts: the parent's own
+      // delete must not take them down, so they fall through to the re-parent path
+      // below like any other child session (issue #762 covers Pi Web's own runs).
+      if (session.relation?.kind !== "subagent" || session.relation.source === "external") continue;
       const children = childrenByParent.get(session.relation.parentSessionId) ?? [];
       children.push(session.id);
       childrenByParent.set(session.relation.parentSessionId, children);

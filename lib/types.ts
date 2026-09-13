@@ -329,6 +329,10 @@ export interface SessionInfo {
         profile: string;
         description: string;
         status: SubagentSessionStatus;
+        /** Set when the run comes from a third-party extension's record instead of
+         *  Pi Web's own metadata. Such a session is Pi Web's to display, never to
+         *  delete on the parent's behalf. */
+        source?: "external";
       };
   /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
    *  Always set by the server; optional because the client builds transient

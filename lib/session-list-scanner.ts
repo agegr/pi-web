@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { externalSubagentRunFromEntry, type ExternalSubagentRun } from "./subagents";
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -20,6 +21,10 @@ export interface ScannedSessionInfo {
 	messageCount: number;
 	firstMessage: string;
 	parentSessionPath?: string;
+	/** Run identities the file itself reports for children it spawned (third-party
+	 *  subagent extensions). Collected during the same streamed read, so classifying
+	 *  external subagents costs no extra file I/O. */
+	subagentRuns?: ExternalSubagentRun[];
 }
 
 interface Fingerprint {
@@ -38,7 +43,32 @@ function isRecord(value: unknown): value is RawEntry {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-const INDEX_FORMAT_VERSION = 1;
+/** Rebuild persisted run metadata, or null when it cannot be trusted (the entry
+ *  is then rescanned instead of serving a session list with wrong relations). */
+function readExternalSubagentRuns(value: unknown): ExternalSubagentRun[] | undefined | null {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || value.length > MAX_SUBAGENT_RUNS) return null;
+	const runs: ExternalSubagentRun[] = [];
+	for (const item of value) {
+		if (!isRecord(item)) return null;
+		const { id, profile, description, status } = item;
+		if (
+			typeof id !== "string" || !id
+			|| typeof profile !== "string"
+			|| typeof description !== "string"
+			|| typeof status !== "string"
+		) return null;
+		runs.push({ id, profile, description, status: status as ExternalSubagentRun["status"] });
+	}
+	return runs;
+}
+
+// v2 adds `subagentRuns`; an older index lacks it, so it is rebuilt once.
+const INDEX_FORMAT_VERSION = 2;
+
+// Bound the per-file run list: a long-lived orchestrator session can spawn
+// thousands of agents, and the index only needs enough to classify children.
+const MAX_SUBAGENT_RUNS = 500;
 
 declare global {
 	var __piWebScanIndex: Map<string, IndexEntry> | undefined;
@@ -98,6 +128,7 @@ export async function scanSessionFileInfo(
 		let messageCount = 0;
 		let firstMessage = "";
 		let lastActivityTime: number | undefined;
+		const subagentRuns: ExternalSubagentRun[] = [];
 
 		const rl = createInterface({
 			input: createReadStream(filePath, { encoding: "utf8" }),
@@ -120,6 +151,14 @@ export async function scanSessionFileInfo(
 						? entry.name.trim()
 						: undefined;
 			}
+			const run = externalSubagentRunFromEntry(entry);
+			if (run) {
+				// Later entries for the same run carry its terminal state.
+				const previous = subagentRuns.findIndex((known) => known.id === run.id);
+				if (previous >= 0) subagentRuns[previous] = run;
+				else if (subagentRuns.length < MAX_SUBAGENT_RUNS) subagentRuns.push(run);
+			}
+
 			if (entry.type !== "message") continue;
 			messageCount++;
 
@@ -170,6 +209,7 @@ export async function scanSessionFileInfo(
 			modified,
 			messageCount,
 			firstMessage: firstMessage || "(no messages)",
+			...(subagentRuns.length > 0 ? { subagentRuns } : {}),
 		};
 	} catch {
 		return null;
@@ -237,6 +277,7 @@ function loadPersistedIndex(): void {
 		for (const [pathKey, entry] of Object.entries(parsed.entries)) {
 			if (!isRecord(entry) || !isRecord(entry.fp) || !isRecord(entry.info)) continue;
 			const { fp, info } = entry;
+			const subagentRuns = readExternalSubagentRuns(info.subagentRuns);
 			if (
 				typeof fp.size !== "number" || !Number.isSafeInteger(fp.size) || fp.size < 0 ||
 				typeof fp.mtimeMs !== "number" || !Number.isFinite(fp.mtimeMs) ||
@@ -248,6 +289,7 @@ function loadPersistedIndex(): void {
 				(info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") ||
 				typeof info.messageCount !== "number" || !Number.isSafeInteger(info.messageCount) || info.messageCount < 0 ||
 				typeof info.created !== "string" || typeof info.modified !== "string"
+				|| subagentRuns === null
 			) continue;
 			const created = new Date(info.created);
 			const modified = new Date(info.modified);
@@ -264,6 +306,7 @@ function loadPersistedIndex(): void {
 					messageCount: info.messageCount,
 					created,
 					modified,
+					...(subagentRuns ? { subagentRuns } : {}),
 				},
 			});
 		}
