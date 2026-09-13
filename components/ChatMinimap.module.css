@@ -18,6 +18,47 @@
   user-select: text;
 }
 
+.loadEarlier {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.loadEarlier:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.loadEarlier:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.loadEarlierArrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.loadEarlierLabel {
+  padding-left: 6px;
+  line-height: 18px;
+}
+
 .turn {
   position: relative;
   display: grid;

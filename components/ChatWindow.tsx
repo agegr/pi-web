@@ -468,6 +468,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
   const loadingOlderRef = useRef(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const restoreStartedRef = useRef(false);
   const pendingScrollRestoreRef = useRef(pendingScrollRestore);
   pendingScrollRestoreRef.current = pendingScrollRestore;
@@ -626,6 +627,32 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onSearchTargetHandled?.(pendingSearchScroll);
   }, [pendingSearchScroll, searchTarget, searchMessage, scrollContainerRef, scrollToMessage, onSearchTargetHandled]);
 
+  // Load one older page of history. Shared by the top sentinel (triggered by
+  // scrolling) and the minimap's "Load earlier" row so both paths keep a
+  // single in-flight guard and the same scroll-anchoring capture.
+  const loadOlderPage = useCallback(async () => {
+    // Skip while a page is already loading or nothing older exists.
+    if (loadingOlderRef.current) return;
+    if (!hasEarlierMessages) return;
+    const oldestId = historyCursor;
+    if (!oldestId) return;
+    const sid = session?.id ?? sessionIdRef.current;
+    if (!sid) return;
+    const container = scrollContainerRef.current;
+    if (container) {
+      prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+    }
+    loadingOlderRef.current = true;
+    setLoadingEarlier(true);
+    try {
+      // loadContext handles prepend + scroll anchoring.
+      await loadContext(sid, activeLeafId, oldestId);
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingEarlier(false);
+    }
+  }, [activeLeafId, hasEarlierMessages, historyCursor, loadContext, scrollContainerRef, session?.id, sessionIdRef]);
+
   // IntersectionObserver on the sentinel div at the top of the message list.
   // When it becomes visible, load the next page of older messages.
   useEffect(() => {
@@ -635,26 +662,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
-        // No older history loaded yet: fetch the previous page from the server
-        // and prepend it (loadContext handles prepend + scroll anchoring).
-        // Skip while a page is already loading or nothing older exists.
-        if (loadingOlderRef.current) return;
-        if (!hasEarlierMessages) return;
-        const oldestId = historyCursor;
-        if (!oldestId) return;
-        const sid = session?.id ?? sessionIdRef.current;
-        if (!sid) return;
-        loadingOlderRef.current = true;
-        prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
-        void loadContext(sid, activeLeafId, oldestId).finally(() => {
-          loadingOlderRef.current = false;
-        });
+        void loadOlderPage();
       },
       { root: container, threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [historyCursor, hasEarlierMessages, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
+  }, [loadOlderPage, scrollContainerRef]);
 
   // Keep the rendered window at least as large as what's loaded, so prepended
   // (older) pages stay visible instead of being sliced off the top.
@@ -1228,6 +1242,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
+            hasEarlierMessages={hasEarlierMessages}
+            loadingEarlier={loadingEarlier}
+            onLoadEarlier={loadOlderPage}
           />
         )}
         </>}
