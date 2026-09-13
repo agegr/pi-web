@@ -168,17 +168,18 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
     });
 
     /**
-     * Resolve effectiveModel / effectiveThinking from the three-level
-     * fallback: dispatch param → parent session state.  Profile-level
-     * resolution is handled inside the production controller and will be
-     * surfaced in a later slice (G4 deep integration).
+     * Read the authoritative effective model/thinking from the run object.
+     * The production controller resolves the three-level fallback
+     * (dispatch param → profile → parent) and surfaces the result in
+     * the SubagentRunInfo fields.  The dispatch layer reads those values
+     * directly — never re-resolves from params or parentState.
      */
-    function resolveEffectiveModel(): string {
-      return params.model ?? parentState.model ?? "";
+    function readEffectiveModel(run: SubagentRunInfo): string {
+      return run.model ?? "";
     }
 
-    function resolveEffectiveThinking(): string | null {
-      return params.thinking ?? parentState.thinking ?? null;
+    function readEffectiveThinking(run: SubagentRunInfo): string | null {
+      return run.thinking ?? null;
     }
 
     /** Build a SubagentDispatchEvent from a terminal run. */
@@ -191,8 +192,9 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
         phase,
         dispatchId,
         childSessionId: run.sessionId,
-        effectiveModel: resolveEffectiveModel(),
-        effectiveThinking: resolveEffectiveThinking(),
+        effectiveModel: readEffectiveModel(run),
+        effectiveThinking: readEffectiveThinking(run),
+        effectiveTools: run.activeTools,
         result: run.result,
         error: error ?? run.error,
       };
@@ -227,8 +229,9 @@ export function createDispatchRuntime(deps: DispatchRuntimeDeps) {
         phase: "started",
         dispatchId,
         childSessionId: childRun.sessionId,
-        effectiveModel: resolveEffectiveModel(),
-        effectiveThinking: resolveEffectiveThinking(),
+        effectiveModel: readEffectiveModel(childRun),
+        effectiveThinking: readEffectiveThinking(childRun),
+        effectiveTools: childRun.activeTools,
       });
     } catch { /* intentionally ignored */ }
 

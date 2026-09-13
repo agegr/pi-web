@@ -199,6 +199,17 @@ export function createSubagentController(
 
       const agentDir = getAgentDir();
       const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
+      // G4: resolve the model early so the effective value is available for both
+      // the resourceSnapshot (audit trail) and the initialRun lifecycle event.
+      const requestedModel = parseSubagentModel(parentModelRuntime, request.model ?? profile.model);
+      const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
+      // G4: resolve the authoritative effective model from the three-level
+      // fallback (dispatch param → profile → parent session).  The local
+      // variable narrows the union so TypeScript can access provider/id.
+      const resolvedModel = requestedModel ?? parentModel;
+      const effectiveModel = resolvedModel
+        ? `${resolvedModel.provider}/${resolvedModel.id}`
+        : "";
       const settingsManager = SettingsManager.create(childCwd, agentDir);
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
@@ -291,20 +302,21 @@ export function createSubagentController(
           appendSystemPrompt: [...appendSystemPrompt],
           tools: [...activeTools],
           loadSkills: profile.loadSkills,
-        loadExtensions: profile.loadExtensions,
-        ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
+          loadExtensions: profile.loadExtensions,
+          // G4: authoritative effective values after three-level fallback.
+          model: effectiveModel,
+          thinking: thinking ?? null,
+          ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
         },
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
       sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
       sessionManager.appendSessionInfo(metadata.description);
 
-      const requestedModel = parseSubagentModel(parentModelRuntime, request.model ?? profile.model);
-      const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
       const { session: inner } = await createAgentSessionFromServices({
         services,
         sessionManager,
-        model: requestedModel ?? parentModel,
+        model: resolvedModel,
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
         tools: activeTools,
         // G3: reserved control names stay unconditionally excluded (re-dispatch
@@ -329,6 +341,11 @@ export function createSubagentController(
         runInBackground,
         status: "queued",
         createdAt,
+        // G4: authoritative effective model/thinking from the three-level fallback.
+        model: effectiveModel,
+        thinking: thinking ?? null,
+        // G2: effective tool set after allow/deny/exclude resolution.
+        activeTools: [...activeTools],
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
 

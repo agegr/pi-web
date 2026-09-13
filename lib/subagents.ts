@@ -62,6 +62,10 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  /** G4: authoritative effective model after three-level fallback resolution. */
+  model?: string;
+  /** G4: authoritative effective thinking level after three-level fallback resolution. */
+  thinking?: string | null;
   exactSystemPrompt?: string;
 }
 
@@ -101,6 +105,18 @@ export interface SubagentRunInfo {
   completedAt?: string;
   result?: string;
   error?: string;
+  /** G4: authoritative effective model after three-level fallback resolution. */
+  model?: string;
+  /** G4: authoritative effective thinking level after three-level fallback resolution. */
+  thinking?: string | null;
+  /** G2: effective tool set after allow/deny/exclude resolution, carried by runtime. */
+  activeTools?: string[];
+  /**
+   * Transitional alias for activeTools, present on the fake controller's run
+   * objects in the frozen dispatch test suite.  Production always writes
+   * activeTools; consumers should prefer it and fall back to tools.
+   */
+  tools?: string[];
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeCleanupError?: string;
