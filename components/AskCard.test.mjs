@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const askCard = await readFile(new URL("./AskCard.tsx", import.meta.url), "utf8");
+const answerCard = await readFile(new URL("./AskAnswerCard.tsx", import.meta.url), "utf8");
 const chatWindow = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+const messageView = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
 
 test("renders a structured question as pointer-first controls", () => {
   // Options and the freeform entry are real controls, not terminal text.
@@ -54,3 +56,10 @@ test("chat window prefers the native card and keeps the terminal escape hatch", 
 });
 
 
+test("transcript shows a decision card for asked questions", () => {
+  assert.match(messageView, /parseStructuredAskResult\(block\.toolName, result\?\.details\)/);
+  assert.match(messageView, /if \(askRecord\) return <AskAnswerCard record=\{askRecord\} \/>/);
+  assert.match(messageView, /pendingAsk[\s\S]*?<AskAnswerCard\s+pending/);
+  assert.match(answerCard, /chat\.askAnswered/);
+  assert.match(answerCard, /chat\.askCancelled/);
+});

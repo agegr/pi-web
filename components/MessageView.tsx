@@ -11,6 +11,8 @@ import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isEditToolName } from "@/lib/tool-names";
+import { AskAnswerCard } from "./AskAnswerCard";
+import { isStructuredAskToolName, parseStructuredAsk, parseStructuredAskResult } from "@/lib/structured-ask";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
@@ -1035,6 +1037,31 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+
+  // A question the user answered is a decision, not tool output: show it as a
+  // decision card. While the tool is still running, the pending question comes
+  // from the tool arguments instead.
+  const askRecord = isStructuredAskToolName(block.toolName)
+    ? parseStructuredAskResult(block.toolName, result?.details)
+    : null;
+  const pendingAsk = !result && !isStreamingInput
+    ? parseStructuredAsk(block.toolName, block.input, block.toolCallId)
+    : null;
+  if (askRecord) return <AskAnswerCard record={askRecord} />;
+  if (pendingAsk) {
+    return (
+      <AskAnswerCard
+        pending
+        record={{
+          question: pendingAsk.question,
+          context: pendingAsk.context,
+          options: pendingAsk.options,
+          answer: null,
+          cancelled: false,
+        }}
+      />
+    );
+  }
 
   return (
     <div
