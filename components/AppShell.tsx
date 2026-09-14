@@ -2257,6 +2257,7 @@ export function AppShell() {
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
+              onModelsVisibilityChanged={() => setModelsRefreshKey((key) => key + 1)}
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
               onSystemPromptChange={handleSystemPromptChange}
