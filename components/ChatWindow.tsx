@@ -15,6 +15,7 @@ import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AskCard } from "./AskCard";
+import { isStructuredAskToolName } from "@/lib/structured-ask";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -183,6 +184,11 @@ function getUserInputText(message: AgentMessage): string | null {
     .join("\n")
     .trim();
   return text.length > 0 ? text : null;
+}
+
+/** A tool call that asks the user a question, rendered as its own decision card. */
+function isStructuredAskBlock(block: AssistantContentBlock): boolean {
+  return block.type === "toolCall" && isStructuredAskToolName(block.toolName);
 }
 
 function withAssistantBlocks(
@@ -1125,6 +1131,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 const finalProcessBlocks = finalAssistant.content.slice(0, finalProcessEnd < 0 ? undefined : finalProcessEnd);
 
                 const processViews: ReactNode[] = [];
+                // Questions are decisions, not process noise, so they stay out
+                // of the collapsed tool-call group.
+                const askViews: ReactNode[] = [];
                 let processToolCount = 0;
                 let processRefIdx: number | undefined;
                 let revealProcess = false;
@@ -1140,7 +1149,19 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const message = processIdx === finalAssistantIdx
                     ? withAssistantBlocks(processMessage, finalProcessBlocks, { omitUsage: Boolean(finalAnswerMessage) })
                     : processMessage;
-                  const blocks = getDisplayableAssistantBlocks(message);
+                  const allBlocks = getDisplayableAssistantBlocks(message);
+                  const askBlocks = allBlocks.filter(isStructuredAskBlock);
+                  if (askBlocks.length > 0) {
+                    askViews.push(renderMessage(processIdx, {
+                      attachRef: false,
+                      keyPrefix: "ask",
+                      messageOverride: withAssistantBlocks(message, askBlocks),
+                      showTimestamp: false,
+                    }));
+                  }
+                  const blocks = askBlocks.length > 0
+                    ? allBlocks.filter((block) => !askBlocks.includes(block))
+                    : allBlocks;
                   if (blocks.length === 0) continue;
                   processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
                   processToolCount += countToolCallBlocks(blocks);
@@ -1165,6 +1186,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     </div>,
                   );
                 }
+
+                rendered.push(...askViews);
 
                 if (finalAnswerMessage) {
                   // Each tool call is stored as its own assistant entry, so the

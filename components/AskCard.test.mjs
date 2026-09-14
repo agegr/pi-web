@@ -55,6 +55,12 @@ test("chat window prefers the native card and keeps the terminal escape hatch", 
   assert.match(chatWindow, /onShowRaw=\{\(\) => setRawCustomUiId\(extensionCustomUi\.id\)\}/);
 });
 
+test("questions stay out of the collapsed process group", () => {
+  assert.match(chatWindow, /const askViews: ReactNode\[\] = \[\]/);
+  assert.match(chatWindow, /allBlocks\.filter\(isStructuredAskBlock\)/);
+  assert.match(chatWindow, /rendered\.push\(\.\.\.askViews\)/);
+  assert.match(chatWindow, /block\.type === "toolCall" && isStructuredAskToolName\(block\.toolName\)/);
+});
 
 test("transcript shows a decision card for asked questions", () => {
   assert.match(messageView, /parseStructuredAskResult\(block\.toolName, result\?\.details\)/);
