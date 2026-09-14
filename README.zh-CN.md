@@ -50,6 +50,7 @@ pi-web
 | `--no-open` 或 `PI_WEB_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
 | `PI_WEB_PASSWORD` | 启用浏览器密码登录；API 客户端可使用用户名为 `pi` 的 Basic Auth | 不启用认证 |
+| `PI_WEB_MAX_BODY_SIZE` | 上传请求体的最大缓冲大小；支持 `b`/`kb`/`mb`/`gb` 后缀或直接写字节数 | `128mb` |
 
 例如：
 

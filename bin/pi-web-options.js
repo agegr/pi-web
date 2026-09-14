@@ -48,6 +48,7 @@ Environment:
   PI_WEB_ALLOWED_HOSTS       Extra exact proxy/custom hostnames, comma-separated
   PI_WEB_SKIP_VERSION_CHECK  Set to 1 to disable Pi Web update checks
   PI_WEB_IDLE_TIMEOUT_MS     Session idle timeout in ms (0 disables; default 600000)
+  PI_WEB_MAX_BODY_SIZE       Max buffered request body (default 128mb)
 `;
 }
 

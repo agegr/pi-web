@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { resolveMaxBodySize } from "./bin/max-body-size.mjs";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
@@ -13,6 +14,12 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
+  experimental: {
+    // Next buffers the request body whenever a middleware/proxy is present and
+    // caps that buffer at 10 MB by default. The upload route accepts up to
+    // 100 MB, so raise the buffer above that. Override with PI_WEB_MAX_BODY_SIZE.
+    proxyClientMaxBodySize: resolveMaxBodySize(),
+  },
   serverExternalPackages: [
     "node-pty",
     "undici",
