@@ -19,6 +19,7 @@ import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-stor
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { StructuredAskSubmission } from "@/lib/structured-ask";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
@@ -798,6 +799,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to send extension UI response:", e);
+    }
+  }, []);
+
+  /**
+   * Answers a structured question rendered as a native form. The server checks
+   * the submission against the question before it resolves the extension.
+   */
+  const respondToExtensionAsk = useCallback(async (
+    request: ExtensionUiCustomRequest,
+    submission: StructuredAskSubmission,
+  ) => {
+    const sid = sessionIdRef.current;
+    setExtensionCustomUi((current) => current?.id === request.id ? null : current);
+    if (!sid) return;
+    try {
+      await sendAgentCommand(sid, {
+        type: "extension_ui_ask_response",
+        id: request.id,
+        ...submission,
+      });
+    } catch (e) {
+      console.error("Failed to send structured ask response:", e);
     }
   }, []);
 
@@ -2170,7 +2193,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, respondToExtensionAsk,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,

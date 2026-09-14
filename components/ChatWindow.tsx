@@ -14,6 +14,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { AskCard } from "./AskCard";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -272,6 +273,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     return position && !position.atBottom ? position : null;
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
+  // Escape hatch: show the raw terminal panel for one structured question when
+  // the native form is not enough.
+  const [rawCustomUiId, setRawCustomUiId] = useState<string | null>(null);
 
   const {
     loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
@@ -279,7 +283,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
+    notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, respondToExtensionAsk, setNoticePaused,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -979,7 +983,16 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {extensionDialog && (
           <ExtensionDialog key={extensionDialog.id} request={extensionDialog} onRespond={respondToExtensionUi} />
         )}
-        {extensionCustomUi && (
+        {extensionCustomUi && extensionCustomUi.ask && extensionCustomUi.id !== rawCustomUiId && (
+          <AskCard
+            key={`ask-${extensionCustomUi.id}`}
+            ask={extensionCustomUi.ask}
+            onSubmit={(answer) => { void respondToExtensionAsk(extensionCustomUi, { answer }); }}
+            onCancel={() => { void respondToExtensionAsk(extensionCustomUi, { cancelled: true }); }}
+            onShowRaw={() => setRawCustomUiId(extensionCustomUi.id)}
+          />
+        )}
+        {extensionCustomUi && (!extensionCustomUi.ask || extensionCustomUi.id === rawCustomUiId) && (
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} onInput={sendExtensionCustomInput} />
         )}
         {!isEmptyNew && <>
