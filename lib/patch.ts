@@ -129,6 +129,31 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
   return parsed.length > 0 ? parsed : null;
 }
 
+/** Count +/− lines the same way SplitPatchView renders them. */
+export function countPatchLineStats(patch: string): { additions: number; deletions: number } {
+  const files = parseUnifiedPatch(patch);
+  if (files) {
+    let additions = 0;
+    let deletions = 0;
+    for (const file of files) {
+      for (const row of file.rows) {
+        if (row.type !== "line") continue;
+        if (row.right.type === "added") additions += 1;
+        if (row.left.type === "removed") deletions += 1;
+      }
+    }
+    return { additions, deletions };
+  }
+
+  let additions = 0;
+  let deletions = 0;
+  for (const line of patch.split(/\r?\n/)) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+    else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
 function cleanPatchPath(path: string): string {
   return path.split("\t")[0].trim();
 }
