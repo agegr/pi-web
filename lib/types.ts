@@ -1,5 +1,7 @@
 // Types mirrored from pi-mono coding-agent session-manager
 
+import type { StructuredAskSpec, StructuredAskSubmission } from "./structured-ask";
+
 export interface SessionHeader {
   type: "session";
   version?: number;
@@ -191,12 +193,23 @@ export type ExtensionUiRequest =
       method: "custom";
       lines: string[];
       closed?: boolean;
+      /**
+       * Set when a structured-ask adapter recognized the tool call behind this
+       * custom UI. The browser renders a native question form instead of the
+       * terminal panel. See lib/structured-ask.ts.
+       */
+      ask?: StructuredAskSpec;
     };
 
 export type BlockingExtensionUiRequest = Extract<
   ExtensionUiRequest,
   { method: "select" | "confirm" | "input" | "editor" | "custom" }
 >;
+
+export type ExtensionUiAskResponse = {
+  type: "extension_ui_ask_response";
+  id: string;
+} & StructuredAskSubmission;
 
 export type ExtensionUiResponse =
   | { type: "extension_ui_response"; id: string; value: string }

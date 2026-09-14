@@ -29,6 +29,11 @@ import type {
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import {
+  parseStructuredAsk,
+  resolveStructuredAskSubmission,
+  type StructuredAskSpec,
+} from "./structured-ask";
+import {
   createSubagentExtension,
   preferPiWebSubagentExtension,
 } from "./subagent-extension";
@@ -93,6 +98,8 @@ type ActiveCustomUi = {
   width: number;
   resolve: (value: unknown) => void;
   settled: boolean;
+  /** Structured question behind this custom UI, when an adapter matched. */
+  ask?: StructuredAskSpec;
 };
 
 type ExtensionUiRequestBody = Record<string, unknown> & {
@@ -156,6 +163,7 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
   "get_commands",
   "extension_ui_response",
   "extension_ui_input",
+  "extension_ui_ask_response",
 ]);
 
 export interface RpcSessionStartOptions {
@@ -976,6 +984,11 @@ export class AgentSessionWrapper {
         return null;
       }
 
+      case "extension_ui_ask_response": {
+        this.handleExtensionAskResponse(command.id as string, command);
+        return null;
+      }
+
       case "set_auto_retry": {
         this.inner.setAutoRetryEnabled(command.enabled as boolean);
         return null;
@@ -1325,6 +1338,7 @@ export class AgentSessionWrapper {
       id,
       method: "custom",
       lines,
+      ...(custom.ask ? { ask: custom.ask } : {}),
     } as ExtensionUiRequest as AgentEvent;
     this.pendingUiRequests.set(id, event);
     this.emit(event);
@@ -1349,6 +1363,40 @@ export class AgentSessionWrapper {
       closed: true,
     } as ExtensionUiRequest as AgentEvent);
     custom.resolve(value);
+  }
+
+  /**
+   * Finds the question-asking tool call that this custom UI belongs to.
+   *
+   * The extension API gives the host no tool identity with `ctx.ui.custom()`,
+   * so the running tool calls are the only correlation available. A tool blocks
+   * while its question is open, so at most one structured ask is in flight in
+   * practice; the newest match wins.
+   */
+  private detectStructuredAsk(): StructuredAskSpec | undefined {
+    let found: StructuredAskSpec | undefined;
+    for (const event of this.activeToolEvents.values()) {
+      const spec = parseStructuredAsk(
+        (event as { toolName?: unknown }).toolName,
+        (event as { args?: unknown }).args,
+        (event as { toolCallId?: string }).toolCallId,
+      );
+      if (spec) found = spec;
+    }
+    return found;
+  }
+
+  /**
+   * Answers a structured question from the browser form. The submission is
+   * checked against the question before the extension's custom UI promise is
+   * resolved; a submission that does not fit leaves the question open.
+   */
+  private handleExtensionAskResponse(id: string, submission: unknown): void {
+    const custom = this.activeCustomUis.get(id);
+    if (!custom?.ask) return;
+    const resolved = resolveStructuredAskSubmission(custom.ask, submission);
+    if (!resolved.ok) return;
+    this.closeCustomUi(id, resolved.value);
   }
 
   private handleExtensionUiInput(id: string, data: string): void {
@@ -1426,6 +1474,7 @@ export class AgentSessionWrapper {
             width,
             resolve: (value) => finish(value as T),
             settled: false,
+            ask: this.detectStructuredAsk(),
           };
           this.activeCustomUis.set(id, custom);
           this.emitCustomUiRender(id, custom);
