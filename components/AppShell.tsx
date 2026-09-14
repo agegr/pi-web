@@ -867,7 +867,8 @@ export function AppShell() {
       targetSession: selectedSession,
       title: translate("i18n.attentionNeeded"),
       body: request.method === "custom"
-        ? translate("i18n.extensionInputNeeded")
+        // A structured question carries its own text; other custom UIs do not.
+        ? request.ask?.question ?? translate("i18n.extensionInputNeeded")
         : request.title,
       tag: `pi-extension-ui:${request.id}`,
     });
