@@ -85,6 +85,7 @@ lib/
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
+  structured-ask.ts   adapter layer turning question-asking tool calls into native forms
   subagent-settings.ts  read/write ~/.pi/agent/agents/settings.json
   tool-presets.ts     PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
   tool-preset-preference.ts  browser-persisted default for fresh sessions
@@ -98,6 +99,8 @@ components/
   ChatWindow.tsx      chat composition + completion sound wrapper
   ChatInput.tsx       input bar + model/thinking/tools/compact controls
   MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
+  AskCard.tsx         native form for a structured ask (see docs/adr/0004)
+  AskAnswerCard.tsx   transcript card for a pending or answered question
   BranchNavigator.tsx in-session branch switcher
   ChatMinimap.tsx     scroll minimap alongside the message list
   MarkdownBody.tsx    markdown renderer
@@ -131,6 +134,9 @@ hooks/
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
 
 **Fix**: `send("fork")` captures `newSessionId`, then calls `this.destroy()` before returning. The next request for the original session reloads a clean AgentSession from the original file.
+
+### Questions from tools are rendered natively (`lib/structured-ask.ts`)
+Extensions ask questions through `ctx.ui.custom()`, which Pi Web otherwise streams as terminal text. A structured-ask adapter recognizes a known question tool (`ask_user`), attaches an `ask` field to the `extension_ui_request` event, and the browser renders `AskCard`. The answer comes back as `extension_ui_ask_response`, is checked against the question, then resolves the extension's promise. Unknown custom UIs keep the terminal panel. See `docs/adr/0004-structured-ask-adapter.md`.
 
 ### Two kinds of branching — don't confuse them
 - **Fork** ("New session" on user message): creates a new independent `.jsonl` file. Shown as a child in the sidebar tree via `parentSession` header field.
