@@ -16,6 +16,7 @@ interface ShutdownStatus {
   state: "idle" | "counting" | "done";
   remainingSeconds: number | null;
   deadline: number | null;
+  supported?: boolean;
 }
 
 export function ShutdownButton({ mobile = false }: { mobile?: boolean }) {
@@ -104,6 +105,10 @@ export function ShutdownButton({ mobile = false }: { mobile?: boolean }) {
     setError(null);
     setConfirmOpen(true);
   };
+
+  // The feature is Windows-only; hide the button on other platforms once the
+  // server reports its capability (avoiding a broken button that errors on click).
+  if (status?.supported === false) return null;
 
   const counting = status?.state === "counting";
   const done = status?.state === "done";

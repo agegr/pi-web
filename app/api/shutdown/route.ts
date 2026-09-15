@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
+import { isShutdownSupported } from "@/lib/shutdown-commands";
 import { shutdownTimer } from "@/lib/shutdown-timer";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/shutdown - current countdown state.
+// GET /api/shutdown - current countdown state (plus a platform capability flag).
 export async function GET() {
-  return NextResponse.json(shutdownTimer.status(), {
-    headers: { "Cache-Control": "no-store" },
-  });
+  return NextResponse.json(
+    { ...shutdownTimer.status(), supported: isShutdownSupported() },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 // POST /api/shutdown { action: "start" | "cancel" }
@@ -20,6 +22,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  if (!isShutdownSupported()) {
+    return NextResponse.json({ error: "Shutdown is only supported on Windows" }, { status: 400 });
+  }
+
   try {
     if (action === "start") await shutdownTimer.start();
     else if (action === "cancel") await shutdownTimer.cancel();
@@ -30,5 +36,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Shutdown command failed" }, { status: 500 });
   }
 
-  return NextResponse.json(shutdownTimer.status());
+  return NextResponse.json({ ...shutdownTimer.status(), supported: true });
 }
