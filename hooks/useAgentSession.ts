@@ -916,7 +916,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       ) return;
 
       try {
-        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        // light=1: reconciliation only needs run/compaction/queue/model fields —
+      // skip the multi-KB systemPrompt (client already holds its own copy).
+      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}?light=1`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
         if (
@@ -992,7 +994,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
       try {
-        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        // light=1: reconciliation only needs run/compaction/queue/model fields —
+      // skip the multi-KB systemPrompt (client already holds its own copy).
+      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}?light=1`);
         if (res.ok) {
           const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
           const state = data.state;
@@ -1020,7 +1024,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) {
       await delay(BASH_STATE_RECONCILE_MS);
       try {
-        const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+        // light=1: reconciliation only needs run/compaction/queue/model fields —
+      // skip the multi-KB systemPrompt (client already holds its own copy).
+      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}?light=1`);
         if (!res.ok) continue;
         const data = await res.json() as { state?: AgentStateResponse };
         syncLiveModel(data.state);
@@ -1047,7 +1053,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!agentRunningRef.current || sessionIdRef.current !== sid) return;
     const runId = promptRunIdRef.current;
     try {
-      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}`);
+      // light=1: reconciliation only needs run/compaction/queue/model fields —
+      // skip the multi-KB systemPrompt (client already holds its own copy).
+      const res = await fetch(`/api/agent/${encodeURIComponent(sid)}?light=1`);
       if (!res.ok) return;
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
@@ -1087,6 +1095,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     if (!agentRunning) return;
     const reconcile = () => {
+      // Hidden tabs skip the tick entirely (the SSE stream still delivers
+      // live updates; visibilitychange re-reconciles on return to foreground).
+      if (document.visibilityState !== "visible") return;
       // Read the ref on every tick: for brand-new sessions the id is
       // assigned only after ensure_session returns.
       const sid = sessionIdRef.current;

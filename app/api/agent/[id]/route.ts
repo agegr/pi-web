@@ -71,7 +71,7 @@ export async function POST(
 
 // GET /api/agent/[id] - Get current agent state
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -83,6 +83,15 @@ export async function GET(
     }
 
     const state = await session.send({ type: "get_state" });
+    // ?light=1 — for polling/reconciliation requests: omit `state.systemPrompt`,
+    // the only multi-KB field (the client already holds a copy and it rarely
+    // changes within a session). Response drops from ~15KB to ~1KB. Without
+    // the parameter the response is unchanged (backward compatible).
+    const light = new URL(req.url).searchParams.get("light") === "1";
+    if (light && state && typeof state === "object" && "systemPrompt" in state) {
+      const { systemPrompt: _omitted, ...rest } = state as Record<string, unknown> & { systemPrompt?: unknown };
+      return NextResponse.json({ running: true, state: rest });
+    }
     return NextResponse.json({ running: true, state });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
