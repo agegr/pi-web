@@ -25,7 +25,9 @@ export async function POST(req: Request) {
     else if (action === "cancel") await shutdownTimer.cancel();
     else return NextResponse.json({ error: "action must be start or cancel" }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    // Do not echo command names or stderr back to clients; log server-side.
+    console.error("[shutdown] action failed:", error);
+    return NextResponse.json({ error: "Shutdown command failed" }, { status: 500 });
   }
 
   return NextResponse.json(shutdownTimer.status());

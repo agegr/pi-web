@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { ShutdownConfirmDialog } from "./ShutdownConfirmDialog";
 
@@ -24,11 +24,6 @@ export function ShutdownButton({ mobile = false }: { mobile?: boolean }) {
   const [busy, setBusy] = useState<"start" | "cancel" | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const confirmOpenRef = useRef(confirmOpen);
-
-  useEffect(() => {
-    confirmOpenRef.current = confirmOpen;
-  }, [confirmOpen]);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -36,9 +31,8 @@ export function ShutdownButton({ mobile = false }: { mobile?: boolean }) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const next = (await response.json()) as ShutdownStatus;
       setStatus(next);
-      // A successful poll clears a stale cancel failure, but keeps the error
-      // the user is currently reading inside the confirmation dialog.
-      setError((current) => (confirmOpenRef.current ? current : null));
+      // Errors persist until the next explicit action succeeds or the dialog
+      // is dismissed — polling must not wipe a destructive-action failure.
     } catch {
       setStatus(null);
     }
@@ -114,14 +108,16 @@ export function ShutdownButton({ mobile = false }: { mobile?: boolean }) {
   const counting = status?.state === "counting";
   const done = status?.state === "done";
   const remainingSeconds = status?.remainingSeconds ?? 0;
-  const danger = counting || done;
+  const danger = counting || done || error !== null;
   const label = busy === "start"
     ? t("shutdown.start")
-    : counting
-      ? `${t("shutdown.cancel")} · ${t("shutdown.remaining", { seconds: remainingSeconds })}`
-      : done
-        ? t("shutdown.aboutToShutdown")
-        : t("shutdown.start");
+    : error
+      ? t("shutdown.failed")
+      : counting
+        ? `${t("shutdown.cancel")} · ${t("shutdown.remaining", { seconds: remainingSeconds })}`
+        : done
+          ? t("shutdown.aboutToShutdown")
+          : t("shutdown.start");
 
   return (
     <>
@@ -181,7 +177,10 @@ export function ShutdownButton({ mobile = false }: { mobile?: boolean }) {
         <ShutdownConfirmDialog
           busy={busy === "start"}
           error={error}
-          onCancel={() => setConfirmOpen(false)}
+          onCancel={() => {
+            setConfirmOpen(false);
+            setError(null);
+          }}
           onConfirm={() => {
             void handleConfirm();
           }}
