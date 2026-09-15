@@ -1,11 +1,18 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+
+// While streaming, `children` grows every frame; feeding it straight into
+// ReactMarkdown re-parses the accumulated text each frame (O(n²), main-thread
+// spikes on long streams). Throttle: hand the latest text to ReactMarkdown at
+// most every 200ms; intermediate frames skip parsing. Non-streaming renders
+// (history / stream finished) always parse immediately.
+const STREAM_PARSE_INTERVAL_MS = 200;
 
 interface MarkdownBodyProps {
   children: string;
@@ -17,6 +24,29 @@ interface MarkdownBodyProps {
 
 export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  // Throttled streaming text (see STREAM_PARSE_INTERVAL_MS). Non-streaming
+  // renders track `normalizedMarkdown` directly (no delay, no stale tail).
+  const [renderText, setRenderText] = useState(normalizedMarkdown);
+  const lastParseRef = useRef({ text: normalizedMarkdown, at: 0 });
+  useEffect(() => {
+    if (!isStreaming) {
+      lastParseRef.current = { text: normalizedMarkdown, at: 0 };
+      setRenderText(normalizedMarkdown);
+      return;
+    }
+    lastParseRef.current.text = normalizedMarkdown;
+    const now = Date.now();
+    if (now - lastParseRef.current.at >= STREAM_PARSE_INTERVAL_MS) {
+      lastParseRef.current.at = now;
+      setRenderText(normalizedMarkdown);
+      return;
+    }
+    const timer = setTimeout(() => {
+      lastParseRef.current.at = Date.now();
+      setRenderText(lastParseRef.current.text);
+    }, STREAM_PARSE_INTERVAL_MS);
+    return () => clearTimeout(timer);
+  }, [isStreaming, normalizedMarkdown]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
     code({ className, children, ...props }) {
@@ -101,7 +131,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         urlTransform={onOpenFile ? markdownUrlTransform : undefined}
         components={components}
       >
-        {normalizedMarkdown}
+        {renderText}
       </ReactMarkdown>
     </div>
   );

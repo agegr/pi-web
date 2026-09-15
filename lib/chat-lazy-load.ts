@@ -1,4 +1,6 @@
-export const VISIBLE_PAGE_SIZE = 50;
+// 30 ≈ 3-4 screens at 6-10 messages per viewport (incl. overscan buffer);
+// 50 renders 2x the DOM for the same purpose on history paging.
+export const VISIBLE_PAGE_SIZE = 30;
 export const CHAT_SCROLL_TAIL_TOLERANCE = 8;
 export const CHAT_SCROLL_REATTACH_TOLERANCE = 96;
 
