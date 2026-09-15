@@ -43,6 +43,13 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import {
+  SIDE_CHAT_BLOCKED_TOOLS,
+  SIDE_CHAT_CUSTOM_TYPE,
+  buildSideChatBoundaryText,
+  buildSideChatSeed,
+  restrictSideChatTools,
+} from "./side-chat";
+import {
   appendSessionToolSelection,
   readSessionToolSelection,
   validateSessionToolSelection,
@@ -115,6 +122,8 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /** Set when this runtime is an ephemeral side conversation of another session. */
+  sideChatParentSessionId?: string;
 };
 
 const IDLE_RESET_EVENT_TYPES = new Set([
@@ -163,9 +172,17 @@ export interface RpcSessionStartOptions {
   initialModel?: { provider: string; modelId: string };
   allowInitialModelFallback?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /**
+   * Pre-built session manager. Side conversations pass an in-memory manager so
+   * their turns never reach a session file.
+   */
+  sessionManager?: SessionManager;
+  /** Parent session id when starting an ephemeral side conversation. */
+  sideChatParentSessionId?: string;
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+const SIDE_CHAT_BLOCKED_TOOL_SET = new Set<string>(SIDE_CHAT_BLOCKED_TOOLS);
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
@@ -236,6 +253,7 @@ export class AgentSessionWrapper {
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
+  private readonly sideChatParentSessionId?: string;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
   private unsubscribe: (() => void) | null = null;
@@ -254,6 +272,7 @@ export class AgentSessionWrapper {
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
+    this.sideChatParentSessionId = options.sideChatParentSessionId;
     this.installExactSystemPromptContinuation();
     this.applyExactSystemPrompt();
   }
@@ -264,6 +283,11 @@ export class AgentSessionWrapper {
 
   get sessionFile(): string {
     return this.inner.sessionFile ?? "";
+  }
+
+  /** Parent session id when this runtime is an ephemeral side conversation. */
+  get sideChatParent(): string | undefined {
+    return this.sideChatParentSessionId;
   }
 
   get cwd(): string {
@@ -1663,6 +1687,8 @@ declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
+  var __piSideChats: Map<string, SideChatSession> | undefined;
+  var __piSideChatLocks: Map<string, Promise<SideChatSession>> | undefined;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -1755,6 +1781,175 @@ function trackStartingSession(cwd: string): () => void {
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
   return getRegistry().get(sessionId);
+}
+
+// ============================================================================
+// Side conversations
+// ============================================================================
+
+export interface SideChatSession {
+  sessionId: string;
+  parentSessionId: string;
+  cwd: string;
+  /** Parent messages inherited as reference context. */
+  inheritedMessages: number;
+  inheritedToolCalls: number;
+  /** Parent entries dropped by the seed size cap. */
+  droppedEntries: number;
+  createdAt: string;
+}
+
+/**
+ * Live side conversations, keyed by side-session id.
+ *
+ * Side conversations are deliberately absent from the session list and the
+ * agents panel: they exist for as long as their panel is open and leave no
+ * trace afterwards.
+ */
+function getSideChats(): Map<string, SideChatSession> {
+  if (!globalThis.__piSideChats) globalThis.__piSideChats = new Map();
+  return globalThis.__piSideChats;
+}
+
+/**
+ * In-flight side-chat creation keyed by parent session.
+ *
+ * Two concurrent opens (a double click, a second tab, React's development
+ * double-invoke) would otherwise both miss the `getSideChatForParent` check and
+ * each build a fork; only one of them would then be reachable for disposal, so
+ * the other leaked until its idle timeout.
+ */
+function getSideChatLocks(): Map<string, Promise<SideChatSession>> {
+  if (!globalThis.__piSideChatLocks) globalThis.__piSideChatLocks = new Map();
+  return globalThis.__piSideChatLocks;
+}
+
+function dropSideChat(sideChatId: string): void {
+  getSideChats().delete(sideChatId);
+}
+
+/** The live side conversation of a parent session, if any. */
+export function getSideChatForParent(parentSessionId: string): SideChatSession | undefined {
+  for (const chat of getSideChats().values()) {
+    if (chat.parentSessionId !== parentSessionId) continue;
+    if (getRpcSession(chat.sessionId)?.isAlive()) return chat;
+    dropSideChat(chat.sessionId);
+  }
+  return undefined;
+}
+
+/**
+ * Open (or reuse) the side conversation of a parent session.
+ *
+ * The new runtime inherits the parent's active branch as reference context and
+ * starts with a boundary message that marks everything above it as history
+ * rather than active instructions. It writes to no session file, so the parent
+ * transcript is untouched by whatever gets asked here.
+ */
+export async function startSideChatSession(parentSessionId: string): Promise<SideChatSession> {
+  const existing = getSideChatForParent(parentSessionId);
+  if (existing) return existing;
+
+  const locks = getSideChatLocks();
+  const inflight = locks.get(parentSessionId);
+  if (inflight) return inflight;
+
+  const starting = createSideChatSession(parentSessionId)
+    .finally(() => locks.delete(parentSessionId));
+  locks.set(parentSessionId, starting);
+  return starting;
+}
+
+async function createSideChatSession(parentSessionId: string): Promise<SideChatSession> {
+  const parent = getRpcSession(parentSessionId);
+  const parentLive = Boolean(parent?.isAlive());
+  let parentManager: SessionManager;
+  if (parentLive && parent) {
+    parentManager = parent.inner.sessionManager;
+  } else {
+    const parentFile = await resolveSessionPath(parentSessionId);
+    if (!parentFile) throw new Error("Session not found");
+    parentManager = SessionManager.open(parentFile, undefined);
+  }
+
+  const cwd = parentManager.getCwd();
+  const seed = buildSideChatSeed(
+    parentManager.getEntries() as unknown as SessionEntry[],
+    parentManager.getLeafId(),
+  );
+  const manager = SessionManager.inMemory(cwd, {}, seed.entries as never);
+
+  // Append the boundary before the runtime starts so the first request already
+  // sees it, and so it shows up as the fork point in the transcript.
+  manager.appendCustomMessageEntry(
+    SIDE_CHAT_CUSTOM_TYPE,
+    buildSideChatBoundaryText({
+      parentSessionId,
+      ...(parentManager.getSessionName() ? { parentSessionName: parentManager.getSessionName() } : {}),
+      inheritedMessages: seed.inheritedMessages,
+      droppedEntries: seed.droppedEntries,
+    }),
+    false,
+    {
+      parentSessionId,
+      inheritedMessages: seed.inheritedMessages,
+      inheritedToolCalls: seed.inheritedToolCalls,
+      droppedEntries: seed.droppedEntries,
+    },
+  );
+
+  const parentTools = parentLive && parent
+    ? parent.inner.getActiveToolNames()
+    : readSessionToolSelection(parentManager.getEntries() as unknown as SessionEntry[]);
+  const toolNames = parentTools === undefined ? undefined : restrictSideChatTools(parentTools);
+  const parentModel = parentLive && parent ? parent.inner.model : undefined;
+
+  const started = await startRpcSession(manager.getSessionId(), "", cwd, {
+    sessionManager: manager,
+    sideChatParentSessionId: parentSessionId,
+    ...(toolNames !== undefined ? { toolNames } : {}),
+    ...(parentModel
+      ? { initialModel: { provider: parentModel.provider, modelId: parentModel.id }, allowInitialModelFallback: true }
+      : {}),
+  });
+
+  const info: SideChatSession = {
+    sessionId: started.realSessionId,
+    parentSessionId,
+    cwd,
+    inheritedMessages: seed.inheritedMessages,
+    inheritedToolCalls: seed.inheritedToolCalls,
+    droppedEntries: seed.droppedEntries,
+    createdAt: new Date().toISOString(),
+  };
+  getSideChats().set(info.sessionId, info);
+  started.session.onDestroy(() => dropSideChat(info.sessionId));
+  return info;
+}
+
+/** Discard a side conversation and its runtime. */
+export async function disposeSideChatSession(sideChatId: string): Promise<boolean> {
+  const known = getSideChats().delete(sideChatId);
+  const wrapper = getRpcSession(sideChatId);
+  if (!wrapper?.isAlive()) return known;
+  await wrapper.shutdown();
+  return true;
+}
+
+/**
+ * Discard every side conversation of a parent session and report how many were
+ * disposed. Closing the panel means "this fork is over", so a stray duplicate
+ * from a race must not survive as an unreachable runtime.
+ */
+export async function disposeSideChatsForParent(parentSessionId: string): Promise<number> {
+  const ids = Array.from(getSideChats().values())
+    .filter((chat) => chat.parentSessionId === parentSessionId)
+    .map((chat) => chat.sessionId);
+  let disposed = 0;
+  for (const id of ids) {
+    if (await disposeSideChatSession(id)) disposed += 1;
+  }
+  return disposed;
 }
 
 export interface SetRpcSessionToolsResult {
@@ -1851,6 +2046,8 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
   const sessions: SessionInfo[] = [];
   for (const session of getRegistry().values()) {
     if (typeof session.isAlive !== "function" || !session.isAlive()) continue;
+    // Side conversations belong to their panel, not to the session list.
+    if (session.sideChatParent) continue;
 
     const manager = session.inner?.sessionManager;
     if (!manager) continue;
@@ -1965,7 +2162,11 @@ export async function startRpcSession(
   if (inflight) return inflight;
 
   let sessionManager: SessionManager;
-  if (sessionFile) {
+  if (options.sessionManager) {
+    // Side conversations hand in an in-memory manager seeded from the parent's
+    // active branch, so nothing recorded here can reach a session file.
+    sessionManager = options.sessionManager;
+  } else if (sessionFile) {
     sessionManager = SessionManager.open(sessionFile, undefined);
   } else {
     if (!cwd) throw new Error("cwd is required for a new session");
@@ -2117,7 +2318,15 @@ export async function startRpcSession(
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Web just like in the `pi` CLI.
     if (!subagentResources && !chatOnly) {
-      inner.setActiveToolsByName(withExtensionTools(inner, selectedToolNames ?? inner.getActiveToolNames()));
+      const activeTools = withExtensionTools(inner, selectedToolNames ?? inner.getActiveToolNames());
+      // A side conversation may read and explore, but not change the workspace
+      // or drive subagents: its transcript is discarded, so the user never gets
+      // to see what it touched. The boundary message covers shell commands.
+      inner.setActiveToolsByName(
+        options.sideChatParentSessionId === undefined
+          ? activeTools
+          : activeTools.filter((name) => !SIDE_CHAT_BLOCKED_TOOL_SET.has(name)),
+      );
     }
 
     const exactSystemPrompt = subagentResources?.exactSystemPrompt !== undefined
@@ -2135,7 +2344,8 @@ export async function startRpcSession(
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });
       },
-      suppressCompletionNotifications: Boolean(subagentResources),
+      suppressCompletionNotifications: Boolean(subagentResources)
+        || options.sideChatParentSessionId !== undefined,
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);

@@ -13,6 +13,7 @@ import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
+import { SideChatPanel } from "./SideChatPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -313,6 +314,14 @@ export function AppShell() {
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  // Ephemeral side conversation, keyed by the session it forks from.
+  const [sideChatParentId, setSideChatParentId] = useState<string | null>(null);
+
+  // A side conversation belongs to the session it forked from: switching away
+  // closes it rather than leaving a fork of a session you are no longer in.
+  useEffect(() => {
+    setSideChatParentId(null);
+  }, [selectedSession?.id]);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -1301,6 +1310,62 @@ export function AppShell() {
             <path d="M12 7v5l3 2" />
           </svg>
           {!mobile && <span>{translate("history.label")}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSideChatParentId(selectedSession ? selectedSession.id : null)}
+          disabled={!selectedSession || selectedSession.transient}
+          title={selectedSession ? translate("sideChat.title") : translate("history.unsaved")}
+          aria-label={translate("sideChat.title")}
+          aria-pressed={sideChatParentId === selectedSession?.id}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%",
+            padding: mobile ? 0 : "0 12px",
+            background: sideChatParentId === selectedSession?.id ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderTop: sideChatParentId === selectedSession?.id ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            color: sideChatParentId === selectedSession?.id ? "var(--text)" : "var(--text-muted)",
+            cursor: selectedSession ? "pointer" : "not-allowed",
+            opacity: selectedSession ? 1 : 0.45,
+            flexShrink: 0,
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            transition: "color 0.1s, background 0.1s, opacity 0.1s",
+          }}
+          onMouseEnter={(event) => {
+            if (!selectedSession) return;
+            if (sideChatParentId !== selectedSession.id) event.currentTarget.style.color = "var(--text)";
+            event.currentTarget.style.background = "var(--bg-hover)";
+          }}
+          onMouseLeave={(event) => {
+            const active = sideChatParentId === selectedSession?.id;
+            event.currentTarget.style.color = active ? "var(--text)" : "var(--text-muted)";
+            event.currentTarget.style.background = active ? "var(--bg-selected)" : "none";
+          }}
+          data-mobile-toolbar-action={mobile ? "side-chat" : undefined}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z" />
+            <path d="M9 9h.01M13 9h.01" />
+          </svg>
+          {!mobile && <span>{translate("sideChat.label")}</span>}
         </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
@@ -2444,6 +2509,18 @@ export function AppShell() {
           setModelsRefreshKey((key) => key + 1);
         }}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
+      />
+    )}
+    {sideChatParentId && (
+      <SideChatPanel
+        key={sideChatParentId}
+        sessionId={sideChatParentId}
+        sessionName={
+          selectedSession?.id === sideChatParentId ? selectedSession.name : undefined
+        }
+        translate={translate}
+        onClose={() => setSideChatParentId(null)}
+        onInsertIntoMain={(text) => chatInputRef.current?.insertText(text)}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (
