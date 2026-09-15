@@ -16,7 +16,7 @@ import {
 import { sessionPathKey } from "@/lib/session-path";
 import { abortSubagent, getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
-import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { computeSessionTiming, computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { computeSessionStats } from "@/lib/session-stats";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
@@ -53,6 +53,7 @@ export async function GET(
       sessionId: id, // local: lazy URLs for historical tool-result images
     });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
+    const timing = computeSessionTiming(entries);
     // Cumulative usage over ALL entries, including history compacted away —
     // the same aggregation the SDK's getSessionStats() uses. Lets the client
     // keep monotonic token/cost counters across compaction and page reloads.
@@ -106,6 +107,7 @@ export async function GET(
         context,
         stats,
         totalActiveMs,
+        timing,
         ...(toolNames !== undefined ? { toolNames } : {}),
       },
     );

@@ -20,6 +20,7 @@ import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-prese
 import { getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
+import type { SessionTimingAttribution } from "@/lib/session-timing";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -51,6 +52,8 @@ export interface SessionData {
   };
   /** Cumulative usage over ALL session-file entries (incl. compacted history). */
   stats?: SessionFileStats;
+  /** Model/tool wall-clock split plus live TTFT and speed, when captured. */
+  timing?: SessionTimingAttribution;
 }
 
 interface AgentEvent {
@@ -451,6 +454,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return {
         ...sessionStatsOverride,
         totalActiveMs: data?.totalActiveMs,
+        ...(data?.timing ? { timing: data.timing } : {}),
         ...(contextUsage ? { contextUsage } : {}),
       };
     }
@@ -463,9 +467,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       sessionName: session?.name,
       ...stats,
       totalActiveMs: data?.totalActiveMs,
+      ...(data?.timing ? { timing: data.timing } : {}),
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.timing, data?.stats, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;

@@ -13,6 +13,7 @@ import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
+import { TrajectoryPanel } from "./TrajectoryPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -70,6 +71,9 @@ type AutoNameStatus =
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
+
+/** Dropdowns that share the single top-panel slot under the top bar. */
+type TopPanel = "agents" | "branches" | "system" | "tools" | "session" | "trajectory";
 
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
@@ -312,7 +316,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<TopPanel | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -328,7 +332,7 @@ export function AppShell() {
   }, [hasSubagentSessions]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
+    panel: TopPanel,
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -1302,6 +1306,63 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("history.label")}</span>}
         </button>
+        <button
+          type="button"
+          onClick={() => toggleTopPanel("trajectory", true)}
+          disabled={!selectedSession || selectedSession.transient}
+          title={selectedSession ? translate("trajectory.title") : translate("history.unsaved")}
+          aria-label={translate("trajectory.title")}
+          aria-pressed={activeTopPanel === "trajectory"}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%",
+            padding: mobile ? 0 : "0 12px",
+            background: activeTopPanel === "trajectory" ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderTop: activeTopPanel === "trajectory" ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            color: activeTopPanel === "trajectory" ? "var(--text)" : "var(--text-muted)",
+            cursor: selectedSession ? "pointer" : "not-allowed",
+            opacity: selectedSession ? 1 : 0.45,
+            flexShrink: 0,
+            fontSize: 11,
+            whiteSpace: "nowrap",
+            transition: "color 0.1s, background 0.1s, opacity 0.1s",
+          }}
+          onMouseEnter={(event) => {
+            if (!selectedSession) return;
+            if (activeTopPanel !== "trajectory") event.currentTarget.style.color = "var(--text)";
+            event.currentTarget.style.background = "var(--bg-hover)";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = activeTopPanel === "trajectory" ? "var(--text)" : "var(--text-muted)";
+            event.currentTarget.style.background = activeTopPanel === "trajectory" ? "var(--bg-selected)" : "none";
+          }}
+          data-mobile-toolbar-action={mobile ? "trajectory" : undefined}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden="true"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M3 21h18" />
+            <path d="M6 21V11" />
+            <path d="M11 21V4" />
+            <path d="M16 21v-6" />
+            <path d="M21 21v-3" />
+          </svg>
+          {!mobile && <span>{translate("trajectory.label")}</span>}
+        </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
@@ -2081,6 +2142,16 @@ export function AppShell() {
                          ? [[translate("session.cacheHitRate"), `${(sessionStats.tokens.cacheRead / (sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input) * 100).toFixed(1)}%`]]
                          : []),
                     ];
+                    // TTFT and output speed are only knowable when a request was
+                    // observed live, so a session replayed from an older log shows
+                    // a dash instead of a guessed number.
+                    const timing = sessionStats.timing;
+                    const timingRows = timing ? [
+                       [translate("session.modelTime"), formatDuration(timing.modelMs)],
+                       [translate("session.toolTime"), formatDuration(timing.toolMs)],
+                       [translate("session.ttft"), timing.ttftAvgMs !== null ? `${(timing.ttftAvgMs / 1000).toFixed(1)}s` : "—"],
+                       [translate("session.tps"), timing.tps !== null ? `${timing.tps.toFixed(1)} tok/s` : "—"],
+                    ] : [];
                     const section = (
                       title: string,
                       sectionRows: string[][],
@@ -2220,6 +2291,7 @@ export function AppShell() {
                         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 20 }}>
                           {sessionInfoSection}
                           {projectInfoSection}
+                          {timingRows.length > 0 ? section(translate("session.timingSection"), timingRows) : null}
                         </div>
                          {section(translate("session.messages"), messageRows)}
                          {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
@@ -2231,6 +2303,14 @@ export function AppShell() {
                     </div>
                   )}
                 </div>
+              )}
+              {activeTopPanel === "trajectory" && selectedSession && (
+                <TrajectoryPanel
+                  key={selectedSession.id}
+                  sessionId={selectedSession.id}
+                  onClose={() => setActiveTopPanel(null)}
+                  translate={translate}
+                />
               )}
             </div>
           )}

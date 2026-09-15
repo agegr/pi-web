@@ -42,6 +42,7 @@ import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
+import { createTimingExtension } from "./timing-extension";
 import {
   appendSessionToolSelection,
   readSessionToolSelection,
@@ -2052,6 +2053,9 @@ export async function startRpcSession(
                 () => listSubagentProfiles(sessionCwd),
                 isBuiltInSubagentsEnabled,
               ),
+              // Measures TTFT and decode time, which the session log cannot
+              // reconstruct. Its `custom` entries never reach the model.
+              createTimingExtension(),
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
           },

@@ -12,6 +12,7 @@ import type {
   PrepareNextTurnContext,
 } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import type { SessionTimingAttribution } from "./session-timing";
 
 export interface ContextUsage {
   percent: number | null;
@@ -58,6 +59,8 @@ export interface SessionStatsInfo {
   contextUsage?: ContextUsage;
   /** Estimated active time across all entries in the session file. */
   totalActiveMs?: number;
+  /** Model/tool wall-clock split plus live TTFT and output speed, when captured. */
+  timing?: SessionTimingAttribution;
 }
 
 interface PromptTemplateLike {
