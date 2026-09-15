@@ -35,6 +35,15 @@ test("renders extension confirmation and options as markdown", () => {
   assert.match(dialogSource, /ref=\{index === 0 \? focusFirstOption : undefined\}/);
 });
 
+test("shows a multiline select title as a scrollable prompt body", () => {
+  assert.match(source, /from "@\/lib\/extension-dialog-copy"/);
+  assert.match(dialogSource, /request\.method === "select" && prompt && \([\s\S]*?<MarkdownBody>\{prompt\}<\/MarkdownBody>/);
+  assert.match(dialogSource, /\{heading\}/);
+  assert.match(dialogSource, /aria-label=\{heading\}/);
+  assert.match(dialogSource, /maxHeight: "min\(760px, 100%\)"/);
+  assert.match(dialogSource, /minHeight: 0, overflowY: "auto"/);
+});
+
 test("resets collapse state when a new extension request arrives", () => {
   assert.match(source, /<ExtensionDialog key=\{extensionDialog.id\}/);
   assert.match(source, /<ExtensionCustomPanel key=\{extensionCustomUi.id\}/);

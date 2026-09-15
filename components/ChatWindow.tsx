@@ -24,6 +24,11 @@ import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
+  getExtensionDialogHeading,
+  getExtensionDialogPrompt,
+  getExtensionDialogSummary,
+} from "@/lib/extension-dialog-copy";
+import {
   captureScrollDistance,
   getPromptAnchorSpacerHeight,
   getVisibleRenderWindow,
@@ -1443,15 +1448,6 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
 
 type ExtensionDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 
-function getExtensionDialogSummary(request: ExtensionDialogRequest): string | undefined {
-  if (request.method === "select" && request.options.length > 0) return request.options[0];
-  if (request.method === "confirm") {
-    const firstLine = request.message.split("\n").find((line) => line.trim());
-    return firstLine?.trim();
-  }
-  return undefined;
-}
-
 function ExtensionDialog({
   request,
   onRespond,
@@ -1464,6 +1460,8 @@ function ExtensionDialog({
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const focusFirstOption = useCallback((element: HTMLDivElement | null) => element?.focus(), []);
+  const heading = getExtensionDialogHeading(request);
+  const prompt = getExtensionDialogPrompt(request);
   const summary = getExtensionDialogSummary(request);
   const remainingSeconds = request.expiresAt === undefined
     ? null
@@ -1535,7 +1533,7 @@ function ExtensionDialog({
             {t("chat.extensionPending")}
           </span>
           <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {request.title}
+            {heading}
           </span>
           {summary && (
             <span style={{ fontSize: 12, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "34%", flexShrink: 1 }}>
@@ -1550,7 +1548,7 @@ function ExtensionDialog({
       ) : (
       <div
         role="dialog"
-        aria-label={request.title}
+        aria-label={heading}
         style={{
           pointerEvents: "auto",
           width: "min(560px, 100%)",
@@ -1566,7 +1564,7 @@ function ExtensionDialog({
       >
         <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{heading}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
               <span>{t("chat.extensionRequest")}</span>
               {countdown}
@@ -1605,6 +1603,11 @@ function ExtensionDialog({
         >
           {request.method === "confirm" && (
             <MarkdownBody>{request.message}</MarkdownBody>
+          )}
+          {request.method === "select" && prompt && (
+            <div style={{ marginBottom: 12 }}>
+              <MarkdownBody>{prompt}</MarkdownBody>
+            </div>
           )}
           {request.method === "select" && (
             <div
