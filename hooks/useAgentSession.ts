@@ -31,6 +31,7 @@ import {
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
+  type StreamAction as StreamAction,
   type ClientAssistantMessageEvent,
 } from "@/lib/streaming-message";
 
@@ -292,6 +293,70 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
+  // Streaming delta micro-batching: dispatching on every SSE token re-renders
+  // React N times per frame (React does not batch across event-loop tasks).
+  // Deltas enqueue and flush once per animation frame as a single
+  // "delta-batch" (background tabs pause rAF — the queue holds order until
+  // the tab is foregrounded again).
+  const pendingDeltasRef = useRef<ClientAssistantMessageEvent[]>([]);
+  const pendingDeltasFrameRef = useRef<number | null>(null);
+  const lastFlushTsRef = useRef(0);
+  const DELTA_BATCH_MAX = 50; // per-batch cap: one giant flush of a long backlog would be a single long task
+  const DELTA_FLUSH_INTERVAL_MS = 50; // min flush interval: ~20fps is smooth for streaming text and cuts renders by 2/3
+  const flushPendingDeltas = useCallback(() => {
+    if (pendingDeltasFrameRef.current !== null) {
+      cancelAnimationFrame(pendingDeltasFrameRef.current);
+      pendingDeltasFrameRef.current = null;
+    }
+    const all = pendingDeltasRef.current;
+    if (all.length === 0) return;
+    pendingDeltasRef.current = [];
+    // Any content event (not pure toolcall metadata) clears the waiting-for-model phase
+    if (all.some((d) => d.type !== "toolcall_start" && d.type !== "toolcall_delta")) {
+      setAgentPhase(null);
+    }
+    // Chunk into batches of ≤DELTA_BATCH_MAX; multiple batches still commit in the same frame (React auto-batching)
+    for (let i = 0; i < all.length; i += DELTA_BATCH_MAX) {
+      const batch = all.slice(i, i + DELTA_BATCH_MAX);
+      if (batch.length === 1) dispatch({ type: "delta", event: batch[0] });
+      else dispatch({ type: "delta-batch", events: batch });
+    }
+  }, []);
+  // Per-frame min-interval check: flush only when ≥50ms elapsed (or backlog is
+  // large), otherwise defer to the next frame to preserve order. The deferred
+  // chain cannot starve: time passes so the interval is eventually satisfied;
+  // the backlog threshold (2× batch max) bounds it.
+  const scheduleDeltaFlush = useCallback(() => {
+    if (pendingDeltasFrameRef.current !== null) return;
+    pendingDeltasFrameRef.current = requestAnimationFrame(() => {
+      pendingDeltasFrameRef.current = null;
+      const now = performance.now();
+      if (now - lastFlushTsRef.current >= DELTA_FLUSH_INTERVAL_MS || pendingDeltasRef.current.length >= DELTA_BATCH_MAX * 2) {
+        lastFlushTsRef.current = now;
+        flushPendingDeltas();
+      } else {
+        scheduleDeltaFlush();
+      }
+    });
+  }, [flushPendingDeltas]);
+  const enqueueDelta = useCallback((delta: ClientAssistantMessageEvent) => {
+    pendingDeltasRef.current.push(delta);
+    scheduleDeltaFlush();
+  }, [scheduleDeltaFlush]);
+  // Order preservation: start/snapshot/end reset or replace streamingMessage —
+  // flush the queue synchronously before the boundary action reaches the reducer.
+  const dispatchStream = useCallback((action: StreamAction) => {
+    if (action.type === "start" || action.type === "snapshot" || action.type === "end") flushPendingDeltas();
+    dispatch(action);
+  }, [flushPendingDeltas]);
+  useEffect(() => () => {
+    // On unmount, drop un-flushed deltas (rAF cancelled) so we never dispatch after unmount
+    if (pendingDeltasFrameRef.current !== null) {
+      cancelAnimationFrame(pendingDeltasFrameRef.current);
+      pendingDeltasFrameRef.current = null;
+    }
+    pendingDeltasRef.current = [];
+  }, []);
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
   const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
@@ -888,7 +953,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentPhase(null);
     setRetryInfo(null);
     setActiveToolResults(new Map());
-    dispatch({ type: "end" });
+    dispatchStream({ type: "end" });
     return wasRunning;
   }, []);
 
@@ -1112,7 +1177,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
-        dispatch({ type: "end" });
+        dispatchStream({ type: "end" });
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
           sdkAgentActiveRef.current = true;
@@ -1128,7 +1193,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
-        dispatch({ type: "start" });
+        dispatchStream({ type: "start" });
         break;
       case "agent_end":
         // One logical prompt can emit multiple agent_end events before retrying,
@@ -1137,7 +1202,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (!agentRunningRef.current) break;
         setAgentPhase(null);
         setRetryInfo(null);
-        dispatch({ type: "end" });
+        dispatchStream({ type: "end" });
         if (sessionIdRef.current) {
           loadSession(sessionIdRef.current);
           fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
@@ -1209,7 +1274,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const msg = event.message as AgentMessage | undefined;
           if (msg?.role === "user") break;
           if (msg?.role === "assistant") {
-            dispatch({ type: "snapshot", message: msg });
+            dispatchStream({ type: "snapshot", message: msg });
             if (msg.content.length > 0) setAgentPhase(null);
           } else if (msg) {
             setAgentPhase(null);
@@ -1217,10 +1282,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else {
           const delta = event.assistantMessageEvent as ClientAssistantMessageEvent | undefined;
           if (delta) {
-            dispatch({ type: "delta", event: delta });
-            if (delta.type !== "toolcall_start" && delta.type !== "toolcall_delta") {
-              setAgentPhase(null);
-            }
+            enqueueDelta(delta);
           }
         }
         // Live-follow the streaming output only when the user is already near
@@ -1262,7 +1324,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
         }
-        dispatch({ type: "end" });
+        dispatchStream({ type: "end" });
         setAgentPhase({ kind: "waiting_model" });
         break;
       }
@@ -1405,7 +1467,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = true;
     setAgentRunning(true);
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
-    dispatch({ type: "start" });
+    dispatchStream({ type: "start" });
     pendingScrollToUserRef.current = true;
     setPromptAnchorActive(true);
 
@@ -1481,7 +1543,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       closeEvents();
       setAgentRunning(false);
       setAgentPhase(null);
-      dispatch({ type: "end" });
+      dispatchStream({ type: "end" });
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 

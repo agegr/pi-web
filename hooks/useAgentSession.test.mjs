@@ -356,17 +356,22 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
 
   assert.match(source, /streamReducer,[\s\S]*type ClientAssistantMessageEvent/);
   assert.doesNotMatch(source, /streamingMessageRef/);
-  assert.match(connectedSource, /dispatch\(\{ type: "end" \}\)/);
+  // Delta micro-batching: deltas enqueue and flush once per frame; boundary
+  // events flush the queue synchronously before reaching the reducer.
+  assert.match(source, /dispatchStream\(\{ type: "end" \}\)/);
+  assert.match(source, /enqueueDelta\(delta\);/);
+  assert.match(source, /if \(action\.type === "start" \|\| action\.type === "snapshot" \|\| action\.type === "end"\) flushPendingDeltas\(\);/);
+  assert.match(source, /d\.type !== "toolcall_start" && d\.type !== "toolcall_delta"/);
+  assert.match(connectedSource, /dispatchStream\(\{ type: "end" \}\)/);
   assert.match(connectedSource, /event\.isStreaming === true/);
   assert.match(connectedSource, /agentRunningRef\.current = true/);
-  assert.match(streamSource, /msg\?\.role === "assistant"[\s\S]*dispatch\(\{ type: "snapshot", message: msg \}\)/);
+  assert.match(streamSource, /msg\?\.role === "assistant"[\s\S]*dispatchStream\(\{ type: "snapshot", message: msg \}\)/);
   assert.match(streamSource, /event\.assistantMessageEvent as ClientAssistantMessageEvent/);
-  assert.match(streamSource, /dispatch\(\{ type: "delta", event: delta \}\)/);
-  assert.match(streamSource, /delta\.type !== "toolcall_start" && delta\.type !== "toolcall_delta"/);
+  assert.match(streamSource, /enqueueDelta\(delta\);/);
   assert.doesNotMatch(streamSource, /case "message_delta"/);
   assert.match(messageEndSource, /const completed = event\.message as AgentMessage/);
   assert.match(messageEndSource, /normalizeToolCalls\(completed\)/);
-  assert.match(messageEndSource, /dispatch\(\{ type: "end" \}\)/);
+  assert.match(messageEndSource, /dispatchStream\(\{ type: "end" \}\)/);
   assert.doesNotMatch(messageEndSource, /streamState\.streamingMessage/);
 });
 
