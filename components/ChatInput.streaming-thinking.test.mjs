@@ -30,6 +30,8 @@ test("shows the level the runtime actually applies, not the selector placeholder
   const start = session.slice(session.indexOf('case "agent_start":'), session.indexOf('case "agent_end":'));
   // Choosing "auto" leaves pi's setting untouched, so the selector alone cannot be trusted.
   assert.match(session, /if \(level === "auto"\) return;/);
-  assert.match(start, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sessionIdRef\.current\)\}`\)/);
+  assert.match(start, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
+  // A slow response must not leak into another session or a later run.
+  assert.match(start, /if \(sessionIdRef\.current !== sid \|\| promptRunIdRef\.current !== runId\) return;/);
   assert.match(start, /if \(!agentRunningRef\.current \|\| !d\.state\?\.thinkingLevel\) return;\s*setThinkingLevel\(d\.state\.thinkingLevel as ThinkingLevelOption\);/);
 });

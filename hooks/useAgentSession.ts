@@ -1133,9 +1133,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // so the selector can disagree with the runtime. Show the level this turn
         // actually runs with.
         if (sessionIdRef.current) {
-          fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
+          const sid = sessionIdRef.current;
+          const runId = promptRunIdRef.current;
+          fetch(`/api/agent/${encodeURIComponent(sid)}`)
             .then((r) => r.json())
             .then((d: { state?: AgentStateResponse }) => {
+              // Drop responses that straddle a session switch or run boundary.
+              if (sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
               if (!agentRunningRef.current || !d.state?.thinkingLevel) return;
               setThinkingLevel(d.state.thinkingLevel as ThinkingLevelOption);
             })
