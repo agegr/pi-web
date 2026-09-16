@@ -7,6 +7,7 @@ export const PROVIDER_USAGE_IDS = [
   "minimax",
   "minimax-cn",
   "vercel-ai-gateway",
+  "opencode-go",
 ] as const;
 
 export type ProviderUsageId = (typeof PROVIDER_USAGE_IDS)[number];

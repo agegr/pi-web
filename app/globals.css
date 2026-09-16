@@ -444,6 +444,22 @@ html.dark .web-login-error {
 }
 
 
+.model-usage-chip {
+  flex-shrink: 0;
+  align-self: center;
+  max-width: min(40vw, 320px);
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  user-select: none;
+}
+
 .extension-status-shelf {
   display: flex;
   flex-shrink: 0;

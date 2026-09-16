@@ -28,6 +28,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { ModelUsageChip } from "./ModelUsageChip";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -55,6 +56,11 @@ interface Props {
   modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
   modelSwitching?: boolean;
+  /**
+   * Bumped when a turn settles so the provider quota chip re-queries. Pass the
+   * message count (or any value that changes once per turn).
+   */
+  usageRefreshKey?: string | number;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -543,7 +549,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching, usageRefreshKey,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -2301,6 +2307,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               />
             )}
           </div>
+
+          {/* Provider quota (e.g. "Go 12/34/56%") sits in the blank gap to the
+              right of the model selector. It reads Pi Web's provider-usage API,
+              so it also renders before any RPC session exists. */}
+          {!isMobile && !compact && (
+            <ModelUsageChip provider={model?.provider} refreshKey={usageRefreshKey} />
+          )}
 
           {/* spacer */}
           {!isMobile && <div style={{ flex: 1 }} />}

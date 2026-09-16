@@ -52,6 +52,7 @@ const ENDPOINTS: Record<ProviderUsageId, string> = {
   minimax: "https://api.minimax.io",
   "minimax-cn": "https://api.minimaxi.com",
   "vercel-ai-gateway": "https://ai-gateway.vercel.sh/v1/credits",
+  "opencode-go": "https://opencode.ai/zen/go/v1/usage",
 };
 
 const PROVIDER_NAMES: Record<ProviderUsageId, string> = {
@@ -63,6 +64,7 @@ const PROVIDER_NAMES: Record<ProviderUsageId, string> = {
   minimax: "MiniMax",
   "minimax-cn": "MiniMax CN",
   "vercel-ai-gateway": "Vercel AI Gateway",
+  "opencode-go": "OpenCode Go",
 };
 
 const CURRENCY: Record<"moonshotai" | "moonshotai-cn" | "minimax" | "minimax-cn", string> = {
@@ -152,6 +154,7 @@ function normalize(providerId: ProviderUsageId, payload: Record<string, unknown>
     case "moonshotai-cn": return normalizeMoonshot(providerId, payload, capturedAt);
     case "minimax":
     case "minimax-cn": return normalizeMiniMax(providerId, payload, capturedAt);
+    case "opencode-go": return normalizeOpenCodeGo(payload, capturedAt);
   }
 }
 
@@ -318,8 +321,58 @@ function addMiniMaxWindow(buckets: UsageBucket[], row: Record<string, unknown>, 
   buckets.push({ id: `${groupLabel}:${suffix}`, label: suffix === "weekly" ? "Weekly" : "Rolling", groupLabel, used: 100 - clamp(percent!), remaining: clamp(percent!), limit: 100, unit: "percent", ...(windowMinutes ? { windowMinutes } : {}), ...(resetsAt ? { resetsAt } : {}) });
 }
 
-function windowLabel(seconds: number | undefined): string {
-  if (!seconds || seconds <= 0) return "Limit";
+/**
+ * OpenCode Go reports how much of each allowance is already spent, as an
+ * integer percent, for three nested windows of the same monthly allowance
+ * (5-hour 20%, weekly 50%, monthly 100%).
+ * https://opencode.ai/docs/go/
+ */
+const OPENCODE_GO_WINDOWS = [
+  { key: "rolling", label: "Rolling 5h", windowMinutes: 300 },
+  { key: "weekly", label: "Weekly", windowMinutes: 10_080 },
+  { key: "monthly", label: "Monthly", windowMinutes: undefined },
+] as const;
+
+function normalizeOpenCodeGo(payload: Record<string, unknown>, capturedAt: number): UsageReport {
+  const usage = record(payload.usage);
+  const buckets: UsageBucket[] = [];
+  const notes: string[] = [];
+  for (const { key, label, windowMinutes } of OPENCODE_GO_WINDOWS) {
+    const window = record(usage?.[key]);
+    const used = nonnegative(window?.percent);
+    if (used === undefined) continue;
+    const status = stringValue(window?.status);
+    if (status && status !== "ok") notes.push(`${label}: ${status}`);
+    const resetsAt = epochSeconds(window?.resetsAt);
+    buckets.push({
+      id: `opencode-go:${key}`,
+      label,
+      used: clamp(used),
+      remaining: 100 - clamp(used),
+      limit: 100,
+      unit: "percent",
+      ...(windowMinutes !== undefined ? { windowMinutes } : {}),
+      ...(resetsAt !== undefined ? { resetsAt } : {}),
+    });
+  }
+  if (!buckets.length) throw new Error("OpenCode Go returned no usage data.");
+  return {
+    providerId: "opencode-go",
+    providerName: PROVIDER_NAMES["opencode-go"],
+    capturedAt,
+    buckets,
+    metrics: [],
+    ...(notes.length ? { notes } : {}),
+  };
+}
+
+function epochSeconds(value: unknown): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1_000) : undefined;
+}
+
+function windowLabel(seconds: number | undefined): string {  if (!seconds || seconds <= 0) return "Limit";
   const minutes = Math.ceil(seconds / 60);
   if (minutes >= 10_080) return "Weekly";
   if (minutes >= 60) return `${Math.round(minutes / 60)}h`;
