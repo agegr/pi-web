@@ -33,18 +33,18 @@ function request(body, contentType = "application/json") {
 test("settings route defaults off and persists both switch states", async () => {
   let response = await GET();
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { enabled: false });
+  assert.deepEqual(await response.json(), { enabled: false, maxConcurrent: 10 });
 
   response = await PUT(request({ enabled: true }));
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { enabled: true });
+  assert.deepEqual(await response.json(), { enabled: true, maxConcurrent: 10 });
   assert.deepEqual(
     JSON.parse(await readFile(join(testAgentDir, "agents", "settings.json"), "utf8")),
     { version: 1, builtInEnabled: true },
   );
 
   response = await PUT(request({ enabled: false }));
-  assert.deepEqual(await response.json(), { enabled: false });
+  assert.deepEqual(await response.json(), { enabled: false, maxConcurrent: 10 });
 });
 
 test("settings route validates mutations", async () => {
@@ -55,4 +55,13 @@ test("settings route validates mutations", async () => {
   response = await PUT(request({ enabled: true }, "text/plain"));
   assert.equal(response.status, 415);
   assert.deepEqual(await response.json(), { error: "Content-Type must be application/json" });
+});
+
+test("settings route validates and persists concurrency", async () => {
+  let response = await PUT(request({ maxConcurrent: 2 }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { enabled: false, maxConcurrent: 2 });
+  response = await PUT(request({ maxConcurrent: 0 }));
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /between 1 and 32/);
 });

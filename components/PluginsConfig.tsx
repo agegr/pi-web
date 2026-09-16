@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { PluginPackageInfo, PluginUpdateResult, PluginsResponse } from "@/lib/api-types";
+import type { PluginPackageInfo, PluginStandaloneExtensionInfo, PluginUpdateResult, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
   getLastSettingsSelection,
@@ -46,6 +46,10 @@ function normalizePluginSourceInput(value: string): string {
 
 function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
   return `${pkg.scope}\0${pkg.source}`;
+}
+
+function extensionKey(extension: PluginStandaloneExtensionInfo): string {
+  return `extension\0${extension.path}`;
 }
 
 function resourceSummary(pkg: PluginPackageInfo, t: ReturnType<typeof useI18n>["t"]): string {
@@ -614,6 +618,38 @@ function PackageDetail({
   );
 }
 
+function StandaloneExtensionDetail({ extension }: { extension: PluginStandaloneExtensionInfo }) {
+  const { t } = useI18n();
+  const status = extension.enabled ? "loaded" : "disabled";
+
+  return (
+    <ConfigDetailStack>
+      <ConfigDetailHeader>
+        <ConfigDetailHeaderInfo>
+          <ScopeTag scope={extension.scope} />
+          <ConfigDetailTitle>{extension.name}</ConfigDetailTitle>
+        </ConfigDetailHeaderInfo>
+      </ConfigDetailHeader>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(96px, 130px) minmax(0, 1fr)",
+          gap: "9px 14px",
+          fontSize: 12,
+          lineHeight: 1.45,
+        }}
+      >
+        <div style={{ color: "var(--text-dim)" }}>{t("i18n.status")}</div>
+        <div style={{ color: extension.enabled ? "var(--accent)" : "var(--text-dim)" }}>{status}</div>
+        <div style={{ color: "var(--text-dim)" }}>{t("i18n.installedPath")}</div>
+        <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+          {shortenPath(extension.path)}
+        </div>
+      </div>
+    </ConfigDetailStack>
+  );
+}
+
 export function PluginsConfig({
   cwd,
   sessionId,
@@ -645,7 +681,9 @@ export function PluginsConfig({
   const [updatingAll, setUpdatingAll] = useState(false);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
+  const standaloneExtensions = useMemo(() => data?.standaloneExtensions ?? [], [data?.standaloneExtensions]);
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
+  const selectedExtension = standaloneExtensions.find((extension) => extensionKey(extension) === selected) ?? null;
   const projectResourcesLoaded = data?.projectResourcesLoaded ?? true;
 
   const groupedPackages = useMemo(() => {
@@ -662,10 +700,17 @@ export function PluginsConfig({
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
-      setAddMode((current) => next.packages.length === 0 || current);
+      setAddMode((current) => (next.packages.length === 0 && next.standaloneExtensions.length === 0) || current);
       setSelected((current) => {
-        if (current && next.packages.some((pkg) => packageKey(pkg) === current)) return current;
-        return next.packages[0] ? packageKey(next.packages[0]) : null;
+        if (current && (
+          next.packages.some((pkg) => packageKey(pkg) === current)
+          || next.standaloneExtensions.some((extension) => extensionKey(extension) === current)
+        )) return current;
+        return next.packages[0]
+          ? packageKey(next.packages[0])
+          : next.standaloneExtensions[0]
+            ? extensionKey(next.standaloneExtensions[0])
+            : null;
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -767,8 +812,12 @@ export function PluginsConfig({
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
       if (action === "remove") {
-        setSelected(next.packages[0] ? packageKey(next.packages[0]) : null);
-        if (next.packages.length === 0) setAddMode(true);
+        setSelected(next.packages[0]
+          ? packageKey(next.packages[0])
+          : next.standaloneExtensions[0]
+            ? extensionKey(next.standaloneExtensions[0])
+            : null);
+        if (next.packages.length === 0 && next.standaloneExtensions.length === 0) setAddMode(true);
         setActionMessage("Package removed.");
         setUpdateStatuses((current) => {
           const nextStatuses = { ...current };
@@ -871,44 +920,72 @@ export function PluginsConfig({
                 <div className="config-sidebar-message is-error">
                   {error}
                 </div>
-              ) : packages.length === 0 ? (
+              ) : packages.length === 0 && standaloneExtensions.length === 0 ? (
                 <div className="config-sidebar-message is-empty">
                   No plugins configured
                 </div>
               ) : (
-                groupedPackages.map((group) => (
-                  <div key={group.scope} className="config-sidebar-group">
-                    <ConfigSidebarGroupLabel>
-                      {group.scope}
-                    </ConfigSidebarGroupLabel>
-                    {group.packages.map((pkg) => {
-                      const key = packageKey(pkg);
-                      const isSelected = !addMode && selected === key;
-                      return (
-                        <ConfigSidebarItem
-                          key={key}
-                          active={isSelected}
-                          onClick={() => {
-                            setSelected(key);
-                            setAddMode(false);
-                            setActionError(null);
-                            setActionMessage(null);
-                          }}
-                        >
-                          <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
-                          <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
-                            {pkg.source}
-                          </ConfigSidebarText>
-                          {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
-                            <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
-                              ↑
-                            </span>
-                          )}
-                        </ConfigSidebarItem>
-                      );
-                    })}
-                  </div>
-                ))
+                <>
+                  {standaloneExtensions.length > 0 && (
+                    <div className="config-sidebar-group">
+                      <ConfigSidebarGroupLabel>{t("i18n.extensions")}</ConfigSidebarGroupLabel>
+                      {standaloneExtensions.map((extension) => {
+                        const key = extensionKey(extension);
+                        return (
+                          <ConfigSidebarItem
+                            key={key}
+                            active={!addMode && selected === key}
+                            title={extension.path}
+                            onClick={() => {
+                              setSelected(key);
+                              setAddMode(false);
+                              setActionError(null);
+                              setActionMessage(null);
+                            }}
+                          >
+                            <ConfigStatusDot active={extension.enabled} />
+                            <ConfigSidebarText className={`is-grow${extension.enabled ? "" : " is-muted"}`}>
+                              {extension.name}
+                            </ConfigSidebarText>
+                          </ConfigSidebarItem>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {groupedPackages.map((group) => (
+                    <div key={group.scope} className="config-sidebar-group">
+                      <ConfigSidebarGroupLabel>
+                        {group.scope}
+                      </ConfigSidebarGroupLabel>
+                      {group.packages.map((pkg) => {
+                        const key = packageKey(pkg);
+                        const isSelected = !addMode && selected === key;
+                        return (
+                          <ConfigSidebarItem
+                            key={key}
+                            active={isSelected}
+                            onClick={() => {
+                              setSelected(key);
+                              setAddMode(false);
+                              setActionError(null);
+                              setActionMessage(null);
+                            }}
+                          >
+                            <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
+                            <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
+                              {pkg.source}
+                            </ConfigSidebarText>
+                            {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
+                              <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
+                                ↑
+                              </span>
+                            )}
+                          </ConfigSidebarItem>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </>
               )}
             </ConfigSidebarList>
             <ConfigListAction
@@ -937,7 +1014,9 @@ export function PluginsConfig({
                 onScopeChange={setInstallScope}
                 onInstall={installPlugin}
               />
-            ) : loading ? null : selectedPackage ? (
+            ) : loading ? null : selectedExtension ? (
+              <StandaloneExtensionDetail extension={selectedExtension} />
+            ) : selectedPackage ? (
               <PackageDetail
                 key={packageKey(selectedPackage)}
                 pkg={selectedPackage}

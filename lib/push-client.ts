@@ -30,7 +30,7 @@ export async function setupPushSubscription(locale: string): Promise<boolean> {
   if (!isPushSupported() || Notification.permission !== "granted") return false;
   if (activeSubscriptionPromise) return activeSubscriptionPromise;
 
-  activeSubscriptionPromise = (async () => {
+  const attempt = (async () => {
     try {
       const configResponse = await fetch("/api/push/config");
       if (!configResponse.ok) return false;
@@ -60,5 +60,9 @@ export async function setupPushSubscription(locale: string): Promise<boolean> {
     }
   })();
 
-  return activeSubscriptionPromise;
+  activeSubscriptionPromise = attempt;
+  void attempt.then((ok) => {
+    if (!ok && activeSubscriptionPromise === attempt) activeSubscriptionPromise = null;
+  });
+  return attempt;
 }

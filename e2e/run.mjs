@@ -206,7 +206,7 @@ try {
       await sentinel.evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
       const response = await responsePromise;
       const older = (await response.json()).context;
-      const firstMessage = older.messages[0]?.content;
+      const firstMessage = older.messages.find((message) => message.role === "user")?.content;
       assert.equal(typeof firstMessage, "string", "Older page must contain user messages");
       await page.getByText(firstMessage, { exact: true }).waitFor({ state: "attached" });
       await page.getByText(text(4999), { exact: true }).evaluate((element) => element.scrollIntoView({ block: "end", behavior: "instant" }));
@@ -217,7 +217,8 @@ try {
     })), { connected: true, text: text(4998) }, "Prepending history must preserve existing message nodes");
     await latestUser.dispose();
     assert.ok(olderResponses.length >= 2, "Scrolling must fetch consecutive older pages");
-    let oldest = 4950;
+    let oldest = Number(new URL(olderResponses[0].url()).searchParams.get("before")?.slice(1));
+    assert.ok(Number.isInteger(oldest), "Older page must include a numeric before cursor");
     for (const response of olderResponses) {
       assert.equal(response.status(), 200);
       assert.equal(new URL(response.url()).searchParams.get("before"), `e${oldest}`);
@@ -251,7 +252,7 @@ try {
     assert.equal(await thinking.count(), 0, "All thinking stays inside process details");
     const finalMessage = page.locator("[data-entry-id='answer']");
     assert.equal(await finalMessage.getByRole("button", { name: /^Thinking/ }).count(), 0);
-    assert.equal(await finalMessage.getByText("E2E Model", { exact: true }).count(), 1);
+    assert.equal(await finalMessage.getByText("test/E2E Model", { exact: true }).count(), 1);
     assert.equal(thinkingRequests.length, 0);
     await processDetails.click();
     assert.equal(await thinking.count(), 3);
