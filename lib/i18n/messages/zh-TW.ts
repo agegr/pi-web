@@ -50,6 +50,7 @@ export const zhTWLocale: LocalePlugin = {
     "auth.loggingIn": "正在登入...",
     "auth.invalidPassword": "密碼不正確",
     "auth.loginFailed": "登入失敗，請再試一次。",
+    "auth.tooManyAttempts": "失敗次數過多，請在 {seconds} 秒後再試。",
     "auth.logOut": "登出",
     "auth.loggingOut": "正在登出...",
     "auth.logoutFailed": "登出失敗，請再試一次。",

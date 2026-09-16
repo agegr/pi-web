@@ -15,6 +15,13 @@ function LoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const failureMessage = async (response: Response): Promise<string> => {
+    if (response.status === 401) return t("auth.invalidPassword");
+    if (response.status !== 429) return t("auth.loginFailed");
+    const seconds = Number(response.headers.get("retry-after"));
+    return t("auth.tooManyAttempts", { seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 1 });
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
@@ -26,7 +33,7 @@ function LoginForm() {
         body: JSON.stringify({ password }),
       });
       if (!response.ok) {
-        setError(response.status === 401 ? t("auth.invalidPassword") : t("auth.loginFailed"));
+        setError(await failureMessage(response));
         return;
       }
       window.location.replace(safeDestination());
