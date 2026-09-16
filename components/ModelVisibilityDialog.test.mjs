@@ -19,9 +19,7 @@ test("visibility dialog renders its shell with a disabled save while models load
       null,
       React.createElement(ModelVisibilityDialog, {
         cwd: "/tmp/project",
-        visibleModels: [{ provider: "anthropic", id: "claude-opus-5" }],
         onClose() {},
-        onChanged() {},
       }),
     ),
   );
@@ -33,28 +31,27 @@ test("visibility dialog renders its shell with a disabled save while models load
   assert.match(html, /disabled=""/);
 });
 
-test("model selector panel exposes the manage entry only when wired", () => {
-  const source = readFileSync(new URL("./ModelSelector.tsx", import.meta.url), "utf8");
-  const entryStart = source.indexOf("{onManage && sortedOptions.length > 0 && (");
-  assert.notEqual(entryStart, -1, "manage entry block is missing");
-  const block = source.slice(entryStart, entryStart + 3200);
-  assert.match(block, /models\.visibilityManage/);
-  assert.match(block, /onManage\(\)/);
-  // The entry must close the dropdown before handing control to the dialog.
-  assert.match(block, /setOpen\(false\)/);
-  assert.match(block, /setFilter\(""\)/);
+test("the dialog seeds its selection from the server-resolved scope, not the chat selector", () => {
+  const source = readFileSync(new URL("./ModelVisibilityDialog.tsx", import.meta.url), "utf8");
+  assert.match(source, /const visible = data\.visible \?\? \[\];/);
+  assert.match(source, /setCheckedKeys\(new Set\(visible\.map\(modelRefKey\)\)\)/);
+  assert.doesNotMatch(source, /visibleModels:\s*readonly VisibleModelRef\[\];/);
 });
 
-test("chat window hosts the dialog and refreshes models after saves", () => {
-  const source = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
-  assert.match(source, /onManageModels=\{\(\) => setModelVisibilityOpen\(true\)\}/);
-  assert.match(source, /<ModelVisibilityDialog/);
-  assert.match(source, /onChanged=\{\(\) => onModelsVisibilityChanged\?\.\(\)\}/);
+test("Settings → Models hosts the visibility dialog; the chat selector does not", () => {
+  const modelsConfig = readFileSync(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
+  assert.match(modelsConfig, /setVisibilityOpen\(true\)/);
+  assert.match(modelsConfig, /models\.visibilityManage/);
+  assert.match(modelsConfig, /<ModelVisibilityDialog/);
+
+  const selector = readFileSync(new URL("./ModelSelector.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(selector, /visibilityManage|onManage/);
+  const chatWindow = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(chatWindow, /ModelVisibilityDialog/);
 });
 
 test("visibility dialog saves exact provider refs and clears on show-all", () => {
   const source = readFileSync(new URL("./ModelVisibilityDialog.tsx", import.meta.url), "utf8");
   assert.match(source, /computeVisibilitySave\(/);
   assert.match(source, /patterns: save\.type === "clear" \? null : save\.patterns/);
-  assert.match(source, /onChanged\(\)/);
 });

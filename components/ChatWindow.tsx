@@ -12,7 +12,6 @@ import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ModelVisibilityDialog } from "./ModelVisibilityDialog";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
@@ -47,8 +46,6 @@ interface Props {
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
   modelsRefreshKey?: number;
-  /** Signals that enabledModels changed and the model list must reload. */
-  onModelsVisibilityChanged?: () => void;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
@@ -243,7 +240,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, onModelsVisibilityChanged, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -309,7 +306,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [quoteInputOpen, setQuoteInputOpen] = useState(false);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  const [modelVisibilityOpen, setModelVisibilityOpen] = useState(false);
   const quotePopoverRef = useRef<HTMLDivElement | null>(null);
   const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
   const closeQuotedSelection = useCallback(() => {
@@ -878,7 +874,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       modelScopeWarnings={modelScopeWarnings}
       onModelChange={handleModelChange}
       modelSwitching={modelSwitching}
-      onManageModels={() => setModelVisibilityOpen(true)}
       onCompact={session || isNew ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
@@ -1342,14 +1337,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>
       {isEmptyNew && <div className="min-h-0 flex-1" />}
-      {modelVisibilityOpen && (
-        <ModelVisibilityDialog
-          cwd={newSessionCwd ?? session?.cwd ?? ""}
-          visibleModels={modelList.map((m) => ({ provider: m.provider, id: m.id }))}
-          onClose={() => setModelVisibilityOpen(false)}
-          onChanged={() => onModelsVisibilityChanged?.()}
-        />
-      )}
     </div>
   );
 }

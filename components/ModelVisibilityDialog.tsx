@@ -14,6 +14,8 @@ interface VisibilityModelEntry {
 interface VisibilityResponse {
   patterns?: string[] | null;
   models?: VisibilityModelEntry[];
+  /** Models the current scope resolves to, computed server-side with pi's matcher. */
+  visible?: VisibleModelRef[];
   modelError?: string;
   error?: string;
 }
@@ -27,31 +29,30 @@ function compareEntries(a: VisibilityModelEntry, b: VisibilityModelEntry): numbe
 }
 
 /**
- * Dialog that manages which models the chat model selector offers.
+ * Dialog (Settings → Models) that manages which models the chat selector offers.
  *
  * It edits pi's global `enabledModels` setting (~/.pi/agent/settings.json):
- * the checkbox list starts from the models the selector currently shows and
- * saving writes exact `provider/modelId` patterns — or clears the setting
- * when every available model stays visible. This is also the supported way
- * to hide built-in catalog models that models.json can only override, never
- * remove (#560).
+ * the checkbox list starts from the models the current scope resolves to
+ * (computed server-side with pi's matcher) and saving writes exact
+ * `provider/modelId` patterns — or clears the setting when every available
+ * model stays visible. This is also the supported way to hide built-in catalog
+ * models that models.json can only override, never remove (#560).
  */
 export function ModelVisibilityDialog({
   cwd,
-  visibleModels,
   onClose,
   onChanged,
 }: {
-  cwd: string;
-  /** Models the selector currently offers (server-resolved visible scope). */
-  visibleModels: readonly VisibleModelRef[];
+  /** Project whose extension-registered providers should be listed; omit for global only. */
+  cwd?: string | null;
   onClose: () => void;
-  onChanged: () => void;
+  onChanged?: () => void;
 }) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [models, setModels] = useState<VisibilityModelEntry[] | null>(null);
   const [patterns, setPatterns] = useState<string[] | null>(null);
+  const [visibleModels, setVisibleModels] = useState<readonly VisibleModelRef[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
@@ -61,10 +62,10 @@ export function ModelVisibilityDialog({
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
-    const initialChecked = new Set(visibleModels.map(modelRefKey));
-    setCheckedKeys(initialChecked);
+    setCheckedKeys(new Set());
     setModels(null);
     setPatterns(null);
+    setVisibleModels([]);
     setLoadError(null);
     setSaveError(null);
     setFilter("");
@@ -77,15 +78,16 @@ export function ModelVisibilityDialog({
           setLoadError(data.error ?? `HTTP ${res.status}`);
           return;
         }
+        const visible = data.visible ?? [];
         setModels([...data.models].sort(compareEntries));
         setPatterns(data.patterns ?? null);
+        setVisibleModels(visible);
+        setCheckedKeys(new Set(visible.map(modelRefKey)));
       })
       .catch((error) => {
         if (requestId !== requestIdRef.current) return;
         setLoadError(error instanceof Error ? error.message : String(error));
       });
-    // visibleModels is captured per open; the dialog remounts per open via key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
   const allChecked = useMemo(
@@ -173,7 +175,7 @@ export function ModelVisibilityDialog({
         setSaveError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      onChanged();
+      onChanged?.();
       onClose();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error));

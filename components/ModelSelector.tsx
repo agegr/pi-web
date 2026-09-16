@@ -23,8 +23,6 @@ interface ModelSelectorProps {
   ariaLabel?: string;
   variant?: "toolbar" | "field";
   placement?: "up" | "auto";
-  /** Opens the model-visibility dialog; renders a manage entry in the panel. */
-  onManage?: () => void;
 }
 
 const MODEL_FILTER_THRESHOLD = 8;
@@ -60,7 +58,6 @@ export function ModelSelector({
   ariaLabel,
   variant = "toolbar",
   placement = "up",
-  onManage,
 }: ModelSelectorProps) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -307,38 +304,6 @@ export function ModelSelector({
                 </div>
               ))}
             </div>
-            {onManage && sortedOptions.length > 0 && (
-              <div style={{ flexShrink: 0, borderTop: "1px solid var(--border)" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    setFilter("");
-                    onManage();
-                  }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 7, width: "100%",
-                    padding: "7px 12px", border: "none", background: "none",
-                    color: "var(--text-dim)", cursor: "pointer", fontSize: 11,
-                    textAlign: "left", whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(event) => {
-                    event.currentTarget.style.background = "var(--bg-hover)";
-                    event.currentTarget.style.color = "var(--text)";
-                  }}
-                  onMouseLeave={(event) => {
-                    event.currentTarget.style.background = "none";
-                    event.currentTarget.style.color = "var(--text-dim)";
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                  </svg>
-                  {t("models.visibilityManage")}
-                </button>
-              </div>
-            )}
           </div>
         );
       })()}

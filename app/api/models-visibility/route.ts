@@ -17,8 +17,16 @@ interface VisibilityModelEntry {
   provider: string;
 }
 
+/**
+ * `enabledModels` is global, but enumerating models loads project extensions,
+ * so a cwd selects which project's extension-registered providers are listed.
+ * Without one, the agent dir stands in as cwd: global extensions only, no
+ * allow-list check needed for our own directory (same as /api/auth/*).
+ */
 async function resolveCwd(requested: string | undefined): Promise<string | Response> {
-  const cwd = resolve(requested?.trim() || process.cwd());
+  const trimmed = requested?.trim();
+  if (!trimmed) return getAgentDir();
+  const cwd = resolve(trimmed);
   let cwdStat;
   try {
     cwdStat = await stat(cwd);
@@ -57,9 +65,14 @@ export async function GET(req: Request) {
         || modelNameCollator.compare(a.provider, b.provider)
         || modelNameCollator.compare(a.id, b.id));
     const patterns = services.settingsManager.getEnabledModels() ?? null;
+    // Resolve the scope server-side with pi's own matcher so the dialog never
+    // reimplements glob / fuzzy / thinking-pin semantics.
+    const scope = await resolveVisibleModels(services.modelRuntime, patterns ?? undefined);
+    const visible = scope.visible.map((model) => ({ provider: model.provider, id: model.id }));
     return Response.json({
       patterns,
       models,
+      visible,
       ...(services.modelRuntime.getError() ? { modelError: services.modelRuntime.getError() } : {}),
     });
   } catch (error) {
