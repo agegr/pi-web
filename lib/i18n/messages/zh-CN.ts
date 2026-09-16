@@ -50,6 +50,7 @@ export const zhCNLocale: LocalePlugin = {
     "auth.loggingIn": "正在登录...",
     "auth.invalidPassword": "密码不正确",
     "auth.loginFailed": "登录失败，请重试。",
+    "auth.tooManyAttempts": "失败次数过多，请在 {seconds} 秒后重试。",
     "auth.logOut": "退出登录",
     "auth.loggingOut": "正在退出...",
     "auth.logoutFailed": "退出失败，请重试。",
