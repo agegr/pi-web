@@ -4,8 +4,10 @@ import {
   isApiRequestHostAllowed,
 } from "@/lib/request-security";
 import {
+  isValidWebSessionToken,
   isValidBasicAuthorization,
   isWebPasswordEnabled,
+  PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
 
 export function proxy(request: NextRequest) {
@@ -23,10 +25,30 @@ export function proxy(request: NextRequest) {
   }
 
   const password = process.env.PI_WEB_PASSWORD;
-  if (
-    isWebPasswordEnabled(password)
-    && !isValidBasicAuthorization(request.headers.get("authorization"), password)
-  ) {
+  if (!isWebPasswordEnabled(password)) {
+    if (request.nextUrl.pathname === "/login") {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  const authenticated = isValidWebSessionToken(request.cookies.get(PI_WEB_SESSION_COOKIE)?.value, password)
+    || (isApiRequest && isValidBasicAuthorization(request.headers.get("authorization"), password));
+  if (request.nextUrl.pathname === "/login") {
+    return authenticated
+      ? NextResponse.redirect(new URL("/", request.url))
+      : NextResponse.next();
+  }
+  if (request.nextUrl.pathname === "/api/web-auth") return NextResponse.next();
+
+  if (!authenticated) {
+    if (!isApiRequest) {
+      const loginUrl = new URL("/login", request.url);
+      if (request.nextUrl.search) {
+        loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+      }
+      return NextResponse.redirect(loginUrl);
+    }
     return new NextResponse("Authentication required", {
       status: 401,
       headers: {
@@ -39,4 +61,4 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-export const config = { matcher: ["/", "/api/:path*"] };
+export const config = { matcher: ["/", "/login", "/api/:path*"] };

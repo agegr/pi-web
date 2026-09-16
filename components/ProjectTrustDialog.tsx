@@ -130,7 +130,7 @@ export function ProjectTrustDialog({
               border: "1px solid var(--accent)",
               borderRadius: 5,
               background: "var(--accent)",
-              color: "white",
+              color: "var(--accent-contrast)",
               cursor: busy ? "wait" : "pointer",
               opacity: busy ? 0.7 : 1,
               fontSize: 12,

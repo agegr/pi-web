@@ -13,6 +13,9 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
+  // next/image is only used for the static logo, so the /_next/image optimizer
+  // (and its sharp/libheif attack surface, see GHSA-2xp9-vwfh-vxw4) is not needed.
+  images: { unoptimized: true },
   serverExternalPackages: [
     "node-pty",
     "undici",

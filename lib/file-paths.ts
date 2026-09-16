@@ -6,11 +6,15 @@ export function normalizeFilePathSlashes(filePath: string): string {
 }
 
 export function encodeFilePathForApi(filePath: string): string {
-  return normalizeFilePathSlashes(filePath)
-    .split("/")
-    .filter(Boolean)
-    .map(encodeURIComponent)
-    .join("/");
+  const normalized = normalizeFilePathSlashes(filePath);
+  const segments = normalized.split("/").filter(Boolean);
+  // A literal "//" prefix is normalized away by URL routing before it reaches
+  // the catch-all handler, so a UNC root must live inside the first segment:
+  // "//host" encodes as "%2F%2Fhost" and decodes back as a single segment.
+  if (normalized.startsWith("//") && segments.length > 0) {
+    segments[0] = `//${segments[0]}`;
+  }
+  return segments.map(encodeURIComponent).join("/");
 }
 
 export function getFileName(filePath: string): string {
