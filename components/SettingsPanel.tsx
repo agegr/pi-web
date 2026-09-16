@@ -16,7 +16,6 @@ import {
 } from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
-import type { ModelsData } from "@/lib/models-cache";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -63,7 +62,7 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
 }
 
-function GeneralSettings({ active, cwd, sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "cwd" | "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange"> & { active: boolean }) {
+function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
@@ -76,71 +75,6 @@ function GeneralSettings({ active, cwd, sessionId, onSessionReloaded, quoteSelec
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
-
-  const [titleModel, setTitleModel] = useState("inherit");
-  const [titleModelOptions, setTitleModelOptions] = useState<ModelsData["modelList"]>([]);
-  const [titleModelReady, setTitleModelReady] = useState(false);
-  const [titleModelSaving, setTitleModelSaving] = useState(false);
-  const [titleModelError, setTitleModelError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setThinkingExpanded(isThinkingExpandedByDefault());
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setTitleModelReady(false);
-    void fetch("/api/session-title/settings")
-      .then(async (response) => {
-        const data = await response.json() as { model?: string; error?: string };
-        if (!response.ok || typeof data.model !== "string") throw new Error(data.error ?? `HTTP ${response.status}`);
-        if (!cancelled) {
-          setTitleModel(data.model);
-          setTitleModelReady(true);
-        }
-      })
-      .catch((cause) => {
-        if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => { cancelled = true; };
-  }, [cwd]);
-
-  // Sections stay mounted once visited, so reload the catalogue each time General
-  // is shown: a model added under Models must be selectable without reopening.
-  // The catalogue is project-scoped; without a project the stored value is still shown.
-  useEffect(() => {
-    if (!active || !cwd) return;
-    let cancelled = false;
-    void fetch(`/api/models?cwd=${encodeURIComponent(cwd)}`)
-      .then(async (response) => {
-        const data = await response.json() as Partial<ModelsData> & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-        if (!cancelled) setTitleModelOptions(data.modelList ?? []);
-      })
-      .catch((cause) => {
-        if (!cancelled) setTitleModelError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => { cancelled = true; };
-  }, [active, cwd]);
-
-  const saveTitleModel = async (model: string) => {
-    setTitleModelSaving(true);
-    setTitleModelError(null);
-    try {
-      const response = await fetch("/api/session-title/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model }),
-      });
-      const data = await response.json() as { model?: string; error?: string };
-      if (!response.ok || typeof data.model !== "string") throw new Error(data.error ?? `HTTP ${response.status}`);
-      setTitleModel(data.model);
-    } catch (cause) {
-      setTitleModelError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setTitleModelSaving(false);
-    }
-  };
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
@@ -334,29 +268,6 @@ function GeneralSettings({ active, cwd, sessionId, onSessionReloaded, quoteSelec
         </div>
       </section>
 
-      <section className="settings-general-section">
-        <h3 className="settings-general-heading">{t("settings.sessionTitle")}</h3>
-        <p className="settings-general-description">{t("settings.sessionTitleDescription")}</p>
-        <select
-          className="settings-title-model-select"
-          aria-label={t("settings.sessionTitleModel")}
-          value={titleModel}
-          disabled={!titleModelReady || titleModelSaving}
-          onChange={(event) => void saveTitleModel(event.target.value)}
-        >
-          <option value="inherit">{t("settings.sessionTitleModelInherit")}</option>
-          {titleModel !== "inherit"
-            && !titleModelOptions.some((option) => `${option.provider}/${option.id}` === titleModel)
-            && <option value={titleModel}>{titleModel}</option>}
-          {titleModelOptions.map((option) => (
-            <option key={`${option.provider}/${option.id}`} value={`${option.provider}/${option.id}`}>
-              {option.name || option.id} ({option.provider})
-            </option>
-          ))}
-        </select>
-        {titleModelError && <p role="alert" className="settings-general-error">{titleModelError}</p>}
-      </section>
-
       {shellSettings?.isWindows && (
         <section className="settings-general-section">
           <h3 className="settings-general-heading">{t("settings.shellTool")}</h3>
@@ -535,7 +446,7 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings active={section === "general"} cwd={cwd} sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded onClose={onClose} />)}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}

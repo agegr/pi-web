@@ -72,15 +72,13 @@ export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
 }
 
 /**
- * Build a throwaway Agent that shares the source's transport and credentials
- * but nothing of its context: no system prompt, no tools, no history. The
- * transcript goes in as a single user turn, so the request is the same size
- * whichever model answers it and never depends on a prompt cache.
+ * Build a throwaway Agent that shares the source's model, transport and
+ * credentials but nothing of its context: no system prompt, no tools, no
+ * history. The transcript goes in as a single user turn, so the request is the
+ * same size regardless of session length and never depends on a prompt cache.
  */
-export function buildSessionTitleAgentOptions(
-  source: Agent,
-  model: Model<Api> = source.state.model,
-): AgentOptions {
+export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
+  const model = source.state.model;
   return {
     initialState: {
       systemPrompt: TITLE_SYSTEM_PROMPT,
@@ -255,49 +253,17 @@ function getAssistantResult(agent: Agent): GeneratedSessionTitle {
   throw new Error("The model did not return a session title");
 }
 
-export interface GenerateSessionTitleOptions {
-  /** "provider/model-id" from settings, or "inherit" to name with the session's own model. */
-  model?: string;
-}
-
-/**
- * A configured model that cannot be resolved must fail loudly. Falling back to
- * the session's own model would silently spend the request the user chose the
- * dedicated model to avoid. Refresh first, as set_model does, so a model added
- * while this session's runtime was already alive is still found.
- */
-async function resolveTitleModel(source: AgentSession, spec: string): Promise<Model<Api>> {
-  const slash = spec.indexOf("/");
-  if (slash <= 0) throw new Error(`Invalid session title model: ${spec}`);
-  const provider = spec.slice(0, slash);
-  const modelId = spec.slice(slash + 1);
-  const runtime = source.modelRuntime;
-  let model = runtime.getModel(provider, modelId);
-  if (!model) {
-    await runtime.refresh({ allowNetwork: false });
-    model = runtime.getModel(provider, modelId);
-  }
-  if (!model) throw new Error(`Session title model not found: ${spec}`);
-  return model;
-}
-
-export async function generateSessionTitle(
-  source: AgentSession,
-  options?: GenerateSessionTitleOptions,
-): Promise<GeneratedSessionTitle> {
+export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   // Snapshot whatever the session holds right now. The transcript is plain
-  // text the title model reads once, so a turn still in flight only means the
+  // text the model reads once, so a turn still in flight only means the
   // newest reply is missing from it; there is nothing to wait for.
   const messages = [...sourceAgent.state.messages];
   if (!messages.some((message) => message.role === "user" || message.role === "compactionSummary")) {
     throw new Error("The session has no user messages to name");
   }
 
-  const model = options?.model && options.model !== "inherit"
-    ? await resolveTitleModel(source, options.model)
-    : undefined;
-  const temporaryAgent = new Agent(buildSessionTitleAgentOptions(sourceAgent, model));
+  const temporaryAgent = new Agent(buildSessionTitleAgentOptions(sourceAgent));
   const runPromise = temporaryAgent.prompt(`${buildTitleTranscript(messages)}\n\n${TITLE_PROMPT}`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
