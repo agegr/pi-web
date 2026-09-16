@@ -74,12 +74,23 @@ app/api/
   skills/search/route.ts          GET/POST skills.sh search
   subagents/settings/route.ts     GET/PUT built-in subagent feature setting
   worktrees/route.ts              GET/POST/DELETE git worktrees
-  web-auth/route.ts               POST login | DELETE logout (browser password)
+  web-auth/route.ts               GET status | POST login | DELETE logout (browser password)
   plugins/check/route.ts          POST check plugin package updates
   project-trust/route.ts          GET/POST project trust for package installs
   sessions/search/route.ts        GET session search
-  terminal/route.ts               GET/POST terminal sessions
+  sessions/[id]/state/route.ts    GET live wrapper state when the session is running
+  sessions/[id]/auto-name/route.ts POST generate a session title
+  terminal/route.ts               POST create a terminal session
+  terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
   cwd/browse/route.ts             GET browse allowed cwd directories
+  app-update/route.ts             GET current vs latest published pi-web version
+  file-index/route.ts             GET file list for @-mentions
+  git/status/route.ts             GET changed files for a cwd
+  git/diff/route.ts               GET diff for one changed file
+  provider-usage/query/route.ts   POST provider usage quotas
+  push/config/route.ts            GET VAPID public key for push subscriptions
+  push/subscribe/route.ts         POST register a push subscription
+  tools/settings/route.ts         GET/PUT shell tool settings (PowerShell on Windows)
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
