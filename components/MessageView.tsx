@@ -1097,7 +1097,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
       </div>
 
       {/* ── Expanded: input args (only when no richer view exists) ── */}
-      {expanded && !isEditTool && !patchFiles && (
+      {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
         <pre
           style={{
             margin: 0,
