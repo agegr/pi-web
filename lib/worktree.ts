@@ -205,16 +205,9 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
   }
   mkdirSync(baseDir, { recursive: true });
 
-  // Fetch latest remote refs so new branches below can start from the up-to-date
-  // remote tip (refs/remotes/origin/<branch>) instead of local HEAD.
-  try {
-    await git(repoRoot, ["fetch", "origin"], 60_000);
-  } catch {
-    // Non-fatal: continue with whatever refs are available locally.
-  }
-
   // Reuse the branch if it already exists, otherwise create it (from the
-  // remote tip when available, else local HEAD).
+  // already-fetched remote tip when available, else local HEAD). We do not
+  // fetch here: worktree creation must stay a local, offline-safe operation.
   let branchExists = false;
   try {
     await git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/heads/${trimmed}`]);
@@ -229,8 +222,8 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
     if (branchExists) {
       await git(repoRoot, ["worktree", "add", "--", worktreePath, trimmed], WORKTREE_TIMEOUT);
     } else {
-      // New branch: prefer the up-to-date remote tip (refs/remotes/origin/<branch>,
-      // populated by the fetch above) over local HEAD; fall back to HEAD when absent.
+      // New branch: prefer the remote-tracking tip (refs/remotes/origin/<branch>)
+      // over local HEAD when the user already fetched it; fall back to HEAD.
       let startFrom: string | undefined;
       try {
         await git(repoRoot, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${trimmed}`]);
