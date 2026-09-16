@@ -4,9 +4,10 @@ import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, typ
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { getHiddenProjects, setHiddenProjects } from "@/lib/hidden-projects";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, partitionRecentProjects, sessionsForProject } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
@@ -381,6 +382,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
+  // Projects hidden from the picker. Hiding keeps every session on disk; only
+  // the row disappears, and the picker's footer brings it back.
+  const [hiddenProjectKeys, setHiddenProjectKeys] = useState<Set<string>>(() => new Set(getHiddenProjects()));
+  const [hiddenProjectsOpen, setHiddenProjectsOpen] = useState(false);
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
@@ -510,6 +515,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     saveUnreadSessionIds(unreadSessionIds);
   }, [unreadSessionIds]);
+
+  // Persist hidden projects so a decluttered picker stays decluttered.
+  useEffect(() => {
+    setHiddenProjects([...hiddenProjectKeys]);
+  }, [hiddenProjectKeys]);
+
+  // Hiding only removes the row: every session stays on disk. That is why it
+  // needs no confirmation step, unlike deleting a session or a worktree.
+  const handleHideProject = useCallback((key: string) => {
+    setHiddenProjectKeys((current) => new Set(current).add(key));
+  }, []);
+
+  const handleShowProject = useCallback((key: string) => {
+    setHiddenProjectKeys((current) => {
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     let stopped = false;
@@ -745,6 +769,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return () => { cancelled = true; };
   }, [selectedCwd, wtRefreshKey, refreshKey]);
 
+  // One row per project that has session history. Hiding is a per-browser view
+  // preference: the server keeps returning every session, and only the picker's
+  // rows are filtered.
+  const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
+  const { visible: visibleRecentProjects, hidden: hiddenProjects } = useMemo(
+    () => partitionRecentProjects(recentProjects, hiddenProjectKeys),
+    [recentProjects, hiddenProjectKeys],
+  );
+
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
     if (allSessions.length === 0 || skipInitialProjectSelection) return;
@@ -762,10 +795,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // Session not found — notify parent so it can show the placeholder
         onInitialRestoreDone?.();
       }
-      const projects = getRecentProjects(allSessions);
-      if (projects.length > 0) setSelectedCwd(projects[0].root);
+      if (visibleRecentProjects.length > 0) setSelectedCwd(visibleRecentProjects[0].root);
     }
-  }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, visibleRecentProjects, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and
@@ -945,11 +977,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
-  const recentProjects = getRecentProjects(allSessions);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
-    ? recentProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : recentProjects;
+    ? visibleRecentProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
+    : visibleRecentProjects;
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
@@ -1200,49 +1231,147 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
                 {visibleProjects.map((project) => (
-                  <button
+                  <div
                     key={project.key}
-                    onClick={() => {
-                      setSelectedCwd(project.root);
-                      setProjectFilter("");
-                      setCustomPathOpen(false);
-                      setCustomPathError(null);
-                      setDropdownOpen(false);
-                    }}
+                    style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}
+                  >
+                    <button
+                      onClick={() => {
+                        setSelectedCwd(project.root);
+                        setProjectFilter("");
+                        setCustomPathOpen(false);
+                        setCustomPathError(null);
+                        setDropdownOpen(false);
+                      }}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                        padding: "8px 10px",
+                        background: "var(--bg)",
+                        border: "none",
+                        color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        fontSize: 11,
+                        fontFamily: "var(--font-mono)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={project.root}
+                    >
+                      {project.key === selectedProject?.key && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                          <polyline points="1.5 5 4 7.5 8.5 2.5" />
+                        </svg>
+                      )}
+                      {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
+                      <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                      {showProjectActivity(projectActivity.get(project.key), t)}
+                    </button>
+                    {/* A crossed-out eye, not a trash icon: this hides the row and
+                        keeps the sessions, which is also why it needs no confirm. */}
+                    <button
+                      onClick={() => handleHideProject(project.key)}
+                      title={t("sidebar.hideProjectTitle")}
+                      aria-label={t("sidebar.hideProject")}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 30,
+                        height: 28,
+                        padding: 0,
+                        marginRight: 6,
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-dim)",
+                        cursor: "pointer",
+                        borderRadius: 5,
+                        flexShrink: 0,
+                        transition: "color 0.12s, background 0.12s",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                {visibleProjects.length === 0 && projectFilter.trim() && (
+                   <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
+                )}
+              </div>
+
+              {/* Hidden projects. Their sessions are all still on disk — only the
+                  row is gone — so restoring one is a single click, no dialog. */}
+              {hiddenProjects.length > 0 && (
+                <div style={{ borderTop: "1px solid var(--border)" }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setHiddenProjectsOpen((open) => !open); }}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 7,
                       width: "100%",
                       padding: "8px 10px",
-                      background: "var(--bg)",
+                      background: "none",
                       border: "none",
-                      borderBottom: "1px solid var(--border)",
-                      color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)",
+                      color: "var(--text-muted)",
                       cursor: "pointer",
                       textAlign: "left",
                       fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                     }}
-                    title={project.root}
                   >
-                    {project.key === selectedProject?.key && (
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                      </svg>
-                    )}
-                    {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
-                    <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
-                    {showProjectActivity(projectActivity.get(project.key), t)}
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <polyline points={hiddenProjectsOpen ? "1 3.5 5 7.5 9 3.5" : "3.5 1 7.5 5 3.5 9"} />
+                    </svg>
+                    <span style={{ flex: 1 }}>{t("sidebar.hiddenProjects", { count: hiddenProjects.length })}</span>
                   </button>
-                ))}
-                {visibleProjects.length === 0 && projectFilter.trim() && (
-                   <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
-                )}
-              </div>
+                  {hiddenProjectsOpen && hiddenProjects.map((project) => (
+                    <div key={project.key} style={{ display: "flex", alignItems: "center" }}>
+                      <PathLabel
+                        text={displayCwd(project.root, homeDir)}
+                        style={{ flex: 1, padding: "6px 10px", fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
+                      />
+                      <button
+                        onClick={() => handleShowProject(project.key)}
+                        title={t("sidebar.showProject")}
+                        aria-label={t("sidebar.showProject")}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 30,
+                          height: 28,
+                          padding: 0,
+                          marginRight: 6,
+                          background: "none",
+                          border: "none",
+                          color: "var(--text-dim)",
+                          cursor: "pointer",
+                          borderRadius: 5,
+                          flexShrink: 0,
+                          transition: "color 0.12s, background 0.12s",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Default cwd shortcut */}
               {!customPathOpen && (

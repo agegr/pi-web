@@ -128,3 +128,21 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+// Hiding a project exists because the only other way to drop a stale row was
+// deleting that project's sessions. It must stay local state.
+test("hiding a project never touches session data", () => {
+  const hideHandler = source.slice(
+    source.indexOf("const handleHideProject"),
+    source.indexOf("const handleShowProject"),
+  );
+  assert.match(hideHandler, /setHiddenProjectKeys/);
+  assert.doesNotMatch(hideHandler, /fetch\(|\/api\/|DELETE/);
+});
+
+test("the picker renders the rows that survive hiding, and persists them per browser", () => {
+  assert.match(source, /partitionRecentProjects\(recentProjects, hiddenProjectKeys\)/);
+  assert.match(source, /visibleRecentProjects\.filter\(\(project\) => project\.root\.toLowerCase\(\)/);
+  assert.match(source, /setHiddenProjects\(\[\.\.\.hiddenProjectKeys\]\)/);
+  assert.doesNotMatch(source, /const projects = getRecentProjects\(allSessions\)/);
+});

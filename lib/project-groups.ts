@@ -25,6 +25,27 @@ export function getRecentProjects(sessions: readonly SessionInfo[]): RecentProje
     .map(([key, { root }]) => ({ key, root }));
 }
 
+/**
+ * Split the picker's rows into the ones to show and the ones the user hid, each
+ * keeping the order of `getRecentProjects`.
+ *
+ * Grouping already happened, so hiding a project hides every worktree and path
+ * spelling of that repository at once, and a hidden project stays listed here —
+ * with the path to show — for as long as it still has sessions.
+ */
+export function partitionRecentProjects(
+  projects: readonly RecentProject[],
+  hiddenProjectKeys: ReadonlySet<string>,
+): { visible: RecentProject[]; hidden: RecentProject[] } {
+  const visible: RecentProject[] = [];
+  const hidden: RecentProject[] = [];
+  for (const project of projects) {
+    if (hiddenProjectKeys.has(project.key)) hidden.push(project);
+    else visible.push(project);
+  }
+  return { visible, hidden };
+}
+
 export function getProjectActivity(
   sessions: readonly SessionInfo[],
   runningSessionIds: ReadonlySet<string>,
