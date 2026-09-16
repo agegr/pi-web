@@ -31,6 +31,7 @@ export const enLocale: LocalePlugin = {
     "settings.thinkingDisplay": "Thinking display",
     "settings.thinkingDisplayDescription": "Choose whether model reasoning blocks are expanded when messages load.",
     "settings.thinkingExpandedDefault": "Expand thinking blocks by default",
+    "settings.showHiddenExtensionMessages": "Show hidden extension messages",
     "settings.chat": "Chat",
     "settings.quoteSelection": "Show actions for selected text",
     "settings.languageDescription": "Choose the language used throughout the interface.",

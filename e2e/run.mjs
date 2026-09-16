@@ -94,6 +94,12 @@ try {
     ]),
   ];
   Object.assign(richEntries.at(-1).message, { provider: "test", model: "E2E Model" });
+  richEntries.push({ type: "custom_message", id: "extension-visible", parentId: "answer", timestamp,
+    customType: "visible-notice", content: "E2E visible extension notice", display: true });
+  for (let i = 0; i < 13; i++) {
+    richEntries.push({ type: "custom_message", id: `hidden-${i}`, parentId: richEntries.at(-1).id, timestamp,
+      customType: "context-prune-summary", content: `E2E hidden summary ${i}`, display: false });
+  }
   writeSession(RICH, richEntries);
   // The default 50-entry page starts at compaction, with its user prompt outside it.
   const compactedEntries = [
@@ -357,6 +363,29 @@ try {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.getByText("E2E visible extension notice", { exact: true }).waitFor({ state: "attached" });
+      const hiddenCards = page.getByText("hidden extension message", { exact: true });
+      assert.equal(await hiddenCards.count(), 0);
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      const hiddenSwitch = page.getByRole("switch", { name: "Show hidden extension messages", exact: true });
+      assert.equal(await hiddenSwitch.getAttribute("aria-checked"), "false");
+      await hiddenSwitch.click();
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => localStorage.getItem("pi-show-hidden-extension-messages") === "true");
+      assert.equal(await hiddenCards.count(), 13);
+      await page.reload({ waitUntil: "networkidle" });
+      await hiddenCards.first().waitFor({ state: "attached" });
+      assert.equal(await hiddenCards.count(), 13);
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await hiddenSwitch.click();
+      await page.keyboard.press("Escape");
+      assert.equal(await hiddenCards.count(), 0);
+      assert.equal(await page.getByText("E2E final answer", { exact: true }).count(), 1);
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByText("E2E final answer", { exact: true }).waitFor({ state: "attached" });
+      assert.equal(await hiddenCards.count(), 0);
+      console.log("PASS: hidden extension messages default off, opt-in, and persisted opt-out");
     }
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);

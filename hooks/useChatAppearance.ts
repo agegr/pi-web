@@ -11,14 +11,18 @@ export const CHAT_CONTENT_FONT_SIZE_MIN = 12;
 export const CHAT_CONTENT_FONT_SIZE_MAX = 24;
 export const CHAT_CONTENT_FONT_SIZE_STORAGE_KEY = "pi-chat-content-font-size";
 
+export const SHOW_HIDDEN_EXTENSION_MESSAGES_STORAGE_KEY = "pi-show-hidden-extension-messages";
+
 interface ChatAppearance {
   width: number;
   fontSize: number;
+  showHiddenExtensionMessages: boolean;
 }
 
 const DEFAULT_APPEARANCE: ChatAppearance = {
   width: CHAT_CONTENT_WIDTH_DEFAULT,
   fontSize: CHAT_CONTENT_FONT_SIZE_DEFAULT,
+  showHiddenExtensionMessages: false,
 };
 let appearance: ChatAppearance | null = null;
 const listeners = new Set<() => void>();
@@ -55,6 +59,7 @@ function getSnapshot(): ChatAppearance {
     appearance = {
       width: clampChatContentWidth(readStoredPreference(CHAT_CONTENT_WIDTH_STORAGE_KEY)),
       fontSize: clampChatContentFontSize(readStoredPreference(CHAT_CONTENT_FONT_SIZE_STORAGE_KEY)),
+      showHiddenExtensionMessages: readStoredPreference(SHOW_HIDDEN_EXTENSION_MESSAGES_STORAGE_KEY) === "true",
     };
     applyAppearance(appearance);
   }
@@ -66,7 +71,7 @@ function subscribe(listener: () => void): () => void {
   return () => { listeners.delete(listener); };
 }
 
-function setPreference(key: keyof ChatAppearance, value: number): void {
+function setPreference(key: "width" | "fontSize", value: number): void {
   const nextValue = key === "width" ? clampChatContentWidth(value) : clampChatContentFontSize(value);
   appearance = { ...getSnapshot(), [key]: nextValue };
   applyAppearance(appearance);
@@ -84,7 +89,17 @@ function setPreference(key: keyof ChatAppearance, value: number): void {
 const setWidth = (value: number) => setPreference("width", value);
 const setFontSize = (value: number) => setPreference("fontSize", value);
 
+function setShowHiddenExtensionMessages(value: boolean): void {
+  appearance = { ...getSnapshot(), showHiddenExtensionMessages: value };
+  try {
+    window.localStorage.setItem(SHOW_HIDDEN_EXTENSION_MESSAGES_STORAGE_KEY, String(value));
+  } catch {
+    // Best-effort browser preference persistence.
+  }
+  listeners.forEach((listener) => listener());
+}
+
 export function useChatAppearance() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_APPEARANCE);
-  return { ...snapshot, setWidth, setFontSize };
+  return { ...snapshot, setWidth, setFontSize, setShowHiddenExtensionMessages };
 }

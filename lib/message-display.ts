@@ -4,6 +4,20 @@ interface DisplayOptions {
   isStreaming?: boolean;
 }
 
+export function filterHiddenExtensionMessages(
+  messages: AgentMessage[],
+  entryIds: string[],
+  showHiddenExtensionMessages: boolean,
+): { messages: AgentMessage[]; entryIds: string[] } {
+  if (showHiddenExtensionMessages) return { messages, entryIds };
+  const indices = messages.flatMap((message, index) =>
+    message.role === "custom" && message.display === false ? [] : [index]);
+  return {
+    messages: indices.map((index) => messages[index]),
+    entryIds: indices.map((index) => entryIds[index]),
+  };
+}
+
 export function getThinkingPreview(thinking: string): string {
   return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
 }

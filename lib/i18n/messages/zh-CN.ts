@@ -31,6 +31,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.thinkingDisplay": "思考过程显示",
     "settings.thinkingDisplayDescription": "选择消息加载时模型思考块是否默认展开。",
     "settings.thinkingExpandedDefault": "默认展开思考块",
+    "settings.showHiddenExtensionMessages": "显示隐藏的扩展消息",
     "settings.chat": "对话",
     "settings.quoteSelection": "选中文字时显示提问浮窗",
     "settings.languageDescription": "选择整个界面使用的语言。",

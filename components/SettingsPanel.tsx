@@ -65,7 +65,7 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
-  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize, showHiddenExtensionMessages, setShowHiddenExtensionMessages } = useChatAppearance();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -255,6 +255,14 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               step={1}
               value={fontSize}
               onChange={(event) => setFontSize(Number(event.target.value))}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.showHiddenExtensionMessages")}</span>
+            <ConfigSwitch
+              checked={showHiddenExtensionMessages}
+              label={t("settings.showHiddenExtensionMessages")}
+              onChange={setShowHiddenExtensionMessages}
             />
           </div>
           <div className="settings-chat-option settings-chat-switch-option">

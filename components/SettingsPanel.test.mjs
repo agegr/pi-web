@@ -81,9 +81,9 @@ test("groups chat display controls together without row backgrounds", () => {
 
   assert.doesNotMatch(appearanceSection, /settings-chat-content/);
   assert.match(chatSection, /className="settings-chat-options"/);
-  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 4);
-  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
-  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection"]) {
+  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 5);
+  assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 3);
+  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "showHiddenExtensionMessages", "quoteSelection"]) {
     assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
   }
   assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);

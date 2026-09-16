@@ -31,6 +31,7 @@ export const zhTWLocale: LocalePlugin = {
     "settings.thinkingDisplay": "思考過程顯示",
     "settings.thinkingDisplayDescription": "選擇訊息載入時模型思考區塊是否預設展開。",
     "settings.thinkingExpandedDefault": "預設展開思考區塊",
+    "settings.showHiddenExtensionMessages": "顯示隱藏的擴充訊息",
     "settings.chat": "對話",
     "settings.quoteSelection": "選取文字時顯示提問浮窗",
     "settings.languageDescription": "選擇整個介面使用的語言。",

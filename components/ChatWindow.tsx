@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, filterHiddenExtensionMessages, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
@@ -18,6 +18,7 @@ import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
+import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
@@ -274,7 +275,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
 
   const {
-    loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    loading, error, messages: sessionMessages, activeToolResults, entryIds: sessionEntryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -296,6 +297,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
+  const { showHiddenExtensionMessages } = useChatAppearance();
+  const { messages, entryIds } = useMemo(
+    () => filterHiddenExtensionMessages(sessionMessages, sessionEntryIds, showHiddenExtensionMessages),
+    [sessionMessages, sessionEntryIds, showHiddenExtensionMessages],
+  );
   const sessionBusy = agentRunning || bashRunning;
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
