@@ -50,6 +50,7 @@ export const enLocale: LocalePlugin = {
     "auth.loggingIn": "Logging in...",
     "auth.invalidPassword": "Incorrect password",
     "auth.loginFailed": "Could not log in. Try again.",
+    "auth.tooManyAttempts": "Too many failed attempts. Try again in {seconds}s.",
     "auth.logOut": "Log out",
     "auth.loggingOut": "Logging out...",
     "auth.logoutFailed": "Could not log out. Try again.",
