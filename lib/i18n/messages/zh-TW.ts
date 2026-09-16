@@ -618,6 +618,7 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.installed": "已安裝",
     "i18n.status": "狀態",
     "i18n.version": "版本",
+    "i18n.description": "描述",
     "i18n.package": "套件",
     "i18n.resources": "資源",
     "i18n.installedPath": "安裝路徑",

@@ -618,6 +618,7 @@ export const enLocale: LocalePlugin = {
     "i18n.installed": "Installed",
     "i18n.status": "Status",
     "i18n.version": "Version",
+    "i18n.description": "Description",
     "i18n.package": "Package",
     "i18n.resources": "Resources",
     "i18n.installedPath": "Installed path",
