@@ -26,6 +26,7 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
+import { ThinkingIcon } from "./ThinkingIcon";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
 
@@ -2378,6 +2379,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 backdropFilter: "blur(10px)",
               } : null),
             }}>
+            {isStreaming && onThinkingLevelChange && (
+              // The level cannot change mid-turn, so this is read-only: a button here
+              // would invite clicks that do nothing. It still answers the question
+              // that matters while a turn runs, which budget is this one spending.
+              <span
+                title={t("chat.currentReasoning", { level: thinkingDisplayLabel })}
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  // The control row has no gap; each control pads itself, so match
+                  // the neighbouring buttons or this sits flush against Stop.
+                  padding: isMobile ? "0 6px" : "8px 12px",
+                  height: 32,
+                  color: "var(--text-dim)", fontSize: 12,
+                }}
+              >
+                <ThinkingIcon active={false} size={11} />
+                {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
+              </span>
+            )}
             {!isStreaming && onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button

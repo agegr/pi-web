@@ -1129,6 +1129,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
         dispatch({ type: "start" });
+        // "auto" is a client-side placeholder that leaves pi's setting untouched,
+        // so the selector can disagree with the runtime. Show the level this turn
+        // actually runs with.
+        if (sessionIdRef.current) {
+          fetch(`/api/agent/${encodeURIComponent(sessionIdRef.current)}`)
+            .then((r) => r.json())
+            .then((d: { state?: AgentStateResponse }) => {
+              if (!agentRunningRef.current || !d.state?.thinkingLevel) return;
+              setThinkingLevel(d.state.thinkingLevel as ThinkingLevelOption);
+            })
+            .catch(() => {});
+        }
         break;
       case "agent_end":
         // One logical prompt can emit multiple agent_end events before retrying,
