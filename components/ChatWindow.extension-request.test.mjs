@@ -35,6 +35,12 @@ test("renders extension confirmation and options as markdown", () => {
   assert.match(dialogSource, /ref=\{index === 0 \? focusFirstOption : undefined\}/);
 });
 
+test("preserves title newlines like pi's TUI and keeps long titles from hiding the body", () => {
+  const header = dialogSource.slice(dialogSource.indexOf('role="dialog"'), dialogSource.indexOf("{request.method === \"confirm\""));
+  assert.match(header, /whiteSpace: "pre-wrap", overflowWrap: "anywhere" \}\}>\{request\.title\}/);
+  assert.match(header, /maxHeight: "50%", overflowY: "auto" \}\}>[\s\S]*?\{request\.title\}/);
+});
+
 test("resets collapse state when a new extension request arrives", () => {
   assert.match(source, /<ExtensionDialog key=\{extensionDialog.id\}/);
   assert.match(source, /<ExtensionCustomPanel key=\{extensionCustomUi.id\}/);
