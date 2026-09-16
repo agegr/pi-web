@@ -419,6 +419,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.skills": "技能",
     "chat.dormant": "休眠",
     "chat.commandCompact": "壓縮上下文，可附加說明",
+    "chat.commandAutoCompact": "切換本工作階段的自動上下文壓縮",
     "chat.commandReload": "重新載入擴充功能、技能、提示詞和工具",
     "chat.commandName": "設定工作階段顯示名稱",
     "chat.commandSession": "顯示工作階段的訊息、Token 和費用統計",

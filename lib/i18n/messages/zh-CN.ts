@@ -419,6 +419,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.skills": "技能",
     "chat.dormant": "休眠",
     "chat.commandCompact": "压缩上下文，可选附加说明",
+    "chat.commandAutoCompact": "切换本会话的自动上下文压缩",
     "chat.commandReload": "重新加载扩展、技能、提示词和工具",
     "chat.commandName": "设置会话显示名称",
     "chat.commandSession": "显示会话消息、Token 和费用统计",
