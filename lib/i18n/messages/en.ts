@@ -305,6 +305,7 @@ export const enLocale: LocalePlugin = {
     "chat.loadingSession": "Loading session...",
     "chat.runningTool": "Running tool...",
     "chat.generatingToolInput": "Generating parameters...",
+    "chat.truncatedByOutputLimit": "This response was cut off after reaching the model’s output limit. Send a follow-up to continue.",
     "chat.runningNamedTool": "Running {name}...",
     "chat.runningTools": "Running {names}...",
     "chat.runningToolsMore": "Running {names} (+{count})...",
