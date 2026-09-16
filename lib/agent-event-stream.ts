@@ -14,21 +14,19 @@ export interface AgentEventStreamSession {
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
- * Registry of live SSE streams. Next.js 16 (prod mode) handles SIGINT/SIGTERM
- * by calling server.close() and waiting INDEFINITELY for every connection to
- * end — with no timeout and no closeAllConnections (those are dev-only, see
- * node_modules/next/dist/server/lib/start-server.js cleanup()). An SSE stream
- * never ends on its own (it waits for the CLIENT to disconnect), so on
- * shutdown the process lingers forever: listener closed (502 upstream) but
- * node alive as an orphan, Servy never sees the exit. CloseAll below lets our
- * signal hook terminate the streams so Next's own drain completes and the
- * process exits normally. See instrumentation.ts.
+ * Registry of live SSE streams, closed from the SIGINT/SIGTERM hook in
+ * instrumentation.ts.
+ *
+ * In production Next 16 handles those signals with `server.close()` and waits
+ * for every connection to end, with no timeout and no `closeAllConnections`
+ * (that call is dev-only in next/dist/server/lib/start-server.js). An SSE
+ * stream only ends when the client disconnects, so without this the process
+ * stops listening (502 upstream) but never exits.
+ *
+ * instrumentation.ts and the route handlers are bundled into separate module
+ * graphs, each with its own copy of this module; a plain module-level Set
+ * would be two disconnected registries. Symbol.for + globalThis shares one.
  */
-// IMPORTANT: instrumentation.ts and the route handlers are bundled into
-// SEPARATE module graphs — each gets its own copy of this module, so a plain
-// module-level Set would be two disconnected registries (verified live: the
-// shutdown hook closed an empty set while the route's SSE kept heart-beating).
-// Symbol.for + globalThis gives every copy the SAME registry.
 const CLOSER_REGISTRY: symbol = Symbol.for("pi-web.agentEventStreamClosers");
 type StreamCloser = (closeController: boolean | "error") => void;
 const activeStreamClosers: Set<StreamCloser> =
@@ -39,10 +37,6 @@ export function closeAllAgentEventStreams(): void {
   for (const close of [...activeStreamClosers]) {
     try { close("error"); } catch { /* stream already closed */ }
   }
-}
-
-export function activeAgentEventStreamCount(): number {
-  return activeStreamClosers.size;
 }
 
 function errorMessage(error: unknown): string {
