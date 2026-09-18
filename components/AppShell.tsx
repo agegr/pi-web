@@ -339,6 +339,10 @@ export function AppShell() {
     }
   }, [hasSubagentSessions]);
 
+  useEffect(() => {
+    if (rightPanelFullWidth) setActiveTopPanel(null);
+  }, [rightPanelFullWidth]);
+
   const toggleTopPanel = useCallback((
     panel: "agents" | "branches" | "system" | "tools" | "session" | "language" | "theme",
     keepMobileToolbarOpen = false,
@@ -397,6 +401,11 @@ export function AppShell() {
     }
     setRightPanelOpen((open) => !open);
   }, [isMobile]);
+
+  const handleRightPanelExpandToggle = useCallback(() => {
+    setActiveTopPanel(null);
+    setRightPanelExpanded((expanded) => !expanded);
+  }, []);
 
   useEffect(() => {
     if (!mobileToolbarMoreOpen) return;
@@ -2607,7 +2616,7 @@ export function AppShell() {
           <button
             type="button"
             className="file-panel-expand-button"
-            onClick={() => setRightPanelExpanded((expanded) => !expanded)}
+            onClick={handleRightPanelExpandToggle}
             aria-controls="file-panel"
             aria-pressed={rightPanelFullWidth}
             title={translate(rightPanelFullWidth ? "files.restorePanelWidth" : "files.expandPanel")}
