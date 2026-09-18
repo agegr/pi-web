@@ -10,7 +10,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
-import { applyPatchPreviewToFiles, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
+import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -1038,7 +1038,8 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
     : null;
   const resultImages = getMessageImages(result?.content ?? []);
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
-  const isError = result?.isError ?? false;
+  const isError = (result?.isError ?? false)
+    || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
 
   return (

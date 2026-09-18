@@ -56,6 +56,31 @@ export function getApplyPatchInputText(input: unknown, rawInput?: string): strin
   return typeof rawInput === "string" ? rawInput : "";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * pi-apply-patch reports per-file failures on a normal tool result
+ * (`details.result.failures`) instead of setting `isError`.
+ */
+export function applyPatchResultHasFailures(details: unknown): boolean {
+  if (!isRecord(details) || !isRecord(details.result)) return false;
+  const failures = details.result.failures;
+  return Array.isArray(failures) && failures.length > 0;
+}
+
+/**
+ * Paths the extension says actually landed. `null` when the field is absent
+ * so callers can fall back to preview / input parsing.
+ */
+export function getApplyPatchAppliedFiles(details: unknown): string[] | null {
+  if (!isRecord(details) || !isRecord(details.result)) return null;
+  const applied = details.result.appliedFiles;
+  if (!Array.isArray(applied)) return null;
+  return applied.filter((filePath): filePath is string => typeof filePath === "string" && filePath.length > 0);
+}
+
 // ── Shared row building ──────────────────────────────────────────────────────
 
 interface RowSink {

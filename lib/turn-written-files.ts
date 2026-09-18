@@ -1,7 +1,14 @@
 import type { AssistantContentBlock, ToolResultMessage } from "./types";
 import { resolveLocalFilePath } from "./file-links";
 import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "./tool-names";
-import { applyPatchPreviewToFiles, extractApplyPatchPaths, getApplyPatchInputText } from "./apply-patch";
+import {
+  applyPatchPreviewToFiles,
+  applyPatchResultHasFailures,
+  getApplyPatchAppliedFiles,
+  getApplyPatchInputText,
+  parseApplyPatchInput,
+} from "./apply-patch";
+import type { SplitDiffFile } from "./patch";
 
 export interface WrittenFile {
   /** Resolved absolute path of a file this turn wrote. */
@@ -18,25 +25,58 @@ function readToolPath(input: Record<string, unknown> | undefined): string | null
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/**
- * Collect the paths targeted by one apply_patch call.
- *
- * Prefers the applied-result preview — it reflects what actually landed on
- * disk, including rename targets. Falls back to parsing the patch document
- * from the call input. A single call may contain several file operations.
- */
-function readApplyPatchPaths(input: Record<string, unknown> | undefined, result: ToolResultMessage | undefined): string[] {
-  const details = (result as (ToolResultMessage & { details?: unknown }) | undefined)?.details;
+function writtenPathsFromFiles(files: SplitDiffFile[] | null): string[] {
+  if (!files) return [];
+  // Deletes have no newPath — they are not files this turn wrote.
+  return files
+    .map((file) => file.newPath)
+    .filter((filePath): filePath is string => typeof filePath === "string" && filePath.length > 0);
+}
+
+function collectApplyPatchDeletePaths(input: Record<string, unknown> | undefined, details: unknown): Set<string> {
+  const deleted = new Set<string>();
   if (details && typeof details === "object" && !Array.isArray(details)) {
-    const files = applyPatchPreviewToFiles((details as Record<string, unknown>).preview);
-    if (files) {
-      const paths = files
-        .map((file) => file.newPath ?? file.oldPath)
-        .filter((path): path is string => typeof path === "string");
-      if (paths.length > 0) return paths;
+    const preview = (details as Record<string, unknown>).preview;
+    if (preview && typeof preview === "object" && !Array.isArray(preview)) {
+      const files = (preview as Record<string, unknown>).files;
+      if (Array.isArray(files)) {
+        for (const raw of files) {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+          const entry = raw as { operation?: unknown; filePath?: unknown };
+          if (entry.operation === "delete" && typeof entry.filePath === "string" && entry.filePath.length > 0) {
+            deleted.add(entry.filePath);
+          }
+        }
+      }
     }
   }
-  return extractApplyPatchPaths(getApplyPatchInputText(input));
+  for (const match of getApplyPatchInputText(input).matchAll(/^\*\*\* Delete File: (.+)$/gm)) {
+    const filePath = (match[1] ?? "").trim();
+    if (filePath) deleted.add(filePath);
+  }
+  return deleted;
+}
+
+/**
+ * Collect the paths one apply_patch call actually wrote.
+ *
+ * Prefers `details.result.appliedFiles` (what landed, including rename
+ * targets). Falls back to the applied-result preview, then the patch
+ * document. Deletes are omitted — they are not files this turn wrote.
+ * A returned failure with no `appliedFiles` writes nothing.
+ */
+function readApplyPatchPaths(input: Record<string, unknown> | undefined, result: ToolResultMessage | undefined): string[] {
+  const details = result?.details;
+  const deleted = collectApplyPatchDeletePaths(input, details);
+  const applied = getApplyPatchAppliedFiles(details);
+  if (applied) return applied.filter((filePath) => !deleted.has(filePath));
+  if (applyPatchResultHasFailures(details)) return [];
+
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const fromPreview = writtenPathsFromFiles(applyPatchPreviewToFiles((details as Record<string, unknown>).preview));
+    if (fromPreview.length > 0) return fromPreview;
+  }
+  return writtenPathsFromFiles(parseApplyPatchInput(getApplyPatchInputText(input)));
 }
 
 /**
