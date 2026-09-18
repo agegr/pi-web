@@ -3,35 +3,31 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-const controls = source.slice(source.indexOf("{isStreaming && onThinkingLevelChange &&"));
+const session = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
+const thinkingControl = source.slice(source.indexOf("{onThinkingLevelChange && ("));
 
-test("shows the reasoning level of the running turn without offering a control", () => {
-  const readOnly = controls.slice(0, controls.indexOf("{!isStreaming && onThinkingLevelChange &&"));
-  assert.match(readOnly, /<span\s+title=\{t\("chat\.currentReasoning", \{ level: thinkingDisplayLabel \}\)\}/);
-  assert.match(readOnly, /\{thinkingDisplayLabel\}<\/span>/);
-  assert.doesNotMatch(readOnly, /<button|onClick=/);
+test("keeps one thinking control and disables it while the session is busy", () => {
+  assert.doesNotMatch(source, /isStreaming && onThinkingLevelChange/);
+  assert.doesNotMatch(thinkingControl, /<span\s+title=\{t\("chat\.currentReasoning"/);
+  assert.match(thinkingControl, /disabled=\{isStreaming\}/);
+  assert.match(thinkingControl, /title=\{isStreaming/);
+  assert.match(thinkingControl, /t\("chat\.currentReasoning", \{ level: thinkingDisplayLabel \}\)/);
+  assert.match(thinkingControl, /t\("chat\.changeReasoning", \{ level: thinkingDisplayLabel \}\)/);
 });
 
-test("keeps the read-only level aligned with the neighbouring controls", () => {
-  const readOnly = controls.slice(0, controls.indexOf("{!isStreaming && onThinkingLevelChange &&"));
-  const dropdown = controls.slice(controls.indexOf("{!isStreaming && onThinkingLevelChange &&"));
-  const padding = /padding: isMobile \? "0 6px" : "8px 12px"/;
-  const height = /height: 32/;
-  for (const [label, markup] of [["read-only", readOnly], ["dropdown", dropdown]]) {
-    assert.match(markup, padding, `${label} horizontal padding`);
-    assert.match(markup, height, `${label} height`);
-  }
-  // The label collapses to the icon on mobile exactly like the editable control.
-  assert.match(readOnly, /\(!isMobile \|\| controlsMenuOpen\) &&/);
+test("shows the resolved level and treats auto as an uncommitted default", () => {
+  assert.match(source, /resolvedThinkingLevel = thinkingLevel && thinkingLevel !== "auto"/);
+  assert.match(source, /isAutoThinkingSelection/);
+  assert.match(thinkingControl, /lvl === "auto"\s*\n\s*\? isAutoThinkingSelection/);
+  assert.match(thinkingControl, /if \(!isActive \|\| isAutoThinkingSelection\) onThinkingLevelChange\(lvl\)/);
 });
 
-test("shows the level the runtime actually applies, not the selector placeholder", async () => {
-  const session = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
+test("session hook layers thinking like the model selector", () => {
+  assert.match(session, /displayThinkingLevel = isNew/);
+  assert.match(session, /newSessionThinkingLevel \?\? newSessionDefaultThinkingLevel/);
+  assert.match(session, /isAutoThinkingSelection: isNew && newSessionThinkingLevel === null/);
+  assert.match(session, /if \(state\?\.thinkingLevel !== undefined\) \{\s*setLiveThinkingLevel\(asConcreteThinkingLevel\(state\.thinkingLevel\)\);/);
   const start = session.slice(session.indexOf('case "agent_start":'), session.indexOf('case "agent_end":'));
-  // Choosing "auto" leaves pi's setting untouched, so the selector alone cannot be trusted.
-  assert.match(session, /if \(level === "auto"\) return;/);
-  assert.match(start, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
-  // A slow response must not leak into another session or a later run.
-  assert.match(start, /if \(sessionIdRef\.current !== sid \|\| promptRunIdRef\.current !== runId\) return;/);
-  assert.match(start, /if \(!agentRunningRef\.current \|\| !d\.state\?\.thinkingLevel\) return;\s*setThinkingLevel\(d\.state\.thinkingLevel as ThinkingLevelOption\);/);
+  assert.doesNotMatch(start, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
+  assert.match(session, /if \(level === "auto"\) \{/);
 });
