@@ -40,6 +40,7 @@ import {
 } from "./SettingsUi";
 import { ProviderIcon } from "./ProviderIcon";
 import { ProviderUsageSummary } from "./ProviderUsageSummary";
+import { ModelVisibilityDialog } from "./ModelVisibilityDialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1822,7 +1823,7 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
+export function ModelsConfig({ onClose, embedded = false, cwd = null }: { onClose: () => void; embedded?: boolean; cwd?: string | null }) {
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
@@ -1833,6 +1834,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
 
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -2124,6 +2126,8 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
             {/* Add provider */}
             <ConfigListAction onClick={() => setPickerOpen(true)}>{t("i18n.addProvider")}</ConfigListAction>
+            {/* enabledModels scope: which of the available models the chat selector offers */}
+            <ConfigListAction onClick={() => setVisibilityOpen(true)}>{t("models.visibilityManage")}</ConfigListAction>
           </ConfigSidebar>
 
           {/* Right: detail */}
@@ -2163,6 +2167,12 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
         onAddCustom={addCustomProvider}
         onClose={() => setPickerOpen(false)}
+      />
+    )}
+    {visibilityOpen && (
+      <ModelVisibilityDialog
+        cwd={cwd}
+        onClose={() => setVisibilityOpen(false)}
       />
     )}
     </>
