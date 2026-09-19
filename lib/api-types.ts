@@ -15,6 +15,13 @@ export interface ShellToolSettingsResponse {
   powerShellEnabled: boolean;
 }
 
+export interface DefaultCwdSettingsResponse {
+  path: string;
+  resolved: string;
+  placeholder: string;
+  error?: string;
+}
+
 export interface SkillSearchResult {
   package: string;
   installs: string;
