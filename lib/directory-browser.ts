@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from "fs/promises";
+import { mkdir, readdir, realpath, stat } from "fs/promises";
 import { homedir } from "os";
 import path from "path";
 
@@ -55,6 +55,25 @@ export function getParentDirectory(directory: string): string | null {
 
 export async function resolveDirectory(directory: string): Promise<string> {
   return realpath(normalizeDirectory(directory));
+}
+
+export function isValidDirectoryName(name: string): boolean {
+  return Boolean(name) && name !== "." && name !== ".." && !/[\\/\0]/.test(name);
+}
+
+export async function createDirectory(parentDirectory: string, name: string): Promise<string> {
+  const directoryName = name.trim();
+  if (!isValidDirectoryName(directoryName)) {
+    throw new Error("Directory name must be a single folder name");
+  }
+
+  const resolvedParent = await resolveDirectory(parentDirectory);
+  const parentStat = await stat(resolvedParent);
+  if (!parentStat.isDirectory()) throw new Error("Parent path is not a directory");
+
+  const createdPath = path.join(resolvedParent, directoryName);
+  await mkdir(createdPath);
+  return realpath(createdPath);
 }
 
 export async function listDirectories(directory: string): Promise<BrowsableDirectory[]> {

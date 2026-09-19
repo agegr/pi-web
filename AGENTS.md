@@ -82,7 +82,7 @@ app/api/
   sessions/[id]/auto-name/route.ts POST generate a session title
   terminal/route.ts               POST create a terminal session
   terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
-  cwd/browse/route.ts             GET browse allowed cwd directories
+  cwd/browse/route.ts             GET browse cwd directories | POST create child directory
   app-update/route.ts             GET current vs latest published pi-web version
   file-index/route.ts             GET file list for @-mentions
   git/status/route.ts             GET changed files for a cwd

@@ -17,12 +17,31 @@ interface BrowseResponse {
   error?: string;
 }
 
+interface CreateDirectoryResponse {
+  success?: boolean;
+  path?: string;
+  error?: string;
+}
+
 async function loadDirectories(directory?: string): Promise<BrowseResponse> {
   const query = directory ? `?path=${encodeURIComponent(directory)}` : "";
   const response = await fetch(`/api/cwd/browse${query}`);
   const data = await response.json() as BrowseResponse;
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   return data;
+}
+
+async function createDirectory(parentPath: string, name: string): Promise<string> {
+  const response = await fetch("/api/cwd/browse", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: parentPath, name }),
+  });
+  const data = await response.json() as CreateDirectoryResponse;
+  if (!response.ok || data.error || !data.path) {
+    throw new Error(data.error ?? `HTTP ${response.status}`);
+  }
+  return data.path;
 }
 
 function FolderIcon() {
@@ -65,6 +84,10 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const [drives, setDrives] = useState<DirectoryEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [directoryName, setDirectoryName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const navigateTo = useCallback(async (directory?: string) => {
     setLoading(true);
@@ -94,8 +117,39 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
     const candidate = pathInput.trim();
     if (candidate) void navigateTo(candidate);
   };
+
+  const closeCreateDialog = () => {
+    if (creating) return;
+    setCreateOpen(false);
+    setDirectoryName("");
+    setCreateError(null);
+  };
+
+  const handleCreateDirectory = async (selectAfterCreate: boolean) => {
+    const name = directoryName.trim();
+    if (!currentPath || !name || creating) return;
+
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const createdPath = await createDirectory(currentPath, name);
+      setCreateOpen(false);
+      setDirectoryName("");
+      if (selectAfterCreate) {
+        onSelect(createdPath);
+      } else {
+        await navigateTo(currentPath);
+      }
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const hasUncommittedPath = pathInput.trim() !== currentPath;
   const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
+  const canCreate = canSelect && !loading;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
 
   if (!portalTarget) return null;
@@ -114,7 +168,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       }}
       style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" }}
     >
-      <div className="directory-picker-panel" style={{ width: 520, maxWidth: "calc(100vw - 16px)", height: "min(620px, calc(100dvh - 16px))", maxHeight: "calc(100dvh - 16px)", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+      <div className="directory-picker-panel" style={{ position: "relative", width: 520, maxWidth: "calc(100vw - 16px)", height: "min(620px, calc(100dvh - 16px))", maxHeight: "calc(100dvh - 16px)", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, padding: "12px 18px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 15 }}>{t("directoryPicker.selectDirectory")}</div>
@@ -210,6 +264,18 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
         </div>
 
         <div className="directory-picker-footer" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, flexShrink: 0, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>
+          <button
+            className="directory-picker-action"
+            type="button"
+            onClick={() => {
+              setCreateOpen(true);
+              setCreateError(null);
+            }}
+            disabled={!canCreate}
+            style={{ marginRight: "auto", padding: "6px 16px", border: 0, borderRadius: 6, background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 13, fontWeight: 600, opacity: canCreate ? 1 : 0.6, cursor: canCreate ? "pointer" : "default" }}
+          >
+            {t("directoryPicker.newDirectory")}
+          </button>
           <button className="directory-picker-action" type="button" onClick={onCancel} disabled={busy} style={{ padding: "6px 14px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: busy ? "default" : "pointer", fontSize: 13 }}>{t("i18n.cancel")}</button>
           <button
             className="directory-picker-action"
@@ -222,6 +288,82 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
             {busy ? t("i18n.checking") : t("directoryPicker.selectThisFolder")}
           </button>
         </div>
+
+        {createOpen && (
+          <div
+            style={{ position: "absolute", inset: 0, zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 12, background: "rgba(0,0,0,0.35)" }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) closeCreateDialog();
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") closeCreateDialog();
+            }}
+          >
+            <form
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("directoryPicker.createDirectory")}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateDirectory(true);
+              }}
+              style={{ width: 400, maxWidth: "100%", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 9, boxShadow: "0 8px 24px rgba(0,0,0,0.22)" }}
+            >
+              <div style={{ padding: "11px 14px", borderBottom: "1px solid var(--border)", color: "var(--text)", fontSize: 14, fontWeight: 700 }}>
+                {t("directoryPicker.createDirectory")}
+              </div>
+              <div style={{ padding: "12px 14px" }}>
+                <label htmlFor="new-directory-name" style={{ display: "block", marginBottom: 6, color: "var(--text-muted)", fontSize: 11 }}>
+                  {t("directoryPicker.directoryName")}
+                </label>
+                <input
+                  id="new-directory-name"
+                  value={directoryName}
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={t("directoryPicker.directoryNamePlaceholder")}
+                  onChange={(event) => {
+                    setDirectoryName(event.target.value);
+                    setCreateError(null);
+                  }}
+                  disabled={creating}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "7px 9px", border: "1px solid var(--accent)", borderRadius: 6, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12 }}
+                />
+                {createError && <div style={{ marginTop: 7, color: "#dc2626", fontSize: 11, lineHeight: 1.35 }}>{createError}</div>}
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <button
+                    className="directory-picker-action"
+                    type="submit"
+                    disabled={creating || !directoryName.trim()}
+                    style={{ flex: 1.2, padding: "6px 8px", border: 0, borderRadius: 5, background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 12, fontWeight: 600, opacity: creating || !directoryName.trim() ? 0.65 : 1, cursor: creating || !directoryName.trim() ? "default" : "pointer" }}
+                  >
+                    {creating ? t("directoryPicker.creating") : t("directoryPicker.confirmAndSelect")}
+                  </button>
+                  <button
+                    className="directory-picker-action"
+                    type="button"
+                    onClick={() => void handleCreateDirectory(false)}
+                    disabled={creating || !directoryName.trim()}
+                    style={{ flex: 1, padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text-muted)", fontSize: 12, opacity: creating || !directoryName.trim() ? 0.65 : 1, cursor: creating || !directoryName.trim() ? "default" : "pointer" }}
+                  >
+                    {t("directoryPicker.confirm")}
+                  </button>
+                  <button
+                    className="directory-picker-action"
+                    type="button"
+                    onClick={closeCreateDialog}
+                    disabled={creating}
+                    style={{ flex: 1, padding: "6px 8px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text-muted)", fontSize: 12, cursor: creating ? "default" : "pointer" }}
+                  >
+                    {t("i18n.cancel")}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </div>,
     portalTarget,
