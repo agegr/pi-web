@@ -4,13 +4,15 @@ export const SETTINGS_SECTION_VALUES = [
   "skills",
   "agents",
   "plugins",
+  "mcp",
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTION_VALUES)[number];
 export type SettingsDetailSection = Exclude<SettingsSection, "general">;
 
 const STORAGE_KEY = "pi-web:settings-navigation";
-const PROJECT_SECTIONS = new Set<SettingsSection>(["skills", "agents", "plugins"]);
+/** Sections that need a project cwd and are gated by project trust. */
+export const PROJECT_SECTIONS = new Set<SettingsSection>(["skills", "agents", "plugins", "mcp"]);
 
 interface StorageLike {
   getItem(key: string): string | null;
