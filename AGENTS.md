@@ -74,6 +74,23 @@ app/api/
   skills/search/route.ts          GET/POST skills.sh search
   subagents/settings/route.ts     GET/PUT built-in subagent feature setting
   worktrees/route.ts              GET/POST/DELETE git worktrees
+  web-auth/route.ts               GET status | POST login | DELETE logout (browser password)
+  plugins/check/route.ts          POST check plugin package updates
+  project-trust/route.ts          GET/POST project trust for package installs
+  sessions/search/route.ts        GET session search
+  sessions/[id]/state/route.ts    GET live wrapper state when the session is running
+  sessions/[id]/auto-name/route.ts POST generate a session title
+  terminal/route.ts               POST create a terminal session
+  terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
+  cwd/browse/route.ts             GET browse allowed cwd directories
+  app-update/route.ts             GET current vs latest published pi-web version
+  file-index/route.ts             GET file list for @-mentions
+  git/status/route.ts             GET changed files for a cwd
+  git/diff/route.ts               GET diff for one changed file
+  provider-usage/query/route.ts   POST provider usage quotas
+  push/config/route.ts            GET VAPID public key for push subscriptions
+  push/subscribe/route.ts         POST register a push subscription
+  tools/settings/route.ts         GET/PUT shell tool settings (PowerShell on Windows)
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
@@ -81,7 +98,9 @@ lib/
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
+  node-cli.ts          locate bundled npm-cli.js / npx-cli.js so npm/npx spawn without a shell (Windows npm.cmd)
   npx.ts               npx runner used by skill install
+  plugin-updates.ts    npm view update checks for /api/plugins/check
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
@@ -125,7 +144,7 @@ hooks/
 ### AgentSession lifecycle (`lib/rpc-manager.ts`)
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
-- Idle timeout: 10 minutes. Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+- Idle timeout: 10 minutes by default (`PI_WEB_IDLE_TIMEOUT_MS`, `0` disables). Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
@@ -177,6 +196,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
+- A UNC cwd (`\\host\share\dir`) must survive the `/api/files/[...path]` round-trip. `encodeFilePathForApi()` folds the `//` root into the first segment (`%2F%2Fhost`) because a literal `//` URL prefix is 308-normalized away before routing; `filePathFromApiSegments()` decodes it back. Never split UNC paths into segments and rejoin them — that silently turns `\\host\share` into the relative-looking `host/share` and every allow-check fails with 403.
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
@@ -192,6 +212,11 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - See `docs/adr/0003-built-in-subagent-toggle.md` for the precedence and persistence rationale.
 - Agent profile files (`~/.pi/agent/agents/*.md`, project `.pi/agents/*.md`) are shared with other runtimes, so a save round-trips the frontmatter keys this app does not own (`name`, `allowed_subagents`, `exclude_extensions`, `disallowed_tools`, …) and carries foreign `ext:` tool selectors through. Managed keys are exactly `description`, `display_name`, `tools`, `load_skills`, `load_extensions`, `enabled`, `inherit_context`, `run_in_background`, `model`, `thinking`, `max_turns`.
 - The `skills` / `extensions` spellings pi-subagents reads are seeded on first save and kept in step while they are booleans; a hand-authored whitelist such as `extensions: pi-advisor-flow` is never rewritten, and the two flags fall back to those aliases when `load_skills` / `load_extensions` are absent.
+
+### Web password throttling
+- `lib/auth-throttle.ts` is deliberately global, not per-IP: Next 16 route handlers have no socket address and `x-forwarded-for` is spoofable, while the server binds `127.0.0.1` for a single operator. Failures double the delay (1s → 60s cap) for everyone; a success or 5 idle minutes resets it. The reset window must stay longer than the max delay or waiting out one block restarts the burst.
+- State lives on `globalThis` under `Symbol.for("pi-web:auth-throttle")` so it survives hot reload and is shared by every module instance. Tests reset it with `recordAuthSuccess()`.
+- Only `POST /api/web-auth` is throttled. The Basic auth branch in `proxy.ts` is not, because sharing state between the proxy bundle and route handlers has not been verified.
 
 ### Auth and model config
 - `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.

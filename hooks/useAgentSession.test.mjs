@@ -144,6 +144,23 @@ test("fresh sessions use the preference while persisted and live sessions restor
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
 
+test("only the session-mount load probes disk for external appends", () => {
+  const loadSessionSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadContext = useCallback"),
+  );
+  const mountSource = source.slice(
+    source.indexOf("// Load session on mount"),
+    source.indexOf("sessionHookMountedRef.current = false"),
+  );
+  assert.match(loadSessionSource, /options\?: \{ force\?: boolean \}/);
+  assert.match(loadSessionSource, /if \(options\?\.force\) params\.set\("force", "1"\)/);
+  assert.match(loadSessionSource, /d\.wrapperRebuilt[\s\S]*?eventConnectionRef\.current\?\.close\(\)[\s\S]*?maintain\(sid\)/);
+  assert.match(mountSource, /loadSession\(session\.id, true, true, \{ force: true \}\)/);
+  assert.match(source, /await loadSession\(sid\)/);
+  assert.equal([...source.matchAll(/\{ force: true \}/g)].length, 1);
+});
+
 test("first user messages expose both branch actions and edit before their own entry", () => {
   const navigateSource = source.slice(
     source.indexOf("  const handleNavigate = useCallback"),
@@ -589,4 +606,20 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.match(scrollEffectSource, /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
+});
+
+test("auto-compact slash command toggles session auto-compaction", () => {
+  const commandSource = source.slice(
+    source.indexOf('case "auto-compact"'),
+    source.indexOf('case "reload"'),
+  );
+  assert.ok(commandSource.length > 0, "auto-compact case not found before reload case");
+  assert.match(commandSource, /sendAgentCommand<AgentStateResponse>\(sid, \{\s*type: "get_state"\s*\}\)/);
+  assert.match(commandSource, /!\(liveState\?\.autoCompactionEnabled \?\? true\)/);
+  assert.match(commandSource, /sendAgentCommand\(sid, \{\s*type: "set_auto_compaction",\s*enabled: nextEnabled,\s*\}\)/);
+  assert.match(commandSource, /setAutoCompactionEnabled\(nextEnabled\)/);
+  assert.doesNotMatch(commandSource, /!autoCompactionEnabled/);
+  // State mirrors the wrapper so the toggle reflects server-side changes too.
+  assert.match(source, /setAutoCompactionEnabled\(state\?\.autoCompactionEnabled \?\? true\)/);
+  assert.match(source, /setAutoCompactionEnabled\(liveState\.autoCompactionEnabled \?\? true\)/);
 });

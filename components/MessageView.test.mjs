@@ -283,6 +283,35 @@ test("renders user-message images as buttons that open a larger preview", () => 
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
 
+test("marks apply_patch returned failures as errors even when isError is unset", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-patch-1",
+    toolName: "apply_patch",
+    input: {
+      input: "*** Begin Patch\n*** Update File: src/a.ts\n-old\n+new\n*** End Patch",
+    },
+  };
+  const failed = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [{ type: "text", text: "apply_patch failed.\nRecovery: MUST read src/a.ts before retrying." }],
+    details: {
+      result: { appliedFiles: [], failures: [{ filePath: "src/a.ts", message: "context mismatch" }] },
+    },
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "openai",
+    model: "gpt-test",
+    content: [block],
+  }, { toolResults: new Map([[block.toolCallId, failed]]) });
+
+  assert.match(html, /border:1px solid rgba\(248,113,113,0\.45\)/);
+  assert.match(html, />apply_patch</);
+  assert.doesNotMatch(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
+});
+
 test("renders custom-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "custom",
@@ -293,4 +322,32 @@ test("renders custom-message images as buttons that open a larger preview", () =
 
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
+test("shows tool-result images while the tool details stay collapsed", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-shot-1",
+    toolName: "page_screenshot",
+    input: { tabId: 7 },
+  };
+  const result = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [
+      { type: "text", text: "captured-1280x720" },
+      { type: "image", data: "YWJj", mimeType: "image/png" },
+    ],
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map([[block.toolCallId, result]]) });
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+  assert.doesNotMatch(html, /captured-1280x720/);
+  assert.doesNotMatch(html, /"tabId"/);
 });

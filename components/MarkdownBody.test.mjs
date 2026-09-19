@@ -144,3 +144,33 @@ test("keeps Mermaid source visible while the response is streaming", () => {
   assert.match(html, />Preview</);
   assert.match(html, /A --&gt; B/);
 });
+
+test("opens markdown images in the shared image preview", () => {
+  const localHtml = renderMarkdown("![chart](docs/tmp/chart.png)");
+  const remoteHtml = renderMarkdown("![logo](https://example.com/logo.png)");
+
+  assert.match(localHtml, /<button[^>]+aria-label="Preview image: chart"[^>]*>/);
+  assert.match(localHtml, /<img[^>]+src="\/api\/files\/home\/me\/project\/docs\/tmp\/chart\.png\?type=read"/);
+  assert.match(localHtml, /<img[^>]+alt="chart"/);
+  assert.match(remoteHtml, /<button[^>]+aria-label="Preview image: logo"[^>]*>/);
+  assert.match(remoteHtml, /<img[^>]+src="https:\/\/example\.com\/logo\.png"/);
+});
+
+test("keeps linked markdown images as links instead of nested preview buttons", () => {
+  const html = renderMarkdown("[![diagram](docs/tmp/diagram.png)](https://example.com/docs)");
+
+  assert.match(
+    html,
+    /<a (?=[^>]*href="https:\/\/example\.com\/docs")(?=[^>]*target="_blank")[^>]*>/,
+  );
+  assert.match(html, /<img[^>]+alt="diagram"/);
+  assert.doesNotMatch(html, /<a[^>]*>[\s\S]*<button/);
+  assert.doesNotMatch(html, /<button[^>]*>[\s\S]*<\/a>/);
+});
+
+test("uses a generic preview label when a markdown image has no alt text", () => {
+  const html = renderMarkdown("![](https://example.com/shot.png)");
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.doesNotMatch(html, /Preview image:/);
+});

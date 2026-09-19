@@ -18,6 +18,8 @@ const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getHelpText, parseLaunchOptions } = require("./pi-web-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { getNextNodeArgs } = require("./pi-web-node-args");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
 
 let launchOptions;
@@ -81,7 +83,7 @@ nextArgs.push("-H", hostname);
 
 // Always run next's JS entry with node directly — avoids .bin symlink issues
 // and path-with-spaces problems on Windows when shell: true is used.
-const child = spawn(process.execPath, [nextBin, ...nextArgs], {
+const child = spawn(process.execPath, getNextNodeArgs(nextBin, nextArgs), {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
   env: { ...process.env, PI_WEB_HOSTNAME: hostname },
