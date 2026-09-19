@@ -1,7 +1,11 @@
-import { readdirSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
 import path from "path";
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
+import {
+  readDefaultCwdPath,
+  resolveDefaultCwdPath,
+} from "./default-cwd";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
@@ -31,7 +35,8 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
     if (s.projectRoot) roots.add(normalizeSlashes(s.projectRoot));
   }
 
-  // Also allow ~/pi-cwd-* directories created by the default-cwd endpoint.
+  // Also allow ~/pi-cwd-* directories created by the built-in default-cwd path,
+  // plus whatever custom directory the user configured for that action.
   try {
     for (const name of readdirSync(homedir())) {
       if (/^pi-cwd-\d{8}$/.test(name)) {
@@ -40,6 +45,13 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
     }
   } catch {
     // ignore if home is unreadable
+  }
+
+  try {
+    const configured = resolveDefaultCwdPath(readDefaultCwdPath());
+    if (existsSync(configured)) roots.add(normalizeSlashes(configured));
+  } catch {
+    // ignore a missing or damaged pi-web.json
   }
 
   for (const root of getAdditionalAllowedRoots()) roots.add(root);
