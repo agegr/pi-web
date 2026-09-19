@@ -597,8 +597,11 @@ test("auto-compact slash command toggles session auto-compaction", () => {
     source.indexOf('case "reload"'),
   );
   assert.ok(commandSource.length > 0, "auto-compact case not found before reload case");
+  assert.match(commandSource, /sendAgentCommand<AgentStateResponse>\(sid, \{\s*type: "get_state"\s*\}\)/);
+  assert.match(commandSource, /!\(liveState\?\.autoCompactionEnabled \?\? true\)/);
   assert.match(commandSource, /sendAgentCommand\(sid, \{\s*type: "set_auto_compaction",\s*enabled: nextEnabled,\s*\}\)/);
   assert.match(commandSource, /setAutoCompactionEnabled\(nextEnabled\)/);
+  assert.doesNotMatch(commandSource, /!autoCompactionEnabled/);
   // State mirrors the wrapper so the toggle reflects server-side changes too.
   assert.match(source, /setAutoCompactionEnabled\(state\?\.autoCompactionEnabled \?\? true\)/);
   assert.match(source, /setAutoCompactionEnabled\(liveState\.autoCompactionEnabled \?\? true\)/);
