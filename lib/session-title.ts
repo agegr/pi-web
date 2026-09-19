@@ -1,17 +1,17 @@
-import {
-  Agent,
-  type AgentMessage,
-  type AgentOptions,
-  type ThinkingLevel,
-} from "@earendil-works/pi-agent-core";
+import { randomUUID } from "node:crypto";
+import type { Agent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   getSupportedThinkingLevels,
   type Api,
+  type AssistantMessage,
+  type Context,
   type Model,
+  type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
+const TITLE_MAX_TOKENS = 256;
 const MAX_TITLE_LENGTH = 80;
 
 // Per-message caps. A title needs what the user asked for (every user turn,
@@ -35,6 +35,7 @@ const TITLE_SYSTEM_PROMPT =
   "You name chat sessions from a transcript. Reply with the title only.";
 
 const ELISION = "[…]";
+const IMAGE_PLACEHOLDER = "[image]";
 
 const TITLE_PROMPT = `Create a concise title for this session based on the conversation above.
 
@@ -56,6 +57,12 @@ export interface GeneratedSessionTitle {
   };
 }
 
+export interface TitleRequest {
+  model: Model<Api>;
+  context: Context;
+  options: SimpleStreamOptions;
+}
+
 /**
  * Naming is a short classification task, so thinking only adds latency and
  * tokens: use the cheapest level the model actually supports. Gemini rejects
@@ -72,45 +79,54 @@ export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
 }
 
 /**
- * Build a throwaway Agent that shares the source's model, transport and
- * credentials but nothing of its context: no system prompt, no tools, no
- * history. The transcript goes in as a single user turn, so the request is the
- * same size regardless of session length and never depends on a prompt cache.
+ * One-shot stream options for a title request. Same idea as compact's
+ * summarization path: a short system prompt, one user turn, no tools, a fresh
+ * session id, and cacheRetention "none". The request is too small and too
+ * unique to reuse the live session's prefix or write a cache nobody will read.
  */
-export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
+export function buildTitleRequest(source: Agent, transcript: string): TitleRequest {
   const model = source.state.model;
+  const thinkingLevel = resolveTitleThinkingLevel(model);
   return {
-    initialState: {
+    model,
+    context: {
       systemPrompt: TITLE_SYSTEM_PROMPT,
-      model,
-      thinkingLevel: resolveTitleThinkingLevel(model),
-      tools: [],
-      messages: [],
+      messages: [{
+        role: "user",
+        content: [{ type: "text", text: `${transcript}\n\n${TITLE_PROMPT}` }],
+        timestamp: Date.now(),
+      }],
     },
-    convertToLlm: source.convertToLlm,
-    transformContext: source.transformContext,
-    streamFn: source.streamFunction,
-    getApiKey: source.getApiKey,
-    onPayload: source.onPayload,
-    onResponse: source.onResponse,
-    steeringMode: source.steeringMode,
-    followUpMode: source.followUpMode,
-    sessionId: source.sessionId,
-    thinkingBudgets: source.thinkingBudgets,
-    transport: source.transport,
-    maxRetryDelayMs: source.maxRetryDelayMs,
-    toolExecution: source.toolExecution,
+    options: {
+      maxTokens: TITLE_MAX_TOKENS,
+      cacheRetention: "none",
+      sessionId: randomUUID(),
+      transport: source.transport,
+      thinkingBudgets: source.thinkingBudgets,
+      maxRetryDelayMs: source.maxRetryDelayMs,
+      ...(thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
+    },
   };
 }
 
 function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content
-    .filter((block): block is { type: "text"; text: string } =>
-      typeof block === "object" && block !== null && (block as { type?: string }).type === "text")
-    .map((block) => block.text)
-    .join("\n");
+  const parts: string[] = [];
+  let images = 0;
+  for (const block of content) {
+    if (typeof block !== "object" || block === null) continue;
+    const type = (block as { type?: string }).type;
+    if (type === "text" && typeof (block as { text?: unknown }).text === "string") {
+      parts.push((block as { text: string }).text);
+    } else if (type === "image") {
+      images += 1;
+    }
+  }
+  const text = parts.join("\n").trim();
+  if (images === 0) return text;
+  const marker = images === 1 ? IMAGE_PLACEHOLDER : `${IMAGE_PLACEHOLDER} ×${images}`;
+  return text ? `${text}\n${marker}` : marker;
 }
 
 function clip(text: string, max: number): string {
@@ -151,6 +167,27 @@ function boundTranscript(lines: string[]): string {
   return [...head, ELISION, ...tail].join("\n\n");
 }
 
+function lineForMessage(message: AgentMessage, lastAssistant?: AgentMessage): string | undefined {
+  if (message.role === "compactionSummary" || message.role === "branchSummary") {
+    const summary = message.summary.trim();
+    if (!summary) return undefined;
+    return `[Earlier summary] ${clip(summary, SUMMARY_CHARS)}`;
+  }
+  if (message.role === "custom") {
+    const text = textOf(message.content).trim();
+    return text ? `User: ${clip(text, USER_CHARS)}` : undefined;
+  }
+  if (message.role === "bashExecution") {
+    const command = message.command.trim();
+    return command ? `User: ${clip(`Ran \`${command}\``, USER_CHARS)}` : undefined;
+  }
+  if (message.role !== "user" && message.role !== "assistant") return undefined;
+  const text = textOf(message.content).trim();
+  if (!text) return undefined;
+  if (message.role === "user") return `User: ${clip(text, USER_CHARS)}`;
+  return `Assistant: ${clip(text, message === lastAssistant ? LAST_ASSISTANT_CHARS : ASSISTANT_CHARS)}`;
+}
+
 /** Flatten the session into the plain-text transcript the title model reads. */
 export function buildTitleTranscript(messages: AgentMessage[]): string {
   let lastAssistant: AgentMessage | undefined;
@@ -160,18 +197,8 @@ export function buildTitleTranscript(messages: AgentMessage[]): string {
 
   const lines: string[] = [];
   for (const message of messages) {
-    if (message.role === "compactionSummary") {
-      lines.push(`[Earlier summary] ${clip(message.summary.trim(), SUMMARY_CHARS)}`);
-      continue;
-    }
-    if (message.role !== "user" && message.role !== "assistant") continue;
-    const text = textOf(message.content).trim();
-    if (!text) continue;
-    if (message.role === "user") {
-      lines.push(`User: ${clip(text, USER_CHARS)}`);
-    } else {
-      lines.push(`Assistant: ${clip(text, message === lastAssistant ? LAST_ASSISTANT_CHARS : ASSISTANT_CHARS)}`);
-    }
+    const line = lineForMessage(message, lastAssistant);
+    if (line) lines.push(line);
   }
   return boundTranscript(lines);
 }
@@ -223,34 +250,31 @@ export function parseGeneratedSessionTitle(raw: string): string {
   return value;
 }
 
-function getAssistantResult(agent: Agent): GeneratedSessionTitle {
-  const messages = agent.state.messages;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role !== "assistant") continue;
-    if (message.stopReason === "error") {
-      throw new Error(message.errorMessage || "The title model request failed");
-    }
-    const text = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-      .trim();
-    if (!text) continue;
-    return {
-      title: parseGeneratedSessionTitle(text),
-      ...(message.usage ? {
-        usage: {
-          input: message.usage.input,
-          output: message.usage.output,
-          cacheRead: message.usage.cacheRead,
-          cacheWrite: message.usage.cacheWrite,
-          total: message.usage.totalTokens,
-        },
-      } : {}),
-    };
+function titleFromAssistant(message: AssistantMessage): GeneratedSessionTitle {
+  if (message.stopReason === "error") {
+    throw new Error(message.errorMessage || "The title model request failed");
   }
-  throw new Error("The model did not return a session title");
+  if (message.stopReason === "aborted") {
+    throw new Error("Session title generation timed out");
+  }
+  const text = message.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+  if (!text) throw new Error("The model did not return a session title");
+  return {
+    title: parseGeneratedSessionTitle(text),
+    ...(message.usage ? {
+      usage: {
+        input: message.usage.input,
+        output: message.usage.output,
+        cacheRead: message.usage.cacheRead,
+        cacheWrite: message.usage.cacheWrite,
+        total: message.usage.totalTokens,
+      },
+    } : {}),
+  };
 }
 
 export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
@@ -258,32 +282,31 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
   // Snapshot whatever the session holds right now. The transcript is plain
   // text the model reads once, so a turn still in flight only means the
   // newest reply is missing from it; there is nothing to wait for.
-  const messages = [...sourceAgent.state.messages];
-  if (!messages.some((message) => message.role === "user" || message.role === "compactionSummary")) {
-    throw new Error("The session has no user messages to name");
+  const transcript = buildTitleTranscript([...sourceAgent.state.messages]);
+  if (!transcript.trim()) {
+    throw new Error("The session has no usable text to name");
   }
 
-  const temporaryAgent = new Agent(buildSessionTitleAgentOptions(sourceAgent));
-  const runPromise = temporaryAgent.prompt(`${buildTitleTranscript(messages)}\n\n${TITLE_PROMPT}`);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const { model, context, options } = buildTitleRequest(sourceAgent, transcript);
+  const apiKey = await sourceAgent.getApiKey?.(model.provider);
+  const controller = new AbortController();
+  const requestOptions: SimpleStreamOptions = {
+    ...options,
+    signal: controller.signal,
+    ...(apiKey ? { apiKey } : {}),
+  };
+
+  const timeout = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
 
   try {
-    await Promise.race([
-      runPromise,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          temporaryAgent.abort();
-          reject(new Error("Session title generation timed out"));
-        }, TITLE_TIMEOUT_MS);
-      }),
-    ]);
+    const stream = await sourceAgent.streamFunction(model, context, requestOptions);
+    return titleFromAssistant(await stream.result());
   } catch (error) {
-    temporaryAgent.abort();
-    await runPromise.catch(() => {});
+    if (controller.signal.aborted) {
+      throw new Error("Session title generation timed out");
+    }
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
   }
-
-  return getAssistantResult(temporaryAgent);
 }
