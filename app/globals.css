@@ -1571,9 +1571,24 @@ span.token.table {
 .panel-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
-.sidebar-section-resize-handle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+.sidebar-section-resize-handle {
+  outline: none;
+}
+.sidebar-section-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 1px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.sidebar-section-resize-handle:hover::after,
+.sidebar-section-resize-handle:focus-visible::after,
+.sidebar-section-resize-handle.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
 .right-panel-overlay-backdrop {
   display: none;

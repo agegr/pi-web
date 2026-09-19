@@ -1814,7 +1814,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             flex: "0 0 12px",
             cursor: "row-resize",
             touchAction: "none",
-            background: `linear-gradient(to bottom, transparent 5px, ${sessionPaneResizer.isResizing ? "var(--text-muted)" : "color-mix(in srgb, var(--text-dim) 55%, var(--border))"} 5px, ${sessionPaneResizer.isResizing ? "var(--text-muted)" : "color-mix(in srgb, var(--text-dim) 55%, var(--border))"} 6px, transparent 6px)`,
           }}
           {...sessionPaneResizer.separatorProps}
         />
@@ -1825,7 +1824,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div
           ref={explorerSectionRef}
           style={{
-            borderTop: explorerOpen ? "none" : "1px solid var(--border)",
+            borderTop: "1px solid var(--border)",
             display: "flex",
             flexDirection: "column",
             flex: explorerOpen ? "1 1 0" : "0 0 auto",
