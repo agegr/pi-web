@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import {
   Prism as SyntaxHighlighter,
   createElement as renderSyntaxNode,
@@ -50,6 +50,8 @@ interface Props {
   initialState?: FileViewerState;
   onStateChange?: (state: FileViewerState) => void;
   watchEnabled?: boolean;
+  /** Called after the file is saved so panels showing Git state can refresh. */
+  onFileMutated?: () => void;
 }
 
 interface FileData {
@@ -61,6 +63,8 @@ interface FileData {
 }
 
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
+// Matches the write endpoint's content cap in lib/file-mutations.ts.
+const EDIT_MAX_BYTES = 2 * 1024 * 1024;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
@@ -1094,6 +1098,7 @@ export function FileViewer({
   initialPage,
   onStateChange,
   watchEnabled = true,
+  onFileMutated,
 }: Props) {
   if (isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
@@ -1120,6 +1125,7 @@ export function FileViewer({
       initialState={initialState}
       onStateChange={onStateChange}
       watchEnabled={watchEnabled}
+      onFileMutated={onFileMutated}
     />
   );
 }
@@ -1136,6 +1142,7 @@ function TextFileViewer({
   initialState,
   onStateChange,
   watchEnabled = true,
+  onFileMutated,
 }: Props) {
   const { isDark } = useTheme();
   const { t } = useI18n();
@@ -1170,6 +1177,11 @@ function TextFileViewer({
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editPreparing, setEditPreparing] = useState(false);
 
   onStateChangeRef.current = onStateChange;
 
@@ -1199,6 +1211,11 @@ function TextFileViewer({
     autoDiffAppliedRef.current = false;
     setDisplayMode(requestedInitialDisplayMode);
     setWrapLines(initialWrapLines);
+    setEditing(false);
+    setDraft("");
+    setSaving(false);
+    setSaveError(null);
+    setEditPreparing(false);
 
     return () => {
       onStateChangeRef.current?.({ ...viewerStateRef.current });
@@ -1280,6 +1297,93 @@ function TextFileViewer({
       active = false;
     };
   }, [filePath, fetchContent, sourceSessionId]);
+
+  const canEdit = data !== null
+    && data.size <= EDIT_MAX_BYTES
+    && !sourceSessionId;
+  const dirty = editing && draft !== (data?.content ?? "");
+
+  const startEdit = useCallback(async () => {
+    if (!data) return;
+    setSaveError(null);
+    // The read endpoint chunks responses at 256KB. Files above that arrive
+    // truncated, so pull every remaining chunk before drafting the editor —
+    // otherwise a save built from a partial view would truncate the file.
+    if (data.truncated) {
+      setEditPreparing(true);
+      try {
+        let content = data.content;
+        let offset = data.nextOffset;
+        for (;;) {
+          const res = await fetch(getFileApiUrl(filePath, "read", sourceSessionId, { offset }));
+          const chunk = await res.json() as FileData & { error?: string };
+          if (chunk.error) throw new Error(chunk.error);
+          content += chunk.content;
+          if (!chunk.nextOffset || chunk.nextOffset >= chunk.size) break;
+          offset = chunk.nextOffset;
+        }
+        setDraft(content);
+        setEditing(true);
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setEditPreparing(false);
+      }
+      return;
+    }
+    setDraft(data.content);
+    setEditing(true);
+  }, [data, filePath, sourceSessionId]);
+
+  const cancelEdit = useCallback(() => {
+    if (dirty && !window.confirm(t("files.discardChanges"))) return;
+    setEditing(false);
+    setSaveError(null);
+  }, [dirty, t]);
+
+  const saveEdit = useCallback(async () => {
+    if (!data || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/files/${encodeFilePathForApi(filePath)}?type=write`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: draft }),
+      });
+      const result = await res.json().catch(() => ({}) as { error?: string });
+      if (!res.ok) {
+        setSaveError(result.error ?? `Save failed (HTTP ${res.status})`);
+        return;
+      }
+      setEditing(false);
+      // The watch stream also signals this change; read eagerly so the
+      // refreshed view and Git state appear without waiting for it.
+      void fetchContent(filePath);
+      onFileMutated?.();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }, [data, draft, filePath, fetchContent, onFileMutated, saving]);
+
+  const handleEditorKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      void saveEdit();
+      return;
+    }
+    if (event.key === "Tab" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      const textarea = event.currentTarget;
+      const { selectionStart, selectionEnd } = textarea;
+      setDraft(draft.slice(0, selectionStart) + "  " + draft.slice(selectionEnd));
+      requestAnimationFrame(() => {
+        textarea.selectionStart = textarea.selectionEnd = selectionStart + 2;
+      });
+    }
+  }, [draft, saveEdit]);
 
   useEffect(() => {
     setWatching(false);
@@ -1582,6 +1686,40 @@ function TextFileViewer({
           />
         )}
 
+        {editing ? (
+          <div className="file-viewer-controls" style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+            {dirty && (
+              <span style={{ color: "#d6a84b", fontSize: 11 }}>{t("files.unsavedChanges")}</span>
+            )}
+            {saveError && (
+              <span
+                role="alert"
+                title={saveError}
+                style={{ color: "#f87171", fontSize: 11, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                {saveError}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void saveEdit()}
+              disabled={saving}
+              title={`${t("files.saveFile")} (Ctrl+S)`}
+              className="file-viewer-mode-button"
+              style={{ background: "var(--bg-selected)", color: "var(--text)" }}
+            >
+              {saving ? t("i18n.loading") : t("files.saveFile")}
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              disabled={saving}
+              className="file-viewer-mode-button"
+            >
+              {t("files.cancel")}
+            </button>
+          </div>
+        ) : (
         <div className="file-viewer-controls">
           {displayModes.length > 1 && (
             <div className="file-viewer-mode-switch" aria-label={t("i18n.fileViewMode")}>
@@ -1655,12 +1793,28 @@ function TextFileViewer({
                     <path d="M3 18h7" />
                   </svg>
                 </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => void startEdit()}
+                    disabled={editPreparing}
+                    title={t("files.editFile")}
+                    aria-label={t("files.editFile")}
+                    className="file-viewer-icon-button"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      <path d="m15 5 4 4" />
+                    </svg>
+                  </button>
+                )}
               </>
             )}
           </div>
 
           {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
+        )}
       </div>
 
       {data?.truncated && (
@@ -1703,7 +1857,36 @@ function TextFileViewer({
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
+        {editing ? (
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleEditorKeyDown}
+            spellCheck={false}
+            wrap="off"
+            className="file-viewer-editor"
+            aria-label={t("files.editFile")}
+            style={{
+              flex: 1,
+              width: "100%",
+              height: "100%",
+              display: "block",
+              resize: "none",
+              border: "none",
+              outline: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              lineHeight: 1.6,
+              padding: "8px 12px",
+              boxSizing: "border-box",
+              whiteSpace: "pre",
+              overflow: "auto",
+              tabSize: 2,
+            }}
+          />
+        ) : effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe

@@ -24,6 +24,15 @@ import {
   parseUploadConflictStrategy,
   validateUploadFileNames,
 } from "@/lib/file-upload";
+import {
+  MAX_WRITE_BYTES,
+  createEntry,
+  deleteEntry,
+  renameEntry,
+  validateEntryName,
+  writeTextFile,
+} from "@/lib/file-mutations";
+import { compressToZip, extractArchive } from "@/lib/file-archives";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { readTextPreviewChunk } from "@/lib/text-preview";
@@ -39,6 +48,13 @@ const IGNORED_SUFFIXES = [".pyc"];
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
+
+const FILE_MUTATION_TYPES = ["write", "touch", "mkdir", "rename", "delete", "extract", "compress"] as const;
+type FileMutationType = typeof FILE_MUTATION_TYPES[number];
+const FILE_MUTATION_TYPE_SET = new Set<string>(FILE_MUTATION_TYPES);
+// JSON escaping can inflate the body well past the decoded content cap, so the
+// transport guard is generous while writeTextFile enforces the real limit.
+const MAX_WRITE_REQUEST_BYTES = 8 * 1024 * 1024;
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
@@ -115,6 +131,105 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
+interface MutationBody {
+  name?: unknown;
+  content?: unknown;
+  recursive?: unknown;
+}
+
+async function parseMutationBody(request: NextRequest): Promise<MutationBody | null> {
+  try {
+    const body = await request.json() as unknown;
+    if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+    return body as MutationBody;
+  } catch {
+    return null;
+  }
+}
+
+function mutationErrorResponse(outcome: { ok: false; error: string; status: number }): NextResponse {
+  return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+}
+
+/**
+ * File mutations beyond upload. touch/mkdir address the destination directory
+ * (like upload); write/rename/delete address the entry itself. Every action
+ * authorizes through the same allowed-roots + realpath containment rules as
+ * reads and uploads, so symlinked ancestors can never escape the workspace.
+ */
+async function handleFileMutation(
+  request: NextRequest,
+  segments: string[],
+  type: FileMutationType,
+): Promise<NextResponse> {
+  const targetPath = filePathFromApiSegments(segments);
+  const allowedRoots = await getAllowedFileRoots();
+  if (!isFilePathAllowed(targetPath, allowedRoots)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
+
+  const body = await parseMutationBody(request);
+  if (!body) {
+    return NextResponse.json({ error: "A JSON object body is required" }, { status: 400 });
+  }
+
+  if (type === "touch" || type === "mkdir") {
+    const uploadDirectory = await getUploadDirectory(segments);
+    if ("response" in uploadDirectory) return uploadDirectory.response;
+    const nameError = validateEntryName(body.name);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
+    }
+    const outcome = createEntry(
+      uploadDirectory.directory,
+      body.name as string,
+      type === "touch" ? "file" : "directory",
+    );
+    if (!outcome.ok) return mutationErrorResponse(outcome);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (type === "rename") {
+    const nameError = validateEntryName(body.name);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
+    }
+    const outcome = renameEntry(targetPath, body.name as string, allowedRoots);
+    if (!outcome.ok) return mutationErrorResponse(outcome);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (type === "delete") {
+    const outcome = deleteEntry(targetPath, body.recursive === true, allowedRoots);
+    if (!outcome.ok) return mutationErrorResponse(outcome);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (type === "extract") {
+    const outcome = await extractArchive(targetPath, allowedRoots);
+    if (!outcome.ok) return mutationErrorResponse(outcome);
+    return NextResponse.json({ ok: true, extractedTo: outcome.extractedTo });
+  }
+
+  if (type === "compress") {
+    const outcome = await compressToZip(targetPath, allowedRoots);
+    if (!outcome.ok) return mutationErrorResponse(outcome);
+    return NextResponse.json({ ok: true, archive: outcome.archive });
+  }
+
+  // type === "write"
+  if (typeof body.content !== "string") {
+    return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+  }
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_WRITE_REQUEST_BYTES) {
+    return NextResponse.json({ error: `File content must be ${MAX_WRITE_BYTES / (1024 * 1024)}MB or smaller` }, { status: 413 });
+  }
+  const outcome = writeTextFile(targetPath, body.content, allowedRoots);
+  if (!outcome.ok) return mutationErrorResponse(outcome);
+  return NextResponse.json({ ok: true });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -125,6 +240,11 @@ export async function POST(
 
   try {
     const { path: segments } = await params;
+    const mutationType = request.nextUrl.searchParams.get("type") ?? "";
+    if (FILE_MUTATION_TYPE_SET.has(mutationType)) {
+      return await handleFileMutation(request, segments, mutationType as FileMutationType);
+    }
+
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
