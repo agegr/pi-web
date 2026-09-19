@@ -1,5 +1,15 @@
 import type { ResourceDiagnostic } from "@earendil-works/pi-coding-agent";
+import type { McpConfigDiagnostic, McpConfigScope, McpServerConfig, McpServerView } from "./mcp-config-store";
 import type { SubagentProfile } from "./subagents";
+
+export type { McpConfigDiagnostic, McpConfigScope, McpServerConfig, McpServerView };
+
+export interface McpServersResponse {
+  servers: McpServerView[];
+  diagnostics: McpConfigDiagnostic[];
+  /** False when the project is untrusted, so project servers stay dormant. */
+  projectResourcesLoaded: boolean;
+}
 
 export interface SubagentProfilesResponse {
   profiles: SubagentProfile[];
