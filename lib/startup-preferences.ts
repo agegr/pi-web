@@ -13,43 +13,23 @@ export interface EffectiveStartupPreferences {
 }
 
 /**
- * Persist explicit browser selections without re-running AgentSession setters.
+ * Previously persisted explicit browser model/thinking selections into
+ * `~/.pi/agent/settings.json` on every new-session create.
  *
- * The session constructor already records the effective model and thinking
- * level. Calling setModel()/setThinkingLevel() again would append duplicate
- * session entries and emit duplicate extension events.
+ * That silently overwrote the user's global defaults whenever they picked a
+ * one-off model for a single chat (unlike the TUI, where setModel defaults to
+ * session-only unless `persist: true`). Keep this helper as the extension
+ * point for a future explicit "Save as default" action, but do not mutate
+ * settings on ordinary session startup.
+ *
+ * Session construction already records the effective model/thinking level in
+ * the session file. Callers must not re-run setModel()/setThinkingLevel() here
+ * either — that would append duplicate session entries.
  */
 export async function persistExplicitStartupPreferences(
-  settingsManager: SettingsManager,
-  explicit: ExplicitStartupPreferences,
-  effective: EffectiveStartupPreferences,
+  _settingsManager: SettingsManager,
+  _explicit: ExplicitStartupPreferences,
+  _effective: EffectiveStartupPreferences,
 ): Promise<{ modelDefaultChanged: boolean }> {
-  if (!explicit.model && !explicit.thinkingLevel) {
-    return { modelDefaultChanged: false };
-  }
-
-  let modelDefaultChanged = false;
-
-  if (
-    explicit.model
-    && effective.model
-    && explicit.model.provider === effective.model.provider
-    && explicit.model.modelId === effective.model.modelId
-  ) {
-    settingsManager.setDefaultModelAndProvider(
-      effective.model.provider,
-      effective.model.modelId,
-    );
-    modelDefaultChanged = true;
-  }
-
-  if (
-    explicit.thinkingLevel
-    && (effective.supportsThinking || effective.thinkingLevel !== "off")
-  ) {
-    settingsManager.setDefaultThinkingLevel(effective.thinkingLevel);
-  }
-
-  await settingsManager.flush();
-  return { modelDefaultChanged };
+  return { modelDefaultChanged: false };
 }
