@@ -99,12 +99,15 @@ try {
   ];
   Object.assign(richEntries.at(-1).message, { provider: "test", model: "E2E Model" });
   writeSession(RICH, richEntries);
-  // The default 50-entry page starts at compaction, with its user prompt outside it.
+  // The default page is 50 *visible* messages (user / assistant / compaction).
+  // toolResults ride along free after #810, so 48 tool-call assistants + the
+  // final answer + the divider fill that window; the user prompt is the 51st
+  // visible entry and must stay outside the first page.
   const compactedEntries = [
     message("user", null, "user", "E2E prompt outside the compacted page"),
     { type: "compaction", id: "compact", parentId: "user", timestamp, summary: "E2E compaction anchor", firstKeptEntryId: "user", tokensBefore: 100 },
   ];
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 48; i++) {
     compactedEntries.push(message(`call${i}`, compactedEntries.at(-1).id, "assistant", [
       { type: "toolCall", id: `t${i}`, name: "bash", arguments: { command: `echo step${i}` } },
     ]));
@@ -112,7 +115,7 @@ try {
     Object.assign(result.message, { toolCallId: `t${i}`, toolName: "bash", isError: false });
     compactedEntries.push(result);
   }
-  compactedEntries.push(message("answer", "result23", "assistant", [{ type: "text", text:
+  compactedEntries.push(message("answer", "result47", "assistant", [{ type: "text", text:
     "E2E compacted answer paragraph.\n\n".repeat(20)
     + "## E2E compacted heading\n\n"
     + "E2E compacted answer paragraph.\n\n".repeat(20),
