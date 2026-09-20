@@ -51,3 +51,45 @@ export function sessionsForProject(
 ): SessionInfo[] {
   return sessions.filter((session) => workspaceKeyOf(session) === projectKey);
 }
+
+/**
+ * True when this session's project row is an unmergeable worktree
+ * pseudo-project: the cwd directory is gone from disk and no parent
+ * repository could be resolved for it, so the row cannot be merged into a
+ * real project. Pure over the server-provided `pseudoProject` flag
+ * (set by resolveProject/attachSessionProjectInfo); the sessions stay
+ * reachable — the sidebar only hides the row behind its toggle.
+ */
+export function isPseudoProjectSession(session: SessionInfo): boolean {
+  return session.pseudoProject === true;
+}
+
+export interface ProjectRowPartition {
+  /** Projects with a resolvable identity (ordinary rows). */
+  ordinary: RecentProject[];
+  /** Unmergeable pseudo-project rows (dangling worktree paths). */
+  pseudo: RecentProject[];
+}
+
+/**
+ * Partition recent-project rows into ordinary and pseudo rows, keyed by the
+ * same stable identity the rows themselves use. `getProjectActivity` and
+ * `sessionsForProject` keep keying on `workspaceKeyOf`, so merged worktree
+ * sessions follow their parent row automatically and only the genuinely
+ * unmergeable rows land in `pseudo`.
+ */
+export function partitionProjectsByPseudo(
+  projects: readonly RecentProject[],
+  sessions: readonly SessionInfo[],
+): ProjectRowPartition {
+  const pseudoKeys = new Set<string>();
+  for (const session of sessions) {
+    if (isPseudoProjectSession(session)) pseudoKeys.add(workspaceKeyOf(session));
+  }
+  const ordinary: RecentProject[] = [];
+  const pseudo: RecentProject[] = [];
+  for (const project of projects) {
+    (pseudoKeys.has(project.key) ? pseudo : ordinary).push(project);
+  }
+  return { ordinary, pseudo };
+}

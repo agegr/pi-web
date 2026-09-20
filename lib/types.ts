@@ -342,6 +342,10 @@ export interface SessionInfo {
   branch?: string;
   /** True when cwd is a linked git worktree (not the main checkout) */
   isWorktree?: boolean;
+  /** True when the cwd directory no longer exists and no parent repository
+   *  could be resolved — the session dangles as an unmergeable worktree
+   *  pseudo-project row (suppressible via the sidebar toggle). */
+  pseudoProject?: boolean;
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;
