@@ -2570,7 +2570,7 @@ export function AppShell() {
                     position: "absolute", left: 0, right: 0, bottom: 0, height: "62%",
                     zIndex: 40, background: "var(--bg-panel)", borderTop: "1px solid var(--border)",
                     boxShadow: "0 -12px 40px rgba(0,0,0,0.22)",
-                    paddingBottom: "env(safe-area-inset-bottom)",
+                    paddingBottom: "var(--safe-area-bottom, 0px)",
                   }}
                 >
                   <BackgroundTasksPanel
