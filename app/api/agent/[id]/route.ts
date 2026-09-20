@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
-import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
+import { getRpcSession, isSessionReloadedFromDiskError, setRpcSessionTools, startRpcSession } from "@/lib/rpc-manager";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -36,10 +36,23 @@ export async function POST(
         data: { sessionId: changed.sessionId, recreated: changed.recreated },
       });
     }
+    // Prompt submissions probe disk-ahead inside AgentSessionWrapper.send(),
+    // AFTER prompt admission is acquired, so an external append between the
+    // probe and the submission can no longer chain the prompt onto a stale
+    // in-memory head and fork the session tree. When that probe evicts the
+    // wrapper, send() throws SessionReloadedFromDiskError; fall through to
+    // the cold-start path below so the prompt continues against freshly
+    // loaded state and the response reports the reload to the client.
+    let reloadedFromDisk = false;
     if (existing?.isAlive()) {
-      const result = await existing.send(body);
-      promptAccepted = body.type === "prompt";
-      return NextResponse.json({ success: true, data: result });
+      try {
+        const result = await existing.send(body);
+        promptAccepted = body.type === "prompt";
+        return NextResponse.json({ success: true, data: result });
+      } catch (error) {
+        if (!isSessionReloadedFromDiskError(error)) throw error;
+        reloadedFromDisk = true;
+      }
     }
 
     const filePath = await resolveSessionPath(id);
@@ -58,7 +71,12 @@ export async function POST(
     const result = await session.send(body);
     promptAccepted = body.type === "prompt";
 
-    return NextResponse.json({ success: true, data: result });
+    // Prompt results are otherwise always null; report the external-write
+    // reload through the prompt payload so the client can surface a notice.
+    return NextResponse.json({
+      success: true,
+      data: reloadedFromDisk && body.type === "prompt" ? { reloadedFromDisk: true } : result,
+    });
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),

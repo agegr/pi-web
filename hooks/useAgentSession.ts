@@ -862,6 +862,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
   }, []);
 
+  // A prompt submission that found the session file ahead of the live
+  // wrapper reloads the wrapper server-side; tell the user why the view
+  // shifted under them without a remount (external writes by another pi
+  // process, e.g. the TUI).
+  const notifyPromptReloadedFromDisk = useCallback((result: unknown) => {
+    if (
+      result
+      && typeof result === "object"
+      && (result as { reloadedFromDisk?: boolean }).reloadedFromDisk === true
+    ) {
+      addNotice({
+        type: "info",
+        message: "This session was updated by another Pi process. Reloaded from disk.",
+      });
+    }
+  }, [addNotice]);
+
   const handleExtensionUiRequest = useCallback((request: ExtensionUiRequest) => {
     if (isBlockingExtensionUiRequest(request)) onAttentionNeeded?.(request);
 
@@ -1463,21 +1480,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         await ensureEventsConnected(sid);
         promptRequestStarted = true;
-        await sendAgentCommand(sid, {
+        notifyPromptReloadedFromDisk(await sendAgentCommand(sid, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
-        });
+        }));
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
-        await sendAgentCommand(session.id, {
+        notifyPromptReloadedFromDisk(await sendAgentCommand(session.id, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
-        });
+        }));
       } else {
         throw new Error("No active session for the prompt");
       }
@@ -1517,7 +1534,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, notifyPromptReloadedFromDisk, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1857,12 +1874,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
-      await sendAgentCommand(sid, {
+      notifyPromptReloadedFromDisk(await sendAgentCommand(sid, {
         type: "prompt",
         message,
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
-      });
+      }));
     } catch (e) {
       console.error("Failed to submit streaming prompt:", e);
       // A transport failure after dispatch is ambiguous: the server may have
@@ -1874,7 +1891,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [addNotice, composerDraftKey, restoreSubmission]);
+  }, [addNotice, notifyPromptReloadedFromDisk, composerDraftKey, restoreSubmission]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     await sendStreamingPrompt(message, "steer", images);
