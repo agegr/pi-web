@@ -922,7 +922,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   return (
     <div
       className="chat-content relative flex h-full min-w-0 flex-col overflow-hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ paddingBottom: "var(--safe-area-bottom, 0px)" }}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

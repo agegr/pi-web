@@ -124,9 +124,21 @@ html[data-theme="pine"],
    In standalone mode there is no browser toolbar to make vh unstable, and vh
    includes that missing strip. The keyboard hook temporarily overrides this
    custom property with visualViewport.height while an editor is focused. */
+/* Safe-area reservations are scenario-scoped (pi#1): mobile browsers already
+   lay the page out below the browser chrome, so reserving env(safe-area-inset-*)
+   there double-books the status bar; installed standalone PWAs draw under the
+   system bars and must keep the insets. Inline styles reserve through these
+   variables instead of env() directly. */
+:root {
+  --safe-area-top: 0px;
+  --safe-area-bottom: 0px;
+}
+
 @media (display-mode: standalone) {
   :root {
     --app-viewport-height: 100vh;
+    --safe-area-top: env(safe-area-inset-top);
+    --safe-area-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -1788,5 +1800,32 @@ span.token.table {
   }
   .chat-input-textarea {
     font-size: max(16px, var(--chat-content-font-size, 14px)) !important;
+  }
+
+  /* Compact one-line extension status shelf on phones; tap to expand (pi#1).
+     Never hidden: MCP disconnect diagnostics live here. */
+  .extension-status-line {
+    min-height: 28px;
+    max-height: 28px;
+    padding: 5px 10px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .extension-status-line .extension-status-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .extension-status-line.extension-status-expanded {
+    max-height: min(144px, 18dvh);
+    padding: 8px 12px;
+    overflow: auto;
+    cursor: auto;
+  }
+  .extension-status-line.extension-status-expanded .extension-status-text {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: pre;
   }
 }
