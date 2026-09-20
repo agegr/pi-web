@@ -141,7 +141,7 @@ function SplitPaneLayoutInner(
   );
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+    <div style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
       {tabStrip}
       {paneArea}
     </div>
