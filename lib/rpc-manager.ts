@@ -58,6 +58,31 @@ export interface AgentEvent {
 }
 
 type EventListener = (event: AgentEvent) => void;
+
+/**
+ * Thrown by AgentSessionWrapper.send() when the disk-ahead probe that runs
+ * after prompt admission finds another pi process appended to the session
+ * file: the stale wrapper evicted itself, and the caller must reload the
+ * session from disk before retrying the prompt against the fresh head.
+ */
+export class SessionReloadedFromDiskError extends Error {
+  constructor() {
+    super("Session was updated by another Pi process; reloaded from disk before the prompt was submitted");
+    this.name = "SessionReloadedFromDiskError";
+  }
+}
+
+/**
+ * Cross-instance recognizer for SessionReloadedFromDiskError. Route handlers
+ * and tests may hold a duplicate module instance (Next bundling, jiti with
+ * moduleCache: false) where `instanceof` fails across module copies, so the
+ * error name is accepted as a fallback.
+ */
+export function isSessionReloadedFromDiskError(error: unknown): boolean {
+  return error instanceof SessionReloadedFromDiskError
+    || (error instanceof Error && error.name === "SessionReloadedFromDiskError");
+}
+
 type AgentRunCompleteListener = (sessionId: string) => void;
 
 type PendingUiResponse = {
@@ -289,7 +314,10 @@ export class AgentSessionWrapper {
   /**
    * Drop this idle wrapper when the on-disk JSONL has an entry the in-memory
    * index never saw (another pi process appended). Rechecks isRunning() so a
-   * prompt that started during the probe cannot be disposed.
+   * prompt that started during the probe cannot be disposed. Called from the
+   * session detail route on ?force=1 reads and — serialized with prompt
+   * admission — from send()'s prompt path, where the probe and the prompt
+   * submission form one synchronous section.
    */
   evictIfDiskAhead(): boolean {
     if (!this.isAlive() || this.isRunning()) return false;
@@ -597,6 +625,18 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
+          // Probe disk-ahead AFTER admission is acquired: probing in the POST
+          // route before send() left an await window where another pi process
+          // could append between the probe and this submission, chaining the
+          // prompt onto a stale in-memory head and forking the session tree.
+          // Here the probe and inner.prompt() are one synchronous section
+          // under admission, closing that window. evictIfDiskAhead refuses
+          // while a run is in flight, so only idle prompts pay the one
+          // readLatestSessionEntryId read, and a wrapper that reloads throws
+          // SessionReloadedFromDiskError so the caller can retry cold.
+          if (this.evictIfDiskAhead()) {
+            throw new SessionReloadedFromDiskError();
+          }
           if (this.inner.isBashRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
