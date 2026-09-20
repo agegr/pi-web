@@ -144,21 +144,29 @@ test("fresh sessions use the preference while persisted and live sessions restor
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
 
-test("only the session-mount load probes disk for external appends", () => {
+test("only the mount load and the guarded external-write reload probe disk for external appends", () => {
   const loadSessionSource = source.slice(
     source.indexOf("  const loadSession = useCallback"),
-    source.indexOf("  const loadContext = useCallback"),
+    source.indexOf("  const refreshFromDisk = useCallback"),
   );
   const mountSource = source.slice(
     source.indexOf("// Load session on mount"),
     source.indexOf("sessionHookMountedRef.current = false"),
+  );
+  const refreshSource = source.slice(
+    source.indexOf("  const refreshFromDisk = useCallback"),
+    source.indexOf("  const loadContext = useCallback"),
   );
   assert.match(loadSessionSource, /options\?: \{ force\?: boolean \}/);
   assert.match(loadSessionSource, /if \(options\?\.force\) params\.set\("force", "1"\)/);
   assert.match(loadSessionSource, /d\.wrapperRebuilt[\s\S]*?eventConnectionRef\.current\?\.close\(\)[\s\S]*?maintain\(sid\)/);
   assert.match(mountSource, /loadSession\(session\.id, true, true, \{ force: true \}\)/);
   assert.match(source, /await loadSession\(sid\)/);
-  assert.equal([...source.matchAll(/\{ force: true \}/g)].length, 1);
+  // Exactly two forced probes: the session-mount load and the external-write
+  // reload — and the latter must sit behind the idle guards.
+  assert.equal([...source.matchAll(/\{ force: true \}/g)].length, 2);
+  assert.match(refreshSource, /agentRunningRef\.current \|\| bashRunningRef\.current \|\| isCompacting/);
+  assert.match(refreshSource, /await loadSession\(sid, false, false, \{ force: true \}\)/);
 });
 
 test("first user messages expose both branch actions and edit before their own entry", () => {
@@ -606,4 +614,33 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.match(scrollEffectSource, /!agentRunningRef\.current && isNearBottomRef\.current[\s\S]*?scrollToBottom\("auto"\)/);
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
+});
+
+test("external session writes reload the open view from disk once, only when idle", () => {
+  const refreshSource = source.slice(
+    source.indexOf("const refreshFromDisk"),
+    source.indexOf("const loadContext"),
+  );
+  // Reload is skipped while pi-web itself is active on the session.
+  assert.match(refreshSource, /if \(agentRunningRef\.current \|\| bashRunningRef\.current \|\| isCompacting\) return;/);
+  // A late reload for a no-longer-selected session is dropped.
+  assert.match(refreshSource, /if \(sessionIdRef\.current !== sid\) return;/);
+  assert.match(refreshSource, /await loadSession\(sid, false, false, \{ force: true \}\);/);
+  assert.match(source, /^\s{4}refreshFromDisk,$/m);
+
+  // ChatWindow consumes the keyed signal and reloads in place, no remount:
+  // each new key is consumed exactly once, and only for the open session.
+  const externalEffectSource = chatWindowSource.slice(
+    chatWindowSource.indexOf("const externalSessionChangeKeyRef"),
+    chatWindowSource.indexOf("const [quotedSelection"),
+  );
+  assert.match(externalEffectSource, /if \(externalSessionChangeKeyRef\.current === externalSessionChange\.key\) return;/);
+  assert.match(externalEffectSource, /if \(externalSessionChange\.sessionId !== session\?\.id\) return;/);
+  assert.match(externalEffectSource, /void refreshFromDisk\(externalSessionChange\.sessionId\);/);
+  assert.doesNotMatch(externalEffectSource, /set[A-Z]\w*\(/);
+
+  // AppShell keys the signal so a repeated write produces a new reload signal.
+  assert.match(appShellSource, /const \[externalSessionChange, setExternalSessionChange\] = useState<\{ sessionId: string; key: number \} \| null>\(null\)/);
+  assert.match(appShellSource, /onExternalSessionChange=\{handleExternalSessionChange\}/);
+  assert.match(appShellSource, /externalSessionChange=\{externalSessionChange\}/);
 });

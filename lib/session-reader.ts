@@ -14,6 +14,7 @@ import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-res
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { listSessionsIncremental } from "./session-list-scanner";
+import { ensureSessionWatcher } from "./session-watcher";
 
 export { getAgentDir };
 
@@ -220,6 +221,13 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
 
 export async function listAllSessions(options: { force?: boolean } = {}): Promise<SessionInfo[]> {
   if (options.force) invalidateSessionListCache();
+  // Lazy fallback so direct route-module tests and any non-Next entry point
+  // also get the external-write watcher; near-zero cost when already running.
+  try {
+    ensureSessionWatcher();
+  } catch {
+    // Watching is best-effort display freshness, never a hard failure.
+  }
   const generation = globalThis.__piSessionListGeneration ?? 0;
 
   // Return cached result if still fresh (avoids re-scanning session files

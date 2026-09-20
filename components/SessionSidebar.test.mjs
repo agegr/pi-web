@@ -113,8 +113,35 @@ test("lifecycle refreshes bypass the cache while cross-window polling reuses it"
   assert.match(source, /cache: "no-store"/);
   assert.match(source, /loadSessions\(isFirst, !isFirst\)/);
   assert.match(source, /data\.sessionListVersion !== sessionListVersionRef\.current[\s\S]*?await loadSessions\(\)/);
-  assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef|title=\{t\("sidebar\.refresh"\)\}/);
+  // The old timer-based auto-refresh is still forbidden; the manual refresh
+  // button and the watcher-driven poll are the intended mechanisms.
+  assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef/);
   assert.match(source, /loadSessions\(false, true\);[\s\S]*?onBackgroundTaskDone/);
+});
+
+test("the sidebar header offers a manual forced refresh and pull-to-refresh fires once", () => {
+  // Refresh button in the header (all form factors) forces a cache-bypassing scan.
+  assert.match(source, /title=\{t\("sidebar\.refresh"\)\}/);
+  assert.match(source, /aria-label=\{t\("sidebar\.refresh"\)\}/);
+  assert.match(source, /onClick=\{\(\) => \{\s*void loadSessions\(false, true\);\s*\}\}/);
+  // Pull-to-refresh on the touch list: armed at the top, fired exactly once
+  // per gesture past the 64px threshold, disarmed on release.
+  assert.match(source, /if \(!el \|\| el\.scrollTop > 0\) return;[\s\S]*?pullFiredRef\.current = false;/);
+  assert.match(source, /if \(startY == null \|\| pullFiredRef\.current\) return;/);
+  assert.match(source, /if \(deltaY > 64\) \{\s*pullFiredRef\.current = true;\s*void loadSessions\(false, true\);\s*\}/);
+});
+
+test("a rising external-write generation on the selected session notifies the app", () => {
+  // The poll payload is consumed only for the selected session's write entry.
+  assert.match(source, /recentSessionWrites\?: \{ sessionId\?: string; path: string; generation: number \}\[\]/);
+  assert.match(source, /write\.sessionId !== undefined && write\.sessionId === selectedId/);
+  // First observation of a session only baselines its generation; only a
+  // strictly rising generation for the same selected session notifies.
+  assert.match(
+    source,
+    /if \(\s*previous\s*&& previous\.sessionId === selectedId\s*&& selectedWrite\.generation > previous\.generation\s*\) \{[\s\S]*?onExternalSessionChangeRef\.current\?\.\(selectedId\);/,
+  );
+  assert.match(source, /selectedWriteGenerationRef\.current = \{[\s\S]*?sessionId: selectedId,\s*generation: selectedWrite\.generation,/);
 });
 
 test("does not expose disk-backed actions for transient sessions", () => {

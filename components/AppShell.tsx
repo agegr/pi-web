@@ -123,6 +123,13 @@ export function AppShell() {
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
   }, []);
+  // Sidebar-detected external write (TUI / another pi process) targeting the
+  // selected session; converted into a keyed signal that ChatWindow consumes
+  // to reload that session from disk exactly once per key.
+  const [externalSessionChange, setExternalSessionChange] = useState<{ sessionId: string; key: number } | null>(null);
+  const handleExternalSessionChange = useCallback((sessionId: string) => {
+    setExternalSessionChange((previous) => ({ sessionId, key: (previous?.key ?? 0) + 1 }));
+  }, []);
   const sessionsWithSelection = useMemo(() => {
     if (!selectedSession) return sessionCatalog;
     return [
@@ -1146,6 +1153,7 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        onExternalSessionChange={handleExternalSessionChange}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -2281,6 +2289,7 @@ export function AppShell() {
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
+              externalSessionChange={externalSessionChange}
               onOpenFile={handleOpenLinkedFile}
               onOpenSession={handleOpenSession}
               onAskInNewChat={handleAskInNewChat}
