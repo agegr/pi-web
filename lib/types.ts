@@ -355,3 +355,54 @@ export interface SessionContext {
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
 }
+
+// ---------------------------------------------------------------------------
+// Background tasks (pi-background-tasks bridge)
+// ---------------------------------------------------------------------------
+
+export type BgTaskStatus = "running" | "completed" | "failed" | "killed";
+
+/** Structural mirror of pi-background-tasks' BgTaskSnapshot (EventBus v1). */
+export interface BgTaskSnapshot {
+  id: string;
+  name?: string;
+  command: string;
+  description?: string;
+  status: BgTaskStatus;
+  outputPath: string;
+  cwd: string;
+  startTime: number;
+  endTime?: number;
+  exitCode?: number | null;
+  signal?: string | null;
+  bytesWritten: number;
+  isAgent: boolean;
+  error?: string;
+  notified: boolean;
+  notifyOnCompletion: boolean;
+  triggerOnCompletion: boolean;
+  timeoutSeconds?: number;
+}
+
+/** Emitted when one task reaches a terminal state. */
+export interface BackgroundTaskTerminalEvent {
+  type: "background_task_terminal";
+  task: BgTaskSnapshot;
+}
+
+/** Emitted with the full task list after a status refresh. */
+export interface BackgroundTasksUpdateEvent {
+  type: "background_tasks_update";
+  tasks: BgTaskSnapshot[];
+}
+
+export type BackgroundTasksClientEvent = BackgroundTaskTerminalEvent | BackgroundTasksUpdateEvent;
+
+/** Bounded log tail returned by the logs route. */
+export interface BgTaskLogsResult {
+  text: string;
+  bytesRead: number;
+  truncated: boolean;
+  tail: boolean;
+  path?: string;
+}

@@ -3,10 +3,12 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useBackgroundTasks, markTerminalNotified } from "@/hooks/useBackgroundTasks";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
+import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -52,7 +54,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
-import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { BackgroundTasksClientEvent, BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -119,6 +121,43 @@ export function AppShell() {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [bgPanelOpen, setBgPanelOpen] = useState(false);
+  const [bgSelectedTaskId, setBgSelectedTaskId] = useState<string | null>(null);
+  const {
+    state: bgTasksState,
+    logs: bgTaskLogs,
+    runningCount: bgRunningCount,
+    refresh: refreshBgTasks,
+    applyEvent: applyBgTasksEvent,
+    fetchLogs: fetchBgTaskLogs,
+    killTask: killBgTask,
+  } = useBackgroundTasks(selectedSession?.id ?? null);
+
+  // Live events from the selected session's SSE stream: feed the panel state and
+  // fire one browser notification per terminal task transition (dedupe by id).
+  const handleBackgroundTasksEvent = useCallback((event: BackgroundTasksClientEvent) => {
+    applyBgTasksEvent(event);
+    if (event.type !== "background_task_terminal") return;
+    const task = event.task;
+    if (!markTerminalNotified(task.id)) return;
+    setBgSelectedTaskId(task.id);
+    if (shouldShowBrowserNotification()) {
+      const sessionUrl = selectedSession ? `/?session=${encodeURIComponent(selectedSession.id)}` : "/";
+      void showBrowserNotification({
+        title: translate("bgTasks.notification.title"),
+        body: translate("bgTasks.notification.body")
+          .replace("{name}", task.name || task.id)
+          .replace("{status}", translate(`bgTasks.status.${task.status}`)),
+        sessionUrl,
+        tag: `pi-bg-task:${task.id}`,
+        onClick: () => {
+          window.focus();
+          setBgPanelOpen(true);
+          setBgSelectedTaskId(task.id);
+        },
+      });
+    }
+  }, [applyBgTasksEvent, selectedSession, translate]);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -1258,6 +1297,62 @@ export function AppShell() {
         <button
           type="button"
           onClick={() => {
+            setBgPanelOpen((open) => !open);
+          }}
+          title={translate("bgTasks.open")}
+          aria-label={translate("bgTasks.open")}
+          aria-pressed={bgPanelOpen}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            position: "relative",
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            minWidth: mobile ? undefined : 34,
+            height: "100%",
+            padding: mobile ? 0 : "0 10px",
+            background: bgPanelOpen ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderRight: "1px solid var(--border)",
+            color: bgRunningCount > 0 ? "var(--text)" : "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 11,
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+            transition: "color 0.1s, background 0.1s",
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 5h16" /><path d="M4 12h10" /><path d="M4 19h6" />
+          </svg>
+          {bgRunningCount > 0 && (
+            <span
+              aria-label={String(bgRunningCount)}
+              style={{
+                position: "absolute",
+                top: 6,
+                right: mobile ? 6 : 10,
+                minWidth: 14,
+                height: 14,
+                padding: "0 3px",
+                borderRadius: 7,
+                background: "var(--accent)",
+                color: "var(--bg-panel)",
+                fontSize: 9,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                lineHeight: 1,
+              }}
+            >
+              {bgRunningCount > 9 ? "9+" : bgRunningCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
             handleViewFullHistory();
             if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
           }}
@@ -2270,6 +2365,7 @@ export function AppShell() {
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}
               onAttentionNeeded={handleAttentionNeeded}
+              onBackgroundTasksEvent={handleBackgroundTasksEvent}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
@@ -2333,6 +2429,60 @@ export function AppShell() {
               </div>
             )
           ) : null}
+          {bgPanelOpen && (
+            isMobile ? (
+              <>
+                <div
+                  onClick={() => setBgPanelOpen(false)}
+                  style={{ position: "absolute", inset: 0, zIndex: 39, background: "rgba(0,0,0,0.35)" }}
+                />
+                <div
+                  role="dialog"
+                  aria-label={translate("bgTasks.title")}
+                  style={{
+                    position: "absolute", left: 0, right: 0, bottom: 0, height: "62%",
+                    zIndex: 40, background: "var(--bg-panel)", borderTop: "1px solid var(--border)",
+                    boxShadow: "0 -12px 40px rgba(0,0,0,0.22)",
+                    paddingBottom: "env(safe-area-inset-bottom)",
+                  }}
+                >
+                  <BackgroundTasksPanel
+                    sessionId={selectedSession?.id ?? null}
+                    state={bgTasksState}
+                    logs={bgTaskLogs}
+                    onRefresh={refreshBgTasks}
+                    onFetchLogs={fetchBgTaskLogs}
+                    onKill={killBgTask}
+                    onClose={() => setBgPanelOpen(false)}
+                    selectedTaskId={bgSelectedTaskId}
+                    onSelectTask={setBgSelectedTaskId}
+                  />
+                </div>
+              </>
+            ) : (
+              <div
+                role="complementary"
+                aria-label={translate("bgTasks.title")}
+                style={{
+                  position: "absolute", top: 0, right: 0, bottom: 0, width: 340,
+                  zIndex: 25, background: "var(--bg-panel)", borderLeft: "1px solid var(--border)",
+                  boxShadow: "-8px 0 24px rgba(0,0,0,0.10)",
+                }}
+              >
+                <BackgroundTasksPanel
+                  sessionId={selectedSession?.id ?? null}
+                  state={bgTasksState}
+                  logs={bgTaskLogs}
+                  onRefresh={refreshBgTasks}
+                  onFetchLogs={fetchBgTaskLogs}
+                  onKill={killBgTask}
+                  onClose={() => setBgPanelOpen(false)}
+                  selectedTaskId={bgSelectedTaskId}
+                  onSelectTask={setBgSelectedTaskId}
+                />
+              </div>
+            )
+          )}
         </div>
       </div>
 
