@@ -568,6 +568,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState, syncLiveModel]);
 
+  /**
+   * Reloads the given session from disk after an external write (another pi
+   * process appended to the same file). Skipped while a pi-web run, bash
+   * execution or compaction is active — the existing SSE / reconcile path is
+   * authoritative for those — and guarded by loadSession's staleness checks so
+   * a late reload cannot resurrect stale streaming bubbles or clobber a run.
+   */
+  const refreshFromDisk = useCallback(async (sid: string) => {
+    if (!sessionHookMountedRef.current) return;
+    if (sessionIdRef.current !== sid) return;
+    if (agentRunningRef.current || bashRunningRef.current || isCompacting) return;
+    await loadSession(sid, false, false, { force: true });
+  }, [isCompacting, loadSession]);
+
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
@@ -2260,6 +2274,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleBuiltinSlashCommand,
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    refreshFromDisk,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

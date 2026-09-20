@@ -124,6 +124,9 @@ interface Props {
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  /** Fired when the selected session was written externally (another pi
+   *  process) so the open chat view can reload it from disk. */
+  onExternalSessionChange?: (sessionId: string) => void;
 }
 
 interface WorktreeEntry {
@@ -496,7 +499,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onExternalSessionChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
@@ -504,6 +507,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionLoadIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Pull-to-refresh tracking: fires the force scan when the list is pulled
+  // down past PULL_TO_REFRESH_THRESHOLD_PX while already scrolled to the top.
+  const pullStartYRef = useRef<number | null>(null);
+  const pullFiredRef = useRef(false);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -553,6 +560,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
+  // Latest selected-session external-write generation seen from the poll; a
+  // rising generation means another pi process appended to the open session.
+  const selectedWriteGenerationRef = useRef<{ sessionId: string; generation: number } | null>(null);
+  const selectedSessionIdRef = useRef(selectedSessionId);
+  selectedSessionIdRef.current = selectedSessionId;
+  const onExternalSessionChangeRef = useRef(onExternalSessionChange);
+  onExternalSessionChangeRef.current = onExternalSessionChange;
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
 
@@ -678,6 +692,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           sessionListVersion: number;
           runningSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
+          recentSessionWrites?: { sessionId?: string; path: string; generation: number }[];
         };
         if (stopped || controller !== current) return;
         runningPollAuthoritativeRef.current = true;
@@ -685,6 +700,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        // Detect that the currently selected session was written by another
+        // pi process (TUI / another pi-web window). The first observation of a
+        // session only baselines its generation; subsequent rises notify the
+        // app so the open chat view reloads from disk.
+        const selectedId = selectedSessionIdRef.current;
+        const selectedWrite = (data.recentSessionWrites ?? []).find(
+          (write) => write.sessionId !== undefined && write.sessionId === selectedId,
+        );
+        if (selectedId && selectedWrite) {
+          const previous = selectedWriteGenerationRef.current;
+          if (
+            previous
+            && previous.sessionId === selectedId
+            && selectedWrite.generation > previous.generation
+          ) {
+            onExternalSessionChangeRef.current?.(selectedId);
+          }
+          selectedWriteGenerationRef.current = {
+            sessionId: selectedId,
+            generation: selectedWrite.generation,
+          };
+        }
         if (data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
@@ -1285,6 +1322,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <line x1="1" y1="6" x2="11" y2="6" />
               </svg>
               {t("sidebar.new")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void loadSessions(false, true);
+              }}
+              title={t("sidebar.refresh")}
+              aria-label={t("sidebar.refresh")}
+              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:bg-bg-selected focus-visible:outline-2 focus-visible:outline-accent"
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-selected)"; e.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-muted)"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
             </button>
             <button
               type="button"
@@ -1934,6 +1987,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       <div
         ref={listScrollRef}
         onScroll={handleListScroll}
+        onTouchStart={(event) => {
+          const el = listScrollRef.current;
+          if (!el || el.scrollTop > 0) return;
+          pullStartYRef.current = event.touches[0]?.clientY ?? null;
+          pullFiredRef.current = false;
+        }}
+        onTouchMove={(event) => {
+          const startY = pullStartYRef.current;
+          if (startY == null || pullFiredRef.current) return;
+          const deltaY = (event.touches[0]?.clientY ?? startY) - startY;
+          if (deltaY > 64) {
+            pullFiredRef.current = true;
+            void loadSessions(false, true);
+          }
+        }}
+        onTouchEnd={() => {
+          pullStartYRef.current = null;
+          pullFiredRef.current = false;
+        }}
         style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
       >
         {loading && (
