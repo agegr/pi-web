@@ -126,6 +126,8 @@ export const zhCNLocale: LocalePlugin = {
     "history.full": "完整历史",
     "history.unsaved": "会话保存后才能查看完整历史",
     "history.label": "完整历史",
+    "history.snapshot": "只读会话快照",
+    "history.openInTab": "在新标签页打开",
     "title.generating": "正在生成...",
     "title.updated": "标题已更新",
     "title.failed": "生成失败",

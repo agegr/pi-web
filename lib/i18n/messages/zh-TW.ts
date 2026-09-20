@@ -126,6 +126,8 @@ export const zhTWLocale: LocalePlugin = {
     "history.full": "完整紀錄",
     "history.unsaved": "工作階段儲存後才能查看完整紀錄",
     "history.label": "完整紀錄",
+    "history.snapshot": "唯讀工作階段快照",
+    "history.openInTab": "在新分頁開啟",
     "title.generating": "正在產生...",
     "title.updated": "標題已更新",
     "title.failed": "產生失敗",
