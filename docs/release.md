@@ -2,8 +2,10 @@
 
 This repo publishes two artifacts for each release:
 
-- npm package: `@agegr/pi-web`
-- GitHub Release: `agegr/pi-web`
+- npm package: `@silgrid/pi-web`
+- GitHub Release: `silgrid/pi-web`
+
+Pushing a tag `v*` to `origin` triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml), which runs `npm ci`, `next build`, and `npm publish --access public` using the `NODE_AUTH_TOKEN` secret (an npm **automation** token, so publish works on CI without a one-time password). This checklist covers the tag/notes side and the manual fallback.
 
 Use this checklist from a clean `main` checkout.
 
@@ -21,9 +23,13 @@ Expected:
 
 - `git status` is clean, or only contains changes you intentionally plan to release.
 - GitHub is authenticated as an account that can push and create releases.
-- npm is authenticated as an account that can publish `@agegr/pi-web`.
+- npm is authenticated (locally, for the fallback path) as an account that can publish `@silgrid/pi-web`.
 
 ## 2. Publish to npm
+
+Preferred: push the tag (step 4) and let the `Release` GitHub Action publish. The workflow installs, builds, and publishes with `NODE_AUTH_TOKEN` — the `files` field ships the prebuilt `.next` output, so the published package is the built app.
+
+Manual fallback (only when CI cannot be used):
 
 ```bash
 npm run release
@@ -39,11 +45,11 @@ Notes:
 
 - This bumps `package.json` and `package-lock.json`.
 - It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
-- If `npm view @agegr/pi-web version` briefly shows the previous version, check the exact version instead:
+- If `npm view @silgrid/pi-web version` briefly shows the previous version, check the exact version instead:
 
 ```bash
-npm view @agegr/pi-web@<version> version --registry https://registry.npmjs.org/
-npm view @agegr/pi-web versions --json --registry https://registry.npmjs.org/
+npm view @silgrid/pi-web@<version> version --registry https://registry.npmjs.org/
+npm view @silgrid/pi-web versions --json --registry https://registry.npmjs.org/
 ```
 
 ## 3. Commit the Version Bump
@@ -67,7 +73,7 @@ Confirm the tag does not already exist before creating it when unsure:
 
 ```bash
 git ls-remote --tags origin v<version>
-gh release view v<version> --repo agegr/pi-web
+gh release view v<version> --repo silgrid/pi-web
 ```
 
 ## 5. Generate Release Notes from Commits
@@ -103,7 +109,7 @@ Suggested structure:
 
 ### 内部调整
 
-- 发布 npm 包 `@agegr/pi-web@<version>`。
+- 发布 npm 包 `@silgrid/pi-web@<version>`（tag 推送后由 GitHub Actions `Release` 工作流完成）。
 
 ## English
 
@@ -123,7 +129,7 @@ Prepared from commits in `v<previous>..v<version>`.
 
 ### Internal
 
-- Published npm package `@agegr/pi-web@<version>`.
+- Published npm package `@silgrid/pi-web@<version>` (done by the `Release` GitHub Action on tag push).
 ```
 
 ## 6. Create or Update the GitHub Release
@@ -132,7 +138,7 @@ Create a new release:
 
 ```bash
 gh release create v<version> \
-  --repo agegr/pi-web \
+  --repo silgrid/pi-web \
   --verify-tag \
   --title "v<version>" \
   --notes-file release-notes.md
@@ -142,14 +148,14 @@ If the release already exists and only the notes need updating:
 
 ```bash
 gh release edit v<version> \
-  --repo agegr/pi-web \
+  --repo silgrid/pi-web \
   --notes-file release-notes.md
 ```
 
 You can avoid a temporary file by passing notes through stdin:
 
 ```bash
-gh release edit v<version> --repo agegr/pi-web --notes-file - <<'EOF'
+gh release edit v<version> --repo silgrid/pi-web --notes-file - <<'EOF'
 ## 中文
 
 ...
@@ -163,8 +169,8 @@ EOF
 ## 7. Final Verification
 
 ```bash
-gh release view v<version> --repo agegr/pi-web
-npm view @agegr/pi-web@<version> version --registry https://registry.npmjs.org/
+gh release view v<version> --repo silgrid/pi-web
+npm view @silgrid/pi-web@<version> version --registry https://registry.npmjs.org/
 git status --short --branch
 git log --oneline --decorate -3
 ```

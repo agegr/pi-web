@@ -20,7 +20,7 @@
 Для работы Pi Web требуется Node.js 22.19.0 или новее. Проверьте версию командой `node --version`, затем выполните:
 
 ```bash
-npx @agegr/pi-web@latest
+npx @silgrid/pi-web@latest
 ```
 
 Когда сервер будет готов, CLI попытается открыть браузер автоматически. Если этого не произошло, откройте [http://127.0.0.1:30141](http://127.0.0.1:30141). По умолчанию Pi Web прослушивает только `127.0.0.1`.
@@ -30,11 +30,11 @@ npx @agegr/pi-web@latest
 Чтобы установить команду `pi-web` глобально:
 
 ```bash
-npm install -g @agegr/pi-web@latest
+npm install -g @silgrid/pi-web@latest
 pi-web
 ```
 
-Для обновления остановите запущенный процесс с помощью `Ctrl+C` и повторите ту же команду установки. Для удаления выполните `npm uninstall -g @agegr/pi-web`.
+Для обновления остановите запущенный процесс с помощью `Ctrl+C` и повторите ту же команду установки. Для удаления выполните `npm uninstall -g @silgrid/pi-web`.
 
 ## Настройка
 
@@ -76,7 +76,7 @@ PI_WEB_PASSWORD='длинный-случайный-пароль' pi-web --hostna
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-web@latest
+npx @silgrid/pi-web@latest
 ```
 
 В Windows PowerShell:
@@ -85,7 +85,7 @@ npx @agegr/pi-web@latest
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+npx @silgrid/pi-web@latest
 ```
 
 ## Примечания

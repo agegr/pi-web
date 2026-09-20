@@ -1,14 +1,14 @@
 {
-  "name": "@agegr/pi-web",
-  "version": "0.9.1",
-  "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/agegr/pi-web#readme",
+  "name": "@silgrid/pi-web",
+  "version": "0.0.1",
+  "description": "Fork of @agegr/pi-web: local web UI for the pi coding agent with split-pane chat and background task panels",
+  "homepage": "https://github.com/silgrid/pi-web#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agegr/pi-web.git"
+    "url": "git+https://github.com/silgrid/pi-web.git"
   },
   "bugs": {
-    "url": "https://github.com/agegr/pi-web/issues"
+    "url": "https://github.com/silgrid/pi-web/issues"
   },
   "license": "MIT",
   "engines": {

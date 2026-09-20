@@ -4,6 +4,16 @@
 
 Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). Pi Web uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
 
+This is the **@silgrid/pi-web** fork of [agegr/pi-web](https://github.com/agegr/pi-web), adding split-pane chat and background task panels. The fork keeps its own version line (`0.0.x`) and never reuses upstream version numbers.
+
+## Fork baseline
+
+| Fork version | Upstream version | Upstream commit |
+|---|---|---|
+| 0.0.1 | 0.9.1 | `ffb2daf` |
+
+Update one row per upstream merge so the table stays the mapping between the fork line and the upstream baseline.
+
 ![Pi Web displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
 
 ## Features
@@ -20,7 +30,7 @@ Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi)
 Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --version`, then run:
 
 ```bash
-npx @agegr/pi-web@latest
+npx @silgrid/pi-web@latest
 ```
 
 The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141). Pi Web listens only on `127.0.0.1` by default.
@@ -30,11 +40,33 @@ If no model provider is configured yet, open the **Models** panel to sign in or 
 To install the `pi-web` command globally:
 
 ```bash
-npm install -g @agegr/pi-web@latest
+npm install -g @silgrid/pi-web@latest
 pi-web
 ```
 
-To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @agegr/pi-web`.
+To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @silgrid/pi-web`.
+
+## Deployment (container autostart)
+
+This fork ships a deployment script for containers without systemd:
+
+```bash
+./deploy-piweb.sh   # npm i -g @silgrid/pi-web@latest, then restart the tmux service
+```
+
+The script installs the latest published package globally and (re)starts pi-web
+in a detached `tmux` session (`piweb`) with a restart loop. `PI_WEB_IDLE_TIMEOUT_MS=0`
+is required for unattended runs: by default pi-web exits after 10 idle minutes,
+which looks like the process "self-exits" when run as a background service.
+
+For container entrypoint autostart, create the tmux session at container start
+(e.g. from an entrypoint script or shell rc):
+
+```bash
+tmux new-session -d -s piweb 'PI_WEB_IDLE_TIMEOUT_MS=0 pi-web'
+```
+
+Override the session name with `PIWEB_TMUX_SESSION`; attach with `tmux attach -t piweb`.
 
 ## Configuration
 
@@ -78,7 +110,7 @@ On macOS or Linux:
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-web@latest
+npx @silgrid/pi-web@latest
 ```
 
 On Windows PowerShell:
@@ -87,7 +119,7 @@ On Windows PowerShell:
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+npx @silgrid/pi-web@latest
 ```
 
 ## Notes
