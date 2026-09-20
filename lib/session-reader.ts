@@ -168,6 +168,7 @@ export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise
       projectKey: projectIdentityKey(projectRoot),
       ...(project?.branch ? { branch: project.branch } : {}),
       ...(project?.isWorktree ? { isWorktree: true } : {}),
+      ...(project?.pseudoProject ? { pseudoProject: true } : {}),
     };
   });
 }

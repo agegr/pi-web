@@ -6,7 +6,8 @@ import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, partitionProjectsByPseudo, sessionsForProject } from "@/lib/project-groups";
+import { getPinnedProjects, isProjectPinned, pinProject, unpinProject } from "@/lib/pinned-projects";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
@@ -207,6 +208,32 @@ function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
 }
 
+// Hide-toggle preference for unmergeable worktree pseudo-project rows.
+// Default ON per spec assumption: such rows are noise; their sessions stay
+// reachable by turning the toggle off. Re-read from localStorage lazily so
+// reload and hot-reload both see fresh state.
+const HIDE_PSEUDO_PROJECTS_STORAGE_KEY = "pi-web:hide-pseudo-projects";
+
+function readHidePseudoProjects(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(HIDE_PSEUDO_PROJECTS_STORAGE_KEY);
+    // Absent key means the default: hide.
+    return raw === null ? true : raw !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function writeHidePseudoProjects(hide: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(HIDE_PSEUDO_PROJECTS_STORAGE_KEY, hide ? "true" : "false");
+  } catch {
+    // ignore storage quota / privacy-mode errors
+  }
+}
+
 /**
  * Path label that ellipsizes on the LEFT, keeping the (most relevant) trailing
  * segments visible: "…orkspace/pi-web". Shows as much of the path as fits
@@ -235,6 +262,106 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
 }
 
 const DROPDOWN_ANIMATION_MS = 140;
+
+/** Pushpin glyph for the pin affordance; filled when pinned. */
+function PinIcon({ pinned }: { pinned: boolean }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+      <path d="M3.6 1h2.8l-.4 2.6 1.5 1.4v.8H2.5v-.8L4 3.6z" />
+      <line x1="5" y1="5.8" x2="5" y2="9" />
+    </svg>
+  );
+}
+
+/** One workspace-selector project row, with its pin/unpin affordance. */
+function ProjectRow({
+  project,
+  selected,
+  pinned,
+  stale = false,
+  activity,
+  homeDir,
+  t,
+  onSelect,
+  onTogglePin,
+}: {
+  project: { key: string; root: string };
+  selected: boolean;
+  pinned: boolean;
+  /** Root no longer exists on disk: rendered greyed, not selectable. */
+  stale?: boolean;
+  activity?: { running: number; unread: number };
+  homeDir: string;
+  t: (key: string) => string;
+  onSelect: () => void;
+  onTogglePin: () => void;
+}) {
+  return (
+    <button
+      onClick={stale ? undefined : onSelect}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        width: "100%",
+        padding: "8px 10px",
+        background: "var(--bg)",
+        border: "none",
+        borderBottom: "1px solid var(--border)",
+        color: stale ? "var(--text-dim)" : selected ? "var(--text)" : "var(--text-muted)",
+        cursor: stale ? "default" : "pointer",
+        textAlign: "left",
+        fontSize: 11,
+        fontFamily: "var(--font-mono)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      }}
+      title={stale ? `${project.root} — ${t("sidebar.pinnedProjectMissing")}` : project.root}
+    >
+      {selected ? (
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <polyline points="1.5 5 4 7.5 8.5 2.5" />
+        </svg>
+      ) : (
+        <span style={{ width: 10, flexShrink: 0 }} />
+      )}
+      <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+      {showProjectActivity(activity, t)}
+      <span
+        role="button"
+        tabIndex={0}
+        title={pinned ? t("sidebar.unpinProject") : t("sidebar.pinProject")}
+        aria-label={pinned ? t("sidebar.unpinProject") : t("sidebar.pinProject")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePin();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.stopPropagation();
+            e.preventDefault();
+            onTogglePin();
+          }
+        }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 16,
+          height: 16,
+          flexShrink: 0,
+          marginLeft: 4,
+          borderRadius: 3,
+          color: pinned ? "var(--accent)" : "var(--text-dim)",
+          cursor: "pointer",
+        }}
+      >
+        <PinIcon pinned={pinned} />
+      </span>
+    </button>
+  );
+}
 
 function AnimatedDropdown({ open, children, style }: { open: boolean; children: ReactNode; style: CSSProperties }) {
   const [mounted, setMounted] = useState(open);
@@ -381,6 +508,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
+  // Pinned projects: the store re-reads localStorage on every call, so a
+  // revision counter is all the React state we need — bump it after each
+  // pin/unpin and rows move immediately without a reload.
+  const [pinnedRevision, setPinnedRevision] = useState(0);
+  // Pinned roots confirmed missing on disk (greyed rows). Checked at most
+  // once per root while the dropdown is open; entries are never auto-unpinned.
+  const [stalePinnedRoots, setStalePinnedRoots] = useState<ReadonlySet<string>>(() => new Set());
+  const checkedPinnedRootsRef = useRef<Set<string>>(new Set());
+  const [hidePseudoProjects, setHidePseudoProjects] = useState(readHidePseudoProjects);
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
@@ -946,10 +1082,85 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [selectedCwd, onNewSession]);
 
   const recentProjects = getRecentProjects(allSessions);
+  // Pinned rows, ordered by pin order (most recently pinned first). The pin
+  // store persists each entry's display root, so a pinned project renders
+  // (and stays selectable) even when no currently-loaded session resolves to
+  // it; when a matching project row exists its root wins (fresher casing).
+  const pinnedEntries = useMemo(() => getPinnedProjects(), [pinnedRevision]);
+  const pinnedProjects = useMemo(
+    () => pinnedEntries.map((entry) => {
+      const row = recentProjects.find((project) => project.key === entry.key);
+      return { key: entry.key, root: row ? row.root : entry.root };
+    }),
+    [pinnedEntries, recentProjects],
+  );
+  const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((entry) => entry.key)), [pinnedEntries]);
+  const projectPartition = useMemo(
+    () => partitionProjectsByPseudo(recentProjects, allSessions),
+    [recentProjects, allSessions],
+  );
   const showProjectFilter = recentProjects.length > 8;
+  // Recent list: pinned rows excluded (they render once, in the pinned
+  // section) and unmergeable pseudo rows suppressed behind the toggle.
+  // Filter text applies to the remainder exactly as before — the pinned
+  // section stays exempt so it is always visible.
+  const recentUnpinnedProjects = hidePseudoProjects
+    ? projectPartition.ordinary.filter((project) => !pinnedKeySet.has(project.key))
+    : recentProjects.filter((project) => !pinnedKeySet.has(project.key));
   const visibleProjects = projectFilter.trim()
-    ? recentProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : recentProjects;
+    ? recentUnpinnedProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
+    : recentUnpinnedProjects;
+  const togglePin = useCallback((key: string, root: string) => {
+    if (isProjectPinned(key)) unpinProject(key);
+    else pinProject(key, root);
+    setPinnedRevision((revision) => revision + 1);
+  }, []);
+
+  // Stale pinned rows: when the dropdown opens, ask the server whether each
+  // pinned display root still exists on disk. Roots that are gone render
+  // greyed (and are never auto-unpinned); a failed check (offline, server
+  // hiccup) leaves the row alone rather than greying it on a guess. The
+  // roots-key dependency keeps this from re-running per render.
+  const pinnedRootsKey = pinnedProjects.map((project) => project.root).join("\n");
+  useEffect(() => {
+    if (!dropdownOpen || !pinnedRootsKey) return;
+    const pending = pinnedRootsKey
+      .split("\n")
+      .filter((root) => root && !checkedPinnedRootsRef.current.has(root));
+    if (pending.length === 0) return;
+    for (const root of pending) checkedPinnedRootsRef.current.add(root);
+    let cancelled = false;
+    void (async () => {
+      const results = await Promise.all(pending.map(async (root) => {
+        try {
+          const response = await fetch("/api/cwd/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cwd: root }),
+          });
+          return { root, exists: response.ok };
+        } catch {
+          return { root, exists: true };
+        }
+      }));
+      if (cancelled) return;
+      setStalePinnedRoots((previous) => {
+        let changed = false;
+        const next = new Set(previous);
+        for (const { root, exists } of results) {
+          if (!exists && !next.has(root)) { next.add(root); changed = true; }
+          if (exists && next.has(root)) { next.delete(root); changed = true; }
+        }
+        return changed ? next : previous;
+      });
+      // Roots that are currently missing stay eligible for re-checking, so a
+      // directory that comes back un-greys on the next dropdown open.
+      for (const { root, exists } of results) {
+        if (!exists) checkedPinnedRootsRef.current.delete(root);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dropdownOpen, pinnedRootsKey]);
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
@@ -1199,50 +1410,96 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
+                {/* Pinned section — always visible, exempt from the project
+                    filter, ordered most-recently-pinned first. */}
+                {pinnedProjects.length > 0 && (
+                  <div style={{ borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ padding: "6px 10px 2px", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-dim)" }}>
+                      {t("sidebar.pinnedProjects")}
+                    </div>
+                    {pinnedProjects.map((project) => (
+                      <ProjectRow
+                        key={project.key}
+                        project={project}
+                        selected={project.key === selectedProject?.key}
+                        pinned
+                        stale={stalePinnedRoots.has(project.root)}
+                        activity={projectActivity.get(project.key)}
+                        homeDir={homeDir}
+                        t={t}
+                        onSelect={() => {
+                          setSelectedCwd(project.root);
+                          setProjectFilter("");
+                          setCustomPathOpen(false);
+                          setCustomPathError(null);
+                          setDropdownOpen(false);
+                        }}
+                        onTogglePin={() => togglePin(project.key, project.root)}
+                      />
+                    ))}
+                  </div>
+                )}
                 {visibleProjects.map((project) => (
-                  <button
+                  <ProjectRow
                     key={project.key}
-                    onClick={() => {
+                    project={project}
+                    selected={project.key === selectedProject?.key}
+                    pinned={false}
+                    activity={projectActivity.get(project.key)}
+                    homeDir={homeDir}
+                    t={t}
+                    onSelect={() => {
                       setSelectedCwd(project.root);
                       setProjectFilter("");
                       setCustomPathOpen(false);
                       setCustomPathError(null);
                       setDropdownOpen(false);
                     }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 7,
-                      width: "100%",
-                      padding: "8px 10px",
-                      background: "var(--bg)",
-                      border: "none",
-                      borderBottom: "1px solid var(--border)",
-                      color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={project.root}
-                  >
-                    {project.key === selectedProject?.key && (
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                      </svg>
-                    )}
-                    {project.key !== selectedProject?.key && <span style={{ width: 10, flexShrink: 0 }} />}
-                    <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
-                    {showProjectActivity(projectActivity.get(project.key), t)}
-                  </button>
+                    onTogglePin={() => togglePin(project.key, project.root)}
+                  />
                 ))}
                 {visibleProjects.length === 0 && projectFilter.trim() && (
                    <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
                 )}
               </div>
+
+              {/* Hide toggle for unmergeable worktree pseudo-projects. Only
+                  offered when such rows exist; their sessions stay reachable
+                  by turning it off. Takes effect immediately and persists. */}
+              {projectPartition.pseudo.length > 0 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const next = !hidePseudoProjects;
+                    setHidePseudoProjects(next);
+                    writeHidePseudoProjects(next);
+                  }}
+                  title={t("sidebar.hidePseudoProjectsTitle")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    width: "100%",
+                    padding: "8px 10px",
+                    background: "none",
+                    border: "none",
+                    borderTop: "1px solid var(--border)",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 11,
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="1.4" style={{ flexShrink: 0, opacity: hidePseudoProjects ? 1 : 0.35 }}>
+                    {hidePseudoProjects && <polyline points="1.5 5 4 7.5 8.5 2.5" strokeWidth="2" />}
+                    {!hidePseudoProjects && <rect x="1" y="1" width="8" height="8" rx="1.5" />}
+                  </svg>
+                  <span>{t("sidebar.hidePseudoProjects")}</span>
+                  <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>
+                    {hidePseudoProjects ? t("sidebar.pseudoProjectsHidden", { count: projectPartition.pseudo.length }) : t("sidebar.pseudoProjectsVisible", { count: projectPartition.pseudo.length })}
+                  </span>
+                </button>
+              )}
 
               {/* Default cwd shortcut */}
               {!customPathOpen && (
@@ -1256,7 +1513,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     padding: "8px 10px",
                     background: "none",
                     border: "none",
-                    borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none",
+                    borderTop: visibleProjects.length > 0 || pinnedProjects.length > 0 || projectPartition.pseudo.length > 0 ? "1px solid var(--border)" : "none",
                     color: "var(--text-muted)",
                     cursor: "pointer",
                     textAlign: "left",

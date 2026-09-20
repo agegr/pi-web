@@ -26,6 +26,10 @@ export interface ProjectInfo {
    *  False for repo subdirectories and non-git dirs — the worktree switcher
    *  is only meaningful at the top level. */
   isTopLevel: boolean;
+  /** True when the cwd directory is gone from disk and no parent repository
+   *  could be resolved — the session dangles as an unmergeable pseudo-project
+   *  (hideable via the sidebar's pseudo-project toggle). */
+  pseudoProject?: boolean;
 }
 
 export interface WorktreeInfo {
@@ -73,12 +77,34 @@ function realPathOrSelf(filePath: string): string {
  * directory no longer exists (worktree removed), group its sessions back
  * under the main repo instead of letting them dangle as a phantom project.
  * The dir name is the sanitized branch name — close enough for display.
+ *
+ * The sibling derivation is tried first; when the derived sibling root has no
+ * `.git` (e.g. the container sits inside a monorepo, or the checkout uses an
+ * unusual .git layout), a git `rev-parse` fallback lets git name the actual
+ * repository root so the removed path still merges into its parent.
  */
-function inferRemovedWorktree(cwd: string): ProjectInfo | null {
+async function inferRemovedWorktree(cwd: string): Promise<ProjectInfo | null> {
   const parent = dirname(cwd);
   if (!parent.endsWith("-worktrees")) return null;
   const repoRoot = parent.slice(0, -"-worktrees".length);
-  if (!repoRoot || !existsSync(join(repoRoot, ".git"))) return null;
+  if (!repoRoot) return null;
+  if (existsSync(join(repoRoot, ".git"))) {
+    return removedWorktreeProjectInfo(repoRoot, cwd);
+  }
+  if (existsSync(repoRoot)) {
+    try {
+      const toplevel = toNativePath(
+        await git(repoRoot, ["rev-parse", "--path-format=absolute", "--show-toplevel"]),
+      );
+      if (toplevel) return removedWorktreeProjectInfo(toplevel, cwd);
+    } catch {
+      // not inside any repository — nothing to merge into
+    }
+  }
+  return null;
+}
+
+function removedWorktreeProjectInfo(repoRoot: string, cwd: string): ProjectInfo {
   return { projectRoot: realPathOrSelf(repoRoot), branch: basename(cwd), isWorktree: true, isTopLevel: true };
 }
 
@@ -90,7 +116,9 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
   let info: ProjectInfo;
   try {
     if (!existsSync(cwd)) {
-      info = inferRemovedWorktree(cwd) ?? { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
+      const inferred = await inferRemovedWorktree(cwd);
+      info = inferred
+        ?? { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false, pseudoProject: true };
       cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
       return info;
     }
