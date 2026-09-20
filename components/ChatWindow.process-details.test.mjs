@@ -11,3 +11,9 @@ test("expands process details when a completed turn has no final answer", () => 
     /<ProcessDetailsGroup[\s\S]*?defaultExpanded=\{!finalAnswerMessage\}/,
   );
 });
+
+test("lifts turn tool-result images out of collapsed process details", () => {
+  assert.match(source, /collectTurnToolResultImages\(messages, userIdx \+ 1, finalAssistantIdx, toolResultsMap\)/);
+  assert.match(source, /hideResultImages: turnToolImages\.length > 0/);
+  assert.match(source, /<ResultImages images=\{turnToolImages\} isError=\{false\} \/>/);
+});

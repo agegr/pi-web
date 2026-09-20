@@ -6,10 +6,10 @@ import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { collectTurnToolResultImages, countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
-import { MessageView } from "./MessageView";
+import { MessageView, ResultImages } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -1021,7 +1021,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; hideResultImages?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -1060,6 +1060,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
+                    hideResultImages={options.hideResultImages}
                   />
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
@@ -1114,6 +1115,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // Keep the original prefix so deferred thinking retains its stored block indices.
                 const finalProcessBlocks = finalAssistant.content.slice(0, finalProcessEnd < 0 ? undefined : finalProcessEnd);
 
+                const turnToolImages = collectTurnToolResultImages(messages, userIdx + 1, finalAssistantIdx, toolResultsMap);
                 const processViews: ReactNode[] = [];
                 let processToolCount = 0;
                 let processRefIdx: number | undefined;
@@ -1123,7 +1125,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const processMessage = messages[processIdx];
                   if (processMessage.role === "custom") {
                     revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
-                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
+                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process", hideResultImages: turnToolImages.length > 0 }));
                     continue;
                   }
                   if (processMessage.role !== "assistant") continue;
@@ -1140,6 +1142,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     keyPrefix: "process",
                     messageOverride: message,
                     showTimestamp: false,
+                    hideResultImages: turnToolImages.length > 0,
                   }));
                 }
 
@@ -1152,6 +1155,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                       <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
+                    </div>,
+                  );
+                }
+                if (turnToolImages.length > 0) {
+                  rendered.push(
+                    <div key={`turn-images-${entryIds[userIdx] ?? userIdx}`} style={{ marginBottom: 14 }}>
+                      <ResultImages images={turnToolImages} isError={false} />
                     </div>,
                   );
                 }
