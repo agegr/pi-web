@@ -232,11 +232,17 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [historyExportSessionId, setHistoryExportSessionId] = useState<string | null>(null);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
   useEffect(() => {
     if (!rightPanelOpen || isMobile) setRightPanelExpanded(false);
   }, [rightPanelOpen, isMobile]);
+  // pi#8: the in-panel history export never outlives the panel closing, and a
+  // file tab switch takes the panel back from the export view.
+  useEffect(() => {
+    if (!rightPanelOpen) setHistoryExportSessionId(null);
+  }, [rightPanelOpen]);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
@@ -513,6 +519,14 @@ export function AppShell() {
   // Files unmount when inactive; workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  // pi#8: a file tab switch takes the right panel back from the history export view.
+  const prevActiveFileTabIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevActiveFileTabIdRef.current !== activeFileTabId) {
+      prevActiveFileTabIdRef.current = activeFileTabId;
+      if (activeFileTabId !== null) setHistoryExportSessionId(null);
+    }
+  }, [activeFileTabId]);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [terminalsRestored, setTerminalsRestored] = useState(false);
   const panelTabs: Tab[] = [...fileTabs, ...terminalTabs.map((tab) => ({
@@ -1119,12 +1133,13 @@ export function AppShell() {
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
-    window.open(
-      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  }, [selectedSession]);
+    // Render the export snapshot inside the right panel instead of a contextless
+    // new tab (pi#8): the panel chrome owns focus and closing, so the user can
+    // always get back. Toggling: showing it again while open dismisses it.
+    setHistoryExportSessionId((current) =>
+      current === selectedSession.id && rightPanelOpen ? null : selectedSession.id);
+    setRightPanelOpen(true);
+  }, [selectedSession, rightPanelOpen]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -2683,8 +2698,33 @@ export function AppShell() {
         </div>
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
-        <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "var(--safe-area-bottom, 0px)" }}>
-          {activeFileTab?.filePath ? (
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "var(--safe-area-bottom, 0px)", display: "flex", flexDirection: "column" }}>
+          {historyExportSessionId ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                <span style={{ flex: 1, fontSize: 11, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {translate("history.snapshot")}
+                </span>
+                <a
+                  href={`/api/sessions/${encodeURIComponent(historyExportSessionId)}/export?inline=1`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={translate("history.openInTab")}
+                  style={{ fontSize: 11, color: "var(--text-muted)", textDecoration: "none", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                  {translate("history.openInTab")}
+                </a>
+              </div>
+              <iframe
+                src={`/api/sessions/${encodeURIComponent(historyExportSessionId)}/export?inline=1`}
+                title={translate("history.full")}
+                style={{ flex: 1, width: "100%", minHeight: 0, border: "none", background: "var(--bg)" }}
+              />
+            </>
+          ) : activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}

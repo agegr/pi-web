@@ -126,6 +126,8 @@ export const enLocale: LocalePlugin = {
     "history.full": "Full history",
     "history.unsaved": "Full history is available after the session is saved",
     "history.label": "Full history",
+    "history.snapshot": "Read-only session snapshot",
+    "history.openInTab": "Open in new tab",
     "title.generating": "Generating...",
     "title.updated": "Title updated",
     "title.failed": "Generation failed",
