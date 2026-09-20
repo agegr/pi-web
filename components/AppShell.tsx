@@ -1868,8 +1868,8 @@ export function AppShell() {
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
-          paddingTop: "env(safe-area-inset-top)",
-          paddingBottom: "env(safe-area-inset-bottom)",
+          paddingTop: "var(--safe-area-top, 0px)",
+          paddingBottom: "var(--safe-area-bottom, 0px)",
           zIndex: 200,
         } as React.CSSProperties}
       >
@@ -1890,7 +1890,7 @@ export function AppShell() {
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + var(--safe-area-top, 0px))", paddingTop: "var(--safe-area-top, 0px)" }}>
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -2370,8 +2370,8 @@ export function AppShell() {
           display: "flex",
           alignItems: "center",
           flexShrink: 0,
-          height: "calc(36px + env(safe-area-inset-top))",
-          paddingTop: "env(safe-area-inset-top)",
+          height: "calc(36px + var(--safe-area-top, 0px))",
+          paddingTop: "var(--safe-area-top, 0px)",
           background: "var(--bg-panel)",
           borderBottom: "1px solid var(--border)",
         }}>
@@ -2421,7 +2421,7 @@ export function AppShell() {
         </div>
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
-        <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "var(--safe-area-bottom, 0px)" }}>
           {activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
