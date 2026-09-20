@@ -100,6 +100,18 @@ test("New restores the draft after session navigation and workspace auto-restore
         newSessionDraftId: "initial",
         selectedSession: null,
         sessionKey: 0,
+        // pi#4 split-pane state: mock the pane symbols the callbacks reference
+        paneTabs: [],
+        focusedPaneId: null,
+        paneDensity: "default",
+        splitPaneLayoutRef: { current: null },
+        setPaneTabs: () => {},
+        setFocusedPaneId: () => {},
+        clearBadgeOnFocus: (prev) => prev,
+        openPaneOp: (prev) => prev,
+        closePaneOp: (prev) => prev,
+        setCompletionBadge: (prev) => prev,
+        coalesceCompletionSound: () => true,
       });
       context.invalidateWorkspaceRestore = () => context.workspaceRestoreTokenRef.current++;
       for (const [setter] of callbacks.matchAll(/\bset[A-Z]\w*(?=\()/g)) {

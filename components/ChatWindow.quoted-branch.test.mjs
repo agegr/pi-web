@@ -12,7 +12,7 @@ test("offers compact quoting controls and sends branch questions through the mai
   assert.match(chatSource, /onAskInNewChat\([\s\S]*?sourceSessionId,[\s\S]*?quotedSelection\.sourceEntryId/);
   assert.match(shellSource, /type: "fork_branch"/);
   assert.match(shellSource, /initialPrompt=\{pendingQuotePrompt\?\.sessionId === selectedSession\?\.id/);
-  assert.equal((shellSource.match(/<ChatWindow\b/g) ?? []).length, 1);
+  assert.equal((shellSource.match(/<ChatWindow\b/g) ?? []).length, 2, "AppShell renders ChatWindow twice: once in the single-pane fallback, once in the SplitPaneLayout renderPane (pi#4)");
   assert.match(chatSource, /onInitialPromptConsumed\?\.\(\);\s*void handleSend\(initialPrompt\)/);
   assert.match(chatSource, /role=\{quoteInputOpen \? "dialog" : "toolbar"\}/);
 });

@@ -23,6 +23,16 @@ import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { SplitPaneLayout } from "./SplitPaneLayout";
+import {
+  openPane as openPaneOp,
+  closePane as closePaneOp,
+  setCompletionBadge,
+  clearBadgeOnFocus,
+  coalesceCompletionSound,
+  type PaneTab,
+  type PaneDensity,
+} from "@/lib/pane-state";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName } from "@/lib/file-paths";
@@ -85,6 +95,13 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
+
+  // Split-pane state (pi#4): ordered pane tabs, focused pane id, density mode.
+  const [paneTabs, setPaneTabs] = useState<PaneTab[]>([]);
+  const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
+  const [paneDensity, setPaneDensity] = useState<PaneDensity>("default");
+  const lastSoundAtRef = useRef(0);
+  const splitPaneLayoutRef = useRef<{ scrollPaneIntoView: (id: string) => void } | null>(null);
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -735,6 +752,18 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setInitialSessionRestored(true);
+    // Split-pane routing (pi#4): already-open session → scroll + focus; else new tab.
+    setPaneTabs((prev) => {
+      const alreadyOpen = prev.some((t) => t.sessionId === session.id);
+      if (alreadyOpen) {
+        splitPaneLayoutRef.current?.scrollPaneIntoView(session.id);
+        setFocusedPaneId(session.id);
+        return clearBadgeOnFocus(prev, session.id);
+      }
+      const label = session.name || session.firstMessage || session.id.slice(0, 12);
+      return openPaneOp(prev, session.id, label);
+    });
+    if (focusedPaneId !== session.id) setFocusedPaneId(session.id);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
     if (isRestore) {
@@ -1891,6 +1920,37 @@ export function AppShell() {
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+          {!isMobile && paneTabs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPaneDensity((d) => d === "default" ? "compact" : "default")}
+              title={paneDensity === "default" ? "Switch to compact (4 panes)" : "Switch to default (3 panes)"}
+              aria-label={paneDensity === "default" ? "Switch to compact density" : "Switch to default density"}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+                background: "none", border: "none", borderRight: "1px solid var(--border)",
+                color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                {paneDensity === "default" ? (
+                  <>
+                    <rect x="2" y="5" width="6.5" height="14" rx="1" />
+                    <rect x="9.5" y="5" width="6.5" height="14" rx="1" />
+                    <rect x="17" y="5" width="5" height="14" rx="1" />
+                  </>
+                ) : (
+                  <>
+                    <rect x="2" y="5" width="4.75" height="14" rx="1" />
+                    <rect x="7.5" y="5" width="4.75" height="14" rx="1" />
+                    <rect x="13" y="5" width="4.75" height="14" rx="1" />
+                    <rect x="18.5" y="5" width="3.5" height="14" rx="1" />
+                  </>
+                )}
+              </svg>
+            </button>
+          )}
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -2257,7 +2317,50 @@ export function AppShell() {
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          {showChat ? (
+          {showChat && !isMobile && paneTabs.length > 0 && !newSessionCwd ? (
+            <SplitPaneLayout
+              ref={splitPaneLayoutRef}
+              tabs={paneTabs}
+              focusedId={focusedPaneId}
+              density={paneDensity}
+              runningSessionIds={runningSessionIds}
+              onFocusPane={(sid) => {
+                setFocusedPaneId(sid);
+                setPaneTabs((prev) => clearBadgeOnFocus(prev, sid));
+              }}
+              onClosePane={(sid) => {
+                setPaneTabs((prev) => closePaneOp(prev, sid));
+                if (focusedPaneId === sid) {
+                  const remaining = paneTabs.filter((t) => t.sessionId !== sid);
+                  setFocusedPaneId(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
+                }
+              }}
+              renderPane={(sid, focused) => {
+                const paneSession = sid === selectedSession?.id ? selectedSession : sessionCatalog.find((s) => s.id === sid) ?? null;
+                if (!paneSession) return null;
+                return (
+                  <ChatWindow
+                    key={sid}
+                    session={paneSession}
+                    isActivePane={focused}
+                    newSessionCwd={null}
+                    newSessionDraftKey={null}
+                    sessionRunning={runningSessionIds.has(sid)}
+                    onAgentEnd={() => {
+                      if (sid !== focusedPaneId) {
+                        setPaneTabs((prev) => setCompletionBadge(prev, sid));
+                        const now = Date.now();
+                        if (coalesceCompletionSound(lastSoundAtRef.current, now)) {
+                          lastSoundAtRef.current = now;
+                          if (soundEnabledRef.current) playDoneSound();
+                        }
+                      }
+                    }}
+                  />
+                );
+              }}
+            />
+          ) : showChat ? (
             <ChatWindow
               key={sessionKey}
               session={selectedSession}
