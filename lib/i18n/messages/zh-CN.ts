@@ -390,6 +390,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.quoteQuestion": "我的问题是：",
     "chat.quoteForkFailed": "无法从这条消息创建分支。",
     "chat.attachImage": "附加图片",
+    "chat.filePickerUnsupportedTitle": "当前环境不支持文件选择",
+    "chat.filePickerUnsupportedBody": "点击后没有弹出文件选择器。当前应用外壳的 WebView 很可能缺少原生文件选择桥——请改用普通浏览器附加，或更新应用外壳。",
     "chat.previewImage": "预览图片",
     "chat.filterModels": "筛选模型…",
     "chat.noMatchingModels": "没有匹配的模型",
