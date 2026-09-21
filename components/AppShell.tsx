@@ -15,6 +15,7 @@ import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
+import { PinnedSessionPanel } from "./PinnedSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -60,6 +61,12 @@ import type { FileViewerState } from "@/lib/file-viewer-state";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
+import {
+  loadPinnedSessionIds,
+  loadPinnedSessionsEnabled,
+  savePinnedSessionIds,
+  savePinnedSessionsEnabled,
+} from "@/lib/pinned-session-state";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -136,11 +143,27 @@ export function AppShell() {
   );
   const hasSubagentSessions = Boolean(activeSessionFamily?.subagents.length);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<Set<string>>(() => loadPinnedSessionIds());
+  const [pinnedSessionsEnabled, setPinnedSessionsEnabled] = useState(true);
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
       if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous;
       return ids;
     });
+  }, []);
+  const togglePinnedSession = useCallback((sessionId: string) => {
+    setPinnedSessionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    savePinnedSessionIds(pinnedSessionIds);
+  }, [pinnedSessionIds]);
+  useEffect(() => {
+    setPinnedSessionsEnabled(loadPinnedSessionsEnabled());
   }, []);
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
@@ -317,7 +340,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "pinnedSessions" | "session" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -337,7 +360,7 @@ export function AppShell() {
   }, [rightPanelFullWidth]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
+    panel: "agents" | "branches" | "system" | "tools" | "pinnedSessions" | "session",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -432,6 +455,14 @@ export function AppShell() {
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
       if (activeTopPanel === "agents") {
+        setTopPanelPos({
+          top: topBarRect.bottom,
+          left: topBarRect.left,
+          width: Math.min(AGENT_PANEL_WIDTH, topBarRect.width),
+        });
+        return;
+      }
+      if (activeTopPanel === "pinnedSessions") {
         setTopPanelPos({
           top: topBarRect.bottom,
           left: topBarRect.left,
@@ -1006,6 +1037,16 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
+  const pinnedSessions = sessionsWithSelection
+    .filter((session) => pinnedSessionIds.has(session.id))
+    .sort((a, b) => b.modified.localeCompare(a.modified));
+
+  const handleSelectPinnedSession = (session: SessionInfo) => {
+    setActiveTopPanel(null);
+    setMobileToolbarMoreOpen(false);
+    handleSelectSession(session);
+  };
+
   const handleOpenLinkedFile = useCallback((filePath: string, page?: number) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null, page });
   }, [handleOpenFile, selectedSession?.id]);
@@ -1148,6 +1189,9 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        pinnedSessionIds={pinnedSessionIds}
+        pinnedSessionsEnabled={pinnedSessionsEnabled}
+        onTogglePinnedSession={togglePinnedSession}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -1545,6 +1589,58 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("tools.label")}</span>}
         </button>
+        {pinnedSessionsEnabled && (
+          <button
+            type="button"
+            onClick={() => toggleTopPanel("pinnedSessions", mobile)}
+            disabled={mobile && !showChat}
+            title={translate("pinnedSessions.title")}
+            aria-label={translate("pinnedSessions.title")}
+            aria-pressed={activeTopPanel === "pinnedSessions"}
+            style={{
+              position: "relative",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+              height: "100%", padding: mobile ? 0 : "0 12px",
+              background: activeTopPanel === "pinnedSessions" ? "var(--bg-selected)" : "none",
+              border: "none",
+              borderTop: activeTopPanel === "pinnedSessions" ? "2px solid var(--accent)" : "2px solid transparent",
+              borderRight: "1px solid var(--border)",
+              color: activeTopPanel === "pinnedSessions" ? "var(--text)" : "var(--text-muted)",
+              cursor: mobile && !showChat ? "not-allowed" : "pointer",
+              opacity: mobile && !showChat ? 0.45 : 1,
+              flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+              transition: "color 0.1s, background 0.1s",
+            }}
+            onMouseEnter={(event) => {
+              if (mobile && !showChat) return;
+              event.currentTarget.style.color = "var(--text)";
+              event.currentTarget.style.background = "var(--bg-hover)";
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.color = activeTopPanel === "pinnedSessions" ? "var(--text)" : "var(--text-muted)";
+              event.currentTarget.style.background = activeTopPanel === "pinnedSessions" ? "var(--bg-selected)" : "none";
+            }}
+            data-mobile-toolbar-action={mobile ? "pinned-sessions" : undefined}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 3h10v4l2 3v2h-5v8l-2 2-2-2v-8H5v-2l2-3V3Z" />
+            </svg>
+            {!mobile && <span>{translate("pinnedSessions.label")}</span>}
+            <span
+              aria-hidden="true"
+              style={{
+                minWidth: 15, height: 15, padding: "0 4px", display: "grid", placeItems: "center",
+                borderRadius: 7, background: pinnedSessions.length > 0 ? "var(--accent)" : "var(--bg-selected)",
+                color: pinnedSessions.length > 0 ? "var(--accent-contrast)" : "var(--text-dim)",
+                fontSize: 10, lineHeight: 1, fontVariantNumeric: "tabular-nums",
+                ...(mobile ? { position: "absolute", top: 2, right: 2, minWidth: 13, height: 13, padding: "0 3px", fontSize: 9 } : {}),
+              }}
+            >
+              {pinnedSessions.length}
+            </span>
+          </button>
+        )}
       </div>
     );
   };
@@ -2030,6 +2126,15 @@ export function AppShell() {
                   onSelectSession={handleSelectSession}
                 />
               )}
+              {pinnedSessionsEnabled && activeTopPanel === "pinnedSessions" && (
+                <PinnedSessionPanel
+                  sessions={pinnedSessions}
+                  runningSessionIds={runningSessionIds}
+                  selectedSessionId={selectedSession?.id ?? null}
+                  onSelectSession={handleSelectPinnedSession}
+                  onTogglePinned={togglePinnedSession}
+                />
+              )}
               {activeTopPanel === "system" && (
                 <SystemPromptPanel
                   loading={systemInfoLoading}
@@ -2474,6 +2579,12 @@ export function AppShell() {
         initialSection={settingsSection}
         quoteSelectionEnabled={quoteSelectionEnabled}
         onQuoteSelectionChange={handleQuoteSelectionChange}
+        pinnedSessionsEnabled={pinnedSessionsEnabled}
+        onPinnedSessionsEnabledChange={(enabled) => {
+          setPinnedSessionsEnabled(enabled);
+          savePinnedSessionsEnabled(enabled);
+          if (!enabled) setActiveTopPanel((panel) => panel === "pinnedSessions" ? null : panel);
+        }}
         onClose={() => {
           setSettingsSection(null);
           setModelsRefreshKey((key) => key + 1);

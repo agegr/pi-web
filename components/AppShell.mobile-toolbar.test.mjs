@@ -77,6 +77,13 @@ test("keeps the mobile action layer open after using an expanded action", () => 
   assert.match(source, /onClick=\{\(\) => toggleTopPanel\("session"\)\}/);
 });
 
+test("keeps pinned-session state shared by the sidebar and pin panel", () => {
+  assert.match(source, /const \[pinnedSessionIds, setPinnedSessionIds\] = useState<Set<string>>\(\(\) => loadPinnedSessionIds\(\)\)/);
+  assert.match(source, /onTogglePinnedSession=\{togglePinnedSession\}/);
+  assert.match(source, /onTogglePinned=\{togglePinnedSession\}/);
+  assert.match(source, /savePinnedSessionIds\(pinnedSessionIds\)/);
+});
+
 test("keeps theme and language in settings instead of the chat toolbar", () => {
   assert.doesNotMatch(source, /renderThemeButton/);
   assert.doesNotMatch(source, /renderLanguageButton/);

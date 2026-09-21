@@ -144,3 +144,11 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+test("uses shell-owned pin state so panel unpinning updates the sidebar row", () => {
+  assert.match(source, /pinnedSessionIds: ReadonlySet<string>/);
+  assert.match(source, /onTogglePinnedSession: \(sessionId: string\) => void/);
+  assert.match(source, /isPinned=\{pinnedSessionsEnabled && pinnedSessionIds\.has\(family\.root\.id\)\}/);
+  assert.match(source, /onTogglePinned=\{pinnedSessionsEnabled \? \(\) => onTogglePinnedSession\(family\.root\.id\) : undefined\}/);
+  assert.doesNotMatch(source, /const \[pinnedSessionIds, setPinnedSessionIds\]/);
+});
