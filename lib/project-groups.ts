@@ -1,6 +1,22 @@
 import type { SessionInfo } from "./types";
 import { workspaceKeyOf } from "./workspace-memory";
 
+/**
+ * Sidebar-facing project display name (pi#25): the basename of the project
+ * root — the same identity the sidebar keys on (`workspaceKeyOf`:
+ * `projectKey ?? projectRoot ?? cwd`, so callers pass the resolved
+ * `projectRoot ?? cwd`). Falls back to "?" for empty roots; never empty,
+ * never throws. Used by embedded pane headers as `<project> · <session>`.
+ */
+export function projectDisplayNameForPath(root: string | null | undefined): string {
+  if (!root) return "?";
+  const trimmed = root.replace(/[/\\]+$/, "");
+  if (!trimmed) return "?";
+  const segments = trimmed.split(/[/\\]/).filter(Boolean);
+  const base = segments[segments.length - 1];
+  return base || "?";
+}
+
 export interface RecentProject {
   /** Stable server-provided identity used for comparison and Map keys. */
   key: string;
