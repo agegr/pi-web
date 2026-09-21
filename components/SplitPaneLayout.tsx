@@ -41,7 +41,11 @@ function SplitPaneLayoutInner(
   const paneContainerRef = useRef<HTMLDivElement>(null);
   const paneRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  const width = densityWidth(density);
+  // A single pane takes the full row; the density fraction applies when
+  // multiple panes share it. (pi#4 integration fix: a lone 1/3-width pane
+  // cramped the chat and put fixed-width overlays' click targets over the
+  // minimap's own hit zone.)
+  const width = tabs.length <= 1 ? "100%" : densityWidth(density);
 
   const scrollPaneIntoView = useCallback((sessionId: string) => {
     const container = paneContainerRef.current;

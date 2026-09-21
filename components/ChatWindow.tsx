@@ -296,7 +296,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
-    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
+    loadContext, activeLeafId, scrollToBottom, scrollToMessage, scrollToOffset,
     refreshFromDisk,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onBackgroundTasksEvent, onSessionCreated, onSessionForked,
@@ -1002,6 +1002,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         )}
         {!isEmptyNew && <>
         <div
+          data-chat-focused={isActivePane ? "true" : undefined}
           ref={scrollContainerRef}
           className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
@@ -1247,6 +1248,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
+            scrollToOffset={scrollToOffset}
           />
         )}
         </>}

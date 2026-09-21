@@ -99,6 +99,10 @@ export function AppShell() {
   useViewportHeight();
 
   // Split-pane state (pi#4): ordered pane tabs, focused pane id, density mode.
+  // Split view is OPT-IN: pane routing and the tab strip only engage after the
+  // toolbar toggle enables it (closing the last pane disables it again), so
+  // the classic single-chat layout stays the default.
+  const [splitPaneEnabled, setSplitPaneEnabled] = useState(false);
   const [paneTabs, setPaneTabs] = useState<PaneTab[]>([]);
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
   const [paneDensity, setPaneDensity] = useState<PaneDensity>("default");
@@ -812,18 +816,22 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setInitialSessionRestored(true);
-    // Split-pane routing (pi#4): already-open session → scroll + focus; else new tab.
-    setPaneTabs((prev) => {
-      const alreadyOpen = prev.some((t) => t.sessionId === session.id);
-      if (alreadyOpen) {
-        splitPaneLayoutRef.current?.scrollPaneIntoView(session.id);
-        setFocusedPaneId(session.id);
-        return clearBadgeOnFocus(prev, session.id);
-      }
-      const label = session.name || session.firstMessage || session.id.slice(0, 12);
-      return openPaneOp(prev, session.id, label);
-    });
-    if (focusedPaneId !== session.id) setFocusedPaneId(session.id);
+    // Split-pane routing (pi#4, opt-in): already-open session → scroll + focus;
+    // else new tab. Disabled by default — the classic single-chat replace stays
+    // the default layout until the toolbar toggle enables split view.
+    if (splitPaneEnabled) {
+      setPaneTabs((prev) => {
+        const alreadyOpen = prev.some((t) => t.sessionId === session.id);
+        if (alreadyOpen) {
+          splitPaneLayoutRef.current?.scrollPaneIntoView(session.id);
+          setFocusedPaneId(session.id);
+          return clearBadgeOnFocus(prev, session.id);
+        }
+        const label = session.name || session.firstMessage || session.id.slice(0, 12);
+        return openPaneOp(prev, session.id, label);
+      });
+      if (focusedPaneId !== session.id) setFocusedPaneId(session.id);
+    }
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
     if (isRestore) {
@@ -836,7 +844,7 @@ export function AppShell() {
     if (!isRestore) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
+  }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession, splitPaneEnabled, focusedPaneId]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
@@ -2038,7 +2046,32 @@ export function AppShell() {
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + var(--safe-area-top, 0px))", paddingTop: "var(--safe-area-top, 0px)" }}>
-          {!isMobile && paneTabs.length > 0 && (
+          {!isMobile && !splitPaneEnabled && selectedSession && (
+            <button
+              type="button"
+              onClick={() => {
+                // Opt-in: enabling split view opens the current session as the first pane.
+                setSplitPaneEnabled(true);
+                const sid = selectedSession.id;
+                const label = selectedSession.name || selectedSession.firstMessage || sid.slice(0, 12);
+                setPaneTabs((prev) => (prev.some((t) => t.sessionId === sid) ? prev : openPaneOp(prev, sid, label)));
+                setFocusedPaneId(sid);
+              }}
+              title="Enable split view"
+              aria-label="Enable split view"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+                background: "none", border: "none", borderRight: "1px solid var(--border)",
+                color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <rect x="2" y="4" width="20" height="16" rx="1.5" /><line x1="12" y1="4" x2="12" y2="20" />
+              </svg>
+            </button>
+          )}
+          {!isMobile && splitPaneEnabled && paneTabs.length > 0 && (
             <button
               type="button"
               onClick={() => setPaneDensity((d) => d === "default" ? "compact" : "default")}
@@ -2447,11 +2480,13 @@ export function AppShell() {
                 setPaneTabs((prev) => clearBadgeOnFocus(prev, sid));
               }}
               onClosePane={(sid) => {
+                const remaining = paneTabs.filter((t) => t.sessionId !== sid);
                 setPaneTabs((prev) => closePaneOp(prev, sid));
                 if (focusedPaneId === sid) {
-                  const remaining = paneTabs.filter((t) => t.sessionId !== sid);
                   setFocusedPaneId(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
                 }
+                // Closing the last pane leaves split view: back to the classic layout.
+                if (remaining.length === 0) setSplitPaneEnabled(false);
               }}
               renderPane={(sid, focused) => {
                 const paneSession = sid === selectedSession?.id ? selectedSession : sessionCatalog.find((s) => s.id === sid) ?? null;

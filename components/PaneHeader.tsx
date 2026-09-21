@@ -13,6 +13,8 @@ export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={focused}
       onClick={onClick}
       title={label}
       style={{

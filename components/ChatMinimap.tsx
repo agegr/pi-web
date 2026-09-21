@@ -18,6 +18,8 @@ interface Props {
   scrollContainer: RefObject<HTMLDivElement | null>;
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
   onRevealHistory: () => void;
+  /** Suppressed programmatic jump (tail-stick disabled during it). */
+  scrollToOffset: (top: number, viewportOffset: number) => void;
 }
 
 const MINIMAP_WIDTH = 36;
@@ -140,12 +142,17 @@ function getPreviewHeadingIndex(node: unknown): number | null {
 
 export const AssistantOutline = memo(function AssistantOutline({
   markdown,
+  nodeIndex,
+  assistantIndex,
   onHeadingClick,
   onAnswerClick,
 }: {
   markdown: string;
-  onHeadingClick?: (headingIndex: number) => void;
-  onAnswerClick?: () => void;
+  nodeIndex: number;
+  assistantIndex: number;
+  /** Stable across renders: resolves the node from live state at call time. */
+  onHeadingClick?: (nodeIndex: number, assistantIndex: number, headingIndex: number) => void;
+  onAnswerClick?: (nodeIndex: number, assistantIndex: number) => void;
 }) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(markdown), [markdown]);
   if (!markdown) return null;
@@ -155,9 +162,9 @@ export const AssistantOutline = memo(function AssistantOutline({
         remarkPlugins={previewRemarkPlugins}
         rehypePlugins={previewRehypePlugins}
         components={{
-          h1: ({ children, node }) => <PreviewHeading level={1} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
-          h2: ({ children, node }) => <PreviewHeading level={2} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
-          h3: ({ children, node }) => <PreviewHeading level={3} headingIndex={getPreviewHeadingIndex(node)} onClick={onHeadingClick}>{children}</PreviewHeading>,
+          h1: ({ children, node }) => <PreviewHeading level={1} headingIndex={getPreviewHeadingIndex(node)} onClick={(headingIndex) => onHeadingClick?.(nodeIndex, assistantIndex, headingIndex)}>{children}</PreviewHeading>,
+          h2: ({ children, node }) => <PreviewHeading level={2} headingIndex={getPreviewHeadingIndex(node)} onClick={(headingIndex) => onHeadingClick?.(nodeIndex, assistantIndex, headingIndex)}>{children}</PreviewHeading>,
+          h3: ({ children, node }) => <PreviewHeading level={3} headingIndex={getPreviewHeadingIndex(node)} onClick={(headingIndex) => onHeadingClick?.(nodeIndex, assistantIndex, headingIndex)}>{children}</PreviewHeading>,
           h4: () => null,
           h5: () => null,
           h6: () => null,
@@ -165,7 +172,7 @@ export const AssistantOutline = memo(function AssistantOutline({
             <button
               type="button"
               className={styles.paragraph}
-              onClick={onAnswerClick}
+              onClick={() => onAnswerClick?.(nodeIndex, assistantIndex)}
             >
               {children}
             </button>
@@ -233,6 +240,7 @@ export function ChatMinimap({
   scrollContainer,
   messageRefs,
   onRevealHistory,
+  scrollToOffset,
 }: Props) {
   const { t } = useI18n();
   const [visible, setVisible] = useState(false);
@@ -250,6 +258,7 @@ export function ChatMinimap({
     fillsHeight: false,
   });
   const previewBoxRef = useRef<HTMLDivElement>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const previewItemRefs = useRef(new Map<number, HTMLDivElement>());
   const previewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeNodeLockRef = useRef<{ index: number; until: number } | null>(null);
@@ -361,10 +370,27 @@ export function ChatMinimap({
 
       const nextNodes = createTurnNodes(turns);
       setMinimapHeight(minimapEl.clientHeight);
-      allNodesRef.current = nextNodes;
-      setAllNodes(nextNodes);
+      // Structural-equality guard: a rebuild that produced the same outline
+      // (hydrate patches, scroll/resize recalcs) must not replace the node
+      // objects — a mid-click remount of the preview buttons eats the click
+      // (mousedown and mouseup land on different DOM nodes, so the browser
+      // fires no click event at all).
+      const prevNodes = allNodesRef.current;
+      const structurallySame = prevNodes.length === nextNodes.length
+        && prevNodes.every((prev, index) => {
+          const next = nextNodes[index];
+          return prev.index === next.index
+            && prev.targetTurn.userMessage === next.targetTurn.userMessage
+            && prev.targetTurn.assistantPreviews.length === next.targetTurn.assistantPreviews.length
+            && prev.targetTurn.assistantPreviews.every((preview, previewIndex) =>
+              preview.markdown === next.targetTurn.assistantPreviews[previewIndex].markdown);
+        });
+      if (!structurallySame) {
+        allNodesRef.current = nextNodes;
+        setAllNodes(nextNodes);
+      }
       setVisible(scrollEl.scrollHeight - scrollEl.clientHeight > 20);
-      syncActiveNode(scrollEl, nextNodes);
+      syncActiveNode(scrollEl, allNodesRef.current);
 
       const pendingNavigation = pendingNavigationRef.current;
       const pendingNode = pendingNavigation
@@ -396,11 +422,10 @@ export function ChatMinimap({
         if (targetTop === null) return;
         pendingNavigationRef.current = null;
         lockActiveNode(pendingNode.index);
-        const targetOffset = scrollEl.clientHeight * 0.3;
-        scrollEl.scrollTo({ top: Math.max(0, targetTop - targetOffset), behavior: "smooth" });
+        scrollToOffset(targetTop, scrollEl.clientHeight * 0.3);
       }
     }, 150);
-  }, [lockActiveNode, messageRefs, scrollContainer, syncActiveNode]);
+  }, [lockActiveNode, messageRefs, scrollContainer, syncActiveNode, scrollToOffset]);
 
   useEffect(() => {
     const el = scrollContainer.current;
@@ -519,15 +544,29 @@ export function ChatMinimap({
     if (!heading) return;
     const containerRect = scrollEl.getBoundingClientRect();
     const headingRect = heading.getBoundingClientRect();
-    const targetTop = (
-      headingRect.top
-      - containerRect.top
-      + scrollEl.scrollTop
-      - scrollEl.clientHeight * 0.3
-    );
+    const targetTop = headingRect.top - containerRect.top + scrollEl.scrollTop;
     lockActiveNode(node.index);
-    scrollEl.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-  }, [lockActiveNode, onRevealHistory, scrollContainer]);
+    scrollToOffset(targetTop, scrollEl.clientHeight * 0.3);
+  }, [lockActiveNode, onRevealHistory, scrollContainer, scrollToOffset]);
+
+  // Stable navigation callbacks for the memoized AssistantOutline: inline
+  // closures here broke the memo on every render, and a mid-click re-render
+  // replaced the preview buttons' DOM nodes between mousedown and mouseup —
+  // the browser then fires no click at all. Resolving the node from
+  // allNodesRef at call time also guarantees fresh element refs.
+  const stableHeadingClick = useCallback((
+    nodeIndex: number,
+    assistantIndex: number,
+    headingIndex: number,
+  ) => {
+    const liveNode = allNodesRef.current[nodeIndex];
+    if (liveNode) scrollToHeading(liveNode, assistantIndex, headingIndex);
+  }, [scrollToHeading]);
+
+  const stableAnswerClick = useCallback((nodeIndex: number, assistantIndex: number) => {
+    const liveNode = allNodesRef.current[nodeIndex];
+    if (liveNode) scrollToAssistant(liveNode, assistantIndex);
+  }, [scrollToAssistant]);
 
   const cancelPreviewHide = useCallback(() => {
     if (!previewHideTimerRef.current) return;
@@ -544,10 +583,26 @@ export function ChatMinimap({
     cancelPreviewHide();
     previewHideTimerRef.current = setTimeout(() => {
       previewHideTimerRef.current = null;
+      // The pointer may have crossed rail→preview after the leave that armed
+      // this timer (the classic click path): hiding now would unmount the
+      // preview between a click's mousedown and mouseup and silently eat the
+      // click. Only hide when the pointer is genuinely outside the preview.
+      const box = previewBoxRef.current;
+      const pointer = lastPointerRef.current;
+      if (box && pointer) {
+        const rect = box.getBoundingClientRect();
+        if (
+          pointer.x >= rect.left && pointer.x <= rect.right
+          && pointer.y >= rect.top && pointer.y <= rect.bottom
+        ) {
+          showPreview();
+          return;
+        }
+      }
       setMinimapHovered(false);
       setMouseYRatio(null);
     }, PREVIEW_HIDE_DELAY);
-  }, [cancelPreviewHide]);
+  }, [cancelPreviewHide, showPreview]);
 
   useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
 
@@ -608,6 +663,7 @@ export function ChatMinimap({
       onMouseEnter={showPreview}
       onMouseLeave={schedulePreviewHide}
       onMouseMove={(event) => {
+        lastPointerRef.current = { x: event.clientX, y: event.clientY };
         const rect = event.currentTarget.getBoundingClientRect();
         setMouseYRatio((event.clientY - rect.top) / rect.height);
       }}
@@ -681,7 +737,10 @@ export function ChatMinimap({
           data-minimap-preview-box=""
           onMouseEnter={showPreview}
           onMouseDown={(event) => event.stopPropagation()}
-          onMouseMove={(event) => event.stopPropagation()}
+          onMouseMove={(event) => {
+            lastPointerRef.current = { x: event.clientX, y: event.clientY };
+            event.stopPropagation();
+          }}
         >
           {allNodes.map((node) => {
             const isLocated = nearestNodeIndex === node.index;
@@ -730,10 +789,10 @@ export function ChatMinimap({
                       </button>
                       <AssistantOutline
                         markdown={assistant.markdown}
-                        onAnswerClick={() => scrollToAssistant(node, assistantIndex)}
-                        onHeadingClick={(headingIndex) => (
-                          scrollToHeading(node, assistantIndex, headingIndex)
-                        )}
+                        nodeIndex={node.index}
+                        assistantIndex={assistantIndex}
+                        onAnswerClick={stableAnswerClick}
+                        onHeadingClick={stableHeadingClick}
                       />
                     </div>
                   ))}

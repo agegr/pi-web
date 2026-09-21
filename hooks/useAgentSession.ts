@@ -2039,6 +2039,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     previousScrollTopRef.current = container.scrollTop;
   }, []);
 
+  /**
+   * Programmatic jump to an absolute content offset (minimap navigation).
+   * Shares scrollToMessage's tail-stick suppression: the messages-length
+   * effect must not "helpfully" scroll back to the bottom while a pagination
+   * batch lands after this jump (the race pi#4's pane mount exposed).
+   */
+  const scrollToOffset = useCallback((top: number, viewportOffset = 0) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (liveFollowFrameRef.current !== null) {
+      cancelAnimationFrame(liveFollowFrameRef.current);
+      liveFollowFrameRef.current = null;
+    }
+    initialScrollDoneRef.current = true;
+    pendingScrollToUserRef.current = false;
+    isNearBottomRef.current = false;
+    setPromptAnchorActive(false);
+    container.scrollTo({ top: Math.max(0, top - viewportOffset), behavior: "instant" });
+    previousScrollTopRef.current = container.scrollTop;
+  }, []);
+
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
     const el = lastUserMsgRef.current;
@@ -2282,7 +2303,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     refreshFromDisk,
-    scrollToBottom, scrollUserMsgToTop, scrollToMessage,
+    scrollToBottom, scrollUserMsgToTop, scrollToMessage, scrollToOffset,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions

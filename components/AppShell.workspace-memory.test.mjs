@@ -102,6 +102,7 @@ test("New restores the draft after session navigation and workspace auto-restore
         sessionKey: 0,
         // pi#4 split-pane state: mock the pane symbols the callbacks reference
         paneTabs: [],
+        splitPaneEnabled: false,
         focusedPaneId: null,
         paneDensity: "default",
         splitPaneLayoutRef: { current: null },
