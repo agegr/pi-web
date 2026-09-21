@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const dir = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(dir, "SplitPaneLayout.tsx"), "utf-8");
 const paneStateSource = readFileSync(join(dir, "..", "lib", "pane-state.ts"), "utf-8");
+const paneHeaderSource = readFileSync(join(dir, "PaneHeader.tsx"), "utf-8");
 
 test("SplitPaneLayout renders a fixed single-height tab strip", () => {
   assert.ok(source.includes("height: STRIP_HEIGHT"), "tab strip must have a fixed height");
@@ -20,10 +21,19 @@ test("SplitPaneLayout pane area is a horizontal scroll container", () => {
   assert.ok(source.includes("width"), "panes must have a width prop");
 });
 
-test("SplitPaneLayout uses densityWidth for equal-width panes", () => {
-  assert.ok(source.includes("densityWidth"), "must use the densityWidth helper");
-  assert.ok(paneStateSource.includes("33.3333%"), "default density is 1/3");
-  assert.ok(paneStateSource.includes("25%"), "compact density is 1/4");
+test("SplitPaneLayout derives pane width from the open-pane count via paneWidth", () => {
+  assert.ok(source.includes("paneWidth"), "must use the paneWidth helper");
+  assert.ok(source.includes("paneWidth(tabs.length"), "width must derive from the tab count");
+  assert.ok(source.includes("maxVisiblePanes"), "must take a maxVisiblePanes prop");
+  assert.ok(!source.includes("density"), "the density concept must be gone");
+  assert.ok(paneStateSource.includes("100 / Math.min"), "pane-state sizes panes at 100% / min(count, N)");
+});
+
+test("PaneHeader caps tab width while the strip stays scrollable", () => {
+  assert.ok(paneHeaderSource.includes("maxWidth: 150"), "tab button must carry a max width");
+  assert.ok(paneHeaderSource.includes("textOverflow: \"ellipsis\""), "long labels must truncate with an ellipsis");
+  assert.ok(paneHeaderSource.includes("title={label}"), "full label must stay available via tooltip");
+  assert.ok(source.includes("overflowX: \"auto\""), "tab strip must keep horizontal scrolling for short tabs");
 });
 
 test("focus discrimination uses isPlainClick (drag-selection does not steal focus)", () => {

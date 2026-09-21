@@ -33,6 +33,7 @@ export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
+        maxWidth: 150,
         flexShrink: 0,
         transition: "background 0.1s, color 0.1s",
       }}

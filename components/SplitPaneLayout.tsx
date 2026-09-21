@@ -4,9 +4,8 @@ import { useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from "r
 import { PaneHeader } from "./PaneHeader";
 import {
   isPlainClick,
-  densityWidth,
+  paneWidth,
   type PaneTab,
-  type PaneDensity,
 } from "@/lib/pane-state";
 
 export interface SplitPaneLayoutHandle {
@@ -16,7 +15,7 @@ export interface SplitPaneLayoutHandle {
 interface SplitPaneLayoutProps {
   tabs: PaneTab[];
   focusedId: string | null;
-  density: PaneDensity;
+  maxVisiblePanes: number;
   runningSessionIds: ReadonlySet<string>;
   onFocusPane: (sessionId: string) => void;
   onClosePane: (sessionId: string) => void;
@@ -30,7 +29,7 @@ function SplitPaneLayoutInner(
   {
     tabs,
     focusedId,
-    density,
+    maxVisiblePanes,
     runningSessionIds,
     onFocusPane,
     onClosePane,
@@ -41,11 +40,12 @@ function SplitPaneLayoutInner(
   const paneContainerRef = useRef<HTMLDivElement>(null);
   const paneRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // A single pane takes the full row; the density fraction applies when
-  // multiple panes share it. (pi#4 integration fix: a lone 1/3-width pane
-  // cramped the chat and put fixed-width overlays' click targets over the
-  // minimap's own hit zone.)
-  const width = tabs.length <= 1 ? "100%" : densityWidth(density);
+  // Count-adaptive sizing (pi#13): a single pane takes the full row; with
+  // multiple panes each gets 100% / min(openCount, maxVisiblePanes) — panes
+  // never shrink below 1/N, the pane area scrolls horizontally beyond N.
+  // (pi#4 integration fix retained: a lone fraction-width pane cramped the
+  // chat and put fixed-width overlays' click targets over the minimap.)
+  const width = paneWidth(tabs.length, maxVisiblePanes);
 
   const scrollPaneIntoView = useCallback((sessionId: string) => {
     const container = paneContainerRef.current;
