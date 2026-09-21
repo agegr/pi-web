@@ -37,22 +37,25 @@ export async function POST(req: Request) {
     if (!providerName) return NextResponse.json({ error: "providerName is required" }, { status: 400 });
     if (!isRecord(body.provider)) return NextResponse.json({ error: "provider is required" }, { status: 400 });
 
-    const baseUrl = typeof body.provider.baseUrl === "string" ? body.provider.baseUrl.trim() : "";
+    const configuredBaseUrl = typeof body.provider.baseUrl === "string" ? body.provider.baseUrl.trim() : "";
+    const configuredApi = typeof body.provider.api === "string" && body.provider.api ? body.provider.api : "";
+
+    const auth = await resolveModelDiscoveryAuth(providerName, body.provider);
+    if (typeof body.provider.apiKey === "string" && body.provider.apiKey.trim() && !auth.apiKey) {
+      return NextResponse.json({ error: `No API key found for "${providerName}"` }, { status: 400 });
+    }
+
+    // Fall back to pi's provider catalog so built-in providers, and entries
+    // that only list models, do not have to repeat the upstream base URL.
+    const baseUrl = configuredBaseUrl || auth.baseUrl || "";
     if (!baseUrl) return NextResponse.json({ error: "Base URL is required" }, { status: 400 });
-    const api = typeof body.provider.api === "string" && body.provider.api
-      ? body.provider.api
-      : "openai-completions";
+    const api = configuredApi || auth.api || "openai-completions";
 
     let endpoint: URL;
     try {
       endpoint = buildModelsListUrl(baseUrl, api);
     } catch {
       return NextResponse.json({ error: "Base URL is invalid" }, { status: 400 });
-    }
-
-    const auth = await resolveModelDiscoveryAuth(providerName, body.provider);
-    if (typeof body.provider.apiKey === "string" && body.provider.apiKey.trim() && !auth.apiKey) {
-      return NextResponse.json({ error: `No API key found for "${providerName}"` }, { status: 400 });
     }
 
     const response = await fetch(endpoint, {

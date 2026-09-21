@@ -204,3 +204,15 @@ test("discovery can sync the configured models to the upstream list", () => {
   assert.match(source, /const dropped = new Set\(removeStale \? plan\.stale : \[\]\)/);
   assert.match(source, /onSyncModels=\{\(plan, removeStale\) => syncProviderModels\(selection\.name, plan, removeStale\)\}/);
 });
+
+test("discovery does not require a configured base URL", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+
+  // pi's provider catalog supplies the endpoint for a models-only entry and for
+  // built-in providers, so the button must stay usable with an empty base URL.
+  assert.match(providerDetail, /t\("models\.builtinBaseUrl"\)/);
+  assert.doesNotMatch(providerDetail, /!provider\.baseUrl\?\.trim\(\) \|\| discoveryState\.phase === "loading"/);
+});

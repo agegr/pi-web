@@ -544,6 +544,7 @@ export const enLocale: LocalePlugin = {
     "models.syncApply": "Sync models",
     "models.syncHint": "Sync edits the draft only — press Save to write models.json",
     "models.syncUpToDate": "Already matches upstream",
+    "models.builtinBaseUrl": "Leave empty to use the endpoint pi ships for this provider",
     "models.catalogSource": "source: models.dev ↗",
     "models.catalogFilling": "Filling details…",
     "models.catalogFill": "Fill model details",

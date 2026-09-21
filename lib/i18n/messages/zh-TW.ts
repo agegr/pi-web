@@ -544,6 +544,7 @@ export const zhTWLocale: LocalePlugin = {
     "models.syncApply": "同步模型清單",
     "models.syncHint": "同步只修改草稿，點「儲存」後寫入 models.json",
     "models.syncUpToDate": "已與上游一致",
+    "models.builtinBaseUrl": "留空則使用 pi 內建的該 provider 端點",
     "models.catalogSource": "來源：models.dev ↗",
     "models.catalogFilling": "正在填入模型詳細資料…",
     "models.catalogFill": "填入模型詳細資料",
