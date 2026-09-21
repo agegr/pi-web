@@ -205,6 +205,33 @@ test("renders a provider error when the assistant message has no content", () =>
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
 });
 
+test("renders a truncation notice for stopReason length", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "thinking", thinking: "Long reasoning chain" }],
+    stopReason: "length",
+  });
+
+  assert.match(html, /role="alert"/);
+  assert.match(html, /output limit/i);
+  assert.match(html, /follow-up/i);
+});
+
+test("renders a truncation notice for thinking-only messages with stopReason length", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [],
+    stopReason: "length",
+  });
+
+  assert.match(html, /role="alert"/);
+  assert.match(html, /output limit/i);
+});
+
 test("renders partial assistant content before the provider error", () => {
   const html = renderMessage({
     role: "assistant",
@@ -322,4 +349,32 @@ test("renders custom-message images as buttons that open a larger preview", () =
 
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
+test("shows tool-result images while the tool details stay collapsed", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-shot-1",
+    toolName: "page_screenshot",
+    input: { tabId: 7 },
+  };
+  const result = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [
+      { type: "text", text: "captured-1280x720" },
+      { type: "image", data: "YWJj", mimeType: "image/png" },
+    ],
+  };
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map([[block.toolCallId, result]]) });
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+  assert.doesNotMatch(html, /captured-1280x720/);
+  assert.doesNotMatch(html, /"tabId"/);
 });

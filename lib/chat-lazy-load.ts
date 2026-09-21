@@ -83,6 +83,16 @@ export function getLiveFollowAttached(
   return wasAttached;
 }
 
+export function shouldShowScrollToLatest(
+  scrollTop: number,
+  clientHeight: number,
+  scrollHeight: number,
+  tolerance = CHAT_SCROLL_TAIL_TOLERANCE,
+): boolean {
+  if (scrollHeight <= clientHeight) return false;
+  return !isScrollAtTail(scrollTop, clientHeight, scrollHeight, tolerance);
+}
+
 export function getPromptAnchorSpacerHeight(
   targetTop: number,
   contentEnd: number,

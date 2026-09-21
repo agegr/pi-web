@@ -107,7 +107,11 @@ export function subagentFinalText(run: SubagentRunInfo): string {
   if (run.status === "starting" || run.status === "running") {
     return `Subagent ${run.sessionId} is ${run.status}.`;
   }
-  if (run.status === "completed") return run.result?.trim() || "Subagent completed without text output.";
+  // Keep the session ID in the text: the model only sees `content`, never `details`, and needs it for `resume` / `get_subagent_result`.
+  if (run.status === "completed") {
+    const result = run.result?.trim();
+    return result ? `Subagent ${run.sessionId} completed.\n\n${result}` : `Subagent ${run.sessionId} completed without text output.`;
+  }
   if (run.status === "aborted") return `Subagent ${run.sessionId} was stopped.`;
   if (run.status === "interrupted") return `Subagent ${run.sessionId} was interrupted before completion.`;
   return `Subagent ${run.sessionId} failed: ${run.error ?? "Unknown error"}`;
