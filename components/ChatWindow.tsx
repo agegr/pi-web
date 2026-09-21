@@ -14,6 +14,8 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
+import { WebPluginSlot } from "./WebPluginSlot";
+import type { WebPluginSlotContext } from "@/lib/web-plugin-types";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
@@ -299,6 +301,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   const sessionBusy = agentRunning || bashRunning;
+  // Session-list polling replaces callback identities; do not remount plugins
+  // (and discard edited previews) merely because that background refresh ran.
+  const pluginCallbacks = useRef({ handleSend, respondToExtensionUi });
+  pluginCallbacks.current = { handleSend, respondToExtensionUi };
+  const pluginContext = useMemo<WebPluginSlotContext>(() => ({
+    sessionId: session?.id ?? null,
+    busy: sessionBusy,
+    sendPrompt: (text) => pluginCallbacks.current.handleSend(text),
+  }), [session?.id, sessionBusy]);
+  const pluginDialogContext = useMemo<WebPluginSlotContext>(() => ({
+    ...pluginContext,
+    request: extensionDialog ?? undefined,
+    respond: extensionDialog ? (response) => pluginCallbacks.current.respondToExtensionUi(extensionDialog, response) : undefined,
+  }), [pluginContext, extensionDialog]);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -980,7 +996,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {extensionDialog && (
-          <ExtensionDialog key={extensionDialog.id} request={extensionDialog} onRespond={respondToExtensionUi} />
+          <WebPluginSlot key={extensionDialog.id} slot="extension-dialog" context={pluginDialogContext}>
+            <ExtensionDialog key={extensionDialog.id} request={extensionDialog} onRespond={respondToExtensionUi} />
+          </WebPluginSlot>
         )}
         {extensionCustomUi && (
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} onInput={sendExtensionCustomInput} />
@@ -1363,6 +1381,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </div>
           </div>
         )}
+        <WebPluginSlot slot="chat-toolbar" context={pluginContext} />
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>

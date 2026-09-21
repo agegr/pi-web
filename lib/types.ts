@@ -1,3 +1,4 @@
+import type { WebPluginHint } from "./web-plugin-types";
 // Types mirrored from pi-mono coding-agent session-manager
 
 export interface SessionHeader {
@@ -148,6 +149,7 @@ export type ExtensionUiRequest =
       method: "editor";
       title: string;
       prefill?: string;
+      web?: WebPluginHint & { data?: unknown };
       timeout?: number;
       expiresAt?: number;
     }
