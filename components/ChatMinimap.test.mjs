@@ -37,3 +37,25 @@ test("renders math in headings without disabling heading navigation", () => {
   assert.match(html, /data-preview-heading-index="1"/);
   assert.doesNotMatch(html, /disabled=""/);
 });
+
+test("preview popup is click-to-toggle: no hover triggers, rail click toggles, jumps close it", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./ChatMinimap.tsx", import.meta.url), "utf8");
+  // No hover path opens or closes the popup anymore.
+  assert.doesNotMatch(source, /onMouseEnter=\{showPreview\}/);
+  assert.doesNotMatch(source, /onMouseLeave=\{schedulePreviewHide\}/);
+  assert.doesNotMatch(source, /PREVIEW_HIDE_DELAY/);
+  // Rail click with the preview open closes it (单击弹回) instead of jumping.
+  assert.match(
+    source,
+    /if \(minimapHovered\) \{\s*hidePreview\(\);\s*return;\s*\}/,
+  );
+  // A pointerdown outside preview and rail closes it too.
+  assert.match(source, /window\.addEventListener\("pointerdown", onPointerDown\)/);
+  // Every jump from inside the preview closes it afterwards.
+  const jumpHandlers = source.match(/scrollToNode\(node, "smooth"\);[\s\S]{0,80}?setMinimapHovered\(false\);/g) ?? [];
+  assert.ok(jumpHandlers.length >= 1, "user-row jump must close the preview");
+  assert.match(source, /scrollToAssistant\(node, assistantIndex\);[\s\S]{0,60}?setMinimapHovered\(false\);/);
+  assert.match(source, /if \(liveNode\) scrollToHeading[\s\S]{0,80}?setMinimapHovered\(false\);/);
+  assert.match(source, /if \(liveNode\) scrollToAssistant\(liveNode, assistantIndex\);[\s\S]{0,60}?setMinimapHovered\(false\);/);
+});

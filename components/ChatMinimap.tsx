@@ -25,7 +25,6 @@ interface Props {
 const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
-const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
 interface AssistantPreview {
@@ -260,7 +259,6 @@ export function ChatMinimap({
   const previewBoxRef = useRef<HTMLDivElement>(null);
   const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const previewItemRefs = useRef(new Map<number, HTMLDivElement>());
-  const previewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeNodeLockRef = useRef<{ index: number; until: number } | null>(null);
   const pendingNavigationRef = useRef<{
     nodeIndex: number;
@@ -561,56 +559,54 @@ export function ChatMinimap({
   ) => {
     const liveNode = allNodesRef.current[nodeIndex];
     if (liveNode) scrollToHeading(liveNode, assistantIndex, headingIndex);
+    setMinimapHovered(false);
   }, [scrollToHeading]);
 
   const stableAnswerClick = useCallback((nodeIndex: number, assistantIndex: number) => {
     const liveNode = allNodesRef.current[nodeIndex];
     if (liveNode) scrollToAssistant(liveNode, assistantIndex);
+    setMinimapHovered(false);
   }, [scrollToAssistant]);
 
-  const cancelPreviewHide = useCallback(() => {
-    if (!previewHideTimerRef.current) return;
-    clearTimeout(previewHideTimerRef.current);
-    previewHideTimerRef.current = null;
+  // Click-to-toggle preview (user-confirmed 2026-09-21): the popup opens
+  // on a rail click and closes on the next click — no hover triggers.
+  const showPreview = useCallback(() => {
+    setMinimapHovered(true);
   }, []);
 
-  const showPreview = useCallback(() => {
-    cancelPreviewHide();
-    setMinimapHovered(true);
-  }, [cancelPreviewHide]);
+  const hidePreview = useCallback(() => {
+    setMinimapHovered(false);
+    setMouseYRatio(null);
+  }, []);
 
-  const schedulePreviewHide = useCallback(() => {
-    cancelPreviewHide();
-    previewHideTimerRef.current = setTimeout(() => {
-      previewHideTimerRef.current = null;
-      // The pointer may have crossed rail→preview after the leave that armed
-      // this timer (the classic click path): hiding now would unmount the
-      // preview between a click's mousedown and mouseup and silently eat the
-      // click. Only hide when the pointer is genuinely outside the preview.
+  // A pointerdown outside the preview (and outside the rail, whose own
+  // mousedown handler owns the toggle) closes it.
+  useEffect(() => {
+    if (!minimapHovered) return;
+    const onPointerDown = (event: PointerEvent) => {
       const box = previewBoxRef.current;
-      const pointer = lastPointerRef.current;
-      if (box && pointer) {
-        const rect = box.getBoundingClientRect();
-        if (
-          pointer.x >= rect.left && pointer.x <= rect.right
-          && pointer.y >= rect.top && pointer.y <= rect.bottom
-        ) {
-          showPreview();
-          return;
-        }
-      }
-      setMinimapHovered(false);
-      setMouseYRatio(null);
-    }, PREVIEW_HIDE_DELAY);
-  }, [cancelPreviewHide, showPreview]);
-
-  useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
+      const rail = containerRef.current;
+      if (box && event.target instanceof Node && box.contains(event.target)) return;
+      if (rail && event.target instanceof Node && rail.contains(event.target)) return;
+      hidePreview();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [minimapHovered, hidePreview]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
 
-    draggingRef.current = true;
+    // 单击弹回： with the preview open, a rail click closes it instead of
+    // jumping — the toggle the user confirmed. The jump/drag path below runs
+    // only when the preview is closed (its own 单击弹出 click).
+    if (minimapHovered) {
+      hidePreview();
+      return;
+    }
+
     showPreview();
+    draggingRef.current = true;
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerRatio = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
     setMouseYRatio(pointerRatio);
@@ -634,7 +630,7 @@ export function ChatMinimap({
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [findNearestNode, scrollToNode, showPreview, visible]);
+  }, [findNearestNode, scrollToNode, showPreview, hidePreview, minimapHovered, visible]);
 
   const nearestNode = mouseYRatio === null ? null : findNearestNode(mouseYRatio);
   const nearestNodeIndex = nearestNode?.index ?? null;
@@ -660,8 +656,6 @@ export function ChatMinimap({
     <div
       ref={containerRef}
       onMouseDown={handleMouseDown}
-      onMouseEnter={showPreview}
-      onMouseLeave={schedulePreviewHide}
       onMouseMove={(event) => {
         lastPointerRef.current = { x: event.clientX, y: event.clientY };
         const rect = event.currentTarget.getBoundingClientRect();
@@ -735,7 +729,6 @@ export function ChatMinimap({
           ref={previewBoxRef}
           className={styles.preview}
           data-minimap-preview-box=""
-          onMouseEnter={showPreview}
           onMouseDown={(event) => event.stopPropagation()}
           onMouseMove={(event) => {
             lastPointerRef.current = { x: event.clientX, y: event.clientY };
@@ -765,6 +758,7 @@ export function ChatMinimap({
                     data-minimap-preview-user={node.index}
                     onClick={() => {
                       scrollToNode(node, "smooth");
+                      setMinimapHovered(false);
                     }}
                   >
                     <span className={styles.userText}>
@@ -781,7 +775,10 @@ export function ChatMinimap({
                         type="button"
                         className={styles.assistantJump}
                         data-minimap-preview-assistant={`${node.index}-${assistantIndex}`}
-                        onClick={() => scrollToAssistant(node, assistantIndex)}
+                        onClick={() => {
+                          scrollToAssistant(node, assistantIndex);
+                          setMinimapHovered(false);
+                        }}
                         aria-label={t("chatMinimap.locateAssistant")}
                         title={t("chatMinimap.locateAssistant")}
                       >
