@@ -5,7 +5,17 @@ This repo publishes two artifacts for each release:
 - npm package: `@silgrid/pi-web`
 - GitHub Release: `silgrid/pi-web`
 
-Pushing a tag `v*` to `origin` triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml), which runs `npm ci`, `next build`, and `npm publish --access public` using the `NODE_AUTH_TOKEN` secret (an npm **automation** token, so publish works on CI without a one-time password). This checklist covers the tag/notes side and the manual fallback.
+Pushing a tag `v*` to `origin` triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml), which runs `npm ci`, `next build`, and `npm publish --access public --provenance` via **npm Trusted Publishing** (GitHub OIDC): the workflow presents a short-lived `id-token: write` token, npm exchanges it for a publish credential, and the published tarball carries a provenance attestation. No `NODE_AUTH_TOKEN` secret is used — the earlier token-secret route is dead under npm's 2025+ 2FA policy (the full E403/EOTP failure matrix is documented as comments at the top of the workflow file). This checklist covers the tag/notes side and the manual fallback.
+
+## 0. Trusted Publishing prerequisites (one-time)
+
+Before the first OIDC release, on npmjs.com the package `@silgrid/pi-web` must have a **Trusted Publisher** configured for:
+
+- Repository: `silgrid/pi-web`
+- Workflow filename: `release.yml`
+- Environment: (optional, only if the publish job declares one)
+
+The workflow itself upgrades npm to ≥ 11.5.1 (`npm install -g npm@11`) because Trusted Publishing and `--provenance` require it and the pinned node 22.19.0 bundles npm 10.9. Do not re-introduce `NODE_AUTH_TOKEN` or `registry-url` in the publish job: the token-secret route fails from CI under npm's 2FA enforcement (E403/EOTP — see the matrix in the workflow comments).
 
 Use this checklist from a clean `main` checkout.
 
@@ -27,7 +37,7 @@ Expected:
 
 ## 2. Publish to npm
 
-Preferred: push the tag (step 4) and let the `Release` GitHub Action publish. The workflow installs, builds, and publishes with `NODE_AUTH_TOKEN` — the `files` field ships the prebuilt `.next` output, so the published package is the built app.
+Preferred: push the tag (step 4) and let the `Release` GitHub Action publish. The workflow installs, builds, and publishes through npm Trusted Publishing — the `files` field ships the prebuilt `.next` output, so the published package is the built app, and the tarball carries a provenance attestation.
 
 Manual fallback (only when CI cannot be used):
 
@@ -45,6 +55,7 @@ Notes:
 
 - This bumps `package.json` and `package-lock.json`.
 - It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
+- The fallback publishes with your local npm login and therefore **without provenance** (provenance is only issued inside GitHub Actions via OIDC). Prefer the tag-triggered workflow.
 - If `npm view @silgrid/pi-web version` briefly shows the previous version, check the exact version instead:
 
 ```bash
