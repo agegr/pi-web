@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { PaneHeader } from "./PaneHeader";
 import {
   isPlainClick,
   paneWidth,
+  MIN_PANE_WIDTH,
   type PaneTab,
 } from "@/lib/pane-state";
 
@@ -15,7 +16,6 @@ export interface SplitPaneLayoutHandle {
 interface SplitPaneLayoutProps {
   tabs: PaneTab[];
   focusedId: string | null;
-  maxVisiblePanes: number;
   runningSessionIds: ReadonlySet<string>;
   onFocusPane: (sessionId: string) => void;
   onClosePane: (sessionId: string) => void;
@@ -29,7 +29,6 @@ function SplitPaneLayoutInner(
   {
     tabs,
     focusedId,
-    maxVisiblePanes,
     runningSessionIds,
     onFocusPane,
     onClosePane,
@@ -40,12 +39,29 @@ function SplitPaneLayoutInner(
   const paneContainerRef = useRef<HTMLDivElement>(null);
   const paneRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // Count-adaptive sizing (pi#13): a single pane takes the full row; with
-  // multiple panes each gets 100% / min(openCount, maxVisiblePanes) — panes
-  // never shrink below 1/N, the pane area scrolls horizontally beyond N.
-  // (pi#4 integration fix retained: a lone fraction-width pane cramped the
-  // chat and put fixed-width overlays' click targets over the minimap.)
-  const width = paneWidth(tabs.length, maxVisiblePanes);
+  // Width-adaptive sizing (pi#20): the layout self-measures its pane area via
+  // a ResizeObserver on the scroll container, so widths recompute in real
+  // time on window resize, sidebar toggle, or any layout change. A single
+  // pane takes the full row; with multiple panes each gets an equal split of
+  // the measured area while they all fit, and beyond floor(area / MIN_PANE_WIDTH)
+  // every pane is exactly MIN_PANE_WIDTH and the pane area scrolls
+  // horizontally. (pi#4 integration fix retained: a lone narrow pane cramped
+  // the chat and put fixed-width overlays' click targets over the minimap.)
+  const [paneAreaWidth, setPaneAreaWidth] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerWidth,
+  );
+
+  useEffect(() => {
+    const container = paneContainerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      setPaneAreaWidth(container.clientWidth);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  const width = paneWidth(tabs.length, paneAreaWidth, MIN_PANE_WIDTH);
 
   const scrollPaneIntoView = useCallback((sessionId: string) => {
     const container = paneContainerRef.current;
@@ -126,7 +142,7 @@ function SplitPaneLayoutInner(
             }}
             onPointerUp={() => handlePanePointerUp(tab.sessionId)}
             style={{
-              width,
+              width: `${width}px`,
               flex: "none",
               minWidth: 0,
               height: "100%",

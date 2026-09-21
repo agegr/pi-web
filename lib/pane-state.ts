@@ -4,65 +4,28 @@ export interface PaneTab {
   hasBadge: boolean;
 }
 
-// --- Count-adaptive pane sizing (pi#13) ---
-// maxVisiblePanes replaces the old density toggle: panes size at
-// 100% / min(openPaneCount, maxVisiblePanes), and the pane area scrolls
-// horizontally once the open count exceeds the setting.
-export const MAX_VISIBLE_PANES_KEY = "pi-max-visible-panes";
-export const MAX_VISIBLE_PANES_MIN = 2;
-export const MAX_VISIBLE_PANES_MAX = 4;
-export const MAX_VISIBLE_PANES_DEFAULT = 3;
+// --- Width-adaptive pane sizing (pi#20) ---
+// Pane widths are auto-computed from the measured pane-area width: panes
+// split the area equally while they all fit, and once the open count exceeds
+// floor(areaWidth / MIN_PANE_WIDTH) every pane is exactly MIN_PANE_WIDTH wide
+// and the pane area scrolls horizontally. This replaces the old localStorage
+// persisted manual visible-pane cap (pi#13).
+export const MIN_PANE_WIDTH = 360;
 
-export function clampMaxVisiblePanes(value: number): number {
-  if (!Number.isFinite(value)) return MAX_VISIBLE_PANES_DEFAULT;
-  const n = Math.trunc(value);
-  return Math.min(MAX_VISIBLE_PANES_MAX, Math.max(MAX_VISIBLE_PANES_MIN, n));
-}
-
-export function paneWidth(openCount: number, maxVisiblePanes: number): string {
-  if (openCount <= 1) return "100%";
-  const n = clampMaxVisiblePanes(maxVisiblePanes);
-  const fraction = 100 / Math.min(openCount, n);
-  // toFixed(4) keeps the historical "33.3333%" fraction; parseFloat trims
-  // trailing zeros so whole fractions stay "50%" / "25%".
-  return `${parseFloat(fraction.toFixed(4))}%`;
-}
-
-export interface MaxVisiblePanesStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
-function defaultStorage(): MaxVisiblePanesStorage | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-}
-
-export function loadMaxVisiblePanes(storage?: Pick<MaxVisiblePanesStorage, "getItem">): number {
-  try {
-    const raw = (storage ?? defaultStorage())?.getItem(MAX_VISIBLE_PANES_KEY);
-    if (raw == null) return MAX_VISIBLE_PANES_DEFAULT;
-    return clampMaxVisiblePanes(Number.parseInt(raw, 10));
-  } catch {
-    return MAX_VISIBLE_PANES_DEFAULT;
-  }
-}
-
-export function persistMaxVisiblePanes(
-  value: number,
-  storage?: Pick<MaxVisiblePanesStorage, "setItem">,
+export function paneWidth(
+  openCount: number,
+  areaWidth: number,
+  minPaneWidth: number,
 ): number {
-  const clamped = clampMaxVisiblePanes(value);
-  try {
-    (storage ?? defaultStorage())?.setItem(MAX_VISIBLE_PANES_KEY, String(clamped));
-  } catch {
-    // Browser storage is best-effort.
+  if (openCount <= 1) return areaWidth;
+  if (!Number.isFinite(minPaneWidth) || minPaneWidth <= 0) {
+    // Defensive guard (mirrors the old NaN-clamping posture): a degenerate
+    // floor falls back to the plain equal split of the area.
+    return areaWidth / openCount;
   }
-  return clamped;
+  const maxVisible = Math.max(1, Math.floor(areaWidth / minPaneWidth));
+  if (openCount <= maxVisible) return areaWidth / openCount;
+  return minPaneWidth;
 }
 
 export function openPane(

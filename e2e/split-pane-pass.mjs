@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { MIN_PANE_WIDTH } from "../lib/pane-state.ts";
 
-// pi#9: the opt-in split view (pi#4 panes + pi#13 count-adaptive sizing) gets
+// pi#9: the opt-in split view (pi#4 panes + pi#20 width-adaptive sizing) gets
 // its own desktop-only pass. The classic flow in run.mjs is deliberately
 // untouched — split stays OFF by default, so its assertions must keep passing
 // unchanged. Every locator that reads chat content scopes to the focused pane
@@ -27,6 +28,14 @@ export async function checkSplitPane(page, sessions) {
       const expected = areaBox.width / denominator;
       assert.ok(Math.abs(box.width - expected) < 2,
         `with ${paneCount} panes at 1/${denominator} each must be ~${expected}px wide (got ${box.width})`);
+    }
+  };
+  const assertExactPaneWidth = async (paneCount, expectedWidth) => {
+    const boxes = await panes.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
+    assert.equal(boxes.length, paneCount, `expected ${paneCount} mounted panes`);
+    for (const box of boxes) {
+      assert.ok(Math.abs(box.width - expectedWidth) < 1,
+        `with ${paneCount} panes beyond capacity each must be ~${expectedWidth}px wide (got ${box.width})`);
     }
   };
 
@@ -71,20 +80,47 @@ export async function checkSplitPane(page, sessions) {
   assert.equal(await process.getAttribute("aria-expanded"), "true",
     "pane state must survive focus switches without unmounting");
 
-  // 5. A third pane: three panes at one third each (maxVisiblePanes default 3).
+  // 5. A third pane: three panes at one third each. The sidebar is hidden
+  //    first so the pane area tracks the viewport width (1280px holds
+  //    floor(1280/MIN_PANE_WIDTH) = 3 panes).
   await page.locator(`[title="${compactedTitle}"]`).click();
   await tabs.nth(2).waitFor();
   assert.equal(await tabs.count(), 3, "a third session opens a third pane");
-  await assertPaneWidths(3, 3);
-
-  // 6. Cycling maxVisiblePanes 3→2 keeps every pane half-wide and makes the
-  //    pane area scroll horizontally (pi#13).
-  await page.getByRole("button", { name: /Max visible panes: 3\./ }).click();
+  await page.getByRole("button", { name: "Hide sidebar", exact: true }).click();
+  // The sidebar collapse animates its width over 0.2s, so wait for the equal
+  // split to settle before measuring (no overflow, every pane ~1/3 of the
+  // pane area).
   await page.waitForFunction(() => {
     const area = document.querySelector("[role='tablist'] + div");
-    return area && area.scrollWidth > area.clientWidth;
+    if (!area) return false;
+    const panes = Array.from(area.children);
+    const expected = area.clientWidth / 3;
+    return panes.length === 3
+      && area.scrollWidth <= area.clientWidth
+      && panes.every((pane) => Math.abs(pane.getBoundingClientRect().width - expected) < 1);
   }, null, { timeout: 10_000 });
-  await assertPaneWidths(3, 2);
+  await assertPaneWidths(3, 3);
+
+  // 6. Width-adaptive floor (pi#20): shrinking the viewport below
+  //    3 × MIN_PANE_WIDTH makes every pane exactly MIN_PANE_WIDTH and the
+  //    pane area scroll horizontally; restoring the width brings the equal
+  //    split back without horizontal scrolling.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.waitForFunction((minPaneWidth) => {
+    const area = document.querySelector("[role='tablist'] + div");
+    if (!area) return false;
+    const panes = Array.from(area.children);
+    return panes.length === 3
+      && panes.every((pane) => Math.abs(pane.getBoundingClientRect().width - minPaneWidth) < 1)
+      && area.scrollWidth > area.clientWidth;
+  }, MIN_PANE_WIDTH, { timeout: 10_000 });
+  await assertExactPaneWidth(3, MIN_PANE_WIDTH);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForFunction(() => {
+    const area = document.querySelector("[role='tablist'] + div");
+    return area && area.scrollWidth === area.clientWidth;
+  }, null, { timeout: 10_000 });
+  await assertPaneWidths(3, 3);
 
   // 7. Closing the focused pane drops to two tabs and the survivors re-widen.
   await tabs.nth(2).getByRole("button", { name: "Close tab" }).click();
