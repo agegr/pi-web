@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { PaneHeader } from "./PaneHeader";
+import { useI18n } from "@/hooks/useI18n";
 import {
   isPlainClick,
   paneWidth,
@@ -19,6 +20,8 @@ interface SplitPaneLayoutProps {
   runningSessionIds: ReadonlySet<string>;
   onFocusPane: (sessionId: string) => void;
   onClosePane: (sessionId: string) => void;
+  /** Opens (or focuses) the new-session tab; raised by the strip's "+". */
+  onOpenNewSessionTab: () => void;
   renderPane: (sessionId: string, focused: boolean) => React.ReactNode;
 }
 
@@ -32,10 +35,13 @@ function SplitPaneLayoutInner(
     runningSessionIds,
     onFocusPane,
     onClosePane,
+    onOpenNewSessionTab,
     renderPane,
   },
   ref,
 ) {
+  const { t } = useI18n();
+  const newSessionLabel = t("tabs.newSession");
   const paneContainerRef = useRef<HTMLDivElement>(null);
   const paneRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -89,6 +95,7 @@ function SplitPaneLayoutInner(
     () => (
       <div
         role="tablist"
+          data-split-tablist="true"
         style={{
           display: "flex",
           alignItems: "stretch",
@@ -115,9 +122,41 @@ function SplitPaneLayoutInner(
             onClose={() => onClosePane(tab.sessionId)}
           />
         ))}
+        {/* Persistent "+" at the end of the strip (pi#21): opens the
+            new-session tab, or focuses it when one is already open. A real
+            button so it stays keyboard reachable. */}
+        <button
+          type="button"
+          onClick={onOpenNewSessionTab}
+          title={newSessionLabel}
+          aria-label={newSessionLabel}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 28,
+            height: "100%",
+            padding: 0,
+            flexShrink: 0,
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 13,
+            lineHeight: 1,
+            transition: "color 0.12s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <line x1="6" y1="2" x2="6" y2="10" />
+            <line x1="2" y1="6" x2="10" y2="6" />
+          </svg>
+        </button>
       </div>
     ),
-    [tabs, focusedId, runningSessionIds, onFocusPane, onClosePane, scrollPaneIntoView],
+    [tabs, focusedId, runningSessionIds, onFocusPane, onClosePane, onOpenNewSessionTab, scrollPaneIntoView, newSessionLabel],
   );
 
   const paneArea = useMemo(
