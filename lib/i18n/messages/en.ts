@@ -205,7 +205,7 @@ export const enLocale: LocalePlugin = {
     "layout.resizeSidebar": "Resize sidebar",
     "layout.resizeFilePanel": "Resize file panel",
     "layout.resizeHint": "Drag to resize. Double-click or press Enter to reset.",
-    "sidebar.new": "New",
+    "tabs.newSession": "New session",
     "sidebar.newSessionTitle": "New session in {path}",
     "sidebar.refresh": "Refresh",
     "sidebar.selectProject": "Select project…",

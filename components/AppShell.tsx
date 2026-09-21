@@ -32,8 +32,13 @@ import {
   setCompletionBadge,
   clearBadgeOnFocus,
   coalesceCompletionSound,
+  isNewSessionTab,
+  openNewSessionTab,
+  hasSessionTab,
+  NEW_SESSION_TAB_ID,
   type PaneTab,
 } from "@/lib/pane-state";
+import { getPinnedProjects } from "@/lib/pinned-projects";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName } from "@/lib/file-paths";
@@ -833,14 +838,19 @@ export function AppShell() {
     // the default layout until the toolbar toggle enables split view.
     if (splitPaneEnabled) {
       setPaneTabs((prev) => {
-        const alreadyOpen = prev.some((t) => t.sessionId === session.id);
+        // Selecting a session supersedes the new-session tab (pi#21): its
+        // draft was parked above, so the next "+" restores it.
+        const tabs = prev.some((t) => isNewSessionTab(t.sessionId))
+          ? prev.filter((t) => !isNewSessionTab(t.sessionId))
+          : prev;
+        const alreadyOpen = tabs.some((t) => t.sessionId === session.id);
         if (alreadyOpen) {
           splitPaneLayoutRef.current?.scrollPaneIntoView(session.id);
           setFocusedPaneId(session.id);
-          return clearBadgeOnFocus(prev, session.id);
+          return clearBadgeOnFocus(tabs, session.id);
         }
         const label = session.name || session.firstMessage || session.id.slice(0, 12);
-        return openPaneOp(prev, session.id, label);
+        return openPaneOp(tabs, session.id, label);
       });
       if (focusedPaneId !== session.id) setFocusedPaneId(session.id);
     }
@@ -860,6 +870,16 @@ export function AppShell() {
 
   const handleNewSession = useCallback((sessionId: string, cwd: string) => {
     invalidateWorkspaceRestore();
+    // New-session page as a tab (pi#21): in split view an open new-session
+    // tab is focused instead of rekeying drafts — the existing composer keeps
+    // its draft untouched. Classic mode (split off) and mobile keep the exact
+    // full-area composer behavior below.
+    if (splitPaneEnabled && !isMobile && paneTabs.some((t) => isNewSessionTab(t.sessionId))) {
+      splitPaneLayoutRef.current?.scrollPaneIntoView(NEW_SESSION_TAB_ID);
+      setFocusedPaneId(NEW_SESSION_TAB_ID);
+      if (isMobile) setSidebarOpen(false);
+      return;
+    }
     const draftKey = `new:${sessionId}:${cwd}`;
     rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
     activeNewSessionDraftKeyRef.current = draftKey;
@@ -874,8 +894,43 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
+    if (splitPaneEnabled && !isMobile) {
+      // Open the new-session pane tab (at most one exists by construction)
+      // and focus it instead of bypassing the pane layout.
+      const label = translate("tabs.newSession");
+      setPaneTabs((prev) => openNewSessionTab(prev, label).tabs);
+      setFocusedPaneId(NEW_SESSION_TAB_ID);
+    }
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
-  }, [invalidateWorkspaceRestore, router, isMobile]);
+  }, [invalidateWorkspaceRestore, router, isMobile, splitPaneEnabled, paneTabs, translate]);
+
+  // The tab-strip "+": opens the new-session tab in the cwd the workspace is
+  // currently pointing at, or focuses the already-open one (handled inside
+  // handleNewSession). No cwd to start in means nothing to open.
+  // The new-session tab's default cwd (pi#21, user-confirmed): the FIRST
+  // pinned project, else the default directory, and only then the current
+  // workspace — NOT the focused session's cwd.
+  const resolveNewSessionTabCwd = useCallback(async (): Promise<string | null> => {
+    const pinned = getPinnedProjects();
+    if (pinned.length > 0) return pinned[0].root;
+    try {
+      // POST is the established "use default directory" semantic (pi#18):
+      // it creates and allow-lists the directory, so the composer's cwd
+      // validation does not hit a 403 on a not-yet-created dir.
+      const response = await fetch("/api/default-cwd", { method: "POST" });
+      const data = await response.json() as { cwd?: string };
+      if (data.cwd) return data.cwd;
+    } catch {
+      // fall through to the current workspace
+    }
+    return newSessionCwd ?? selectedSession?.cwd ?? activeCwd ?? null;
+  }, [newSessionCwd, selectedSession, activeCwd]);
+
+  const handleOpenNewSessionTab = useCallback(() => {
+    void resolveNewSessionTabCwd().then((cwd) => {
+      if (cwd) handleNewSession(`tabs-${Date.now()}`, cwd);
+    });
+  }, [resolveNewSessionTabCwd, handleNewSession]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -922,8 +977,25 @@ export function AppShell() {
     setNewSessionCwd(null);
     setSelectedSession(session);
     hydrateSelectedSession(session.id);
+    if (splitPaneEnabled && !isMobile) {
+      // The created session adopts the new-session tab in place (pi#21): the
+      // sentinel tab is replaced at the same index by the real session id, so
+      // sibling panes keep their keys and never unmount or reorder.
+      const label = session.name || session.firstMessage || session.id.slice(0, 12);
+      setPaneTabs((prev) => {
+        if (!prev.some((t) => isNewSessionTab(t.sessionId))) {
+          return openPaneOp(prev, session.id, label);
+        }
+        return prev.map((t) =>
+          isNewSessionTab(t.sessionId)
+            ? { sessionId: session.id, label, hasBadge: false }
+            : t,
+        );
+      });
+      setFocusedPaneId(session.id);
+    }
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession, splitPaneEnabled, isMobile]);
 
   const deliverSessionNotification = useCallback(({
     targetSession,
@@ -2449,7 +2521,7 @@ export function AppShell() {
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          {showChat && !isMobile && paneTabs.length > 0 && !newSessionCwd ? (
+          {showChat && !isMobile && paneTabs.length > 0 ? (
             <SplitPaneLayout
               ref={splitPaneLayoutRef}
               tabs={paneTabs}
@@ -2459,16 +2531,63 @@ export function AppShell() {
                 setFocusedPaneId(sid);
                 setPaneTabs((prev) => clearBadgeOnFocus(prev, sid));
               }}
+              onOpenNewSessionTab={handleOpenNewSessionTab}
               onClosePane={(sid) => {
+                const closingNewSessionTab = isNewSessionTab(sid);
                 const remaining = paneTabs.filter((t) => t.sessionId !== sid);
                 setPaneTabs((prev) => closePaneOp(prev, sid));
-                if (focusedPaneId === sid) {
-                  setFocusedPaneId(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
+                if (closingNewSessionTab) {
+                  // Closing the new-session tab itself: only when it was the
+                  // last remaining tab does split view collapse (the
+                  // previous last-pane behavior).
+                  if (remaining.length === 0) {
+                    setSplitPaneEnabled(false);
+                    setFocusedPaneId(null);
+                  } else if (focusedPaneId === sid) {
+                    setFocusedPaneId(remaining[remaining.length - 1].sessionId);
+                  }
+                  return;
                 }
-                // Closing the last pane leaves split view: back to the classic layout.
-                if (remaining.length === 0) setSplitPaneEnabled(false);
+                if (!hasSessionTab(remaining)) {
+                  // Auto new-session page (pi#21): the last session pane
+                  // closed, so keep split view enabled and open (or focus)
+                  // the new-session tab instead of the classic revert.
+                  if (remaining.some((t) => isNewSessionTab(t.sessionId))) {
+                    setFocusedPaneId(NEW_SESSION_TAB_ID);
+                    splitPaneLayoutRef.current?.scrollPaneIntoView(NEW_SESSION_TAB_ID);
+                  } else {
+                    void resolveNewSessionTabCwd().then((cwd) => {
+                      if (cwd) {
+                        handleNewSession(`pane-${Date.now()}`, cwd);
+                      } else {
+                        setSplitPaneEnabled(false);
+                        setFocusedPaneId(null);
+                      }
+                    });
+                  }
+                  return;
+                }
+                if (focusedPaneId === sid) {
+                  setFocusedPaneId(remaining[remaining.length - 1].sessionId);
+                }
               }}
               renderPane={(sid, focused) => {
+                // The sentinel tab renders the new-session composer ChatWindow;
+                // it reads the same cwd/draft props as the classic composer,
+                // so drafts survive pane switches and tab close/reopen.
+                if (isNewSessionTab(sid)) {
+                  return (
+                    <ChatWindow
+                      key={NEW_SESSION_TAB_ID}
+                      session={null}
+                      isActivePane={focused}
+                      newSessionCwd={effectiveNewSessionCwd}
+                      newSessionDraftKey={newSessionDraftKey}
+                      sessionRunning={false}
+                      onSessionCreated={handleSessionCreated}
+                    />
+                  );
+                }
                 const paneSession = sid === selectedSession?.id ? selectedSession : sessionCatalog.find((s) => s.id === sid) ?? null;
                 if (!paneSession) return null;
                 return (

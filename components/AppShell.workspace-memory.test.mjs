@@ -112,6 +112,10 @@ test("New restores the draft after session navigation and workspace auto-restore
         closePaneOp: (prev) => prev,
         setCompletionBadge: (prev) => prev,
         coalesceCompletionSound: () => true,
+        // pi#21: handleNewSession gained a translate dep (the new-session tab
+        // label) — the classic-mode path the harness exercises never calls
+        // it, but the dep array evaluates at creation.
+        translate: (key) => key,
       });
       context.invalidateWorkspaceRestore = () => context.workspaceRestoreTokenRef.current++;
       for (const [setter] of callbacks.matchAll(/\bset[A-Z]\w*(?=\()/g)) {

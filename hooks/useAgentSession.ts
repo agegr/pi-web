@@ -1746,6 +1746,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
+    // An empty-state composer (no session, no new-session cwd) has no project
+    // context — fetching bare "/api/models" would resolve the cwd to the
+    // server's process.cwd() and 403. Skip instead; a mount with a real cwd
+    // (or modelsRefreshKey change) reloads.
+    if (!modelCwd) return;
     const modelsUrl = modelCwd ? `/api/models?cwd=${encodeURIComponent(modelCwd)}` : "/api/models";
     let d: ModelsResponse;
     try {

@@ -38,6 +38,37 @@ export function openPane(
   return [...tabs, { sessionId, label, hasBadge: false }];
 }
 
+// --- New-session tab (pi#21) ---
+// The new-session page renders as an ordinary pane tab whose sessionId is a
+// sentinel constant instead of a real session id. Every tab path (widths,
+// scrolling, focus, close, PaneHeader) treats it uniformly, and a single
+// constant sentinel guarantees at most one new-session tab by construction.
+export const NEW_SESSION_TAB_ID = "__new-session__";
+
+export function isNewSessionTab(sessionId: string): boolean {
+  return sessionId === NEW_SESSION_TAB_ID;
+}
+
+/** At least one tab is a real (non-sentinel) session pane. */
+export function hasSessionTab(tabs: PaneTab[]): boolean {
+  return tabs.some((t) => t.sessionId !== NEW_SESSION_TAB_ID);
+}
+
+/**
+ * Insert the new-session tab at the tail unless one is already open.
+ * Reports whether the tab already existed so callers can focus/scroll the
+ * existing tab instead of duplicating it.
+ */
+export function openNewSessionTab(
+  tabs: PaneTab[],
+  label: string,
+): { tabs: PaneTab[]; existed: boolean } {
+  if (tabs.some((t) => t.sessionId === NEW_SESSION_TAB_ID)) {
+    return { tabs, existed: true };
+  }
+  return { tabs: [...tabs, { sessionId: NEW_SESSION_TAB_ID, label, hasBadge: false }], existed: false };
+}
+
 export function closePane(tabs: PaneTab[], sessionId: string): PaneTab[] {
   return tabs.filter((t) => t.sessionId !== sessionId);
 }
