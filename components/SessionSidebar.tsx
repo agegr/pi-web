@@ -8,6 +8,7 @@ import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, partitionProjectsByPseudo, sessionsForProject } from "@/lib/project-groups";
 import { getPinnedProjects, isProjectPinned, pinProject, unpinProject } from "@/lib/pinned-projects";
+import { buildExplorerRoots } from "@/lib/explorer-roots";
 import {
   buildSidebarRows,
   getWindowedRows,
@@ -21,7 +22,7 @@ import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
-import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { MultiRootFileExplorer, type MultiRootFileExplorerHandle } from "./MultiRootFileExplorer";
 import { SessionSearch } from "./SessionSearch";
 
 /** Client-side temporary session id — pi spawns lazily on first message. */
@@ -691,6 +692,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const pullStartYRef = useRef<number | null>(null);
   const pullFiredRef = useRef(false);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
+  // pi#14: the file explorer's trailing section. Written ONLY on explicit
+  // workspace-selector actions (dropdown row select, custom-path commit,
+  // default-directory, and the one-shot initial auto-select/URL restore) —
+  // never on session clicks, pane-focus prop sync, worktree switches or
+  // pinned-group [+], so the explorer stays decoupled from the session-driven
+  // selectedCwd.
+  const [explorerSelection, setExplorerSelection] = useState<ProjectSelection | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
@@ -760,7 +768,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const onExternalSessionChangeRef = useRef(onExternalSessionChange);
   onExternalSessionChangeRef.current = onExternalSessionChange;
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileExplorerRef = useRef<FileExplorerHandle>(null);
+  const multiRootExplorerRef = useRef<MultiRootFileExplorerHandle>(null);
 
   // Virtualized session list: only the visible window of rows is mounted.
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -1121,6 +1129,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const target = allSessions.find((s) => s.id === initialSessionId);
         if (target) {
           setSelectedCwd(target.cwd);
+          // One-shot initial selection (URL restore): the restored session's
+          // project becomes the explorer's trailing section — resolved to the
+          // project root, never a worktree cwd.
+          setExplorerSelection({ root: target.projectRoot ?? target.cwd, key: workspaceKeyOf(target) });
           onSelectSession(target, true);
           return;
         }
@@ -1128,7 +1140,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onInitialRestoreDone?.();
       }
       const projects = getRecentProjects(allSessions);
-      if (projects.length > 0) setSelectedCwd(projects[0].root);
+      if (projects.length > 0) {
+        setSelectedCwd(projects[0].root);
+        // One-shot initial auto-select: the most recent project becomes the
+        // explorer's trailing section on load.
+        setExplorerSelection(projects[0]);
+      }
     }
   }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
 
@@ -1174,6 +1191,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       saveLastCustomCwd(data.cwd);
       setCustomPathValue(data.cwd);
       setSelectedCwd(data.cwd);
+      // Custom-path commit is an explicit workspace-selector action: the
+      // validated project identity becomes the explorer's trailing section.
+      setExplorerSelection({ root: data.projectRoot, key: data.projectKey });
       setCustomPathOpen(false);
       setDropdownOpen(false);
     } catch (e) {
@@ -1194,6 +1214,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const data = await res.json() as { cwd?: string; error?: string };
       if (data.cwd) {
         setSelectedCwd(data.cwd);
+        // Default-directory shortcut is an explicit workspace-selector
+        // action: resolve its project identity for the explorer tail.
+        setExplorerSelection(projectFor(data.cwd));
         setCustomPathOpen(false);
         setCustomPathError(null);
         setDropdownOpen(false);
@@ -1201,7 +1224,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } catch {
       // ignore
     }
-  }, []);
+  }, [projectFor]);
 
   const handleCreateWorktree = useCallback(async () => {
     const branch = wtNewBranch.trim();
@@ -1355,6 +1378,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [pinnedEntries, recentProjects],
   );
   const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((entry) => entry.key)), [pinnedEntries]);
+  // pi#14 explorer section roots: every pinned project (pin order) plus the
+  // workspace selector's current selection as the trailing section, deduped
+  // by stable key so worktrees of a pinned project never add a section.
+  // Unpin bumps pinnedRevision, so a removed pin's section disappears
+  // immediately with the other sections' expansion state intact.
+  const explorerRoots = useMemo(
+    () => buildExplorerRoots(pinnedProjects, explorerSelection),
+    [pinnedProjects, explorerSelection],
+  );
   const projectPartition = useMemo(
     () => partitionProjectsByPseudo(recentProjects, allSessions),
     [recentProjects, allSessions],
@@ -1771,6 +1803,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     t={t}
                     onSelect={() => {
                       setSelectedCwd(project.root);
+                      // Dropdown row select is an explicit workspace-selector
+                      // action: this project becomes the explorer's trailing
+                      // section (deduped against pins by its stable key).
+                      setExplorerSelection(project);
                       setProjectFilter("");
                       setCustomPathOpen(false);
                       setCustomPathError(null);
@@ -2274,7 +2310,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           pullStartYRef.current = null;
           pullFiredRef.current = false;
         }}
-        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
+        style={{ flex: explorerOpen ? "1 1 0" : "1 1 auto", overflowY: "auto", padding: "0", minHeight: 80 }}
       >
         {loading && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
@@ -2390,9 +2426,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       </div>
       </SessionSearch>
 
-      {/* File Explorer section */}
-      {(selectedCwdProp || selectedCwd) && (
-        <div
+      {/* File Explorer section — pi#14: always mounted. With no roots it
+          renders an inert empty hint (the container's empty state); toolbar
+          actions that need a root disable. */}
+      <div
           style={{
             borderTop: "1px solid var(--border)",
             display: "flex",
@@ -2464,8 +2501,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {explorerOpen && (
               <ToolbarIconButton
                 onClick={() => {
-                  setFileSearchOpen((open) => !open);
+                  if (fileSearchOpen) {
+                    setFileSearchOpen(false);
+                    return;
+                  }
+                  // Opening routes through the container handle: it expands
+                  // the deterministic target section first, so the search
+                  // input appears even from the all-collapsed default state
+                  // (review-FAIL blocker 2 — the handle was dead code before).
+                  multiRootExplorerRef.current?.openFileSearch();
                 }}
+                disabled={explorerRoots.length === 0}
                 title={t("sidebar.searchFiles")}
                 ariaPressed={fileSearchOpen}
                 color={fileSearchOpen ? "var(--accent)" : "var(--text-dim)"}
@@ -2478,8 +2524,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             )}
             {explorerOpen && (
               <ToolbarIconButton
-                onClick={() => fileExplorerRef.current?.openUploadPicker()}
-                disabled={explorerUploadBusy}
+                onClick={() => multiRootExplorerRef.current?.openUploadPicker()}
+                disabled={explorerUploadBusy || explorerRoots.length === 0}
                 title={t("sidebar.uploadFilesTitle")}
                 color="var(--text-dim)"
               >
@@ -2518,11 +2564,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
           {explorerOpen && (
             <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-              <FileExplorer
-                ref={fileExplorerRef}
-                cwd={selectedCwd ?? selectedCwdProp!}
-                onOpenFile={onOpenFile ?? (() => {})}
+              <MultiRootFileExplorer
+                ref={multiRootExplorerRef}
+                roots={explorerRoots}
+                staleRoots={stalePinnedRoots}
+                homeDir={homeDir}
                 refreshKey={explorerKey}
+                onOpenFile={onOpenFile ?? (() => {})}
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
                 onUploadBusyChange={setExplorerUploadBusy}
@@ -2534,7 +2582,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </div>
           )}
         </div>
-      )}
     </div>
   );
 }
