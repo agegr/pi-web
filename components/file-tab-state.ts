@@ -5,6 +5,7 @@ interface OpenFileTabInput {
   fileName: string;
   filePath: string;
   modeHint?: "diff";
+  page?: number;
   sourceSessionId?: string | null;
   tabId: string;
 }
@@ -18,6 +19,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       filePath: input.filePath,
       sourceSessionId: input.sourceSessionId,
       initialDisplayMode: input.modeHint,
+      page: input.page,
       viewerState: input.modeHint ? {
         displayMode: input.modeHint,
         wrapLines: false,
@@ -32,12 +34,21 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
   );
   const sourceUnchanged = !sourceChanged;
-  if (sourceUnchanged && !input.modeHint) return tabs;
+  const pageChanged = existing.page !== input.page;
+  if (sourceUnchanged && !input.modeHint && !pageChanged) return tabs;
 
   return tabs.map((tab) => {
     if (tab.id !== input.tabId) return tab;
     const next: Tab = { ...tab };
-    if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
+    let bumpRevision = false;
+    if (sourceChanged) {
+      next.sourceSessionId = input.sourceSessionId;
+      bumpRevision = true;
+    }
+    if (pageChanged) {
+      next.page = input.page;
+      bumpRevision = true;
+    }
     if (input.modeHint) {
       next.initialDisplayMode = input.modeHint;
       next.viewerState = {
@@ -46,10 +57,9 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
         scrollTop: 0,
         scrollLeft: 0,
       };
-      next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
-    } else if (sourceChanged) {
-      next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
+      bumpRevision = true;
     }
+    if (bumpRevision) next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
     return next;
   });
 }

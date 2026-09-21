@@ -1321,6 +1321,77 @@ pre, code {
   pointer-events: auto;
 }
 
+.chat-scroll-to-bottom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 16%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(4px) scale(0.96);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    background 0.12s,
+    color 0.12s,
+    visibility 0s linear 0.16s;
+}
+
+.chat-scroll-to-bottom.is-visible {
+  opacity: 0.28;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    background 0.12s,
+    color 0.12s,
+    visibility 0s;
+}
+
+.chat-scroll-to-bottom.is-visible:hover,
+.chat-scroll-to-bottom.is-visible:focus-visible {
+  opacity: 1;
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chat-scroll-to-bottom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scroll-to-bottom,
+  .chat-scroll-to-bottom.is-visible {
+    transform: none;
+    transition:
+      opacity 0.16s ease,
+      background 0.12s,
+      color 0.12s,
+      visibility 0s linear 0.16s;
+  }
+
+  .chat-scroll-to-bottom.is-visible {
+    transition:
+      opacity 0.16s ease,
+      background 0.12s,
+      color 0.12s,
+      visibility 0s;
+  }
+}
+
 .file-viewer-icon-button {
   display: inline-flex;
   align-items: center;
@@ -1581,6 +1652,25 @@ span.token.table {
 .panel-resize-handle:hover::after,
 .panel-resize-handle:focus-visible::after,
 .panel-resize-handle.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+}
+.sidebar-section-resize-handle {
+  outline: none;
+}
+.sidebar-section-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 1px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.sidebar-section-resize-handle:hover::after,
+.sidebar-section-resize-handle:focus-visible::after,
+.sidebar-section-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
 .right-panel-overlay-backdrop {

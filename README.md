@@ -11,6 +11,7 @@ This is the **@silgrid/pi-web** fork of [agegr/pi-web](https://github.com/agegr/
 | Fork version | Upstream version | Upstream commit |
 |---|---|---|
 | 0.0.1 | 0.9.1 | `ffb2daf` |
+| 0.0.4 | 0.9.1 | `1eb5e66` |
 
 Update one row per upstream merge so the table stays the mapping between the fork line and the upstream baseline.
 

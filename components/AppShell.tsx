@@ -1167,15 +1167,17 @@ export function AppShell() {
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
-    options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+    options?: { sourceSessionId?: string | null; modeHint?: "diff"; page?: number },
   ) => {
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
+    const page = options?.page;
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => openFileTab(prev, {
       fileName,
       filePath,
       modeHint,
+      page,
       sourceSessionId,
       tabId,
     }));
@@ -1185,8 +1187,8 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
-  const handleOpenLinkedFile = useCallback((filePath: string) => {
-    handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null });
+  const handleOpenLinkedFile = useCallback((filePath: string, page?: number) => {
+    handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null, page });
   }, [handleOpenFile, selectedSession?.id]);
 
   const handleOpenTerminal = useCallback((cwd: string) => {
@@ -2873,6 +2875,7 @@ export function AppShell() {
               sourceSessionId={activeFileTab.sourceSessionId}
               gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}
+              initialPage={activeFileTab.page}
               initialState={activeFileTab.viewerState}
               watchEnabled={rightPanelOpen}
               onStateChange={(viewerState) => handleFileViewerStateChange(
@@ -2882,10 +2885,10 @@ export function AppShell() {
               )}
               onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
               onAtMention={handleAtMention}
-              onOpenFile={(filePath) => handleOpenFile(
+              onOpenFile={(filePath, page) => handleOpenFile(
                 filePath,
                 getFileName(filePath),
-                { sourceSessionId: activeFileTab.sourceSessionId },
+                { sourceSessionId: activeFileTab.sourceSessionId, page },
               )}
             />
           ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) ? (

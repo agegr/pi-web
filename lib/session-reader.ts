@@ -540,11 +540,34 @@ export function buildSessionContext(
 }
 
 /**
+ * Entry that renders as a standalone visible message in the chat window:
+ * user / assistant messages plus the compaction divider. toolResult entries,
+ * hidden custom messages and session meta render as attachments or nothing,
+ * so they must not consume the `tail` budget — counting raw entries starves
+ * user messages out of the window in agent-heavy sessions (a 50-entry window
+ * over a tool-heavy session can hold a single user message).
+ */
+function countsTowardTail(entry: SessionEntry): boolean {
+  if (entry.type === "compaction") return true;
+  if (entry.type !== "message") return false;
+  const role = (entry as { message?: { role?: string } }).message?.role;
+  return role === "user" || role === "assistant";
+}
+
+/**
+ * Raw-entry ceiling for one page, so a span of tool traffic with few visible
+ * anchors cannot balloon the payload. Scaled with `tail`; older history still
+ * pages in via `before`.
+ */
+const MIN_RAW_WINDOW_ENTRIES = 200;
+const rawWindowCap = (tail: number) => Math.max(MIN_RAW_WINDOW_ENTRIES, tail * 6);
+
+/**
  * Extract the ancestor chain from `leafId` back toward the root, capped at
- * `tail` entries (most-recent first after the final reverse). Iterative: a
- * linear session's chain length equals its entry count, so a recursive walk
- * would overflow the stack. The result is still a valid prefix of the active
- * branch — older history is loaded on demand via pagination.
+ * `tail` visible entries (most-recent first after the final reverse).
+ * Iterative: a linear session's chain length equals its entry count, so a
+ * recursive walk would overflow the stack. The result is still a valid prefix
+ * of the active branch — older history is loaded on demand via pagination.
  */
 export function sliceActiveBranch(
   entries: SessionEntry[],
@@ -563,8 +586,12 @@ export function sliceActiveBranch(
   if (!leaf) return [];
   const chain: SessionEntry[] = [];
   let current: SessionEntry | undefined = leaf;
-  while (current && chain.length < tail) {
+  let visible = 0;
+  const rawCap = rawWindowCap(tail);
+  while (current) {
     chain.push(current);
+    if (countsTowardTail(current)) visible++;
+    if (visible >= tail || chain.length >= rawCap) break;
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
   chain.reverse();

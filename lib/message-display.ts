@@ -32,6 +32,18 @@ export function getAssistantErrorMessage(
   return message.errorMessage?.trim() || "Unknown provider error";
 }
 
+/**
+ * A turn that ended on `stopReason: "length"` spent its whole output budget
+ * (often on reasoning alone) and produced no final answer; without a notice it
+ * looks like a hung session. The copy lives in i18n (`chat.truncatedByOutputLimit`).
+ */
+export function isAssistantTruncated(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): boolean {
+  return !options.isStreaming && message.stopReason === "length";
+}
+
 function isFinalAnswerBlock(block: AssistantContentBlock): boolean {
   return block.type === "text" || block.type === "image";
 }

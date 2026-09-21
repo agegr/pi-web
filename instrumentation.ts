@@ -1,11 +1,11 @@
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== "nodejs") return;
-
-  const { configureHttpDispatcher } = await import("@/lib/http-dispatcher");
-  configureHttpDispatcher();
-
-  // Start the external-write watcher so TUI (or other pi process) session
-  // writes invalidate the session list cache without a manual reload.
-  const { ensureSessionWatcher } = await import("@/lib/session-watcher");
-  ensureSessionWatcher();
+  // Next builds this file for both the Node and the Edge instrumentation entry.
+  // The Edge graph rejects Node APIs, so `process.on` and undici live in
+  // ./instrumentation-node, reached only through this compile-time-eliminated
+  // NEXT_RUNTIME branch. An early `return` instead of this `if` would leave the
+  // Node calls in the Edge module.
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { registerNodeInstrumentation } = await import("./instrumentation-node");
+    registerNodeInstrumentation();
+  }
 }
