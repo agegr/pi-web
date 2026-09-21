@@ -61,7 +61,7 @@ test("all three locales carry the bgTasks keys", () => {
 });
 
 test("AppShell wires the panel, the toolbar badge, and the event callback", () => {
-  assert.match(appShellSource, /useBackgroundTasks\(selectedSession\?\.id \?\? null\)/);
+  assert.match(appShellSource, /useBackgroundTasks\(selectedSession\?\.id \?\? null, bgPanelOpen\)/);
   assert.match(appShellSource, /onBackgroundTasksEvent=\{handleBackgroundTasksEvent\}/);
   assert.match(appShellSource, /<BackgroundTasksPanel/);
   assert.match(appShellSource, /bgRunningCount > 0/);
