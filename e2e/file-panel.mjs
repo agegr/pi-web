@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { dirname } from "node:path";
 
 export const filePanelFixture = `<!doctype html><html><body style="margin:20px;min-height:2400px">
 <label>Notes <input id="notes"></label>
@@ -9,6 +10,21 @@ export const filePanelFixture = `<!doctype html><html><body style="margin:20px;m
 export async function checkFilePanel(page, filePath) {
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
+  // pi#14: explorer roots are project-sectioned, not session-driven. The
+  // file node lives inside the owning project-root section, and sections
+  // are collapsed by default on a fresh page — expand the section first.
+  // The section header carries the project root as its data attribute; fall
+  // back to expanding every collapsed section when the exact root string
+  // is not found (e.g. server-resolved path normalization).
+  const owningRoot = dirname(filePath);
+  let headers = page.locator(`[data-explorer-section="${owningRoot}"]`);
+  if (await headers.count() === 0) headers = page.locator("[data-explorer-section]");
+  await headers.first().waitFor();
+  const sectionCount = await headers.count();
+  for (let i = 0; i < sectionCount; i++) {
+    const header = headers.nth(i);
+    if ((await header.getAttribute("aria-expanded")) === "false") await header.click();
+  }
   await page.locator(`[title="${filePath}"]`).click();
   const panel = page.locator("#file-panel");
   const iframe = panel.locator("iframe");
