@@ -9,6 +9,7 @@ import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, partitionProjectsByPseudo, sessionsForProject } from "@/lib/project-groups";
 import { getPinnedProjects, isProjectPinned, pinProject, unpinProject } from "@/lib/pinned-projects";
 import { buildExplorerRoots } from "@/lib/explorer-roots";
+import { shouldShowDefaultCwdShortcut, syntheticProjectFor } from "@/lib/default-cwd-shortcut";
 import {
   buildSidebarRows,
   getWindowedRows,
@@ -700,6 +701,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // selectedCwd.
   const [explorerSelection, setExplorerSelection] = useState<ProjectSelection | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
+  // Today's default directory (GET /api/default-cwd, no side effects).
+  // Drives the shortcut-visibility rule; the click itself still goes
+  // through POST, which creates and allow-lists the directory.
+  const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
   // Pinned projects: the store re-reads localStorage on every call, so a
@@ -1021,6 +1026,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }).catch(() => {});
   }, []);
 
+  // Read-only: reports today's ~/pi-cwd-<date> without creating it.
+  useEffect(() => {
+    fetch("/api/default-cwd").then((r) => r.json()).then((d: { cwd?: string }) => {
+      if (d.cwd) setDefaultCwd(d.cwd);
+    }).catch(() => {});
+  }, []);
+
   const restoredRef = useRef(false);
 
   const projectSelection = useCallback((root: string, key: string): ProjectSelection => ({
@@ -1215,8 +1227,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (data.cwd) {
         setSelectedCwd(data.cwd);
         // Default-directory shortcut is an explicit workspace-selector
-        // action: resolve its project identity for the explorer tail.
-        setExplorerSelection(projectFor(data.cwd));
+        // action: resolve its project identity for the explorer tail. When
+        // the directory has no sessions (and no identity resolved yet),
+        // fall back to a synthetic entry so the explorer's trailing
+        // section always follows the click (pi#18).
+        setExplorerSelection(projectFor(data.cwd) ?? syntheticProjectFor(data.cwd));
         setCustomPathOpen(false);
         setCustomPathError(null);
         setDropdownOpen(false);
@@ -1378,6 +1393,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [pinnedEntries, recentProjects],
   );
   const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((entry) => entry.key)), [pinnedEntries]);
+  // pi#18: with pinned projects set and the default directory outside that
+  // set, the shortcut would point somewhere the explorer already steers away
+  // from — hide it. Pin/unpin bumps pinnedRevision, so the rule re-evaluates
+  // immediately, and the default directory is compared loosely (case and
+  // separators) against the pinned display roots.
+  const showDefaultCwdShortcut = useMemo(
+    () => shouldShowDefaultCwdShortcut(pinnedProjects, defaultCwd),
+    [pinnedProjects, defaultCwd],
+  );
   // pi#14 explorer section roots: every pinned project (pin order) plus the
   // workspace selector's current selection as the trailing section, deduped
   // by stable key so worktrees of a pinned project never add a section.
@@ -1858,8 +1882,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </button>
               )}
 
-              {/* Default cwd shortcut */}
-              {!customPathOpen && (
+              {/* Default cwd shortcut — hidden while pinned projects exist
+                  and none of them is the default directory (pi#18) */}
+              {!customPathOpen && showDefaultCwdShortcut && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
                   style={{
