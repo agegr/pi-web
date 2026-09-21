@@ -232,3 +232,21 @@ test("a blank id in a half-typed row is not a rename yet", () => {
 test("a provider added since the last save has no saved slots to compare", () => {
   assert.deepEqual(collectModelRenames(draft(["aaa"]), new Map(), new Map()), []);
 });
+
+test("discovery can sync the configured models to the upstream list", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+
+  // Additions always apply; dropping models the upstream list no longer offers
+  // stays behind an explicit opt-in so a partial upstream response is harmless.
+  assert.match(providerDetail, /planModelSync\(\(provider\.models \?\? \[\]\)\.map\(\(model\) => model\.id\), discoveredModels\)/);
+  assert.match(providerDetail, /onSyncModels\(syncPlan, removeStaleModels\)/);
+  assert.match(providerDetail, /t\("models\.syncRemoveStale", \{ count: syncPlan\.stale\.length \}\)/);
+  assert.match(providerDetail, /t\("models\.syncSummary", \{ total: discoveryState\.models\.length, added: syncPlan\.additions\.length, stale: syncPlan\.stale\.length \}\)/);
+
+  // The parent only drops stale ids when asked, and keeps additions unique.
+  assert.match(source, /const dropped = new Set\(removeStale \? plan\.stale : \[\]\)/);
+  assert.match(source, /onSyncModels=\{\(plan, removeStale\) => syncProviderModels\(selection\.name, plan, removeStale\)\}/);
+});
