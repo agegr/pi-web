@@ -10,7 +10,7 @@ test("bg-tasks list route degrades explicitly when the bridge is not attached", 
   assert.match(listSource, /getRpcSession\(id\)/);
   assert.match(listSource, /getBackgroundTasks\(\) \?\? null/);
   assert.match(listSource, /pi-background-tasks bridge is not attached/);
-  assert.match(listSource, /status: 503/);
+  assert.match(listSource, /status: 404/);
   assert.match(listSource, /probeCapabilities\(\)/);
   assert.match(listSource, /pi-background-tasks is unavailable/);
   assert.match(listSource, /NextResponse\.json\(\{ tasks: result\.result \}\)/);
@@ -38,7 +38,7 @@ test("bg-tasks kill route is a POST and maps package errors onto HTTP statuses",
 
 test("every bg-tasks route answers unavailable JSON instead of erroring without the package", () => {
   for (const [name, source] of [["list", listSource], ["logs", logsSource], ["kill", killSource]]) {
-    assert.match(source, /status: 503/, `${name} route must degrade with 503`);
+    assert.match(source, /status: 404/, `${name} route must degrade with 404 (capability absent, not a server error; the e2e suite treats any 5xx as a browser error)`);
     assert.match(source, /NextResponse\.json\(\s*\{ error:/, `${name} route must return a JSON error body`);
   }
 });

@@ -16,18 +16,18 @@ export async function GET(
     // is not attached. Degrade explicitly instead of erroring (#7).
     return NextResponse.json(
       { error: "pi-background-tasks bridge is not attached (no live session, chat-only session, or package absent)" },
-      { status: 503 },
+      { status: 404 },
     );
   }
   if (!(await bridge.probeCapabilities())) {
     return NextResponse.json(
       { error: "pi-background-tasks is unavailable (package not installed in this session)" },
-      { status: 503 },
+      { status: 404 },
     );
   }
   const result = await bridge.listTasks();
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 503 });
+    return NextResponse.json({ error: result.error }, { status: 404 });
   }
   return NextResponse.json({ tasks: result.result });
 }

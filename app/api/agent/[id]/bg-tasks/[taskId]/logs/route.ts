@@ -15,7 +15,7 @@ export async function GET(
   if (!bridge) {
     return NextResponse.json(
       { error: "pi-background-tasks bridge is not attached (no live session, chat-only session, or package absent)" },
-      { status: 503 },
+      { status: 404 },
     );
   }
   const url = new URL(req.url);
