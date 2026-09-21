@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
+import { planModelSync, type ModelSyncPlan } from "@/lib/model-sync";
 import {
   getLastSettingsSelection,
   setLastSettingsSelection,
@@ -292,16 +293,18 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels }: {
+function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels, onSyncModels }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void;
+  onSyncModels: (plan: ModelSyncPlan, removeStale: boolean) => void;
 }) {
   const { t } = useI18n();
   const [editingName, setEditingName] = useState(name);
   const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
   const [discoveryQuery, setDiscoveryQuery] = useState("");
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
+  const [removeStaleModels, setRemoveStaleModels] = useState(false);
   const discoveryRequestIdRef = useRef(0);
   const selectShownRef = useRef<HTMLInputElement>(null);
   useEffect(() => setEditingName(name), [name]);
@@ -317,6 +320,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
     setDiscoveryState({ phase: "idle" });
     setDiscoveryQuery("");
     setSelectedModelIds([]);
+    setRemoveStaleModels(false);
   }, [name, provider.baseUrl, provider.api, provider.apiKey]);
 
   const handleDiscoverModels = useCallback(async () => {
@@ -383,6 +387,19 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
     if (additions.length === 0) return;
     onAddModels(additions);
     setSelectedModelIds([]);
+  };
+
+  // Full reconciliation: every upstream model is added, and models the upstream
+  // list no longer offers are only dropped when the user opts in — an upstream
+  // endpoint can legitimately return a partial list (gateways, proxies, paging).
+  const syncPlan = planModelSync((provider.models ?? []).map((model) => model.id), discoveredModels);
+  const syncReady = syncPlan.additions.length > 0 || (removeStaleModels && syncPlan.stale.length > 0);
+
+  const applyModelSync = () => {
+    if (!syncReady) return;
+    onSyncModels(syncPlan, removeStaleModels);
+    setSelectedModelIds([]);
+    setDiscoveryState({ phase: "idle" });
   };
 
   return (
@@ -529,6 +546,35 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
                   ? t("models.discoveryAddSelectedCount", { count: selectedCount })
                   : t("models.discoveryAddSelected")}
               </button>
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                  {syncPlan.additions.length === 0 && syncPlan.stale.length === 0
+                    ? t("models.syncUpToDate")
+                    : t("models.syncSummary", { total: discoveryState.models.length, added: syncPlan.additions.length, stale: syncPlan.stale.length })}
+                </span>
+                <button
+                  onClick={applyModelSync}
+                  disabled={!syncReady}
+                  style={{ height: 28, padding: "0 11px", border: "1px solid var(--border)", borderRadius: 5, background: syncReady ? "var(--accent)" : "var(--bg-panel)", color: syncReady ? "var(--accent-contrast)" : "var(--text-dim)", cursor: syncReady ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
+                >
+                  {t("models.syncApply")}
+                </button>
+              </div>
+              {syncPlan.stale.length > 0 && (
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--text-muted)" }}>
+                  <input
+                    type="checkbox"
+                    checked={removeStaleModels}
+                    onChange={(event) => setRemoveStaleModels(event.target.checked)}
+                    style={{ width: 13, height: 13, accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  {t("models.syncRemoveStale", { count: syncPlan.stale.length })}
+                </label>
+              )}
+              <span style={{ color: "var(--text-dim)", fontSize: 10 }}>{t("models.syncHint")}</span>
             </div>
           </>
         )}
@@ -1934,6 +1980,24 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
     });
   }, []);
 
+  const syncProviderModels = useCallback((providerName: string, plan: ModelSyncPlan, removeStale: boolean) => {
+    setConfig((prev) => {
+      const provider = prev.providers?.[providerName] ?? {};
+      const dropped = new Set(removeStale ? plan.stale : []);
+      const models = (provider.models ?? []).filter((model) => !dropped.has(model.id));
+      const existingIds = new Set(models.map((model) => model.id));
+      for (const addition of plan.additions) {
+        if (existingIds.has(addition.id)) continue;
+        existingIds.add(addition.id);
+        models.push({ id: addition.id, name: addition.name });
+      }
+      return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models: models.length ? models : undefined } } };
+    });
+    // Removing models shifts the model list indexes, so leave a possibly
+    // dangling model selection and fall back to the provider view.
+    if (removeStale && plan.stale.length > 0) setSelection({ type: "provider", name: providerName });
+  }, []);
+
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
@@ -2002,6 +2066,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
+          onSyncModels={(plan, removeStale) => syncProviderModels(selection.name, plan, removeStale)}
         />
       );
     }

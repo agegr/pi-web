@@ -225,6 +225,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+- `Import models…` stays a manual pick, while `Sync models` reconciles a provider with its upstream `GET /models` list. `lib/model-sync.ts` plans that comparison and is deliberately advisory about removals: upstream additions always apply, but ids the upstream list no longer offers are only dropped when the user opts in, because gateways and proxies can legitimately return a partial list. Sync edits the modal draft like every other edit — `Save` is still what writes `models.json`.
 
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
