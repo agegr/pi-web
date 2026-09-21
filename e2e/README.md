@@ -34,6 +34,9 @@ Coverage:
 - Unknown sessions and paths outside the fixture project are rejected.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
+- A local OpenAI-compatible fixture serves `GET /v1/models`; the Models panel
+  imports the upstream list, drops a stale id only when removal is ticked, and
+  leaves other providers untouched.
 
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under
