@@ -10,31 +10,40 @@ interface Props {
   label: string;
   /**
    * Right inset: CHAT_MINIMAP_WIDTH on desktop so the pill sits horizontally
-   * clear of the minimap column; a small inset on mobile.
+   * clear of the minimap column. Ignored when `centered` is set.
    */
-  insetRight: number;
+  insetRight?: number;
   /**
    * Distance from the bottom edge of the messages region (the composer is a
    * sibling below it, so the pill floats directly above the composer edge).
    */
   insetBottom?: number;
+  /**
+   * Horizontally centered placement (pi#22 mobile): left: 50% plus
+   * translateX(-50%), so the pill floats centered directly above the
+   * composer. Supersedes the right anchor; desktop keeps the right anchor
+   * to stay clear of the minimap column.
+   */
+  centered?: boolean;
 }
 
 /**
  * Floating jump-to-bottom pill overlaid at the bottom of the messages region
  * (pi#17). Purely presentational: ChatWindow owns placement policy via
- * `insetRight`/`insetBottom`, and `visible: false` means NOT RENDERED at all
+ * `centered`/`insetRight`/`insetBottom` — centered above the composer on
+ * mobile, right-anchored clear of the minimap on desktop — and `visible:
+ * false` means NOT RENDERED at all
  * — never merely transparent — so it never intercepts pointer events at the
  * tail. Overlay only: it does not participate in layout and cannot push or
  * cover the composer or the minimap.
  */
-export default function JumpToBottom({ visible, onJump, label, insetRight, insetBottom = 12 }: Props) {
+export default function JumpToBottom({ visible, onJump, label, insetRight, insetBottom = 12, centered = false }: Props) {
   if (!visible) return null;
 
   const style: CSSProperties = {
     position: "absolute",
     bottom: insetBottom,
-    right: insetRight,
+    ...(centered ? { left: "50%", transform: "translateX(-50%)" } : { right: insetRight }),
     zIndex: 30,
     display: "flex",
     alignItems: "center",

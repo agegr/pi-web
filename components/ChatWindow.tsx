@@ -1289,13 +1289,15 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         )}
         {/* Floating jump-to-bottom pill: appears only when the chat is scrolled
             up and never during the hidden scroll-restore window. Overlay only
-            (absolute inside this relative region), inset clear of the minimap
-            column, anchored just above the composer sibling below. */}
+            (absolute inside this relative region). Placement policy (pi#22):
+            horizontally centered directly above the composer on mobile,
+            right-anchored just clear of the minimap column on desktop. */}
         <JumpToBottom
           visible={isScrolledUp && !pendingScrollRestore}
           onJump={jumpToLatest}
           label={t("chat.jumpToLatest")}
-          insetRight={isMobile ? 8 : CHAT_MINIMAP_WIDTH}
+          centered={isMobile}
+          insetRight={CHAT_MINIMAP_WIDTH}
         />
         </>}
       </div>

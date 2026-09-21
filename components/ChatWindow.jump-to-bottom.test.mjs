@@ -43,7 +43,9 @@ test("JumpToBottom renders nothing when not visible and is a native accessible b
   assert.match(source, /title=\{label\}/);
   assert.match(source, /position: "absolute",/, "overlay only: the pill must not participate in layout");
   assert.match(source, /bottom: insetBottom/);
-  assert.match(source, /right: insetRight/);
+  // pi#22: horizontal placement is either centered (mobile) or right-anchored (desktop).
+  assert.match(source, /centered \? \{ left: "50%", transform: "translateX\(-50%\)" \} : \{ right: insetRight \}/,
+    "centered placement must be left: 50% + translateX(-50%) so the pill is horizontally centered; otherwise right-anchored");
 });
 
 test("ChatWindow gates the pill on isScrolledUp && !pendingScrollRestore and places it clear of the minimap", async () => {
@@ -52,8 +54,11 @@ test("ChatWindow gates the pill on isScrolledUp && !pendingScrollRestore and pla
     "no pill during the hidden scroll-restore window; after restore only if the restored position is above threshold");
   assert.match(source, /onJump=\{jumpToLatest\}/);
   assert.match(source, /label=\{t\("chat\.jumpToLatest"\)\}/);
-  assert.match(source, /insetRight=\{isMobile \? 8 : CHAT_MINIMAP_WIDTH\}/,
-    "right inset must be derived from the minimap width on desktop and a small inset on mobile");
+  // pi#22: mobile centers the pill above the composer; desktop keeps the right anchor clearing the minimap.
+  assert.match(source, /centered=\{isMobile\}/,
+    "mobile must request the centered placement so the pill is horizontally centered above the input");
+  assert.match(source, /insetRight=\{CHAT_MINIMAP_WIDTH\}/,
+    "desktop keeps the right inset derived from the minimap width (ignored when centered)");
   assert.match(source, /import JumpToBottom from "\.\/JumpToBottom";/);
 });
 
