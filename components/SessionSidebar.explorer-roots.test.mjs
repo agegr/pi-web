@@ -77,12 +77,14 @@ test("explicit workspace-selector actions are the only explorer-selection writer
     "}, [customPathValue, customPathValidating]);",
   );
   assert.match(commitBody, /setExplorerSelection\(\{ root: data\.projectRoot, key: data\.projectKey \}\);/);
-  // Default-directory shortcut.
+  // Default-directory shortcut: identity from projectFor with a synthetic
+  // fallback so a session-less default directory still gets a trailing
+  // section (pi#18).
   const defaultBody = sliceBetween(
     "const handleDefaultCwd = useCallback(",
     "}, [projectFor]);",
   );
-  assert.match(defaultBody, /setExplorerSelection\(projectFor\(data\.cwd\)\);/);
+  assert.match(defaultBody, /setExplorerSelection\(projectFor\(data\.cwd\) \?\? syntheticProjectFor\(data\.cwd\)\);/);
   // One-shot initial auto-select / URL restore.
   assert.match(
     source,
