@@ -2598,6 +2598,14 @@ export function AppShell() {
                     newSessionCwd={null}
                     newSessionDraftKey={null}
                     sessionRunning={runningSessionIds.has(sid)}
+                    // pi#23: only the focused pane reports usage/stats to the
+                    // global topbar state. Unfocused panes pass undefined, so
+                    // ChatWindow's cleanup (keyed on the callback) nulls the
+                    // old value on blur and the newly focused pane's effect
+                    // re-reports its current value on focus — last writer is
+                    // always the focused pane, never an unfocused one.
+                    onSessionStatsChange={focused ? handleSessionStatsChange : undefined}
+                    onContextUsageChange={focused ? handleContextUsageChange : undefined}
                     onAgentEnd={() => {
                       if (sid !== focusedPaneId) {
                         setPaneTabs((prev) => setCompletionBadge(prev, sid));

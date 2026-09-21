@@ -80,6 +80,19 @@ export async function checkSplitPane(page, sessions) {
   assert.equal(await process.getAttribute("aria-expanded"), "true",
     "pane state must survive focus switches without unmounting");
 
+  // 4b. pi#23: the focused pane reports usage/stats to the top-right topbar.
+  //     Both panes hold sessions with messages, so after the focus bounce the
+  //     stats button must be visible and driven by the newly focused pane
+  //     (unfocused panes pass undefined and only the focused pane writes).
+  const desktopStatsButton = page.getByRole("button", { name: "Session info", exact: true });
+  await desktopStatsButton.waitFor({ state: "visible" });
+  await tabs.nth(1).click();
+  await chat().getByText(longTailText, { exact: true }).waitFor();
+  await desktopStatsButton.waitFor({ state: "visible" },
+    "the stats button must follow focus to the newly focused session pane");
+  await tabs.nth(0).click();
+  await chat().getByText("E2E final answer", { exact: true }).waitFor();
+
   // 5. A third pane: three panes at one third each. The sidebar is hidden
   //    first so the pane area tracks the viewport width (1280px holds
   //    floor(1280/MIN_PANE_WIDTH) = 3 panes).
@@ -177,6 +190,13 @@ export async function checkSplitPane(page, sessions) {
   assert.ok(await page.locator("[data-split-tablist]").isVisible(),
     "split view stays enabled after the last session pane closes");
   await composer(0).waitFor({ state: "visible" });
+  // 10b. pi#23: the sentinel pane has no session and reports nothing (it
+  //      never forwards the callbacks), and the last session pane nulled the
+  //      global state when focus moved to the sentinel (blur cleanup), so the
+  //      stats button stays hidden until a session pane is focused again.
+  await desktopStatsButton.waitFor({ state: "hidden",
+    timeout: 10_000 },
+    "the stats button must hide when only the session-less new-session tab is focused");
 
   // 11. The sidebar header exposes no New button (pi#21); a pinned group's
   //     "+" still starts the focused new-session tab. The workspace key is
