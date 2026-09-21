@@ -253,6 +253,69 @@ try {
       await page.getByText(firstMessage, { exact: true }).waitFor({ state: "attached" });
       await page.getByText(text(4999), { exact: true }).evaluate((element) => element.scrollIntoView({ block: "end", behavior: "instant" }));
     }
+
+    // pi#16 regression: after the upward loads, a prepend must keep the
+    // viewport anchored on the message the user was reading (the anchoring
+    // restore must run even when visibleCount already exceeds
+    // messages.length) and an anchored load must not cascade further pages
+    // (the sentinel observer must not re-arm itself per loaded page).
+    const scrollState = () => page.evaluate(() => {
+      const sentinel = Array.from(document.querySelectorAll("div")).find((element) =>
+        element.textContent === "Scroll up to load earlier messages" && element.children.length === 0);
+      let node = sentinel;
+      let container = null;
+      while (node) {
+        const style = getComputedStyle(node);
+        if ((style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
+          container = node;
+          break;
+        }
+        node = node.parentElement;
+      }
+      if (!container) return { err: "no scroll container" };
+      return {
+        firstRenderedEntryId: container.querySelector("[data-entry-id]")?.dataset.entryId ?? null,
+        sentinelInView: sentinel.getBoundingClientRect().bottom > container.getBoundingClientRect().top,
+      };
+    });
+    const entryViewportOffset = (entryId) => page.evaluate((entryId) => {
+      const sentinel = Array.from(document.querySelectorAll("div")).find((element) =>
+        element.textContent === "Scroll up to load earlier messages" && element.children.length === 0);
+      let node = sentinel;
+      let container = null;
+      while (node) {
+        const style = getComputedStyle(node);
+        if ((style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
+          container = node;
+          break;
+        }
+        node = node.parentElement;
+      }
+      const element = container?.querySelector(`[data-entry-id="${entryId}"]`);
+      if (!container || !element) return null;
+      return Math.round(element.getBoundingClientRect().top - container.getBoundingClientRect().top);
+    }, entryId);
+    for (let turn = 0; turn < 2; turn++) {
+      const before = await scrollState();
+      assert.ok(before.firstRenderedEntryId, "the loaded window must have a top entry before paging up");
+      const responsePromise = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === `/api/sessions/${LONG}/context`);
+      await sentinel.evaluate((element) => element.scrollIntoView({ block: "start", behavior: "instant" }));
+      const response = await responsePromise;
+      const older = (await response.json()).context;
+      const firstMessage = older.messages.find((message) => message.role === "user")?.content;
+      await page.getByText(firstMessage, { exact: true }).waitFor({ state: "attached" });
+      const anchoredOffset = await entryViewportOffset(before.firstRenderedEntryId);
+      assert.ok(anchoredOffset !== null && anchoredOffset >= 0 && anchoredOffset <= 96,
+        `viewport must stay anchored on ${before.firstRenderedEntryId} after the prepend (offset ${anchoredOffset})`);
+      const anchored = await scrollState();
+      assert.equal(anchored.sentinelInView, false,
+        "an anchored prepend must move the sentinel above the viewport");
+      const cascadedFrom = olderResponses.length;
+      await delay(500);
+      assert.equal(olderResponses.length, cascadedFrom,
+        "an anchored page load must not cascade further page loads");
+    }
     assert.deepEqual(await latestUser.evaluate((element) => ({
       connected: element.isConnected,
       text: element.textContent,

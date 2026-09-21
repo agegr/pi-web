@@ -24,12 +24,14 @@ import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
-  captureScrollDistance,
+  captureScrollAnchor,
   getPromptAnchorSpacerHeight,
   getVisibleRenderWindow,
   isScrollAtTail,
   restoreScrollTop,
+  shouldRestoreScrollAnchor,
   VISIBLE_PAGE_SIZE,
+  type ScrollAnchorSnapshot,
 } from "@/lib/chat-lazy-load";
 
 interface Props {
@@ -484,7 +486,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
-  const prevScrollDistanceRef = useRef<number | null>(null);
+  const prevScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const loadingOlderRef = useRef(false);
   const restoreStartedRef = useRef(false);
   const pendingScrollRestoreRef = useRef(pendingScrollRestore);
@@ -610,7 +612,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       if (!found && !sessionBusy && history.hasEarlierMessages && history.historyCursor && !loadingOlderRef.current) {
         loadingOlderRef.current = true;
         const container = scrollContainerRef.current;
-        if (container) prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        if (container) prevScrollAnchorRef.current = captureScrollAnchor(
+          container.scrollHeight,
+          container.scrollTop,
+          container.querySelector<HTMLElement>("[data-entry-id]")?.dataset.entryId ?? null,
+        );
         // ponytail: one extra page of 200 entries; deeper or other-branch hits just open the session.
         const context = await loadContext(searchTarget.sessionId, activeLeafId, history.historyCursor, { tail: 200, signal: controller.signal });
         loadingOlderRef.current = false;
@@ -618,7 +624,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       }
       if (controller.signal.aborted) return;
       if (found) {
-        prevScrollDistanceRef.current = null;
+        prevScrollAnchorRef.current = null;
         setVisibleCount((current) => Math.max(current, (searchHistoryRef.current.entryIds.length + 200) * 2));
         setPendingSearchScroll(searchTarget);
       } else {
@@ -656,14 +662,24 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         // No older history loaded yet: fetch the previous page from the server
         // and prepend it (loadContext handles prepend + scroll anchoring).
         // Skip while a page is already loading or nothing older exists.
+        // Cursor state is read from searchHistoryRef so the observer is NOT
+        // re-created on every page: a re-created observer delivers an initial
+        // intersection callback while the sentinel is still in view, which
+        // chained fetch after fetch without any debounce and walked the view
+        // back into distant history once anchoring failed (pi#16).
         if (loadingOlderRef.current) return;
-        if (!hasEarlierMessages) return;
-        const oldestId = historyCursor;
+        const history = searchHistoryRef.current;
+        if (!history.hasEarlierMessages) return;
+        const oldestId = history.historyCursor;
         if (!oldestId) return;
         const sid = session?.id ?? sessionIdRef.current;
         if (!sid) return;
         loadingOlderRef.current = true;
-        prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        prevScrollAnchorRef.current = captureScrollAnchor(
+          container.scrollHeight,
+          container.scrollTop,
+          container.querySelector<HTMLElement>("[data-entry-id]")?.dataset.entryId ?? null,
+        );
         void loadContext(sid, activeLeafId, oldestId).finally(() => {
           loadingOlderRef.current = false;
         });
@@ -672,7 +688,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [historyCursor, hasEarlierMessages, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
+    // hasEarlierMessages gates the sentinel's existence (it renders only while
+    // an older page can exist), so the observer must be created when it flips;
+    // the history cursor deliberately stays OUT of the deps — recreating the
+    // observer per page delivered the cascading initial callbacks (see above).
+  }, [hasEarlierMessages, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
 
   // Keep the rendered window at least as large as what's loaded, so prepended
   // (older) pages stay visible instead of being sliced off the top.
@@ -680,15 +700,29 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     setVisibleCount((current) => Math.max(current, messages.length));
   }, [messages.length]);
 
-  // After visibleCount increases (more messages prepended), restore the
-  // scroll position so the viewport doesn't jump.
+  // After a prepended (older) page commits to the DOM, restore the scroll
+  // position so the viewport doesn't jump. The effect is keyed on
+  // messages.length as well as visibleCount: the scroll-position restore,
+  // search-locate, and minimap-reveal paths inflate visibleCount beyond
+  // messages.length, so a prepend alone does not change visibleCount there
+  // and the anchor would never run (pi#16 — one upward pull then cascaded
+  // page loads into distant history). The snapshot guard consumes the
+  // anchor only once the prepend actually committed: the container height
+  // grew and the first rendered entry changed (tail growth — e.g. streaming
+  // appends — must not consume the anchor prematurely).
   useEffect(() => {
-    if (prevScrollDistanceRef.current == null) return;
+    const snapshot = prevScrollAnchorRef.current;
+    if (snapshot == null) return;
     const container = scrollContainerRef.current;
     if (!container) return;
-    container.scrollTop = restoreScrollTop(container.scrollHeight, prevScrollDistanceRef.current);
-    prevScrollDistanceRef.current = null;
-  }, [visibleCount, scrollContainerRef]);
+    if (!shouldRestoreScrollAnchor(
+      snapshot,
+      container.scrollHeight,
+      container.querySelector<HTMLElement>("[data-entry-id]")?.dataset.entryId ?? null,
+    )) return;
+    container.scrollTop = restoreScrollTop(container.scrollHeight, snapshot.distance);
+    prevScrollAnchorRef.current = null;
+  }, [visibleCount, messages.length, scrollContainerRef]);
   // Push session stats up to AppShell for the top bar.
   // Compare scalar fields to avoid loops from new object identity each render.
   const statsKey = sessionStats
