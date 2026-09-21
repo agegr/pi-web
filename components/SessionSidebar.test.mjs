@@ -3,33 +3,72 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createJiti } from "jiti";
 
+// Importing the module is a parse smoke test; the windowing semantics moved
+// to the pure row model and are covered by lib/sidebar-rows.test.mjs.
 const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
-const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
+await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
-test("scrolling keeps the focused session and the viewport mounted without expanding the whole window", () => {
-  for (const [scrollTop, focusedIndex] of [[0, 1999], [10000, 0]]) {
-    const indices = getSessionListIndices(2000, scrollTop, 335, focusedIndex);
-    const firstVisible = Math.floor(scrollTop / 54);
-    const lastVisible = Math.ceil((scrollTop + 335) / 54) - 1;
-    for (let index = firstVisible; index <= lastVisible; index++) assert.ok(indices.includes(index));
-    assert.ok(indices.includes(focusedIndex));
-    assert.equal(indices.length, 24);
-    assert.equal(new Set(indices).size, indices.length);
-    assert.deepEqual(indices, [...indices].sort((a, b) => a - b));
-  }
-  assert.equal(getSessionListIndices(2000, 0, 335, 3).length, 23);
-  const blurred = getSessionListIndices(2000, 10000, 335);
-  assert.equal(blurred.length, 23);
-  assert.ok(!blurred.includes(0));
+test("the session list windows through the unified pinned-group row model", () => {
+  assert.match(source, /import \{[\s\S]*buildSidebarRows[\s\S]*\} from "@\/lib\/sidebar-rows";/);
+  assert.match(source, /buildSidebarRows\(\{[\s\S]*?expandedKeys: expandedGroupKeys,[\s\S]*?mainFamilies,[\s\S]*?\}\)/);
+  assert.match(source, /getWindowedRows\(sidebarRows, listScrollTop, listViewportH, focusedSessionId\)/);
+  assert.match(source, /height: sidebarRowsHeight\(sidebarRows\)/);
+  // The old fixed-height windowing helper is gone.
+  assert.doesNotMatch(source, /getSessionListIndices/);
+  // Sessions of pinned projects render only inside their group.
+  assert.match(source, /filteredSessions\.filter\(\(session\) => !pinnedKeySet\.has\(workspaceKeyOf\(session\)\)\)/);
 });
 
-test("session windows stay valid after a project shrinks and before the viewport is measured", () => {
-  assert.deepEqual(getSessionListIndices(5, 80000, 335, 1999), [0, 1, 2, 3, 4]);
-  assert.deepEqual(getSessionListIndices(0, 80000, 335, 1999), []);
-  assert.equal(getSessionListIndices(2000, 0, 0).length, 28);
+test("pinned groups are expandable buttons with their own new-session affordance", () => {
+  assert.match(source, /aria-expanded=\{expanded\}/);
+  assert.match(source, /aria-controls=\{pinnedGroupContentId\(project\.key\)\}/);
+  assert.match(source, /t\(expanded \? "sidebar\.pinnedGroupCollapse" : "sidebar\.pinnedGroupExpand", \{ path: project\.root \}\)/);
+  assert.match(source, /t\("sidebar\.newSessionTitle", \{ path: project\.root \}\)/);
+  assert.match(source, /t\("sidebar\.pinnedGroupNoSessions"\)/);
+  // Group [+] reuses the temp-id flow and moves the effective cwd.
+  assert.match(source, /const handleNewSessionInProject = useCallback\(\(project: SidebarProject\) => \{[\s\S]*?setSelectedCwd\(project\.root\);[\s\S]*?onNewSession\?\.\(newTempSessionId\(\), project\.root\);/);
+  // Group [+] also expands its group so the new session's row is visible (spec R2).
+  assert.match(
+    source,
+    /const handleNewSessionInProject = useCallback\(\(project: SidebarProject\) => \{[\s\S]*?setExpandedGroupKeys\(\(previous\) => \{[\s\S]*?writeExpandedGroupKeys\(next\);/,
+  );
+  // Stale roots disable [+] instead of auto-unpinning.
+  assert.match(source, /if \(stalePinnedRoots\.has\(project\.root\)\) return;/);
+});
+
+test("pinned-group expansion state persists to localStorage across reloads", () => {
+  // Initial state is hydration-safe (empty) and restored after mount.
+  assert.match(source, /useState<ReadonlySet<string>>\(\(\) => new Set\(\)\)/);
+  assert.match(source, /setSidebarHydrated\(true\);[\s\S]*?setExpandedGroupKeys\(readExpandedGroupKeys\(\)\);/);
+  // Pinned groups render only after hydration so SSR and first client render agree.
+  assert.match(source, /\(sidebarHydrated \? getPinnedProjects\(\) : \[\]\)/);
+  // Toggling writes the full new state back.
+  assert.match(
+    source,
+    /const handleToggleGroup = useCallback\(\(key: string\) => \{[\s\S]*?writeExpandedGroupKeys\(next\);[\s\S]*?\}, \[\]\);/,
+  );
+  // The one-shot auto-expand also persists its addition.
+  assert.match(
+    source,
+    /autoExpandedGroupRef\.current = true;[\s\S]*?writeExpandedGroupKeys\(next\);/,
+  );
+  // The storage key and reader exist with the graceful-degradation shape.
+  assert.match(source, /const PINNED_EXPANDED_STORAGE_KEY = "pi-web:sidebar-pinned-expanded";/);
+  assert.match(source, /function readExpandedGroupKeys\(\): ReadonlySet<string> \{/);
+  assert.match(source, /parsed\.filter\(\(key\): key is string => typeof key === "string"\)/);
+});
+
+test("the workspace dropdown no longer renders a pinned section", () => {
+  assert.doesNotMatch(source, /\{t\("sidebar\.pinnedProjects"\)\}/);
+  // Recent rows still exclude pinned keys and keep their pin toggle.
+  assert.match(source, /recentUnpinnedProjects/);
+  assert.match(source, /onTogglePin=\{\(\) => togglePin\(project\.key, project\.root\)\}/);
+  // The stale-root check now runs at sidebar mount, not on dropdown open.
+  assert.doesNotMatch(source, /if \(!dropdownOpen \|\| !pinnedRootsKey\) return;/);
+  assert.match(source, /\}, \[pinnedRootsKey\]\);/);
 });
 
 test("only Shift+click bypasses session deletion confirmation", () => {
@@ -150,7 +189,7 @@ test("does not expose disk-backed actions for transient sessions", () => {
 });
 
 test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /const sessionFamilies = listSessionFamilies\(filteredSessions\)/);
+  assert.match(source, /listSessionFamilies\(\s*filteredSessions\.filter\(\(session\) => !pinnedKeySet\.has\(workspaceKeyOf\(session\)\)\)/);
   assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
