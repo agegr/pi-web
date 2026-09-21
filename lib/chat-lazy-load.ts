@@ -23,6 +23,39 @@ export function restoreScrollTop(scrollHeight: number, savedDistance: number): n
   return Math.max(0, scrollHeight - savedDistance);
 }
 
+/**
+ * Scroll anchor captured before an upward history page load (pi#16).
+ * `distance` is the bottom-anchored offset (scrollHeight - scrollTop);
+ * `scrollHeight` and `firstEntryId` record the DOM state at capture so the
+ * restore effect can tell a committed prepend (height grew and the first
+ * rendered entry changed) apart from tail growth (streaming appends: height
+ * grew but the first entry is unchanged) and from a not-yet-committed state
+ * (height unchanged).
+ */
+export interface ScrollAnchorSnapshot {
+  distance: number;
+  scrollHeight: number;
+  firstEntryId: string | null;
+}
+
+export function captureScrollAnchor(
+  scrollHeight: number,
+  scrollTop: number,
+  firstEntryId: string | null,
+): ScrollAnchorSnapshot {
+  return { distance: captureScrollDistance(scrollHeight, scrollTop), scrollHeight, firstEntryId };
+}
+
+export function shouldRestoreScrollAnchor(
+  snapshot: ScrollAnchorSnapshot,
+  currentScrollHeight: number,
+  currentFirstEntryId: string | null,
+): boolean {
+  if (currentScrollHeight === snapshot.scrollHeight) return false;
+  if (snapshot.firstEntryId === null) return true;
+  return currentFirstEntryId !== snapshot.firstEntryId;
+}
+
 export function isScrollAtTail(
   scrollTop: number,
   clientHeight: number,

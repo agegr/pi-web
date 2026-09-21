@@ -338,9 +338,13 @@ test("uses server pagination state instead of guessing from rendered rows", () =
   assert.match(source, /setHasEarlierMessages\(d\.context\.hasMore\)/);
   assert.match(source, /setHistoryCursor\(d\.context\.oldestEntryId\)/);
   assert.match(loadContextSource, /setData\(\(prev\) => \{[\s\S]*messages: \[\.\.\.d\.context\.messages, \.\.\.prev\.context\.messages\]/);
-  assert.match(chatWindowSource, /const oldestId = historyCursor/);
+  // The sentinel observer reads the server-provided cursor state through the
+  // per-render history ref (pi#16): same source of truth, but the observer is
+  // not re-created on every loaded page.
+  assert.match(chatWindowSource, /const history = searchHistoryRef\.current;/);
+  assert.match(chatWindowSource, /const oldestId = history\.historyCursor/);
   assert.doesNotMatch(chatWindowSource, /const oldestId = entryIds\[0\]/);
-  assert.match(chatWindowSource, /if \(!hasEarlierMessages\) return/);
+  assert.match(chatWindowSource, /if \(!history\.hasEarlierMessages\) return/);
   assert.match(chatWindowSource, /const hasMore = startIndex > 0 \|\| hasEarlierMessages/);
   assert.doesNotMatch(chatWindowSource, /rendered\.length >= visibleCount/);
 });
