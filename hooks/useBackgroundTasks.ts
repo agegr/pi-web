@@ -28,13 +28,16 @@ export type BackgroundTasksFetchState =
  * exposes bounded log tails plus kill. Sessions without a live wrapper (new
  * sessions, chat-only) surface "unavailable" instead of erroring.
  */
-export function useBackgroundTasks(sessionId: string | null) {
+export function useBackgroundTasks(sessionId: string | null, fetchEnabled: boolean) {
   const [state, setState] = useState<BackgroundTasksFetchState>({ kind: "loading" });
   const [logs, setLogs] = useState<Record<string, BgTaskLogsResult>>({});
   const fetchSeq = useRef(0);
 
   const refresh = useCallback(() => {
-    if (!sessionId) return;
+    // No live-session HTTP while the panel is closed: the browser logs every
+    // non-2xx fetch as a console error, and a package-absent session would
+    // spam them. Live updates still arrive over SSE (applyEvent) either way.
+    if (!sessionId || !fetchEnabled) return;
     const seq = ++fetchSeq.current;
     setState((prev) => prev.kind === "ready" ? prev : { kind: "loading" });
     fetch(`/api/agent/${encodeURIComponent(sessionId)}/bg-tasks`)
@@ -51,7 +54,7 @@ export function useBackgroundTasks(sessionId: string | null) {
         if (seq !== fetchSeq.current) return;
         setState({ kind: "unavailable", error: error instanceof Error ? error.message : String(error) });
       });
-  }, [sessionId]);
+  }, [sessionId, fetchEnabled]);
 
   useEffect(() => {
     if (!sessionId) {

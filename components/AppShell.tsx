@@ -152,7 +152,7 @@ export function AppShell() {
     applyEvent: applyBgTasksEvent,
     fetchLogs: fetchBgTaskLogs,
     killTask: killBgTask,
-  } = useBackgroundTasks(selectedSession?.id ?? null);
+  } = useBackgroundTasks(selectedSession?.id ?? null, bgPanelOpen);
 
   // Live events from the selected session's SSE stream: feed the panel state and
   // fire one browser notification per terminal task transition (dedupe by id).

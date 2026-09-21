@@ -25,6 +25,11 @@ test("the hook degrades without a session and refreshes through the API", () => 
   assert.match(source, /method: "POST"/);
 });
 
+test("no HTTP while the panel is closed — the browser logs every non-2xx fetch as a console error", () => {
+  assert.match(source, /if \(!sessionId \|\| !fetchEnabled\) return;/);
+  assert.match(source, /useBackgroundTasks\(sessionId: string \| null, fetchEnabled: boolean\)/);
+});
+
 test("live events apply updates directly and refresh on terminal transitions", () => {
   assert.match(source, /background_tasks_update"\) \{\s*setState\(\{ kind: "ready", tasks: event\.tasks \}\)/);
   assert.match(source, /background_task_terminal"\) \{[\s\S]*?refresh\(\);/);
