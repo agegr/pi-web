@@ -13,6 +13,7 @@ import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import JumpToBottom from "./JumpToBottom";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
@@ -299,6 +300,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage, scrollToOffset,
+    isScrolledUp, jumpToLatest,
     refreshFromDisk,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onBackgroundTasksEvent, onSessionCreated, onSessionForked,
@@ -1285,6 +1287,16 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             scrollToOffset={scrollToOffset}
           />
         )}
+        {/* Floating jump-to-bottom pill: appears only when the chat is scrolled
+            up and never during the hidden scroll-restore window. Overlay only
+            (absolute inside this relative region), inset clear of the minimap
+            column, anchored just above the composer sibling below. */}
+        <JumpToBottom
+          visible={isScrolledUp && !pendingScrollRestore}
+          onJump={jumpToLatest}
+          label={t("chat.jumpToLatest")}
+          insetRight={isMobile ? 8 : CHAT_MINIMAP_WIDTH}
+        />
         </>}
       </div>
 

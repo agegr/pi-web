@@ -335,6 +335,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.filesWritten": "已變更的檔案",
     "chat.openWrittenFile": "開啟 {name}",
     "chat.loadEarlier": "向上捲動以載入較早的訊息",
+    "chat.jumpToLatest": "跳到最新訊息",
     "chat.extensionRequest": "擴充功能請求",
     "chat.extensionExpiresIn": "{seconds} 秒後過期",
     "chat.extensionPending": "待回答",
