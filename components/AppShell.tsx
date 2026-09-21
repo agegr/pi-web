@@ -32,12 +32,6 @@ import {
   setCompletionBadge,
   clearBadgeOnFocus,
   coalesceCompletionSound,
-  clampMaxVisiblePanes,
-  loadMaxVisiblePanes,
-  persistMaxVisiblePanes,
-  MAX_VISIBLE_PANES_DEFAULT,
-  MAX_VISIBLE_PANES_MAX,
-  MAX_VISIBLE_PANES_MIN,
   type PaneTab,
 } from "@/lib/pane-state";
 import { copyText } from "@/lib/clipboard";
@@ -103,38 +97,17 @@ export function AppShell() {
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
 
-  // Split-pane state (pi#4): ordered pane tabs, focused pane id, max-visible
-  // pane count (pi#13, replaces the old density toggle).
+  // Split-pane state (pi#4): ordered pane tabs and the focused pane id. Pane
+  // widths are auto-computed from the measured pane-area width (pi#20); the
+  // old manual visible-pane cap is gone.
   // Split view is OPT-IN: pane routing and the tab strip only engage after the
   // toolbar toggle enables it (closing the last pane disables it again), so
   // the classic single-chat layout stays the default.
   const [splitPaneEnabled, setSplitPaneEnabled] = useState(false);
   const [paneTabs, setPaneTabs] = useState<PaneTab[]>([]);
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
-  const [maxVisiblePanes, setMaxVisiblePanes] = useState(MAX_VISIBLE_PANES_DEFAULT);
   const lastSoundAtRef = useRef(0);
   const splitPaneLayoutRef = useRef<{ scrollPaneIntoView: (id: string) => void } | null>(null);
-
-  // maxVisiblePanes persists in localStorage ("一屏最多显示 pane 数"); read on
-  // mount so SSR and first client render share the default of 3, then update.
-  // Invalid or absent stored values fall back to 3 inside loadMaxVisiblePanes.
-  useEffect(() => {
-    setMaxVisiblePanes(loadMaxVisiblePanes());
-  }, []);
-
-  // Quick-cycle order follows the pinned scenario: three clicks from 3 give
-  // 2 → 4 → 3 (i.e. 3→2, 2→4, 4→3).
-  const handleCycleMaxVisiblePanes = useCallback(() => {
-    const prev = clampMaxVisiblePanes(maxVisiblePanes);
-    const next =
-      prev === MAX_VISIBLE_PANES_DEFAULT
-        ? MAX_VISIBLE_PANES_MIN
-        : prev === MAX_VISIBLE_PANES_MIN
-          ? MAX_VISIBLE_PANES_MAX
-          : MAX_VISIBLE_PANES_DEFAULT;
-    setMaxVisiblePanes(next);
-    persistMaxVisiblePanes(next);
-  }, [maxVisiblePanes]);
 
   // A newly opened pane (sidebar routing or the split-enable first pane) must
   // scroll into view: panes are appended at the tail of paneTabs, so when the
@@ -2110,33 +2083,6 @@ export function AppShell() {
               </svg>
             </button>
           )}
-          {!isMobile && splitPaneEnabled && paneTabs.length > 0 && (
-            <button
-              type="button"
-              onClick={handleCycleMaxVisiblePanes}
-              title={`Max visible panes: ${clampMaxVisiblePanes(maxVisiblePanes)} (click to cycle)`}
-              aria-label={`Max visible panes: ${clampMaxVisiblePanes(maxVisiblePanes)}. Click to cycle maximum visible panes`}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-                background: "none", border: "none", borderRight: "1px solid var(--border)",
-                color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
-              }}
-            >
-              {(() => {
-                const count = clampMaxVisiblePanes(maxVisiblePanes);
-                const gap = 1.5;
-                const w = (20 - (count - 1) * gap) / count;
-                return (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                    {Array.from({ length: count }, (_, i) => (
-                      <rect key={i} x={2 + i * (w + gap)} y={5} width={w} height={14} rx={1} />
-                    ))}
-                  </svg>
-                );
-              })()}
-            </button>
-          )}
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}
@@ -2508,7 +2454,6 @@ export function AppShell() {
               ref={splitPaneLayoutRef}
               tabs={paneTabs}
               focusedId={focusedPaneId}
-              maxVisiblePanes={maxVisiblePanes}
               runningSessionIds={runningSessionIds}
               onFocusPane={(sid) => {
                 setFocusedPaneId(sid);

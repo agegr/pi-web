@@ -21,12 +21,18 @@ test("SplitPaneLayout pane area is a horizontal scroll container", () => {
   assert.ok(source.includes("width"), "panes must have a width prop");
 });
 
-test("SplitPaneLayout derives pane width from the open-pane count via paneWidth", () => {
+test("SplitPaneLayout derives pixel pane widths from the measured pane area", () => {
   assert.ok(source.includes("paneWidth"), "must use the paneWidth helper");
-  assert.ok(source.includes("paneWidth(tabs.length"), "width must derive from the tab count");
-  assert.ok(source.includes("maxVisiblePanes"), "must take a maxVisiblePanes prop");
+  assert.ok(source.includes("paneWidth(tabs.length"), "width must derive from the tab count and the measured area");
+  assert.ok(source.includes("MIN_PANE_WIDTH"), "must floor panes at MIN_PANE_WIDTH");
+  assert.ok(source.includes("ResizeObserver"), "must self-measure the pane area with a ResizeObserver");
+  assert.ok(source.includes("setPaneAreaWidth"), "measured area width must feed pane sizing");
+  assert.ok(source.includes("${width}px"), "pane width must be a pixel value");
+  assert.ok(!source.includes("VisiblePanes"), "the manual visible-pane cap setting must be gone");
   assert.ok(!source.includes("density"), "the density concept must be gone");
-  assert.ok(paneStateSource.includes("100 / Math.min"), "pane-state sizes panes at 100% / min(count, N)");
+  assert.ok(paneStateSource.includes("MIN_PANE_WIDTH = 360"), "pane-state owns the single MIN_PANE_WIDTH constant");
+  assert.ok(paneStateSource.includes("Math.max(1, Math.floor(areaWidth / minPaneWidth))"),
+    "pane-state clamps capacity to at least one pane");
 });
 
 test("PaneHeader caps tab width while the strip stays scrollable", () => {
