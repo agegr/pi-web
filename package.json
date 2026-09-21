@@ -15,10 +15,12 @@
     "node": ">=22.19.0"
   },
   "bin": {
-    "pi-web": "bin/pi-web.js"
+    "pi-web": "bin/pi-web.js",
+    "pi-web-deploy": "bin/pi-web-deploy.js"
   },
   "files": [
     "bin",
+    "deploy-piweb.sh",
     ".next",
     "!.next/cache",
     "!.next/dev",

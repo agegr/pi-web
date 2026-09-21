@@ -10,7 +10,13 @@
 # outside the container, and PI_WEB_PASSWORD set in the calling environment is
 # passed through so the deployed service keeps its existing auth behavior.
 #
-# Usage: ./deploy-piweb.sh
+# Two invocation modes:
+#   1. From the repository root:            ./deploy-piweb.sh
+#   2. After a global npm install:          pi-web-deploy
+#      (the bin/pi/pi-web-deploy shim runs this same script from inside the
+#       installed package directory; arguments and env are passed through)
+#
+# Usage: ./deploy-piweb.sh   (or: pi-web-deploy after `npm i -g @silgrid/pi-web`)
 # Env:
 #   PIWEB_TMUX_SESSION  tmux session name (default: piweb)
 #   PIWEB_PORT          optional port override passed to pi-web
