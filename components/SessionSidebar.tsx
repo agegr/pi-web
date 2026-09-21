@@ -2,12 +2,21 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
-import { listSessionFamilies } from "@/lib/session-family";
+import { listSessionFamilies, type SessionFamily } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, partitionProjectsByPseudo, sessionsForProject } from "@/lib/project-groups";
 import { getPinnedProjects, isProjectPinned, pinProject, unpinProject } from "@/lib/pinned-projects";
+import {
+  buildSidebarRows,
+  getWindowedRows,
+  sidebarRowsHeight,
+  SESSION_LIST_ITEM_HEIGHT,
+  type GroupEmptyRow,
+  type SessionRow,
+  type SidebarProject,
+} from "@/lib/sidebar-rows";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
@@ -15,20 +24,11 @@ import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
 
-// Fixed row height for the session list. SessionItem renders at exactly this
-// height, so the list can be windowed (only the visible slice is mounted).
-const SESSION_LIST_ITEM_HEIGHT = 54;
-
-export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1): number[] {
-  const overscan = 8;
-  const visibleCount = Math.ceil((viewportHeight || 600) / SESSION_LIST_ITEM_HEIGHT) + overscan * 2;
-  const start = Math.max(0, Math.min(Math.floor(scrollTop / SESSION_LIST_ITEM_HEIGHT) - overscan, count - visibleCount));
-  const end = Math.min(count, start + visibleCount);
-  const indices = Array.from({ length: end - start }, (_, offset) => start + offset);
-  // Keep a focused row mounted so scrolling cannot discard an inline rename.
-  if (focusedIndex >= 0 && focusedIndex < start) indices.unshift(focusedIndex);
-  if (focusedIndex >= end && focusedIndex < count) indices.push(focusedIndex);
-  return indices;
+/** Client-side temporary session id — pi spawns lazily on first message. */
+function newTempSessionId(): string {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
 
 declare global {
@@ -237,6 +237,35 @@ function writeHidePseudoProjects(hide: boolean): void {
   }
 }
 
+// Pinned-group expansion state, persisted across reloads per the confirmed
+// product decision (wi body: 展开状态记住到 localStorage). Stored as a JSON
+// array of project keys; absent/corrupt values read as the empty set. Keys of
+// projects that were later unpinned are harmless and left alone — a re-pin
+// simply finds its old expansion state again.
+const PINNED_EXPANDED_STORAGE_KEY = "pi-web:sidebar-pinned-expanded";
+
+function readExpandedGroupKeys(): ReadonlySet<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(PINNED_EXPANDED_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((key): key is string => typeof key === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeExpandedGroupKeys(keys: ReadonlySet<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PINNED_EXPANDED_STORAGE_KEY, JSON.stringify([...keys]));
+  } catch {
+    // ignore storage quota / privacy-mode errors
+  }
+}
+
 /**
  * Path label that ellipsizes on the LEFT, keeping the (most relevant) trailing
  * segments visible: "…orkspace/pi-web". Shows as much of the path as fits
@@ -363,6 +392,156 @@ function ProjectRow({
         <PinIcon pinned={pinned} />
       </span>
     </button>
+  );
+}
+
+/** Stable DOM id of a pinned group's expandable content container. */
+function pinnedGroupContentId(key: string): string {
+  return `pinned-group-${encodeURIComponent(key)}`;
+}
+
+/**
+ * Header row of one pinned project group in the session list: chevron +
+ * path label (the expand control, a real button with aria-expanded /
+ * aria-controls), the per-project activity badge, the unpin toggle and the
+ * group's own new-session [+] (relocated from the workspace dropdown). A
+ * stale root renders the whole header greyed with the missing-directory
+ * hint and disables [+].
+ */
+function PinnedGroupHeader({
+  project,
+  expanded,
+  stale,
+  activity,
+  homeDir,
+  t,
+  onToggle,
+  onUnpin,
+  onNewSession,
+}: {
+  project: SidebarProject;
+  expanded: boolean;
+  /** Root no longer exists on disk: rendered greyed, [+] disabled. */
+  stale: boolean;
+  activity?: { running: number; unread: number };
+  homeDir: string;
+  t: (key: string, params?: Record<string, string | number>) => string;
+  onToggle: () => void;
+  onUnpin: () => void;
+  onNewSession: () => void;
+}) {
+  const newSessionLabel = t("sidebar.newSessionTitle", { path: project.root });
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        height: "100%",
+        paddingRight: 6,
+        borderBottom: "1px solid var(--border)",
+        background: "var(--bg)",
+      }}
+    >
+      <button
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={pinnedGroupContentId(project.key)}
+        title={stale
+          ? `${project.root} — ${t("sidebar.pinnedProjectMissing")}`
+          : t(expanded ? "sidebar.pinnedGroupCollapse" : "sidebar.pinnedGroupExpand", { path: project.root })}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          height: "100%",
+          padding: "0 4px 0 10px",
+          background: "none",
+          border: "none",
+          color: stale ? "var(--text-dim)" : "var(--text)",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <svg
+          width="9"
+          height="9"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ flexShrink: 0, transform: expanded ? "none" : "rotate(-90deg)", transition: "transform 0.15s" }}
+        >
+          <polyline points="3 2 7 5 3 8" />
+        </svg>
+        <PathLabel
+          text={displayCwd(project.root, homeDir)}
+          style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.35 }}
+        />
+      </button>
+      {showProjectActivity(activity, t)}
+      <span
+        role="button"
+        tabIndex={0}
+        title={t("sidebar.unpinProject")}
+        aria-label={t("sidebar.unpinProject")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onUnpin();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.stopPropagation();
+            e.preventDefault();
+            onUnpin();
+          }
+        }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 16,
+          height: 16,
+          flexShrink: 0,
+          marginLeft: 4,
+          borderRadius: 3,
+          color: "var(--accent)",
+          cursor: "pointer",
+        }}
+      >
+        <PinIcon pinned />
+      </span>
+      <button
+        onClick={onNewSession}
+        disabled={stale}
+        title={newSessionLabel}
+        aria-label={newSessionLabel}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 22,
+          height: 22,
+          padding: 0,
+          marginLeft: 2,
+          flexShrink: 0,
+          background: "none",
+          border: "1px solid var(--border)",
+          borderRadius: 5,
+          color: stale ? "var(--text-dim)" : "var(--text-muted)",
+          cursor: stale ? "default" : "pointer",
+          opacity: stale ? 0.6 : 1,
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="6" y1="1" x2="6" y2="11" />
+          <line x1="1" y1="6" x2="11" y2="6" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -520,9 +699,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // pin/unpin and rows move immediately without a reload.
   const [pinnedRevision, setPinnedRevision] = useState(0);
   // Pinned roots confirmed missing on disk (greyed rows). Checked at most
-  // once per root while the dropdown is open; entries are never auto-unpinned.
+  // once per root per sidebar mount; entries are never auto-unpinned.
   const [stalePinnedRoots, setStalePinnedRoots] = useState<ReadonlySet<string>>(() => new Set());
   const checkedPinnedRootsRef = useRef<Set<string>>(new Set());
+  // Which pinned groups are expanded. Starts empty so the server prerender
+  // and the first client render agree (hydration), then restores the persisted
+  // state after mount — the same pattern as the explorerOpen preference.
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<ReadonlySet<string>>(() => new Set());
+  // Pinned groups (and their expansion state) come from localStorage, which is
+  // unavailable during server rendering: the sidebar starts in its pre-feature
+  // layout and hydrates the groups after mount so users with pins do not hit a
+  // React hydration mismatch on a hard reload.
+  const [sidebarHydrated, setSidebarHydrated] = useState(false);
+  useEffect(() => {
+    setSidebarHydrated(true);
+    setExpandedGroupKeys(readExpandedGroupKeys());
+  }, []);
   const [hidePseudoProjects, setHidePseudoProjects] = useState(readHidePseudoProjects);
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
@@ -1110,20 +1302,51 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
-    // Generate a temporary UUID client-side — no backend call needed.
-    // Pi will be spawned lazily when the user sends the first message.
-    const tempId = typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-    onNewSession?.(tempId, selectedCwd);
+    onNewSession?.(newTempSessionId(), selectedCwd);
   }, [selectedCwd, onNewSession]);
+
+  // Toggle one pinned group's expansion; selection and cwd stay untouched.
+  // The new state is persisted so a reload restores it.
+  const handleToggleGroup = useCallback((key: string) => {
+    setExpandedGroupKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      writeExpandedGroupKeys(next);
+      return next;
+    });
+  }, []);
+
+  // Group [+] starts a session rooted at the group's display root and moves
+  // the effective cwd there (mirroring a dropdown row select) so subsequent
+  // sidebar actions target that root. The group also expands so the new
+  // session's row is visible (spec R2), and the expansion persists. Disabled
+  // for stale roots.
+  const handleNewSessionInProject = useCallback((project: SidebarProject) => {
+    if (stalePinnedRoots.has(project.root)) return;
+    setSelectedCwd(project.root);
+    setExpandedGroupKeys((previous) => {
+      if (previous.has(project.key)) return previous;
+      const next = new Set([...previous, project.key]);
+      writeExpandedGroupKeys(next);
+      return next;
+    });
+    onNewSession?.(newTempSessionId(), project.root);
+  }, [stalePinnedRoots, onNewSession]);
 
   const recentProjects = getRecentProjects(allSessions);
   // Pinned rows, ordered by pin order (most recently pinned first). The pin
   // store persists each entry's display root, so a pinned project renders
   // (and stays selectable) even when no currently-loaded session resolves to
   // it; when a matching project row exists its root wins (fresher casing).
-  const pinnedEntries = useMemo(() => getPinnedProjects(), [pinnedRevision]);
+  // pinnedRevision is a deliberate refresh trigger: pin/unpin bumps it so the
+  // localStorage re-read runs even though the callback body does not read it.
+  // Until sidebarHydrated the list stays empty (SSR agreement).
+  const pinnedEntries = useMemo(
+    () => (sidebarHydrated ? getPinnedProjects() : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pinnedRevision, sidebarHydrated],
+  );
   const pinnedProjects = useMemo(
     () => pinnedEntries.map((entry) => {
       const row = recentProjects.find((project) => project.key === entry.key);
@@ -1153,14 +1376,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setPinnedRevision((revision) => revision + 1);
   }, []);
 
-  // Stale pinned rows: when the dropdown opens, ask the server whether each
-  // pinned display root still exists on disk. Roots that are gone render
-  // greyed (and are never auto-unpinned); a failed check (offline, server
-  // hiccup) leaves the row alone rather than greying it on a guess. The
-  // roots-key dependency keeps this from re-running per render.
+  // Stale pinned roots: on sidebar mount (and whenever the pinned set
+  // changes), ask the server whether each pinned display root still exists
+  // on disk. Roots that are gone render greyed (and are never
+  // auto-unpinned); a failed check (offline, server hiccup) leaves the group
+  // alone rather than greying it on a guess. The roots-key dependency keeps
+  // this from re-running per render.
   const pinnedRootsKey = pinnedProjects.map((project) => project.root).join("\n");
   useEffect(() => {
-    if (!dropdownOpen || !pinnedRootsKey) return;
+    if (!pinnedRootsKey) return;
     const pending = pinnedRootsKey
       .split("\n")
       .filter((root) => root && !checkedPinnedRootsRef.current.has(root));
@@ -1191,16 +1415,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return changed ? next : previous;
       });
       // Roots that are currently missing stay eligible for re-checking, so a
-      // directory that comes back un-greys on the next dropdown open.
+      // directory that comes back un-greys on the next check.
       for (const { root, exists } of results) {
         if (!exists) checkedPinnedRootsRef.current.delete(root);
       }
     })();
     return () => { cancelled = true; };
-  }, [dropdownOpen, pinnedRootsKey]);
+  }, [pinnedRootsKey]);
 
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
+
+  // On load, the selected project's group starts expanded; other groups
+  // start collapsed unless its persisted state says otherwise. Fires once,
+  // as soon as a pinned project is selected.
+  const autoExpandedGroupRef = useRef(false);
+  useEffect(() => {
+    if (autoExpandedGroupRef.current || !selectedProject) return;
+    if (!pinnedKeySet.has(selectedProject.key)) return;
+    if (expandedGroupKeys.has(selectedProject.key)) {
+      autoExpandedGroupRef.current = true;
+      return;
+    }
+    autoExpandedGroupRef.current = true;
+    const key = selectedProject.key;
+    setExpandedGroupKeys((previous) => {
+      const next = new Set([...previous, key]);
+      writeExpandedGroupKeys(next);
+      return next;
+    });
+    // expandedGroupKeys is deliberately excluded: the ref guard makes this a
+    // one-shot effect and reading it here would restart on every toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProject, pinnedKeySet]);
 
   // Per-project activity counts (running / unread) for the workspace selector.
   // Uses the same stable server key as the project list and filtering.
@@ -1219,9 +1466,42 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     [projectActivity, selectedProject],
   );
 
+  // The main list below the pinned groups keeps its existing filtering
+  // rules, minus pinned projects' sessions — those render only inside their
+  // group, so a pinned project never appears twice. Recomputed per render,
+  // exactly like the pre-group session list was.
   const filteredSessions = selectedProject
     ? sessionsForProject(allSessions, selectedProject.key)
     : allSessions;
+  const mainFamilies = listSessionFamilies(
+    filteredSessions.filter((session) => !pinnedKeySet.has(workspaceKeyOf(session))),
+  );
+  // Session families per pinned project, spanning all its worktrees.
+  const familiesByProject = new Map<string, SessionFamily[]>();
+  for (const project of pinnedProjects) {
+    familiesByProject.set(project.key, listSessionFamilies(sessionsForProject(allSessions, project.key)));
+  }
+  // One flat row array with cumulative offsets for the whole scroll area.
+  const sidebarRows = buildSidebarRows({
+    pinnedProjects,
+    familiesByProject,
+    expandedKeys: expandedGroupKeys,
+    mainFamilies,
+  });
+  // Group rows by owning project, for the per-group content containers.
+  // Headers never enter (their groupKey slot is null), so the value type
+  // excludes GroupHeaderRow and the container render can narrow to
+  // session vs empty hint alone.
+  const groupRowsByKey = new Map<string, (SessionRow | GroupEmptyRow)[]>();
+  for (const row of sidebarRows) {
+    if (row.kind === "groupHeader") continue;
+    const groupKey = row.groupKey;
+    if (!groupKey) continue;
+    const list = groupRowsByKey.get(groupKey);
+    if (list) list.push(row);
+    else groupRowsByKey.set(groupKey, [row]);
+  }
+  const visibleSidebarRows = getWindowedRows(sidebarRows, listScrollTop, listViewportH, focusedSessionId);
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1251,14 +1531,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       : null);
 
-  const sessionFamilies = listSessionFamilies(filteredSessions);
-
-  const virtualIndices = getSessionListIndices(
-    sessionFamilies.length,
-    listScrollTop,
-    listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
-  );
+  // One session row, shared by the main list and pinned groups: identical
+  // selection behavior — the effective cwd moves to the session's worktree.
+  const renderSessionRow = (family: SessionFamily) => {
+    const familySessions = [family.root, ...family.subagents];
+    const displaySession = family.latestModified === family.root.modified
+      ? family.root
+      : { ...family.root, modified: family.latestModified };
+    return (
+      <SessionItem
+        session={displaySession}
+        isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+        isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+        isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+        onClick={() => handleSelectSessionFromList(family.root)}
+        onRenamed={loadSessions}
+        onDeleted={(id) => {
+          onSessionDeleted?.(id);
+          loadSessions();
+        }}
+      />
+    );
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1463,35 +1757,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
-                {/* Pinned section — always visible, exempt from the project
-                    filter, ordered most-recently-pinned first. */}
-                {pinnedProjects.length > 0 && (
-                  <div style={{ borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ padding: "6px 10px 2px", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--text-dim)" }}>
-                      {t("sidebar.pinnedProjects")}
-                    </div>
-                    {pinnedProjects.map((project) => (
-                      <ProjectRow
-                        key={project.key}
-                        project={project}
-                        selected={project.key === selectedProject?.key}
-                        pinned
-                        stale={stalePinnedRoots.has(project.root)}
-                        activity={projectActivity.get(project.key)}
-                        homeDir={homeDir}
-                        t={t}
-                        onSelect={() => {
-                          setSelectedCwd(project.root);
-                          setProjectFilter("");
-                          setCustomPathOpen(false);
-                          setCustomPathError(null);
-                          setDropdownOpen(false);
-                        }}
-                        onTogglePin={() => togglePin(project.key, project.root)}
-                      />
-                    ))}
-                  </div>
-                )}
+                {/* Pinned projects render as expandable groups in the session
+                    list above; the dropdown keeps only recent (unpinned)
+                    rows, each with its pin toggle. */}
                 {visibleProjects.map((project) => (
                   <ProjectRow
                     key={project.key}
@@ -1566,7 +1834,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     padding: "8px 10px",
                     background: "none",
                     border: "none",
-                    borderTop: visibleProjects.length > 0 || pinnedProjects.length > 0 || projectPartition.pseudo.length > 0 ? "1px solid var(--border)" : "none",
+                    borderTop: visibleProjects.length > 0 || projectPartition.pseudo.length > 0 ? "1px solid var(--border)" : "none",
                     color: "var(--text-muted)",
                     cursor: "pointer",
                     textAlign: "left",
@@ -2018,44 +2286,102 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && sessionFamilies.length === 0 && (
+        {!loading && !error && sidebarRows.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.length > 0 && (
+        {sidebarRows.length > 0 && (
           <div
             style={{
               position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+              height: sidebarRowsHeight(sidebarRows),
             }}
           >
-            {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
-              const familySessions = [family.root, ...family.subagents];
-              const displaySession = family.latestModified === family.root.modified
-                ? family.root
-                : { ...family.root, modified: family.latestModified };
+            {/* Pinned-group content containers — one per expanded group, so
+                each header's aria-controls points at its own region. Only
+                the windowed rows inside are mounted. */}
+            {pinnedProjects.map((project) => {
+              if (!expandedGroupKeys.has(project.key)) return null;
+              const groupRows = groupRowsByKey.get(project.key) ?? [];
+              if (groupRows.length === 0) return null;
+              const contentTop = groupRows[0].offset;
+              const last = groupRows[groupRows.length - 1];
+              const contentHeight = last.offset + last.height - contentTop;
+              return (
+                <div
+                  key={`group-content:${project.key}`}
+                  id={pinnedGroupContentId(project.key)}
+                  style={{ position: "absolute", top: contentTop, left: 0, right: 0, height: contentHeight }}
+                >
+                  {groupRows
+                    .filter((row) => visibleSidebarRows.includes(row))
+                    .map((row) => (
+                      row.kind === "groupEmpty" ? (
+                        <div
+                          key={row.key}
+                          style={{
+                            position: "absolute",
+                            top: row.offset - contentTop,
+                            left: 0,
+                            right: 0,
+                            height: row.height,
+                            display: "flex",
+                            alignItems: "center",
+                            paddingLeft: 28,
+                            fontSize: 11,
+                            color: "var(--text-dim)",
+                          }}
+                        >
+                          {t("sidebar.pinnedGroupNoSessions")}
+                        </div>
+                      ) : (
+                        <div
+                          key={row.key}
+                          onFocus={() => setFocusedSessionId(row.family.root.id)}
+                          onBlur={() => setFocusedSessionId(null)}
+                          style={{ position: "absolute", top: row.offset - contentTop, left: 0, right: 0 }}
+                        >
+                          {renderSessionRow(row.family)}
+                        </div>
+                      )
+                    ))}
+                </div>
+              );
+            })}
+            {visibleSidebarRows.map((row) => {
+              if (row.kind === "groupHeader") {
+                return (
+                  <div
+                    key={row.key}
+                    style={{ position: "absolute", top: row.offset, left: 0, right: 0, height: row.height }}
+                  >
+                    <PinnedGroupHeader
+                      project={row.project}
+                      expanded={expandedGroupKeys.has(row.project.key)}
+                      stale={stalePinnedRoots.has(row.project.root)}
+                      activity={projectActivity.get(row.project.key)}
+                      homeDir={homeDir}
+                      t={t}
+                      onToggle={() => handleToggleGroup(row.project.key)}
+                      onUnpin={() => togglePin(row.project.key, row.project.root)}
+                      onNewSession={() => handleNewSessionInProject(row.project)}
+                    />
+                  </div>
+                );
+              }
+              // Group session rows render inside their group container above.
+              if (row.kind !== "session" || row.groupKey !== null) return null;
+              const family = row.family;
               // Bubble blur after the input's save handler before unpinning the row.
               return (
                 <div
                   key={family.root.id}
                   onFocus={() => setFocusedSessionId(family.root.id)}
                   onBlur={() => setFocusedSessionId(null)}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+                  style={{ position: "absolute", top: row.offset, left: 0, right: 0 }}
                 >
-                  <SessionItem
-                    session={displaySession}
-                    isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-                    isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-                    isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-                    onClick={() => handleSelectSessionFromList(family.root)}
-                    onRenamed={loadSessions}
-                    onDeleted={(id) => {
-                      onSessionDeleted?.(id);
-                      loadSessions();
-                    }}
-                  />
+                  {renderSessionRow(family)}
                 </div>
               );
             })}
