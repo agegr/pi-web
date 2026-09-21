@@ -32,8 +32,13 @@ import {
   setCompletionBadge,
   clearBadgeOnFocus,
   coalesceCompletionSound,
+  clampMaxVisiblePanes,
+  loadMaxVisiblePanes,
+  persistMaxVisiblePanes,
+  MAX_VISIBLE_PANES_DEFAULT,
+  MAX_VISIBLE_PANES_MAX,
+  MAX_VISIBLE_PANES_MIN,
   type PaneTab,
-  type PaneDensity,
 } from "@/lib/pane-state";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
@@ -98,16 +103,50 @@ export function AppShell() {
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
 
-  // Split-pane state (pi#4): ordered pane tabs, focused pane id, density mode.
+  // Split-pane state (pi#4): ordered pane tabs, focused pane id, max-visible
+  // pane count (pi#13, replaces the old density toggle).
   // Split view is OPT-IN: pane routing and the tab strip only engage after the
   // toolbar toggle enables it (closing the last pane disables it again), so
   // the classic single-chat layout stays the default.
   const [splitPaneEnabled, setSplitPaneEnabled] = useState(false);
   const [paneTabs, setPaneTabs] = useState<PaneTab[]>([]);
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
-  const [paneDensity, setPaneDensity] = useState<PaneDensity>("default");
+  const [maxVisiblePanes, setMaxVisiblePanes] = useState(MAX_VISIBLE_PANES_DEFAULT);
   const lastSoundAtRef = useRef(0);
   const splitPaneLayoutRef = useRef<{ scrollPaneIntoView: (id: string) => void } | null>(null);
+
+  // maxVisiblePanes persists in localStorage ("一屏最多显示 pane 数"); read on
+  // mount so SSR and first client render share the default of 3, then update.
+  // Invalid or absent stored values fall back to 3 inside loadMaxVisiblePanes.
+  useEffect(() => {
+    setMaxVisiblePanes(loadMaxVisiblePanes());
+  }, []);
+
+  // Quick-cycle order follows the pinned scenario: three clicks from 3 give
+  // 2 → 4 → 3 (i.e. 3→2, 2→4, 4→3).
+  const handleCycleMaxVisiblePanes = useCallback(() => {
+    const prev = clampMaxVisiblePanes(maxVisiblePanes);
+    const next =
+      prev === MAX_VISIBLE_PANES_DEFAULT
+        ? MAX_VISIBLE_PANES_MIN
+        : prev === MAX_VISIBLE_PANES_MIN
+          ? MAX_VISIBLE_PANES_MAX
+          : MAX_VISIBLE_PANES_DEFAULT;
+    setMaxVisiblePanes(next);
+    persistMaxVisiblePanes(next);
+  }, [maxVisiblePanes]);
+
+  // A newly opened pane (sidebar routing or the split-enable first pane) must
+  // scroll into view: panes are appended at the tail of paneTabs, so when the
+  // count grows the last tab is the new pane.
+  const paneCountRef = useRef(0);
+  useEffect(() => {
+    if (paneTabs.length > paneCountRef.current && paneTabs.length > 0) {
+      const newPaneId = paneTabs[paneTabs.length - 1].sessionId;
+      splitPaneLayoutRef.current?.scrollPaneIntoView(newPaneId);
+    }
+    paneCountRef.current = paneTabs.length;
+  }, [paneTabs]);
 
   // Once the user has granted notification permission, register a Web Push
   // subscription so the server can notify backgrounded PWAs (notably iOS,
@@ -2074,9 +2113,9 @@ export function AppShell() {
           {!isMobile && splitPaneEnabled && paneTabs.length > 0 && (
             <button
               type="button"
-              onClick={() => setPaneDensity((d) => d === "default" ? "compact" : "default")}
-              title={paneDensity === "default" ? "Switch to compact (4 panes)" : "Switch to default (3 panes)"}
-              aria-label={paneDensity === "default" ? "Switch to compact density" : "Switch to default density"}
+              onClick={handleCycleMaxVisiblePanes}
+              title={`Max visible panes: ${clampMaxVisiblePanes(maxVisiblePanes)} (click to cycle)`}
+              aria-label={`Max visible panes: ${clampMaxVisiblePanes(maxVisiblePanes)}. Click to cycle maximum visible panes`}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
@@ -2084,22 +2123,18 @@ export function AppShell() {
                 color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                {paneDensity === "default" ? (
-                  <>
-                    <rect x="2" y="5" width="6.5" height="14" rx="1" />
-                    <rect x="9.5" y="5" width="6.5" height="14" rx="1" />
-                    <rect x="17" y="5" width="5" height="14" rx="1" />
-                  </>
-                ) : (
-                  <>
-                    <rect x="2" y="5" width="4.75" height="14" rx="1" />
-                    <rect x="7.5" y="5" width="4.75" height="14" rx="1" />
-                    <rect x="13" y="5" width="4.75" height="14" rx="1" />
-                    <rect x="18.5" y="5" width="3.5" height="14" rx="1" />
-                  </>
-                )}
-              </svg>
+              {(() => {
+                const count = clampMaxVisiblePanes(maxVisiblePanes);
+                const gap = 1.5;
+                const w = (20 - (count - 1) * gap) / count;
+                return (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                    {Array.from({ length: count }, (_, i) => (
+                      <rect key={i} x={2 + i * (w + gap)} y={5} width={w} height={14} rx={1} />
+                    ))}
+                  </svg>
+                );
+              })()}
             </button>
           )}
           <button
@@ -2473,7 +2508,7 @@ export function AppShell() {
               ref={splitPaneLayoutRef}
               tabs={paneTabs}
               focusedId={focusedPaneId}
-              density={paneDensity}
+              maxVisiblePanes={maxVisiblePanes}
               runningSessionIds={runningSessionIds}
               onFocusPane={(sid) => {
                 setFocusedPaneId(sid);

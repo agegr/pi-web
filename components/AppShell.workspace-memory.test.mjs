@@ -104,7 +104,7 @@ test("New restores the draft after session navigation and workspace auto-restore
         paneTabs: [],
         splitPaneEnabled: false,
         focusedPaneId: null,
-        paneDensity: "default",
+        maxVisiblePanes: 3,
         splitPaneLayoutRef: { current: null },
         setPaneTabs: () => {},
         setFocusedPaneId: () => {},
