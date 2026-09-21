@@ -342,6 +342,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  // Reactive "scrolled up" state for the jump-to-bottom button; updated from
+  // the same scroll event path that maintains live-follow, never a second
+  // listener stack (pi#17).
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   const eventConnectionRef = useRef<AgentEventConnection | null>(null);
   const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -361,6 +365,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const pendingScrollToUserRef = useRef(false);
   const isNearBottomRef = useRef(true);
   const previousScrollTopRef = useRef(0);
+  // Mirrors isScrolledUp so the scroll handler can skip redundant setState
+  // calls while streaming keeps firing scroll events at the tail.
+  const isScrolledUpRef = useRef(false);
   const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -417,6 +424,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: container.scrollHeight, behavior });
     previousScrollTopRef.current = container.scrollTop;
   }, []);
+
+  /**
+   * Jump-to-bottom button action: smooth-scroll to the tail and re-attach
+   * live-follow. `scrollToBottom` scrolls the container but does not touch
+   * `isNearBottomRef`, so the optimistic ref flip (plus the state reset that
+   * hides the button immediately) is done here; the smooth scroll's own
+   * scroll events then converge the state at the tail either way.
+   */
+  const jumpToLatest = useCallback(() => {
+    isNearBottomRef.current = true;
+    isScrolledUpRef.current = false;
+    setIsScrolledUp(false);
+    scrollToBottom("smooth");
+  }, [scrollToBottom]);
 
   const currentModel = currentModelOverride ?? liveModel ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew
@@ -2095,6 +2116,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       );
       isNearBottomRef.current = isAttached;
       previousScrollTopRef.current = scrollTop;
+      const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+      const nextScrolledUp = distanceFromBottom > CHAT_SCROLL_REATTACH_TOLERANCE;
+      if (isScrolledUpRef.current !== nextScrolledUp) {
+        isScrolledUpRef.current = nextScrolledUp;
+        setIsScrolledUp(nextScrolledUp);
+      }
       if (!wasAttached && isAttached && isAgentRunning) {
         scrollToBottom("auto");
       } else if (!isAttached && liveFollowFrameRef.current !== null) {
@@ -2303,7 +2330,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     refreshFromDisk,
-    scrollToBottom, scrollUserMsgToTop, scrollToMessage, scrollToOffset,
+    scrollToBottom, jumpToLatest, isScrolledUp, scrollUserMsgToTop, scrollToMessage, scrollToOffset,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions
