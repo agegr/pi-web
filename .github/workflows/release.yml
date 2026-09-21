@@ -1,3 +1,27 @@
+# Release publishes to npm via Trusted Publishing (OIDC), not a token secret.
+#
+# Background — why NODE_AUTH_TOKEN was removed (measured 2026-09-21, release
+# run 35551783214, publishing @silgrid/pi-web@0.0.1):
+#
+#   - ENEEDAUTH: no NODE_AUTH_TOKEN secret configured on the repo.
+#   - E403 "Two-factor authentication or granular access token with bypass 2fa
+#     enabled is required": the granular token was created before the npm
+#     account enabled 2FA, so it never satisfies npm's 2FA policy.
+#   - EOTP / E403 from CI, by account 2FA mode (npm 2025+ 2FA enforcement):
+#
+#     | account 2FA mode | token created before 2FA | token created after 2FA
+#     |------------------|---------------------------|------------------------
+#     | auth-and-writes  | E403                      | EOTP (CI cannot answer)
+#     | auth-only        | E403                      | E403 (publish not allowed)
+#
+#   Every long-lived-token cell fails from CI. Trusted Publishing exchanges a
+#   short-lived GitHub OIDC token for a publish credential, so no npm token
+#   secret exists to leak, expire, or trip 2FA.
+#
+# Prerequisite (one-time, npmjs.com console): the package `@silgrid/pi-web` has
+# a Trusted Publisher configured for repository `silgrid/pi-web` and workflow
+# `release.yml`. See docs/release.md before cutting a release.
+
 name: Release
 
 on:
@@ -7,6 +31,9 @@ on:
 
 permissions:
   contents: read
+  # npm Trusted Publishing: npm exchanges this OIDC token for a short-lived
+  # publish credential. Do not remove.
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -18,15 +45,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # No `registry-url` here on purpose: setup-node would write a
+      # token-based .npmrc expecting NODE_AUTH_TOKEN, which no longer exists.
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
           cache: npm
-          registry-url: https://registry.npmjs.org
       - run: npm ci --no-audit --no-fund
       # The files field in package.json ships the prebuilt .next output,
       # so the package published here is the built app, not the source tree.
       - run: npm run build
-      - run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+      # Trusted Publishing needs npm >= 11.5.1; node 22.19.0 bundles npm 10.9.
+      - run: npm install -g npm@11
+      - run: npm publish --access public --provenance
