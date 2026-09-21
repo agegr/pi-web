@@ -1,7 +1,20 @@
 export interface PaneTab {
   sessionId: string;
   label: string;
+  /** Sidebar project identity (pi#25): basename of the project root. */
+  projectName: string;
   hasBadge: boolean;
+}
+
+/**
+ * Embedded pane-header attribution (pi#25): `<project> · <session>` for
+ * session panes and `<New> · <project>` for the sentinel new-session pane,
+ * where the sentinel's localized short "New" word is carried by its label
+ * (set from `tabs.new` at the open site).
+ */
+export function paneHeaderLabel(tab: PaneTab): string {
+  if (isNewSessionTab(tab.sessionId)) return `${tab.label} · ${tab.projectName}`;
+  return `${tab.projectName} · ${tab.label}`;
 }
 
 // --- Width-adaptive pane sizing (pi#20) ---
@@ -11,6 +24,20 @@ export interface PaneTab {
 // and the pane area scrolls horizontally. This replaces the old localStorage
 // persisted manual visible-pane cap (pi#13).
 export const MIN_PANE_WIDTH = 360;
+
+/** How many MIN_PANE_WIDTH-wide panes fit the measured pane area. */
+export function visiblePaneCapacity(
+  areaWidth: number,
+  minPaneWidth: number,
+): number {
+  if (!Number.isFinite(areaWidth) || areaWidth <= 0) return 1;
+  if (!Number.isFinite(minPaneWidth) || minPaneWidth <= 0) {
+    // Degenerate floor: no capacity bound — sizing falls back to the equal
+    // split, so the overflow indicator must stay hidden.
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Math.max(1, Math.floor(areaWidth / minPaneWidth));
+}
 
 export function paneWidth(
   openCount: number,
@@ -23,7 +50,7 @@ export function paneWidth(
     // floor falls back to the plain equal split of the area.
     return areaWidth / openCount;
   }
-  const maxVisible = Math.max(1, Math.floor(areaWidth / minPaneWidth));
+  const maxVisible = visiblePaneCapacity(areaWidth, minPaneWidth);
   if (openCount <= maxVisible) return areaWidth / openCount;
   return minPaneWidth;
 }
@@ -32,10 +59,11 @@ export function openPane(
   tabs: PaneTab[],
   sessionId: string,
   label: string,
+  projectName: string,
 ): PaneTab[] {
   const existing = tabs.find((t) => t.sessionId === sessionId);
   if (existing) return tabs;
-  return [...tabs, { sessionId, label, hasBadge: false }];
+  return [...tabs, { sessionId, label, projectName, hasBadge: false }];
 }
 
 // --- New-session tab (pi#21) ---
@@ -62,11 +90,15 @@ export function hasSessionTab(tabs: PaneTab[]): boolean {
 export function openNewSessionTab(
   tabs: PaneTab[],
   label: string,
+  projectName: string,
 ): { tabs: PaneTab[]; existed: boolean } {
   if (tabs.some((t) => t.sessionId === NEW_SESSION_TAB_ID)) {
     return { tabs, existed: true };
   }
-  return { tabs: [...tabs, { sessionId: NEW_SESSION_TAB_ID, label, hasBadge: false }], existed: false };
+  return {
+    tabs: [...tabs, { sessionId: NEW_SESSION_TAB_ID, label, projectName, hasBadge: false }],
+    existed: false,
+  };
 }
 
 export function closePane(tabs: PaneTab[], sessionId: string): PaneTab[] {

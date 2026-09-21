@@ -45,6 +45,21 @@ test("the classic full-width ChatWindow still wires both callbacks unconditional
   assert.match(source, /onContextUsageChange=\{handleContextUsageChange\}/);
 });
 
+test("every pane-tab creation site threads project attribution (pi#25 embedded headers)", () => {
+  // Embedded pane headers render "<project> · <session>" from the tab's
+  // projectName, so every openPane/openNewSessionTab/sentinel-replacement
+  // site must resolve it from the sidebar's project identity.
+  const sites = source.match(/projectDisplayNameForPath\(/g) ?? [];
+  assert.ok(sites.length >= 4, "AppShell must compute projectName at every pane creation site");
+  assert.match(source, /import \{ projectDisplayNameForPath \} from "@\/lib\/project-groups";/);
+  assert.match(source, /openPaneOp\(tabs, session\.id, label, projectDisplayNameForPath\(session\.projectRoot \?\? session\.cwd\)\)/,
+    "handleSelectSession must attribute its opened pane");
+  assert.match(source, /openNewSessionTab\(prev, label, projectName\)\.tabs/,
+    "handleNewSession must attribute the sentinel pane");
+  assert.match(source, /\{ sessionId: session\.id, label, projectName, hasBadge: false \}/,
+    "the in-place sentinel replacement must carry projectName");
+});
+
 test("ChatWindow re-reports on callback change and nulls on callback removal", async () => {
   // Focus switches flip the callback identity (handle <-> undefined), so the
   // reporting effect must be keyed on the callback and clean up with null,

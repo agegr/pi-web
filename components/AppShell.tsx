@@ -38,6 +38,7 @@ import {
   NEW_SESSION_TAB_ID,
   type PaneTab,
 } from "@/lib/pane-state";
+import { projectDisplayNameForPath } from "@/lib/project-groups";
 import { getPinnedProjects } from "@/lib/pinned-projects";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
@@ -850,7 +851,7 @@ export function AppShell() {
           return clearBadgeOnFocus(tabs, session.id);
         }
         const label = session.name || session.firstMessage || session.id.slice(0, 12);
-        return openPaneOp(tabs, session.id, label);
+        return openPaneOp(tabs, session.id, label, projectDisplayNameForPath(session.projectRoot ?? session.cwd));
       });
       if (focusedPaneId !== session.id) setFocusedPaneId(session.id);
     }
@@ -896,17 +897,17 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
     if (splitPaneEnabled && !isMobile) {
       // Open the new-session pane tab (at most one exists by construction)
-      // and focus it instead of bypassing the pane layout.
-      const label = translate("tabs.newSession");
-      setPaneTabs((prev) => openNewSessionTab(prev, label).tabs);
+      // and focus it instead of bypassing the pane layout. The sentinel's
+      // label is the localized short "New" (tabs.new) — its embedded header
+      // renders it as "New · <project>" via paneHeaderLabel (pi#25).
+      const label = translate("tabs.new");
+      const projectName = projectDisplayNameForPath(cwd);
+      setPaneTabs((prev) => openNewSessionTab(prev, label, projectName).tabs);
       setFocusedPaneId(NEW_SESSION_TAB_ID);
     }
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile, splitPaneEnabled, paneTabs, translate]);
 
-  // The tab-strip "+": opens the new-session tab in the cwd the workspace is
-  // currently pointing at, or focuses the already-open one (handled inside
-  // handleNewSession). No cwd to start in means nothing to open.
   // The new-session tab's default cwd (pi#21, user-confirmed): the FIRST
   // pinned project, else the default directory, and only then the current
   // workspace — NOT the focused session's cwd.
@@ -925,12 +926,6 @@ export function AppShell() {
     }
     return newSessionCwd ?? selectedSession?.cwd ?? activeCwd ?? null;
   }, [newSessionCwd, selectedSession, activeCwd]);
-
-  const handleOpenNewSessionTab = useCallback(() => {
-    void resolveNewSessionTabCwd().then((cwd) => {
-      if (cwd) handleNewSession(`tabs-${Date.now()}`, cwd);
-    });
-  }, [resolveNewSessionTabCwd, handleNewSession]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -982,13 +977,18 @@ export function AppShell() {
       // sentinel tab is replaced at the same index by the real session id, so
       // sibling panes keep their keys and never unmount or reorder.
       const label = session.name || session.firstMessage || session.id.slice(0, 12);
+      // Project attribution (pi#25): the created session's pane header shows
+      // "<project> · <session>". The transient SessionInfo may lack the
+      // server-computed projectRoot (hydrateSelectedSession backfills it),
+      // so fall back to the cwd basename.
+      const projectName = projectDisplayNameForPath(session.projectRoot ?? session.cwd);
       setPaneTabs((prev) => {
         if (!prev.some((t) => isNewSessionTab(t.sessionId))) {
-          return openPaneOp(prev, session.id, label);
+          return openPaneOp(prev, session.id, label, projectName);
         }
         return prev.map((t) =>
           isNewSessionTab(t.sessionId)
-            ? { sessionId: session.id, label, hasBadge: false }
+            ? { sessionId: session.id, label, projectName, hasBadge: false }
             : t,
         );
       });
@@ -2138,7 +2138,7 @@ export function AppShell() {
                 setSplitPaneEnabled(true);
                 const sid = selectedSession.id;
                 const label = selectedSession.name || selectedSession.firstMessage || sid.slice(0, 12);
-                setPaneTabs((prev) => (prev.some((t) => t.sessionId === sid) ? prev : openPaneOp(prev, sid, label)));
+                setPaneTabs((prev) => (prev.some((t) => t.sessionId === sid) ? prev : openPaneOp(prev, sid, label, projectDisplayNameForPath(selectedSession.projectRoot ?? selectedSession.cwd))));
                 setFocusedPaneId(sid);
               }}
               title="Enable split view"
@@ -2531,7 +2531,6 @@ export function AppShell() {
                 setFocusedPaneId(sid);
                 setPaneTabs((prev) => clearBadgeOnFocus(prev, sid));
               }}
-              onOpenNewSessionTab={handleOpenNewSessionTab}
               onClosePane={(sid) => {
                 const closingNewSessionTab = isNewSessionTab(sid);
                 const remaining = paneTabs.filter((t) => t.sessionId !== sid);

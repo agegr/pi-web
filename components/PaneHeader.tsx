@@ -1,6 +1,15 @@
 "use client";
 
+// Embedded pane header (pi#25): each pane column carries its own header row
+// instead of the old shared tab strip. The header keeps tab semantics
+// (role="tab" + aria-selected, keyboard focus, running dot, completion badge,
+// inline close ✕ with unchanged onClosePane wiring) while spanning the full
+// pane width, so the pane content region below gains the strip's former height.
+
+const PANE_HEADER_HEIGHT = 30;
+
 interface PaneHeaderProps {
+  id: string;
   label: string;
   running: boolean;
   hasBadge: boolean;
@@ -9,10 +18,13 @@ interface PaneHeaderProps {
   onClose: () => void;
 }
 
-export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose }: PaneHeaderProps) {
+export const PANE_HEADER_HEIGHT_PX = PANE_HEADER_HEIGHT;
+
+export function PaneHeader({ id, label, running, hasBadge, focused, onClick, onClose }: PaneHeaderProps) {
   return (
     <button
       type="button"
+      id={id}
       role="tab"
       aria-selected={focused}
       onClick={onClick}
@@ -20,12 +32,15 @@ export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 5,
-        height: "100%",
-        padding: "0 8px",
+        gap: 6,
+        width: "100%",
+        height: PANE_HEADER_HEIGHT,
+        padding: "0 10px 0 8px",
+        flexShrink: 0,
         border: "none",
         borderTop: focused ? "2px solid var(--accent)" : "2px solid transparent",
-        background: focused ? "var(--bg-selected)" : "transparent",
+        borderBottom: "1px solid var(--border)",
+        background: focused ? "var(--bg-selected)" : "var(--bg-panel)",
         color: focused ? "var(--text)" : "var(--text-muted)",
         cursor: "pointer",
         fontSize: 11,
@@ -33,8 +48,6 @@ export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
-        maxWidth: 150,
-        flexShrink: 0,
         transition: "background 0.1s, color 0.1s",
       }}
     >
@@ -53,8 +66,10 @@ export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose
       <span
         style={{
           minWidth: 0,
+          flex: "1 1 auto",
           overflow: "hidden",
           textOverflow: "ellipsis",
+          textAlign: "left",
         }}
       >
         {label}
@@ -90,10 +105,10 @@ export function PaneHeader({ label, running, hasBadge, focused, onClick, onClose
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          width: 16,
-          height: 16,
+          width: 18,
+          height: 18,
           borderRadius: 4,
-          fontSize: 10,
+          fontSize: 11,
           lineHeight: 1,
           color: "var(--text-dim)",
           cursor: "pointer",

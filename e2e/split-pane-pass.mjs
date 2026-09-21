@@ -7,6 +7,13 @@ import { MIN_PANE_WIDTH } from "../lib/pane-state.ts";
 // unchanged. Every locator that reads chat content scopes to the focused pane
 // via [data-chat-focused='true'] (exactly one per page, classic mode included),
 // the pattern that stays valid with several panes mounted at once.
+//
+// pi#25: the shared tab strip is gone. Each pane column embeds its own header
+// (role="tab", aria-selected, running dot, badge, close ✕) labeled
+// "<project> · <session>" (the sentinel: "New · <project>"), the pane area
+// itself carries role="tablist" + [data-split-pane-area], and new sessions are
+// opened only from the sidebar. An overflow switcher appears whenever the
+// open count exceeds floor(areaWidth / MIN_PANE_WIDTH).
 
 export async function checkSplitPane(page, sessions) {
   const { longTitle, compactedTitle, longTailText } = sessions;
@@ -17,9 +24,14 @@ export async function checkSplitPane(page, sessions) {
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
   const chat = () => page.locator("[data-chat-focused='true']");
-  const tabs = page.getByRole("tab");
-  const paneArea = page.locator("[data-split-tablist] + div");
+  const paneArea = page.locator("[data-split-pane-area]");
+  const tabs = paneArea.getByRole("tab");
   const panes = paneArea.locator("> div");
+  const overflowTrigger = page.locator("[data-pane-overflow-trigger]");
+  const overflowMenu = page.locator("[data-pane-overflow-menu]");
+  // The header's text is the attribution label plus the close ✕ glyph.
+  const headerText = async (index) =>
+    ((await tabs.nth(index).textContent()) ?? "").replace(/×\s*$/, "").trim();
   const assertPaneWidths = async (paneCount, denominator) => {
     const areaBox = await paneArea.boundingBox();
     const boxes = await panes.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
@@ -39,20 +51,42 @@ export async function checkSplitPane(page, sessions) {
     }
   };
 
-  // 1. Opt-in from the toolbar: the current session becomes the only pane.
+  // The sidebar's project identity (one project = one workspace entry) is the
+  // same root pane headers attribute by.
+  const project = await page.evaluate(() => {
+    const raw = localStorage.getItem("pi-web:last-open-by-workspace");
+    const map = raw ? JSON.parse(raw) : {};
+    const keys = Object.keys(map);
+    if (keys.length !== 1) throw new Error(`expected one workspace key, got ${keys.length}`);
+    return keys[0];
+  });
+  const projectName = project.split(/[/\\]/).filter(Boolean).pop();
+  const richLabel = "Render **E2E markdown**";
+
+  // 1. Opt-in from the toolbar: the current session becomes the only pane, and
+  //    its embedded header attributes it as "<project> · <session>". The old
+  //    shared strip (data-split-tablist) must be gone entirely.
   await page.getByRole("button", { name: "Enable split view" }).click();
   await tabs.first().waitFor();
   assert.equal(await tabs.count(), 1, "enabling split view opens the current session as the only pane");
-  assert.equal(await tabs.first().getAttribute("aria-selected"), "true", "the single pane's tab is selected");
+  assert.equal(await tabs.first().getAttribute("aria-selected"), "true", "the single pane's header is selected");
+  assert.equal(await headerText(0), `${projectName} · ${richLabel}`,
+    "the embedded header shows <project> · <session>");
   assert.equal(await chat().count(), 1, "exactly one focused chat container");
   await assertPaneWidths(1, 1);
+  assert.equal(await page.locator("[data-split-tablist]").count(), 0,
+    "the strip row between the top bar and the pane area is gone");
+  assert.equal(await paneArea.getAttribute("role"), "tablist",
+    "the pane area owns the tablist semantics");
 
   // 2. A sidebar click opens a second pane and focuses it (split on).
   await page.locator(`[title="${longTitle}"]`).click();
   await tabs.nth(1).waitFor();
   assert.equal(await tabs.count(), 2, "selecting another session in split mode opens a second pane");
+  assert.equal(await headerText(1), `${projectName} · ${longTitle}`,
+    "session panes attribute as <project> · <session name>");
   assert.equal(await tabs.nth(1).getAttribute("aria-selected"), "true", "the newly opened pane is focused");
-  assert.equal(await tabs.nth(0).getAttribute("aria-selected"), "false", "the first pane's tab is deselected");
+  assert.equal(await tabs.nth(0).getAttribute("aria-selected"), "false", "the first pane's header is deselected");
   await assertPaneWidths(2, 2);
 
   // 3. Multi-pane mount + focused-pane scoping: the unfocused pane stays
@@ -104,15 +138,18 @@ export async function checkSplitPane(page, sessions) {
   // split to settle before measuring (no overflow, every pane ~1/3 of the
   // pane area).
   await page.waitForFunction(() => {
-    const area = document.querySelector("[data-split-tablist] + div");
+    const area = document.querySelector("[data-split-pane-area]");
     if (!area) return false;
-    const panes = Array.from(area.children);
+    const panesList = Array.from(area.children);
     const expected = area.clientWidth / 3;
-    return panes.length === 3
+    return panesList.length === 3
       && area.scrollWidth <= area.clientWidth
-      && panes.every((pane) => Math.abs(pane.getBoundingClientRect().width - expected) < 1);
+      && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - expected) < 1);
   }, null, { timeout: 10_000 });
   await assertPaneWidths(3, 3);
+  // While every pane fits there is no overflow switcher anywhere.
+  assert.equal(await page.locator("[data-pane-overflow]").count(), 0,
+    "the overflow switcher is hidden while all panes fit");
 
   // 6. Width-adaptive floor (pi#20): shrinking the viewport below
   //    3 × MIN_PANE_WIDTH makes every pane exactly MIN_PANE_WIDTH and the
@@ -120,57 +157,112 @@ export async function checkSplitPane(page, sessions) {
   //    split back without horizontal scrolling.
   await page.setViewportSize({ width: 900, height: 800 });
   await page.waitForFunction((minPaneWidth) => {
-    const area = document.querySelector("[data-split-tablist] + div");
+    const area = document.querySelector("[data-split-pane-area]");
     if (!area) return false;
-    const panes = Array.from(area.children);
-    return panes.length === 3
-      && panes.every((pane) => Math.abs(pane.getBoundingClientRect().width - minPaneWidth) < 1)
+    const panesList = Array.from(area.children);
+    return panesList.length === 3
+      && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - minPaneWidth) < 1)
       && area.scrollWidth > area.clientWidth;
   }, MIN_PANE_WIDTH, { timeout: 10_000 });
   await assertExactPaneWidth(3, MIN_PANE_WIDTH);
+  // 6b. Overflow switcher (pi#25): at 900px the area holds floor(900/360) = 2
+  //     panes, so 3 open panes make the switcher appear. Its menu lists every
+  //     open pane with its attribution label, and activating an entry scrolls
+  //     the pane into view and focuses it.
+  await overflowTrigger.waitFor({ state: "visible" });
+  await overflowTrigger.click();
+  await overflowMenu.waitFor({ state: "visible" });
+  const menuEntries = overflowMenu.locator("[role='menuitem']");
+  assert.equal(await menuEntries.count(), 3, "the overflow menu lists every open pane");
+  for (let i = 0; i < 3; i++) {
+    const text = (await menuEntries.nth(i).textContent()) ?? "";
+    assert.ok(text.startsWith(`${projectName} · `),
+      `menu entry ${i} carries the pane attribution label (got ${text})`);
+  }
+  // Activate the middle pane's entry: it scrolls the pane into view, focuses
+  // it (aria-selected moves), and closes the menu.
+  await menuEntries.nth(1).click();
+  await overflowMenu.waitFor({ state: "hidden" });
+  assert.equal(await tabs.nth(1).getAttribute("aria-selected"), "true",
+    "overflow entry activation focuses the target pane");
+  await page.waitForFunction(() => {
+    const area = document.querySelector("[data-split-pane-area]");
+    if (!area) return false;
+    const pane = area.children[1];
+    return pane && area.scrollLeft + area.clientWidth >= pane.offsetLeft + pane.offsetWidth - 1;
+  }, null, { timeout: 10_000 });
+  // Esc also closes the dropdown when it is reopened.
+  await overflowTrigger.click();
+  await overflowMenu.waitFor({ state: "visible" });
+  await overflowMenu.press("Escape");
+  await overflowMenu.waitFor({ state: "hidden" });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.waitForFunction(() => {
-    const area = document.querySelector("[data-split-tablist] + div");
+    const area = document.querySelector("[data-split-pane-area]");
     return area && area.scrollWidth === area.clientWidth;
   }, null, { timeout: 10_000 });
   await assertPaneWidths(3, 3);
+  assert.equal(await page.locator("[data-pane-overflow]").count(), 0,
+    "the overflow switcher hides again once all panes fit");
+  // Restore focus to the third pane so step 7 closes the focused pane.
+  await tabs.nth(2).click();
+  await page.waitForFunction(() => {
+    const area = document.querySelector("[data-split-pane-area]");
+    if (!area) return false;
+    const third = area.querySelectorAll("[role='tab']")[2];
+    return third && third.getAttribute("aria-selected") === "true";
+  }, null, { timeout: 10_000 });
 
   // 7. Closing the focused pane drops to two tabs and the survivors re-widen.
   await tabs.nth(2).getByRole("button", { name: "Close tab" }).click();
-  await page.waitForFunction((expected) => document.querySelectorAll("[role='tab']").length === expected, 2,
-    { timeout: 10_000 });
+  await page.waitForFunction((expected) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    return area && area.querySelectorAll("[role='tab']").length === expected;
+  }, 2, { timeout: 10_000 });
   await assertPaneWidths(2, 2);
   assert.equal(await tabs.nth(1).getAttribute("aria-selected"), "true",
     "closing the focused pane focuses the last remaining pane");
   assert.equal(await tabs.nth(0).getAttribute("aria-selected"), "false");
 
-  // 8. Tab-strip "+" opens exactly one new-session tab (pi#21). The strip
-  //    only renders in split view, so the classic flow never sees it; the
-  //    accessible name is distinct from every other control (the sentinel
-  //    tab itself is role=tab, the group "+" carries the path suffix).
-  //    Scoped to the tablist: the chat content's fork buttons also say
-  //    "New session" (i18n.newSession) and live in the pane area, not the strip.
-  const newSessionTabButton = page.locator("[data-split-tablist]").getByRole("button", { name: "New session", exact: true });
-  // The composer is scoped by PANE INDEX (panes map 1:1 to tabs in order):
+  // 8. New sessions come from the sidebar only (pi#25): the strip's "+"
+  //    button no longer exists, so a pinned project group's "+" is the entry.
+  //    Pin the workspace through the cwd picker so the pinned-group header
+  //    (with its own "+") appears.
+  await page.getByRole("button", { name: "Show sidebar", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "New", exact: true }).count(), 0,
+    "the sidebar header exposes no New button");
+  assert.equal(await page.locator("[data-split-tablist]").count(), 0,
+    "the strip is gone: no + button exists in the pane chrome");
+  // The workspace is still the project (only session panes are open), so the
+  // cwd picker only needs to pin it: pinning makes the pinned-group header
+  // (with its own "+") appear.
+  await page.locator("[data-cwd-picker]").click();
+  await page.getByRole("button", { name: "Pin project", exact: true }).click();
+  await tabs.nth(0).click();
+  const groupNewSession = page.getByRole("button", { name: `New session in ${project}`, exact: true });
+  await groupNewSession.waitFor();
+  // The composer is scoped by PANE INDEX (panes map 1:1 to headers in order):
   // the empty new-session page renders no message area, so there is no
   // data-chat-focused to scope by inside the sentinel pane. Each call site
   // passes the sentinel's known tab index.
   const composer = (index) => panes.nth(index).locator(".chat-input-textarea");
-  await newSessionTabButton.click();
+  await groupNewSession.click();
   await tabs.nth(2).waitFor();
-  assert.equal(await tabs.count(), 3, "the strip + opens the new-session tab");
+  assert.equal(await tabs.count(), 3, "the group + opens the new-session pane rightmost");
+  assert.equal(await headerText(2), `New · ${projectName}`,
+    "the sentinel pane's header shows New · <project>");
   assert.equal(await tabs.nth(2).getAttribute("aria-selected"), "true",
-    "the new-session tab is focused when opened");
+    "the new-session pane is focused when opened");
   await composer(2).waitFor({ state: "visible" });
 
   // 9. Draft survival: the new-session composer keeps its text across pane
-  //    switches, and a second "+" re-focuses the existing tab instead of
-  //    duplicating it (at most one new-session tab by construction).
+  //    switches, and a second group "+" re-focuses the existing sentinel
+  //    instead of duplicating it (at most one new-session tab by construction).
   await composer(2).fill("E2E new-session draft");
   await tabs.nth(0).click();
   await chat().getByText("E2E final answer", { exact: true }).waitFor();
-  await newSessionTabButton.click();
-  assert.equal(await tabs.count(), 3, "the strip + focuses the existing new-session tab");
+  await groupNewSession.click();
+  assert.equal(await tabs.count(), 3, "the group + focuses the existing new-session tab");
   assert.equal(await tabs.nth(2).getAttribute("aria-selected"), "true",
     "the existing new-session tab is re-focused");
   assert.equal(await composer(2).inputValue(), "E2E new-session draft",
@@ -179,15 +271,19 @@ export async function checkSplitPane(page, sessions) {
   // 10. Auto new-session page: closing the last session pane keeps split view
   //     enabled with the focused new-session tab instead of the classic revert.
   await tabs.nth(0).getByRole("button", { name: "Close tab" }).click();
-  await page.waitForFunction((expected) => document.querySelectorAll("[role='tab']").length === expected, 2,
-    { timeout: 10_000 });
+  await page.waitForFunction((expected) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    return area && area.querySelectorAll("[role='tab']").length === expected;
+  }, 2, { timeout: 10_000 });
   await tabs.nth(0).getByRole("button", { name: "Close tab" }).click();
-  await page.waitForFunction((expected) => document.querySelectorAll("[role='tab']").length === expected, 1,
-    { timeout: 10_000 });
+  await page.waitForFunction((expected) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    return area && area.querySelectorAll("[role='tab']").length === expected;
+  }, 1, { timeout: 10_000 });
   assert.equal(await tabs.count(), 1, "only the new-session tab remains");
   assert.equal(await tabs.first().getAttribute("aria-selected"), "true",
     "closing the last session pane focuses the new-session tab");
-  assert.ok(await page.locator("[data-split-tablist]").isVisible(),
+  assert.ok(await paneArea.isVisible(),
     "split view stays enabled after the last session pane closes");
   await composer(0).waitFor({ state: "visible" });
   // 10b. pi#23: the sentinel pane has no session and reports nothing (it
@@ -198,43 +294,20 @@ export async function checkSplitPane(page, sessions) {
     timeout: 10_000 },
     "the stats button must hide when only the session-less new-session tab is focused");
 
-  // 11. The sidebar header exposes no New button (pi#21); a pinned group's
-  //     "+" still starts the focused new-session tab. The workspace key is
-  //     read from the app's own workspace memory (one project = one entry).
-  await page.getByRole("button", { name: "Show sidebar", exact: true }).click();
-  assert.equal(await page.getByRole("button", { name: "New", exact: true }).count(), 0,
-    "the sidebar header no longer exposes a New button");
-  const project = await page.evaluate(() => {
-    const raw = localStorage.getItem("pi-web:last-open-by-workspace");
-    const map = raw ? JSON.parse(raw) : {};
-    const keys = Object.keys(map);
-    if (keys.length !== 1) throw new Error(`expected one workspace key, got ${keys.length}`);
-    return keys[0];
-  });
-  // The new-session page moved the workspace selection to the default
-  // directory (empty session list), so re-point it at the session's project
-  // through the cwd picker dropdown before pinning.
-  await page.locator("[data-cwd-picker]").click();
-  await page.locator(`#session-sidebar button[title="${project}"]`).click();
-  // Pin the workspace through the cwd picker so the pinned-group header
-  // (with its own "+") appears, then close the picker by focusing a pane.
-  await page.locator("[data-cwd-picker]").click();
-  await page.getByRole("button", { name: "Pin project", exact: true }).click();
-  await tabs.nth(0).click();
-  const groupNewSession = page.getByRole("button", { name: `New session in ${project}`, exact: true });
-  await groupNewSession.waitFor();
+  // 11. The group "+" re-focuses the sentinel; selecting a session supersedes
+  //     it (its draft stays parked for the next "+"); the pinned group lists
+  //     the project's sessions regardless of the current selection.
   await groupNewSession.click();
-  // At most one new-session tab by construction: with the sentinel already
-  // open (step 10), the group "+" focuses it instead of duplicating.
-  assert.equal(await tabs.count(), 1, "the group + focuses the existing new-session tab (at most one by construction)");
+  assert.equal(await tabs.count(), 1, "the group + re-focuses the existing new-session tab (at most one by construction)");
   assert.equal(await tabs.first().getAttribute("aria-selected"), "true",
     "the group + re-focuses the existing new-session tab");
   await composer(0).waitFor({ state: "visible" });
-  // Selecting a session supersedes the sentinel tab (its draft stays parked
-  // for the next "+"); the pinned group lists the project's sessions
-  // regardless of the current selection.
   await page.locator(`[title="${longTitle}"]`).click();
-  await page.waitForFunction((expected) => document.querySelectorAll("[role='tab']").length === expected, 1,
-    { timeout: 10_000 });
+  await page.waitForFunction((expected) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    return area && area.querySelectorAll("[role='tab']").length === expected;
+  }, 1, { timeout: 10_000 });
   assert.equal(await tabs.count(), 1, "selecting a session closes the superseded new-session tab");
+  assert.equal(await headerText(0), `${projectName} · ${longTitle}`,
+    "the superseding session pane attributes as <project> · <session name>");
 }
