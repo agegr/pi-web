@@ -186,3 +186,33 @@ test("thinking level overrides keep explicit default, disabled, and custom contr
   assert.match(editor, /state === "null"/);
   assert.match(editor, /state === "string"/);
 });
+
+test("discovery can sync the configured models to the upstream list", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+
+  // Additions always apply; dropping models the upstream list no longer offers
+  // stays behind an explicit opt-in so a partial upstream response is harmless.
+  assert.match(providerDetail, /planModelSync\(\(provider\.models \?\? \[\]\)\.map\(\(model\) => model\.id\), discoveredModels\)/);
+  assert.match(providerDetail, /onSyncModels\(syncPlan, removeStaleModels\)/);
+  assert.match(providerDetail, /t\("models\.syncRemoveStale", \{ count: syncPlan\.stale\.length \}\)/);
+  assert.match(providerDetail, /t\("models\.syncSummary", \{ total: discoveryState\.models\.length, added: syncPlan\.additions\.length, stale: syncPlan\.stale\.length \}\)/);
+
+  // The parent only drops stale ids when asked, and keeps additions unique.
+  assert.match(source, /const dropped = new Set\(removeStale \? plan\.stale : \[\]\)/);
+  assert.match(source, /onSyncModels=\{\(plan, removeStale\) => syncProviderModels\(selection\.name, plan, removeStale\)\}/);
+});
+
+test("discovery does not require a configured base URL", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+
+  // pi's provider catalog supplies the endpoint for a models-only entry and for
+  // built-in providers, so the button must stay usable with an empty base URL.
+  assert.match(providerDetail, /t\("models\.builtinBaseUrl"\)/);
+  assert.doesNotMatch(providerDetail, /!provider\.baseUrl\?\.trim\(\) \|\| discoveryState\.phase === "loading"/);
+});
