@@ -390,6 +390,8 @@ export const enLocale: LocalePlugin = {
     "chat.quoteQuestion": "My question:",
     "chat.quoteForkFailed": "Unable to create a branch from this message.",
     "chat.attachImage": "Attach image",
+    "chat.filePickerUnsupportedTitle": "File selection unavailable",
+    "chat.filePickerUnsupportedBody": "The current app shell opened no file chooser when this button was tapped. Its WebView likely lacks the native file-selection bridge — try attaching from a regular browser, or update the app shell.",
     "chat.previewImage": "Preview image",
     "chat.filterModels": "Filter models…",
     "chat.noMatchingModels": "No matching models",

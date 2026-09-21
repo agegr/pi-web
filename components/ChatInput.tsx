@@ -107,6 +107,25 @@ const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const TEXT_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
 
+// Mobile app shells often embed the page in a WebView (Android WebView / an
+// in-app WKWebView) that ships without the native file-chooser bridge. There a
+// programmatic `input[type=file].click()` is a complete no-op — the exact
+// "attach button does nothing" symptom this component mitigates.
+// Stock mobile browsers (Chrome on Android, iOS Safari) never match, so the
+// mitigations below (looser `accept`, dead-click probe) stay inert there.
+const LIKELY_EMBEDDED_WEBVIEW = (() => {
+  if (typeof navigator === "undefined") return false; // SSR guard
+  const ua = navigator.userAgent.toLowerCase();
+  return ua.includes("; wv)") // Android WebView marker
+    || (ua.includes("webview") && !ua.includes("chrome/")) // generic WebView token
+    || (/(iphone|ipad|ipod)/.test(ua) && !ua.includes("safari/")); // in-app WKWebView dropped the Safari token
+})();
+
+// How long after an attach click to wait before judging the file chooser dead
+// (no change event, no picker-induced page hide/blur) and surfacing a hint.
+const FILE_PICKER_PROBE_MS = 200;
+const FILE_PICKER_NOTICE_AUTO_HIDE_MS = 6000;
+
 export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, gap = ANCHORED_MENU_GAP): number {
   return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
 }
@@ -580,6 +599,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [atMenuMaxHeight, setAtMenuMaxHeight] = useState<number | null>(null);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
   const [imageWarningDismissed, setImageWarningDismissed] = useState(false);
+  const [filePickerNoticeVisible, setFilePickerNoticeVisible] = useState(false);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [builtinCommandPending, setBuiltinCommandPending] = useState(false);
@@ -601,6 +621,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filePickerProbeCleanupRef = useRef<(() => void) | null>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
@@ -828,6 +849,67 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       pendingImageCountRef.current -= imageFiles.length;
     }
   }, [compact]);
+
+  /**
+   * Opens the OS file chooser synchronously inside the click gesture (never
+   * wrapped in a timeout — WebView gesture rules would drop it). In likely
+   * embedded-WebView shells it also probes the chooser: if after
+   * FILE_PICKER_PROBE_MS no change event arrived, no file landed, and the
+   * page never got hidden/blurred by a native picker overlay, the click was
+   * almost certainly a dead one and an observable hint is surfaced instead of
+   * leaving the button silently unresponsive.
+   */
+  const openImagePicker = useCallback(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    // Cancel any in-flight probe so rapid re-taps never stack listeners.
+    filePickerProbeCleanupRef.current?.();
+    filePickerProbeCleanupRef.current = null;
+    let pickerResponded = false;
+    let pageWentAway = false; // picker opened → page hidden (Android) or blurred
+    const onProbeChange = () => {
+      pickerResponded = true;
+      setFilePickerNoticeVisible(false);
+    };
+    const onProbeVisibility = () => {
+      if (document.visibilityState === "hidden") pageWentAway = true;
+    };
+    const onProbeBlur = () => {
+      pageWentAway = true;
+    };
+    const stopProbe = () => {
+      input.removeEventListener("change", onProbeChange);
+      document.removeEventListener("visibilitychange", onProbeVisibility);
+      window.removeEventListener("blur", onProbeBlur);
+    };
+    if (LIKELY_EMBEDDED_WEBVIEW) {
+      input.addEventListener("change", onProbeChange);
+      document.addEventListener("visibilitychange", onProbeVisibility);
+      window.addEventListener("blur", onProbeBlur);
+    }
+    // Synchronous click keeps the user-gesture chain intact.
+    input.click();
+    if (!LIKELY_EMBEDDED_WEBVIEW) return;
+    const timer = window.setTimeout(() => {
+      filePickerProbeCleanupRef.current = null;
+      stopProbe();
+      if (pickerResponded || pageWentAway) return;
+      if (input.files && input.files.length > 0) return;
+      setFilePickerNoticeVisible(true);
+    }, FILE_PICKER_PROBE_MS);
+    filePickerProbeCleanupRef.current = () => {
+      window.clearTimeout(timer);
+      stopProbe();
+    };
+  }, []);
+
+  // The dead-chooser hint is transient: auto-hide so it never lingers after
+  // the environment recovers or the user moves on.
+  useEffect(() => {
+    if (!filePickerNoticeVisible) return;
+    const timer = window.setTimeout(() => setFilePickerNoticeVisible(false), FILE_PICKER_NOTICE_AUTO_HIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [filePickerNoticeVisible]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -1694,6 +1776,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       disabled={builtinCommandPending}
       aria-busy={builtinCommandPending}
       style={{
+        position: "relative", // anchoring context for the visually-hidden file input
         flexShrink: 0,
         minWidth: 0,
         margin: 0,
@@ -1705,13 +1788,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         transition: "opacity 0.15s",
       }}
     >
-      {/* Hidden file input */}
+      {/* Visually-hidden file input: kept in the layout (never display:none —
+          some WebView shells refuse to open a chooser for a display:none input).
+          accept is dropped in likely embedded-WebView shells because old
+          Android WebViews can silently fail the whole chooser on filtered
+          picks; processImageFiles re-filters non-images regardless. */}
       {!compact && <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={LIKELY_EMBEDDED_WEBVIEW ? undefined : "image/*"}
         multiple
-        style={{ display: "none" }}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{
+          position: "absolute",
+          left: 0,
+          bottom: 0,
+          width: 1,
+          height: 1,
+          margin: -1,
+          padding: 0,
+          border: 0,
+          opacity: 0,
+          overflow: "hidden",
+          clipPath: "inset(50%)",
+          pointerEvents: "none",
+        }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           processImageFiles(files);
@@ -1721,6 +1823,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
+        {filePickerNoticeVisible && (
+          <ModelNoticeBanner
+            tone="warning"
+            title={t("chat.filePickerUnsupportedTitle")}
+            body={t("chat.filePickerUnsupportedBody")}
+            onClose={() => setFilePickerNoticeVisible(false)}
+          />
+        )}
         {showImageUnsupportedWarning && (() => {
           const entry = modelList?.find((m) => m.provider === model?.provider && m.id === model?.modelId);
           return (
@@ -2324,8 +2434,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
-              onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachImage")}
+              onClick={openImagePicker}
+              title={t("chat.attachImage")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
