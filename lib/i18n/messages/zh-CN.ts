@@ -403,6 +403,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.cameraPermissionDeniedTitle": "相机不可用",
     "chat.cameraPermissionDeniedBody": "相机权限被拒绝或不可用。您仍可以从相册附加图片。",
     "chat.previewImage": "预览图片",
+    "chat.draftKeptTitle": "已保留当前草稿",
+    "chat.draftKeptBody": "未载入历史消息，当前草稿保持不变。",
     "chat.filterModels": "筛选模型…",
     "chat.noMatchingModels": "没有匹配的模型",
     "chat.moreControls": "更多控件",

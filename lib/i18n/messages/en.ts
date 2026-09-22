@@ -403,6 +403,8 @@ export const enLocale: LocalePlugin = {
     "chat.cameraPermissionDeniedTitle": "Camera unavailable",
     "chat.cameraPermissionDeniedBody": "Camera access was declined or is unavailable in this app shell. You can still attach images from your photo library.",
     "chat.previewImage": "Preview image",
+    "chat.draftKeptTitle": "Draft kept",
+    "chat.draftKeptBody": "Your current draft was kept — the historical message was not loaded into the composer.",
     "chat.filterModels": "Filter models…",
     "chat.noMatchingModels": "No matching models",
     "chat.moreControls": "More controls",

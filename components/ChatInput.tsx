@@ -114,6 +114,7 @@ const TOOL_PRESET_MAP: Record<ToolPresetLabel, ToolPreset> = {
   full: "full",
 };
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
+const DRAFT_KEPT_NOTICE_AUTO_HIDE_MS = 6000;
 const TEXT_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
 
@@ -611,6 +612,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [atActiveIndex, setAtActiveIndex] = useState(0);
   const [imageWarningDismissed, setImageWarningDismissed] = useState(false);
   const [filePickerNoticeVisible, setFilePickerNoticeVisible] = useState(false);
+  // pi#33: "Edit from here" skips the restore when a draft exists; the skip
+  // must be observable (kept-draft notice), never a silent no-op.
+  const [draftKeptNoticeVisible, setDraftKeptNoticeVisible] = useState(false);
   // pi#31: native attach state — the shell-only source chooser and the
   // camera-permission notice (surfaced through the same ModelNoticeBanner seam).
   const [attachSourceMenuOpen, setAttachSourceMenuOpen] = useState(false);
@@ -672,7 +676,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) {
+        // pi#33: the draft is kept byte-for-byte; the transient notice makes
+        // the skipped restore visible instead of reading as a dead click (or
+        // as "the click ate my input") in both split and classic layouts.
+        setDraftKeptNoticeVisible(true);
+        return;
+      }
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
@@ -992,6 +1002,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const timer = window.setTimeout(() => setCameraNoticeVisible(false), FILE_PICKER_NOTICE_AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
   }, [cameraNoticeVisible]);
+
+  // The kept-draft notice is transient for the same reason: it explains a
+  // skipped restore and must never linger over the draft it protects.
+  useEffect(() => {
+    if (!draftKeptNoticeVisible) return;
+    const timer = window.setTimeout(() => setDraftKeptNoticeVisible(false), DRAFT_KEPT_NOTICE_AUTO_HIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [draftKeptNoticeVisible]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -1919,6 +1937,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             title={t("chat.cameraPermissionDeniedTitle")}
             body={t("chat.cameraPermissionDeniedBody")}
             onClose={() => setCameraNoticeVisible(false)}
+          />
+        )}
+        {draftKeptNoticeVisible && (
+          <ModelNoticeBanner
+            tone="warning"
+            title={t("chat.draftKeptTitle")}
+            body={t("chat.draftKeptBody")}
+            onClose={() => setDraftKeptNoticeVisible(false)}
           />
         )}
         {showImageUnsupportedWarning && (() => {
