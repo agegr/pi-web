@@ -1,0 +1,26 @@
+# Node
+node_modules/
+
+# Capacitor sync output (regenerated from src/pages by `npm run sync`)
+android/app/src/main/assets/public/
+ios/App/App/public/
+
+# Android build outputs
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+android/*.iml
+
+# iOS build outputs
+ios/App/Pods/
+ios/App/App/build/
+ios/App/build/
+ios/DerivedData/
+ios/App/App/public/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store

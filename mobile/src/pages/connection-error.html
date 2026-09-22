@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
+  <title>pi-web — Connection error</title>
+  <link rel="stylesheet" href="shared.css" />
+  <style>
+    body {
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: max(16px, env(safe-area-inset-top)) 24px max(16px, env(safe-area-inset-bottom));
+    }
+    .card { max-width: 420px; text-align: center; }
+    h1 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
+    p { color: var(--muted); margin: 0 0 24px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">Cannot reach the pi-web server</h1>
+    <p id="body">The app could not connect to the configured pi-web server.
+       Make sure the server is running and reachable from this device, then
+       check its URL.</p>
+    <button id="open-settings" class="primary">Server settings…</button>
+  </div>
+
+  <script>
+    (function () {
+      // First run (no server configured yet) reuses the same page with a
+      // friendlier message; the host app loads it with ?first-run=1.
+      if (/[?&]first-run=1\b/.test(window.location.search)) {
+        document.getElementById('title').textContent = 'No pi-web server configured yet'
+        document.getElementById('body').textContent =
+          'This app is a shell around your self-hosted pi-web server — it ships no server of its own. ' +
+          'Enter the address of your pi-web instance to get started.'
+      }
+
+      document.getElementById('open-settings').addEventListener('click', function () {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.piwebShell) {
+          // iOS: the settings page is hosted inside the main Capacitor webview
+          // (the runtime is always injected there); plain in-webview navigation.
+          var base = window.WEBVIEW_SERVER_URL || ''
+          if (base) { window.location.href = base + '/settings.html'; return }
+        }
+        // Android: the shell intercepts this scheme in its WebViewClient and
+        // opens the native settings activity (settings never depend on the
+        // possibly-unreachable server, and local pages have no injected
+        // runtime once a server URL is active — see docs/spike-remote-bridge.md).
+        window.location.href = 'piweb-shell://settings'
+      })
+    })()
+  </script>
+</body>
+</html>
