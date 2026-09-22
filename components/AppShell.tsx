@@ -33,6 +33,7 @@ import {
   clearBadgeOnFocus,
   coalesceCompletionSound,
   isNewSessionTab,
+  resolveBackgroundTasksSessionId,
   openNewSessionTab,
   hasSessionTab,
   NEW_SESSION_TAB_ID,
@@ -192,6 +193,29 @@ export function AppShell() {
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
   const [bgPanelOpen, setBgPanelOpen] = useState(false);
   const [bgSelectedTaskId, setBgSelectedTaskId] = useState<string | null>(null);
+  // pi#28: the background-tasks panel follows the FOCUSED pane's session. In
+  // split view pane focus only updates focusedPaneId (never selectedSession),
+  // so the old selectedSession?.id read left the panel permanently
+  // "unavailable" while a real session pane was focused.
+  const lastSessionPaneIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusedPaneId && !isNewSessionTab(focusedPaneId)) {
+      lastSessionPaneIdRef.current = focusedPaneId;
+    }
+  }, [focusedPaneId]);
+  const activeBgSessionId = useMemo(
+    () => resolveBackgroundTasksSessionId({
+      splitPaneEnabled: splitPaneEnabled && !isMobile,
+      focusedPaneId,
+      selectedSessionId: selectedSession?.id ?? null,
+      // Read at render; the ref is intentionally not a dependency.
+      lastSessionPaneId: lastSessionPaneIdRef.current,
+      paneTabs,
+    }),
+    [splitPaneEnabled, isMobile, focusedPaneId, selectedSession?.id, paneTabs],
+  );
+  const activeBgSessionIdRef = useRef<string | null>(null);
+  activeBgSessionIdRef.current = activeBgSessionId;
   const {
     state: bgTasksState,
     logs: bgTaskLogs,
@@ -200,24 +224,26 @@ export function AppShell() {
     applyEvent: applyBgTasksEvent,
     fetchLogs: fetchBgTaskLogs,
     killTask: killBgTask,
-  } = useBackgroundTasks(selectedSession?.id ?? null, bgPanelOpen);
+  } = useBackgroundTasks(activeBgSessionId, bgPanelOpen);
 
-  // Live events from the selected session's SSE stream: feed the panel state and
-  // fire one browser notification per terminal task transition (dedupe by id).
-  const handleBackgroundTasksEvent = useCallback((event: BackgroundTasksClientEvent) => {
-    applyBgTasksEvent(event);
+  // Live background-task events arrive per session pane (split view feeds every
+  // pane's stream; the classic single chat feeds its own). Panel state only
+  // accepts events from the session the panel currently follows; the terminal
+  // notification path stays session-wide (pi#28).
+  const handleBackgroundTasksEvent = useCallback((sourceSessionId: string, event: BackgroundTasksClientEvent) => {
+    const isActiveSession = sourceSessionId === activeBgSessionIdRef.current;
+    if (isActiveSession) applyBgTasksEvent(event);
     if (event.type !== "background_task_terminal") return;
     const task = event.task;
     if (!markTerminalNotified(task.id)) return;
-    setBgSelectedTaskId(task.id);
+    if (isActiveSession) setBgSelectedTaskId(task.id);
     if (shouldShowBrowserNotification()) {
-      const sessionUrl = selectedSession ? `/?session=${encodeURIComponent(selectedSession.id)}` : "/";
       void showBrowserNotification({
         title: translate("bgTasks.notification.title"),
         body: translate("bgTasks.notification.body")
           .replace("{name}", task.name || task.id)
           .replace("{status}", translate(`bgTasks.status.${task.status}`)),
-        sessionUrl,
+        sessionUrl: `/?session=${encodeURIComponent(sourceSessionId)}`,
         tag: `pi-bg-task:${task.id}`,
         onClick: () => {
           window.focus();
@@ -226,7 +252,7 @@ export function AppShell() {
         },
       });
     }
-  }, [applyBgTasksEvent, selectedSession, translate]);
+  }, [applyBgTasksEvent, translate]);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -2661,6 +2687,12 @@ export function AppShell() {
                     // always the focused pane, never an unfocused one.
                     onSessionStatsChange={focused ? handleSessionStatsChange : undefined}
                     onContextUsageChange={focused ? handleContextUsageChange : undefined}
+                    // pi#28: every pane feeds its own background-task events;
+                    // handleBackgroundTasksEvent filters by the session the
+                    // panel currently follows. Terminal notifications stay
+                    // session-wide, so tasks finishing in an unfocused pane
+                    // still notify (pane focus only gates panel state).
+                    onBackgroundTasksEvent={(event) => handleBackgroundTasksEvent(sid, event)}
                     onAgentEnd={() => {
                       if (sid !== focusedPaneId) {
                         setPaneTabs((prev) => setCompletionBadge(prev, sid));
@@ -2688,7 +2720,7 @@ export function AppShell() {
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}
               onAttentionNeeded={handleAttentionNeeded}
-              onBackgroundTasksEvent={handleBackgroundTasksEvent}
+              onBackgroundTasksEvent={selectedSession ? (event) => handleBackgroundTasksEvent(selectedSession.id, event) : undefined}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
               modelsRefreshKey={modelsRefreshKey}
@@ -2771,7 +2803,7 @@ export function AppShell() {
                   }}
                 >
                   <BackgroundTasksPanel
-                    sessionId={selectedSession?.id ?? null}
+                    sessionId={activeBgSessionId}
                     state={bgTasksState}
                     logs={bgTaskLogs}
                     onRefresh={refreshBgTasks}
@@ -2794,7 +2826,7 @@ export function AppShell() {
                 }}
               >
                 <BackgroundTasksPanel
-                  sessionId={selectedSession?.id ?? null}
+                  sessionId={activeBgSessionId}
                   state={bgTasksState}
                   logs={bgTaskLogs}
                   onRefresh={refreshBgTasks}

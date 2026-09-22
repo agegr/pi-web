@@ -61,9 +61,21 @@ test("all three locales carry the bgTasks keys", () => {
 });
 
 test("AppShell wires the panel, the toolbar badge, and the event callback", () => {
-  assert.match(appShellSource, /useBackgroundTasks\(selectedSession\?\.id \?\? null, bgPanelOpen\)/);
-  assert.match(appShellSource, /onBackgroundTasksEvent=\{handleBackgroundTasksEvent\}/);
+  // pi#28: the panel follows the focused pane's session (activeBgSessionId),
+  // never the classic selectedSession alone.
+  assert.match(appShellSource, /useBackgroundTasks\(activeBgSessionId, bgPanelOpen\)/);
+  assert.match(appShellSource, /resolveBackgroundTasksSessionId\(\{/);
+  // Split view: every session pane feeds its own stream into the handler.
+  assert.match(appShellSource, /onBackgroundTasksEvent=\{\(event\) => handleBackgroundTasksEvent\(sid, event\)\}/);
+  // Classic layout: the single chat feeds with its own session id.
+  assert.match(appShellSource, /onBackgroundTasksEvent=\{selectedSession \? \(event\) => handleBackgroundTasksEvent\(selectedSession\.id, event\) : undefined\}/);
+  // Panel state only accepts events from the followed session; terminal
+  // notifications stay session-wide.
+  assert.match(appShellSource, /sourceSessionId === activeBgSessionIdRef\.current/);
   assert.match(appShellSource, /<BackgroundTasksPanel/);
+  assert.match(appShellSource, /sessionId=\{activeBgSessionId\}/);
+  assert.doesNotMatch(appShellSource, /<BackgroundTasksPanel\n\s*sessionId=\{selectedSession/,
+    "the panel must not read selectedSession directly (pi#28)");
   assert.match(appShellSource, /bgRunningCount > 0/);
   // Terminal events notify exactly once and jump to the task.
   assert.match(appShellSource, /markTerminalNotified\(task\.id\)/);
