@@ -3,7 +3,7 @@ package app.piweb.mobile;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
-import android.net.NetworkSecurityPolicy;
+import android.security.NetworkSecurityPolicy;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
