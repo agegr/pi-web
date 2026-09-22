@@ -12,7 +12,8 @@ import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { ChatMinimap, useMessageRefs, type TimelineItem } from "./ChatMinimap";
+import { useMinimapSettings } from "@/hooks/useMinimapSettings";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
@@ -242,6 +243,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
 
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
+  const { maxNodes: minimapMaxNodes } = useMinimapSettings();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
@@ -308,8 +310,76 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [quoteInputOpen, setQuoteInputOpen] = useState(false);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  const quotePopoverRef = useRef<HTMLDivElement | null>(null);
+  const quotePopoverRef = useRef<HTMLDivElement>(null);
   const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
+
+  // Timeline data for minimap (all messages in session)
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const timelineFetchingRef = useRef<AbortController | null>(null);
+  const fetchTimeline = useCallback(async (sessionId: string) => {
+    if (timelineFetchingRef.current) {
+      timelineFetchingRef.current.abort();
+    }
+    const controller = new AbortController();
+    timelineFetchingRef.current = controller;
+    try {
+      const resp = await fetch(`/api/sessions/${sessionId}/timeline`, { signal: controller.signal });
+      if (!resp.ok || controller.signal.aborted) return;
+      const data = await resp.json();
+      if (!controller.signal.aborted) {
+        setTimeline(data.timeline ?? []);
+      }
+    } catch {
+      // Silent fail - timeline is optional
+    }
+  }, []);
+  useEffect(() => {
+    const sid = session?.id;
+    if (!sid || loading) return;
+    void fetchTimeline(sid);
+  }, [session?.id, loading, fetchTimeline]);
+  useEffect(() => () => {
+    if (timelineFetchingRef.current) {
+      timelineFetchingRef.current.abort();
+      timelineFetchingRef.current = null;
+    }
+  }, []);
+  // Page upward through history until the clicked (unloaded) timeline entry
+  // becomes part of the loaded window. Once it is loaded, ChatMinimap's
+  // measureNodes resolves the pending navigation and smooth-scrolls to it.
+  // loadContext(sid, leafId, before) returns messages preceding `before`, so
+  // we keep moving the cursor to the returned oldestEntryId until the target
+  // surfaces or we run out of earlier pages.
+  const timelineLoadRef = useRef<AbortController | null>(null);
+  const handleLoadTimelineEntry = useCallback(async (entryId: string) => {
+    const sid = session?.id ?? sessionIdRef.current;
+    if (!sid) return;
+
+    // Already in the loaded window? Nothing to fetch.
+    if (searchHistoryRef.current.entryIds.includes(entryId)) return;
+
+    if (timelineLoadRef.current) timelineLoadRef.current.abort();
+    const controller = new AbortController();
+    timelineLoadRef.current = controller;
+
+    let before = searchHistoryRef.current.historyCursor;
+    let hasMore = searchHistoryRef.current.hasEarlierMessages;
+    const MAX_PAGES = 200;
+    try {
+      for (let i = 0; i < MAX_PAGES; i++) {
+        if (!hasMore || !before || controller.signal.aborted) break;
+        const context = await loadContext(sid, activeLeafId, before, { tail: 200, signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (!context) break;
+        if (context.entryIds.includes(entryId)) break;
+        if (context.oldestEntryId === before) break; // no progress
+        before = context.oldestEntryId;
+        hasMore = context.hasMore;
+      }
+    } catch {
+      // Silent fail - navigation is best-effort
+    }
+  }, [session?.id, sessionIdRef, loadContext, activeLeafId]);
   const closeQuotedSelection = useCallback(() => {
     setQuotedSelection(null);
     setQuoteInputOpen(false);
@@ -1228,10 +1298,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {isMobile || pendingScrollRestore ? null : (
           <ChatMinimap
             messages={messages}
+            entryIds={entryIds}
             streamingMessage={streamState.streamingMessage}
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
+            timeline={timeline}
+            onLoadTimelineEntry={handleLoadTimelineEntry}
+            maxNodes={minimapMaxNodes}
           />
         )}
         </>}

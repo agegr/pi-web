@@ -14,8 +14,9 @@ import {
   CHAT_CONTENT_FONT_SIZE_MIN,
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
+import { useMinimapSettings } from "@/hooks/useMinimapSettings";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import type { RetrySettingsResponse, SessionIndexSettingsResponse, ShellToolSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -66,9 +67,18 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  const { maxNodes: minimapMaxNodes, setMaxNodes: setMinimapMaxNodes } = useMinimapSettings();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
+  const [indexSettings, setIndexSettings] = useState<SessionIndexSettingsResponse | null>(null);
+  const [indexSaving, setIndexSaving] = useState(false);
+  const [indexError, setIndexError] = useState<string | null>(null);
+  const [retrySettings, setRetrySettings] = useState<RetrySettingsResponse | null>(null);
+  const [retrySaving, setRetrySaving] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryMaxRetries, setRetryMaxRetries] = useState("3");
+  const [retryBaseDelay, setRetryBaseDelay] = useState("2000");
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
@@ -112,6 +122,38 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/index-settings")
+      .then(async (response) => {
+        const data = await response.json() as SessionIndexSettingsResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) setIndexSettings(data);
+      })
+      .catch((cause) => {
+        if (!cancelled) setIndexError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/retry-settings")
+      .then(async (response) => {
+        const data = await response.json() as RetrySettingsResponse & { error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) {
+          setRetrySettings(data);
+          setRetryMaxRetries(String(data.maxRetries));
+          setRetryBaseDelay(String(data.baseDelayMs));
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) setRetryError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const togglePowerShell = async (enabled: boolean) => {
     setShellSaving(true);
     setShellError(null);
@@ -134,6 +176,51 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       setShellSaving(false);
     }
   };
+
+  const saveIndexSettings = async (patch: Partial<SessionIndexSettingsResponse>) => {
+    setIndexSaving(true);
+    setIndexError(null);
+    try {
+      const response = await fetch("/api/index-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await response.json() as SessionIndexSettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setIndexSettings(data);
+    } catch (cause) {
+      setIndexError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIndexSaving(false);
+    }
+  };
+
+  const saveRetrySettings = async (patch: Partial<RetrySettingsResponse>) => {
+    setRetrySaving(true);
+    setRetryError(null);
+    try {
+      const response = await fetch("/api/retry-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await response.json() as RetrySettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setRetrySettings(data);
+      setRetryMaxRetries(String(data.maxRetries));
+      setRetryBaseDelay(String(data.baseDelayMs));
+    } catch (cause) {
+      setRetryError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRetrySaving(false);
+    }
+  };
+
+  const retryChanged = retrySettings && (
+    retrySettings.maxRetries !== Number(retryMaxRetries) ||
+    retrySettings.baseDelayMs !== Number(retryBaseDelay)
+  );
 
   const registerPush = async () => {
     if (pushRegistering) return;
@@ -286,6 +373,66 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       )}
 
       <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.retry")}</h3>
+        <p className="settings-general-description">{t("settings.retryDescription")}</p>
+        {retrySettings && (
+          <div className="settings-chat-options">
+            <div className="settings-chat-option settings-chat-switch-option">
+              <span>{t("settings.retryEnabled")}</span>
+              <ConfigSwitch
+                checked={retrySettings.enabled}
+                loading={retrySaving}
+                label={t("settings.retryEnabled")}
+                onChange={(enabled) => void saveRetrySettings({ enabled })}
+              />
+            </div>
+            <div className="settings-chat-option settings-retry-num-row">
+              <label htmlFor="settings-retry-max-retries">{t("settings.retryMaxRetries")}</label>
+              <input
+                id="settings-retry-max-retries"
+                className="settings-retry-num-input"
+                type="number"
+                min={0}
+                max={20}
+                step={1}
+                value={retryMaxRetries}
+                onChange={(event) => setRetryMaxRetries(event.target.value)}
+              />
+            </div>
+            <div className="settings-chat-option settings-retry-num-row">
+              <label htmlFor="settings-retry-base-delay">{t("settings.retryBaseDelay")}</label>
+              <input
+                id="settings-retry-base-delay"
+                className="settings-retry-num-input settings-retry-num-input-wide"
+                type="number"
+                min={100}
+                max={60000}
+                step={100}
+                value={retryBaseDelay}
+                onChange={(event) => setRetryBaseDelay(event.target.value)}
+              />
+            </div>
+            {retryChanged && (
+              <div className="settings-chat-option settings-retry-save-row">
+                <ConfigButton
+                  variant="primary"
+                  size="small"
+                  disabled={retrySaving}
+                  onClick={() => void saveRetrySettings({
+                    maxRetries: Number(retryMaxRetries),
+                    baseDelayMs: Number(retryBaseDelay),
+                  })}
+                >
+                  {retrySaving ? t("i18n.saving") : t("i18n.save")}
+                </ConfigButton>
+              </div>
+            )}
+          </div>
+        )}
+        {retryError && <p role="alert" className="settings-general-error">{retryError}</p>}
+      </section>
+
+      <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.pushPermission")}</h3>
         <p className="settings-general-description">{t("settings.pushPermissionDescription")}</p>
         <div className="settings-shell-option">
@@ -308,6 +455,46 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             {pushStatus.message}
           </p>
         )}
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.minimap")}</h3>
+        <p className="settings-general-description">{t("settings.minimapDescription")}</p>
+        <div className="settings-chat-options">
+          <div className="settings-chat-option settings-retry-num-row">
+            <label htmlFor="settings-minimap-max-nodes">{t("settings.minimapMaxNodes")}</label>
+            <input
+              id="settings-minimap-max-nodes"
+              className="settings-retry-num-input"
+              type="number"
+              min={0}
+              max={1000}
+              step={10}
+              value={minimapMaxNodes}
+              onChange={(event) => setMinimapMaxNodes(Number(event.target.value))}
+            />
+          </div>
+        </div>
+        <p className="settings-general-hint">{t("settings.minimapMaxNodesHint")}</p>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.index")}</h3>
+        <p className="settings-general-description">{t("settings.indexDescription")}</p>
+        {indexSettings && (
+          <div className="settings-chat-options">
+            <div className="settings-chat-option settings-chat-switch-option">
+              <span>{t("settings.indexEnabled")}</span>
+              <ConfigSwitch
+                checked={indexSettings.enabled}
+                loading={indexSaving}
+                label={t("settings.indexEnabled")}
+                onChange={(enabled) => void saveIndexSettings({ enabled })}
+              />
+            </div>
+          </div>
+        )}
+        {indexError && <p role="alert" className="settings-general-error">{indexError}</p>}
       </section>
 
       <section className="settings-general-section">

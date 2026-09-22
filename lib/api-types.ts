@@ -15,6 +15,16 @@ export interface ShellToolSettingsResponse {
   powerShellEnabled: boolean;
 }
 
+export interface RetrySettingsResponse {
+  enabled: boolean;
+  maxRetries: number;
+  baseDelayMs: number;
+}
+
+export interface SessionIndexSettingsResponse {
+  enabled: boolean;
+}
+
 export interface SkillSearchResult {
   package: string;
   installs: string;

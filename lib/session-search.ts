@@ -1,6 +1,8 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SessionInfo } from "./types";
+import { readSessionIndexSettings } from "./index-settings";
+import { isIndexAvailable, initSchema, searchEntries, getAllSessions } from "./session-index";
 
 const MAX_FILES = 500;
 const MAX_RESULTS = 30;
@@ -22,12 +24,60 @@ export interface SessionSearchResponse {
   truncated: boolean;
 }
 
-// ponytail: scan recent files without an index; add indexing if measured latency warrants it.
+// Try FTS5 index first; fall back to readline scan.
+async function trySearchFromIndex(query: string, sessions: readonly SessionInfo[]): Promise<SessionSearchResponse | null> {
+  try {
+    const settings = await readSessionIndexSettings();
+    if (!settings.enabled || !isIndexAvailable()) return null;
+    initSchema();
+    const indexedSessions = getAllSessions();
+    if (indexedSessions.length === 0) return null;
+
+    // The index is only authoritative when it covers every requested session.
+    // If some sessions are not in the index (e.g. freshly created, not yet
+    // indexed), fall back to the readline scan so their contents are searched.
+    const indexedIds = new Set(indexedSessions.map((s) => s.id));
+    const allCovered = sessions.every((s) => indexedIds.has(s.id));
+    if (!allCovered) return null;
+
+    const ftsResults = searchEntries(query, { limit: 30 });
+    if (ftsResults.length === 0) {
+      // No matches in the index — and the index covers all sessions, so the
+      // readline scan would find nothing either. Return an empty result.
+      return { results: [], truncated: false };
+    }
+
+    // Map session IDs to SessionInfo objects
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+    const results = ftsResults
+      .filter((r) => sessionMap.has(r.sessionId))
+      .map((r) => {
+        const session = sessionMap.get(r.sessionId)!;
+        return {
+          session,
+          ...(r.entryId ? { entryId: r.entryId } : {}),
+          blockIndex: 0,
+          before: "",
+          match: r.snippet?.replace(/<mark>/g, "").replace(/<\/mark>/g, "") || r.content?.slice(0, 80) || "",
+          after: "",
+        };
+      });
+
+    return { results, truncated: results.length >= 30 };
+  } catch {
+    return null;
+  }
+}
+
 export async function searchSessionContents(
   sessions: readonly SessionInfo[],
   query: string,
   requestSignal?: AbortSignal,
 ): Promise<SessionSearchResponse> {
+  const indexedResult = await trySearchFromIndex(query, sessions);
+  if (indexedResult) return indexedResult;
+
+  // Fallback: readline scan
   const response: SessionSearchResponse = { results: [], truncated: false };
   const needle = query.trim();
   if (!needle) return response;

@@ -14,6 +14,8 @@ import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-res
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { listSessionsIncremental } from "./session-list-scanner";
+import { readSessionIndexSettings } from "./index-settings";
+import { isIndexAvailable, initSchema, getAllSessions } from "./session-index";
 
 export { getAgentDir };
 
@@ -183,7 +185,53 @@ export function mergeSessionLists(
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
+async function tryLoadSessionsFromIndex(): Promise<SessionInfo[] | null> {
+  try {
+    const settings = await readSessionIndexSettings();
+    if (!settings.enabled || !isIndexAvailable()) return null;
+    initSchema();
+    const indexed = getAllSessions();
+    if (indexed.length === 0) return null;
+    // Attach parent/relation metadata the same bounded way the scan path
+    // does, so the index fast path is feature-complete (sidebar groups,
+    // subagent status) and never shadows a richer listing.
+    const sessions = indexed.map((s) => {
+      const parentSessionPath = s.parentSessionPath ?? null;
+      let subagent = null;
+      if (parentSessionPath) {
+        try {
+          subagent = readSubagentRun(readSessionRelationEntries(s.filePath), s.id, s.filePath);
+        } catch { /* malformed or concurrently removed session */ }
+      }
+      return {
+        path: s.filePath,
+        id: s.id,
+        cwd: s.cwd,
+        name: s.name ?? undefined,
+        created: s.created,
+        modified: s.modified,
+        messageCount: s.messageCount,
+        firstMessage: s.firstMessage || "(no messages)",
+        parentSessionId: parentSessionPath ?? undefined,
+        ...(subagent
+          ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
+          : parentSessionPath
+            ? { relation: { kind: "fork" as const } }
+            : {}),
+        transient: false,
+      };
+    });
+    return sessions as SessionInfo[];
+  } catch {
+    return null;
+  }
+}
+
 async function loadAllSessions(): Promise<SessionInfo[]> {
+  const indexedSessions = await tryLoadSessionsFromIndex();
+  if (indexedSessions) {
+    return attachSessionProjectInfo(indexedSessions);
+  }
   const scanned = await listSessionsIncremental();
   const pathToId = new Map<string, string>();
   for (const s of scanned) pathToId.set(sessionPathKey(s.path), s.id);
