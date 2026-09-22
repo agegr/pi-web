@@ -36,7 +36,7 @@ test("floats the scroll-to-latest button above the composer, clear of the minima
   assert.match(container, /bottom: "100%"/);
   assert.match(container, /left: 0/,
     "pi#22 port: on mobile (right: 0) the button centers over the full composer width, not a desktop-style right anchor");
-  assert.match(container, /right: isMobile \? 0 : CHAT_MINIMAP_WIDTH/);
+  assert.match(container, /right: isMobile \? 0 : MINIMAP_WIDTH/);
   assert.match(container, /justifyContent: "center"/);
   assert.match(container, /pointerEvents: "none"/);
   assert.match(cssSource, /\.chat-scroll-to-bottom\.is-visible \{[\s\S]*?pointer-events: auto;/);
