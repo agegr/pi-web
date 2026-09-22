@@ -3,7 +3,10 @@ package app.piweb.mobile;
 import android.net.Uri;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
@@ -47,6 +50,21 @@ public class PiWebWebViewClient extends BridgeWebViewClient {
             return true;
         }
         return super.shouldOverrideUrlLoading(view, request);
+    }
+
+    @Override
+    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        WebResourceResponse response = super.shouldInterceptRequest(view, request);
+        // Main-frame proxied responses carry no cache headers, so the WebView
+        // heuristic-cache kept serving a stale garbled page even after the
+        // server was fixed (device pass). Never cache the main frame: the
+        // document is re-fetched (and runtime-injected) on every navigation.
+        if (response != null && request.isForMainFrame()) {
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Cache-Control", "no-store");
+            response.setResponseHeaders(headers);
+        }
+        return response;
     }
 
     @Override
