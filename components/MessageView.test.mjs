@@ -29,10 +29,11 @@ function renderMessage(message, props = {}) {
   );
 }
 
-test("updates a reused message when its written files change", () => {
+test("updates a reused message when display-only props change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
+  assert.equal(MessageView.compare(props, { ...props, hideResultImages: true }), false);
 });
 
 test("matches response model aliases and otherwise includes the provider", () => {
@@ -339,6 +340,18 @@ test("marks apply_patch returned failures as errors even when isError is unset",
   assert.doesNotMatch(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
 });
 
+test("renders assistant image blocks as buttons that open a larger preview", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "image", data: "YWJj", mimeType: "image/png" }],
+  });
+
+  assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
+  assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
 test("renders custom-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "custom",
@@ -377,4 +390,12 @@ test("shows tool-result images while the tool details stay collapsed", () => {
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
   assert.doesNotMatch(html, /captured-1280x720/);
   assert.doesNotMatch(html, /"tabId"/);
+
+  const hiddenHtml = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map([[block.toolCallId, result]]), hideResultImages: true });
+  assert.doesNotMatch(hiddenHtml, /data:image\/png;base64,YWJj/);
 });

@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, getProcessContentBlocks, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
@@ -23,6 +23,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { isProcessContentVisible, PROCESS_CONTENT_EVENT } from "@/lib/process-content-preference";
 import {
   captureScrollDistance,
   getPromptAnchorSpacerHeight,
@@ -244,6 +245,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
+  const [showProcessContent, setShowProcessContent] = useState(false);
+
+  useEffect(() => {
+    const syncPreference = () => setShowProcessContent(isProcessContentVisible());
+    syncPreference();
+    window.addEventListener(PROCESS_CONTENT_EVENT, syncPreference);
+    return () => window.removeEventListener(PROCESS_CONTENT_EVENT, syncPreference);
+  }, []);
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -1021,7 +1030,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; hideResultImages?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -1060,6 +1069,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
+                    hideResultImages={options.hideResultImages}
                   />
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
@@ -1114,6 +1124,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // Keep the original prefix so deferred thinking retains its stored block indices.
                 const finalProcessBlocks = finalAssistant.content.slice(0, finalProcessEnd < 0 ? undefined : finalProcessEnd);
 
+                const visibleProcessViews: ReactNode[] = [];
                 const processViews: ReactNode[] = [];
                 let processToolCount = 0;
                 let processRefIdx: number | undefined;
@@ -1133,25 +1144,46 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const blocks = getDisplayableAssistantBlocks(message);
                   if (blocks.length === 0) continue;
                   processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
-                  processToolCount += countToolCallBlocks(blocks);
-                  revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
+
+                  const visibleBlocks = showProcessContent
+                    ? getProcessContentBlocks(message, toolResultsMap)
+                    : [];
+                  const detailBlocks = showProcessContent
+                    ? blocks.filter((block) => block.type !== "text" && block.type !== "image")
+                    : blocks;
+
+                  if (visibleBlocks.length > 0) {
+                    visibleProcessViews.push(renderMessage(processIdx, {
+                      attachRef: false,
+                      keyPrefix: "visible-process",
+                      messageOverride: withAssistantBlocks(message, visibleBlocks, { omitUsage: true }),
+                      showTimestamp: false,
+                    }));
+                  }
+                  if (detailBlocks.length === 0) continue;
+                  processToolCount += countToolCallBlocks(detailBlocks);
+                  revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || detailBlocks.includes(searchBlock)));
                   processViews.push(renderMessage(processIdx, {
                     attachRef: false,
                     keyPrefix: "process",
-                    messageOverride: message,
+                    messageOverride: withAssistantBlocks(message, detailBlocks),
                     showTimestamp: false,
+                    hideResultImages: showProcessContent,
                   }));
                 }
 
-                if (processViews.length > 0) {
+                if (visibleProcessViews.length > 0 || processViews.length > 0) {
                   rendered.push(
                     <div
                       key={`process-group-${entryIds[userIdx] ?? userIdx}`}
                       ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
                     >
-                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
-                        {processViews}
-                      </ProcessDetailsGroup>
+                      {visibleProcessViews}
+                      {processViews.length > 0 && (
+                        <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
+                          {processViews}
+                        </ProcessDetailsGroup>
+                      )}
                     </div>,
                   );
                 }

@@ -11,3 +11,9 @@ test("expands process details when a completed turn has no final answer", () => 
     /<ProcessDetailsGroup[\s\S]*?defaultExpanded=\{!finalAnswerMessage\}/,
   );
 });
+
+test("can keep process text and images visible while retaining tool details", () => {
+  assert.match(source, /getProcessContentBlocks\(message, toolResultsMap\)/);
+  assert.match(source, /block\.type !== "text" && block\.type !== "image"/);
+  assert.match(source, /hideResultImages: showProcessContent/);
+});
