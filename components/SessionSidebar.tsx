@@ -124,6 +124,9 @@ interface Props {
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  pinnedSessionIds: ReadonlySet<string>;
+  pinnedSessionsEnabled: boolean;
+  onTogglePinnedSession: (sessionId: string) => void;
 }
 
 interface WorktreeEntry {
@@ -374,7 +377,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, pinnedSessionIds, pinnedSessionsEnabled, onTogglePinnedSession }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
@@ -1784,6 +1787,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     isSelected={familySessions.some((session) => session.id === selectedSessionId)}
                     isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
                     isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                    isPinned={pinnedSessionsEnabled && pinnedSessionIds.has(family.root.id)}
+                    pinnedSessionsEnabled={pinnedSessionsEnabled}
+                    onTogglePinned={pinnedSessionsEnabled ? () => onTogglePinnedSession(family.root.id) : undefined}
                     onClick={() => handleSelectSessionFromList(family.root)}
                     onRenamed={loadSessions}
                     onDeleted={(id) => {
@@ -2081,6 +2087,9 @@ function SessionItem({
   isSelected,
   isRunning,
   isUnread,
+  isPinned,
+  pinnedSessionsEnabled,
+  onTogglePinned,
   onClick,
   onRenamed,
   onDeleted,
@@ -2093,6 +2102,9 @@ function SessionItem({
   isSelected: boolean;
   isRunning?: boolean;
   isUnread?: boolean;
+  isPinned?: boolean;
+  pinnedSessionsEnabled?: boolean;
+  onTogglePinned?: () => void;
   onClick: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
@@ -2324,6 +2336,13 @@ function SessionItem({
               ) : (
                 <span title={session.modified}>{formatRelativeTime(session.modified, locale)}</span>
               )}
+              {pinnedSessionsEnabled && isPinned && (
+                <span title={t("sidebar.unpin")} aria-label={t("sidebar.unpin")} style={{ display: "inline-flex", color: "var(--accent)" }}>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7 3h10v4l2 3v2h-5v8l-2 2-2-2v-8H5v-2l2-3V3Z" />
+                  </svg>
+                </span>
+              )}
               <span>{t("sidebar.messagesCount", { count: session.messageCount })}</span>
               {session.isWorktree && session.branch && (
                 <span
@@ -2365,6 +2384,37 @@ function SessionItem({
           {/* Action buttons — shown on hover */}
           {hovered && !session.transient && (
             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              {pinnedSessionsEnabled && (
+                <button
+                  onClick={(event) => { event.stopPropagation(); onTogglePinned?.(); }}
+                  title={t(isPinned ? "sidebar.unpin" : "sidebar.pin")}
+                  aria-label={t(isPinned ? "sidebar.unpin" : "sidebar.pin")}
+                  aria-pressed={isPinned}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 32, height: 32, padding: 0,
+                    background: isPinned ? "var(--bg-selected)" : "var(--bg-hover)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 7, color: isPinned ? "var(--accent)" : "var(--text-muted)",
+                    cursor: "pointer", flexShrink: 0,
+                    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.background = "var(--bg-selected)";
+                    event.currentTarget.style.color = "var(--accent)";
+                    event.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.background = isPinned ? "var(--bg-selected)" : "var(--bg-hover)";
+                    event.currentTarget.style.color = isPinned ? "var(--accent)" : "var(--text-muted)";
+                    event.currentTarget.style.borderColor = "var(--border)";
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7 3h10v4l2 3v2h-5v8l-2 2-2-2v-8H5v-2l2-3V3Z" />
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={startRename}
                 title={t("sidebar.rename")}
