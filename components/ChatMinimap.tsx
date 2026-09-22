@@ -22,7 +22,7 @@ interface Props {
   scrollToOffset: (top: number, viewportOffset: number) => void;
 }
 
-const MINIMAP_WIDTH = 36;
+export const MINIMAP_WIDTH = 24;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;

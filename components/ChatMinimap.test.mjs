@@ -59,3 +59,19 @@ test("preview popup is click-to-toggle: no hover triggers, rail click toggles, j
   assert.match(source, /if \(liveNode\) scrollToHeading[\s\S]{0,80}?setMinimapHovered\(false\);/);
   assert.match(source, /if \(liveNode\) scrollToAssistant\(liveNode, assistantIndex\);[\s\S]{0,60}?setMinimapHovered\(false\);/);
 });
+
+test("minimap rail width is 24px and shared across ChatWindow and ChatInput", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const minimap = await readFile(new URL("./ChatMinimap.tsx", import.meta.url), "utf8");
+  const chatWindow = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  const chatInput = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+
+  // The rail width is pinned at 24px and exported so all consumers share one constant.
+  assert.match(minimap, /export const MINIMAP_WIDTH = 24;/);
+  // ChatWindow must import the shared constant instead of defining its own.
+  assert.match(chatWindow, /import \{ ChatMinimap, MINIMAP_WIDTH, useMessageRefs \} from "\.\/ChatMinimap";/);
+  assert.doesNotMatch(chatWindow, /CHAT_MINIMAP_WIDTH/);
+  assert.match(chatWindow, /right: isMobile \? 0 : MINIMAP_WIDTH/);
+  // Composer right padding tracks the rail: 16px base + 24px rail = 40px.
+  assert.match(chatInput, /paddingRight: compact \? 0 : isMobile \? 16 : 40, \/\/ desktop: 16px base \+ 24px for ChatMinimap alignment/);
+});
