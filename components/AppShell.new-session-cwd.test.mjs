@@ -13,11 +13,12 @@ test("the new-session tab defaults its cwd to the first pinned project, then the
   assert.match(source, /const pinned = getPinnedProjects\(\);\s*if \(pinned\.length > 0\) return pinned\[0\]\.root;/);
   assert.match(source, /fetch\("\/api\/default-cwd", \{ method: "POST" \}\)[\s\S]*?if \(data\.cwd\) return data\.cwd;/);
   assert.match(source, /newSessionCwd \?\? selectedSession\?\.cwd \?\? activeCwd \?\? null;\s*\}, \[newSessionCwd, selectedSession, activeCwd\]\);/);
-  // The close-last auto page routes through the resolver (pi#25 removed the
-  // tab-strip "+" and its handleOpenNewSessionTab wrapper, so the sidebar is
-  // the sole new-session entry).
+  // The close-last auto page AND the fresh-entry new-session landing (pi#27)
+  // both route through the resolver (pi#25 removed the tab-strip "+" and its
+  // handleOpenNewSessionTab wrapper, so the sidebar is the sole interactive
+  // new-session entry).
   const resolverCallSites = source.match(/resolveNewSessionTabCwd\(\)\.then/g) ?? [];
-  assert.equal(resolverCallSites.length, 1, "the resolver must back the close-last auto page");
+  assert.equal(resolverCallSites.length, 2, "the resolver must back the close-last auto page and the fresh-entry landing");
   assert.doesNotMatch(source, /const cwd = newSessionCwd \?\? selectedSession\?\.cwd \?\? activeCwd;/);
 });
 

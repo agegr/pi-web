@@ -23,7 +23,7 @@ export function paneHeaderLabel(tab: PaneTab): string {
 // floor(areaWidth / MIN_PANE_WIDTH) every pane is exactly MIN_PANE_WIDTH wide
 // and the pane area scrolls horizontally. This replaces the old localStorage
 // persisted manual visible-pane cap (pi#13).
-export const MIN_PANE_WIDTH = 360;
+export const MIN_PANE_WIDTH = 520;
 
 /** How many MIN_PANE_WIDTH-wide panes fit the measured pane area. */
 export function visiblePaneCapacity(

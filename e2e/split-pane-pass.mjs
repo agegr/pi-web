@@ -20,7 +20,7 @@ export async function checkSplitPane(page, sessions) {
   // checkChatAppearance ends at a mobile viewport with the sidebar in its
   // mobile drawer state; the split view is desktop-only, so restore the desktop
   // viewport and re-dock the sidebar before the pass.
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1680, height: 1000 });
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
   const chat = () => page.locator("[data-chat-focused='true']");
@@ -72,6 +72,9 @@ export async function checkSplitPane(page, sessions) {
   assert.equal(await tabs.first().getAttribute("aria-selected"), "true", "the single pane's header is selected");
   assert.equal(await headerText(0), `${projectName} · ${richLabel}`,
     "the embedded header shows <project> · <session>");
+  // The pane frame and the ChatWindow subtree commit in adjacent renders under
+  // concurrent React; wait for the focused chat before counting it.
+  await chat().waitFor();
   assert.equal(await chat().count(), 1, "exactly one focused chat container");
   await assertPaneWidths(1, 1);
   assert.equal(await page.locator("[data-split-tablist]").count(), 0,
@@ -128,8 +131,8 @@ export async function checkSplitPane(page, sessions) {
   await chat().getByText("E2E final answer", { exact: true }).waitFor();
 
   // 5. A third pane: three panes at one third each. The sidebar is hidden
-  //    first so the pane area tracks the viewport width (1280px holds
-  //    floor(1280/MIN_PANE_WIDTH) = 3 panes).
+  //    after the click so the pane area tracks the full 1680px
+  //    (floor(1680/520) = 3).
   await page.locator(`[title="${compactedTitle}"]`).click();
   await tabs.nth(2).waitFor();
   assert.equal(await tabs.count(), 3, "a third session opens a third pane");
@@ -165,8 +168,8 @@ export async function checkSplitPane(page, sessions) {
       && area.scrollWidth > area.clientWidth;
   }, MIN_PANE_WIDTH, { timeout: 10_000 });
   await assertExactPaneWidth(3, MIN_PANE_WIDTH);
-  // 6b. Overflow switcher (pi#25): at 900px the area holds floor(900/360) = 2
-  //     panes, so 3 open panes make the switcher appear. Its menu lists every
+  // 6b. Overflow switcher (pi#25): at 900px the area holds floor(900/520) = 1
+  //     pane, so 3 open panes make the switcher appear. Its menu lists every
   //     open pane with its attribution label, and activating an entry scrolls
   //     the pane into view and focuses it.
   await overflowTrigger.waitFor({ state: "visible" });
@@ -196,7 +199,7 @@ export async function checkSplitPane(page, sessions) {
   await overflowMenu.waitFor({ state: "visible" });
   await overflowMenu.press("Escape");
   await overflowMenu.waitFor({ state: "hidden" });
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1680, height: 1000 });
   await page.waitForFunction(() => {
     const area = document.querySelector("[data-split-pane-area]");
     return area && area.scrollWidth === area.clientWidth;
