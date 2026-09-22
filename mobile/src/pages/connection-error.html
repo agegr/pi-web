@@ -26,7 +26,10 @@
     <p id="body">The app could not connect to the configured pi-web server.
        Make sure the server is running and reachable from this device, then
        check its URL.</p>
-    <button id="open-settings" class="primary">Server settings…</button>
+    <div style="display: flex; gap: 10px; justify-content: center;">
+      <button id="retry" class="primary">Retry</button>
+      <button id="open-settings">Server settings…</button>
+    </div>
   </div>
 
   <script>
@@ -39,6 +42,28 @@
           'This app is a shell around your self-hosted pi-web server — it ships no server of its own. ' +
           'Enter the address of your pi-web instance to get started.'
       }
+
+      // Main-frame load failures land here with ?code=<WebView errorCode>
+      // and &from=<failing url> (see PiWebWebViewClient.onReceivedError).
+      var codeMatch = /[?&]code=(-?\d+)/.exec(window.location.search)
+      if (codeMatch && codeMatch[1] !== '-1') {
+        var b = document.getElementById('body')
+        b.textContent += ' (error ' + codeMatch[1] + ')'
+      }
+
+      document.getElementById('retry').addEventListener('click', function () {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.piwebShell) {
+          // iOS: reload straight to the configured server origin.
+          var base = window.WEBVIEW_SERVER_URL || ''
+          if (base) { window.location.href = base; return }
+          window.location.reload()
+          return
+        }
+        // Android: the shell intercepts this scheme and reloads the stored
+        // server URL (no injected runtime on local pages once a URL is
+        // active — see docs/spike-remote-bridge.md).
+        window.location.href = 'piweb-shell://reload'
+      })
 
       document.getElementById('open-settings').addEventListener('click', function () {
         if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.piwebShell) {
