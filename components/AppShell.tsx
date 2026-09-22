@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type RefObject } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useBackgroundTasks, markTerminalNotified } from "@/hooks/useBackgroundTasks";
@@ -396,6 +396,44 @@ export function AppShell() {
     reclampRightPanelWidth();
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
+  // pi#33: split panes each own an imperative composer handle keyed by pane
+  // id. A single shared ref cannot serve N panes: without a per-pane handle,
+  // "Edit from here" (replaceMessage), @-mention insertText, addImages and
+  // queued-message restore were silent no-ops in split view — the reported
+  // desktop bug where the composer stayed empty after the click.
+  const paneChatInputRefsRef = useRef<Map<string, RefObject<ChatInputHandle | null>>>(new Map());
+  const getPaneChatInputRef = useCallback((paneId: string): RefObject<ChatInputHandle | null> => {
+    const refs = paneChatInputRefsRef.current;
+    let paneRef = refs.get(paneId);
+    if (!paneRef) {
+      paneRef = { current: null };
+      refs.set(paneId, paneRef);
+    }
+    return paneRef;
+  }, []);
+  // Immediate cleanup at the close site (pi#33); the paneTabs hygiene effect
+  // below sweeps the remaining removal paths (supersede/adoption).
+  const releasePaneChatInputRef = useCallback((paneId: string) => {
+    paneChatInputRefsRef.current.delete(paneId);
+  }, []);
+  // Registry hygiene (pi#33): a pane id with no open tab releases its
+  // composer-handle entry, so closed panes, the superseded sentinel tab and
+  // the sentinel adopted by a created session never keep stale handles.
+  useEffect(() => {
+    const open = new Set(paneTabs.map((tab) => tab.sessionId));
+    for (const paneId of paneChatInputRefsRef.current.keys()) {
+      if (!open.has(paneId)) paneChatInputRefsRef.current.delete(paneId);
+    }
+  }, [paneTabs]);
+  // AppShell-level imperative callers address the FOCUSED pane's composer
+  // when split view is active (inserts must never leak into another pane),
+  // falling back to the classic shared handle outside split view.
+  const resolveChatInputHandle = useCallback((): ChatInputHandle | null => {
+    if (splitPaneEnabled && !isMobile && focusedPaneId) {
+      return paneChatInputRefsRef.current.get(focusedPaneId)?.current ?? null;
+    }
+    return chatInputRef.current;
+  }, [splitPaneEnabled, isMobile, focusedPaneId]);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
@@ -655,20 +693,20 @@ export function AppShell() {
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
-    chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir));
+    resolveChatInputHandle()?.insertText(buildAtMentionText(relativePath, isDir));
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
-  }, [isMobile]);
+  }, [isMobile, resolveChatInputHandle]);
 
   const handleAtMentions = useCallback((relativePaths: string[]) => {
     const mentions = buildFileAtMentionsText(relativePaths);
-    if (mentions) chatInputRef.current?.insertText(mentions);
+    if (mentions) resolveChatInputHandle()?.insertText(mentions);
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
-  }, [isMobile]);
+  }, [isMobile, resolveChatInputHandle]);
 
   const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number) => {
-    chatInputRef.current?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
+    resolveChatInputHandle()?.insertText(buildFileLineMentionText(relativePath, startLine, endLine));
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
-  }, [isMobile]);
+  }, [isMobile, resolveChatInputHandle]);
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
@@ -2671,6 +2709,7 @@ export function AppShell() {
                 setPaneTabs((prev) => clearBadgeOnFocus(prev, sid));
               }}
               onClosePane={(sid) => {
+                releasePaneChatInputRef(sid);
                 const closingNewSessionTab = isNewSessionTab(sid);
                 const remaining = paneTabs.filter((t) => t.sessionId !== sid);
                 setPaneTabs((prev) => closePaneOp(prev, sid));
@@ -2722,6 +2761,7 @@ export function AppShell() {
                       newSessionCwd={effectiveNewSessionCwd}
                       newSessionDraftKey={newSessionDraftKey}
                       sessionRunning={false}
+                      chatInputRef={getPaneChatInputRef(NEW_SESSION_TAB_ID)}
                       onSessionCreated={handleSessionCreated}
                     />
                   );
@@ -2736,6 +2776,7 @@ export function AppShell() {
                     newSessionCwd={null}
                     newSessionDraftKey={null}
                     sessionRunning={runningSessionIds.has(sid)}
+                    chatInputRef={getPaneChatInputRef(sid)}
                     // pi#23: only the focused pane reports usage/stats to the
                     // global topbar state. Unfocused panes pass undefined, so
                     // ChatWindow's cleanup (keyed on the callback) nulls the

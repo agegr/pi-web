@@ -746,3 +746,145 @@ test("renders no native attach menu outside Capacitor shells", async () => {
   assert.ok(!html.includes("Take photo"));
   assert.ok(!html.includes('role="menu"'));
 });
+
+// pi#33: "Edit from here" restore semantics — fill only a completely empty
+// composer; keep a non-empty draft byte-for-byte and surface a transient
+// kept-draft notice instead of a silent no-op. These tests execute the REAL
+// replaceMessage callback extracted from ChatInput.tsx (same technique as
+// the handleKeyDown extraction above), so the pinned behavior is the
+// component's actual code, not a reimplementation.
+function loadReplaceMessage() {
+  const sourceText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const source = ts.createSourceFile("ChatInput.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let method = null;
+  function findMethod(node) {
+    if (ts.isMethodDeclaration(node) && node.name.getText(source) === "replaceMessage") {
+      method = node;
+      return;
+    }
+    ts.forEachChild(node, findMethod);
+  }
+  findMethod(source);
+  assert.ok(method, "ChatInput must define the replaceMessage imperative handle");
+  const params = method.parameters.map((p) => p.getText(source)).join(", ");
+  const body = method.body.getText(source);
+  return { sourceText, make: (sandbox) => new Script(ts.transpileModule(`(${params}) => ${body}`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText).runInNewContext(sandbox) };
+}
+
+function runReplaceMessage(initial, message) {
+  const state = {
+    value: initial.value ?? "",
+    setValueCalls: [],
+    noticeCalls: [],
+    focusScheduled: false,
+    attachedImages: initial.attachedImages ?? [],
+  };
+  const attachedImagesRef = { current: state.attachedImages };
+  const sandbox = {
+    canRestoreUserMessage,
+    getUserMessageText,
+    getUserMessageDraftImages,
+    draftImagesToAttachedImages: (images) => (images ?? []).map((image) => ({
+      ...image,
+      previewUrl: `data:${image.mimeType};base64,${image.data}`,
+    })),
+    revokeImagePreview: () => {},
+    textareaRef: { current: initial.domValue === undefined ? null : { value: initial.domValue, focus: () => {}, style: {}, scrollHeight: 40 } },
+    value: initial.domValue ?? state.value,
+    attachedImagesRef,
+    pendingImageCountRef: { current: initial.pendingImages ?? 0 },
+    valueRef: { current: initial.value ?? "" },
+    setValue: (v) => { state.setValueCalls.push(v); state.value = v; },
+    setAtQuery: () => {},
+    setHistoryMenuOpen: () => {},
+    setAttachedImages: (update) => {
+      attachedImagesRef.current = typeof update === "function" ? update(attachedImagesRef.current) : update;
+    },
+    setDraftKeptNoticeVisible: (v) => state.noticeCalls.push(v),
+    requestAnimationFrame: () => { state.focusScheduled = true; },
+  };
+  loadReplaceMessageCache.make(sandbox)(message);
+  state.attachedImages = attachedImagesRef.current;
+  return state;
+}
+
+const loadReplaceMessageCache = loadReplaceMessage();
+
+test("replaceMessage fills a completely empty composer and shows no notice", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "text", text: "historical branch text" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+    ],
+  };
+  const state = runReplaceMessage({}, message);
+
+  assert.deepEqual(state.setValueCalls, ["historical branch text"]);
+  assert.equal(state.value, "historical branch text");
+  assert.deepEqual(state.noticeCalls, [], "an empty composer restores without any kept-draft notice");
+  assert.equal(state.focusScheduled, true, "the restored composer is focused for editing");
+  assert.deepEqual(state.attachedImages, [{
+    data: "AQID",
+    mimeType: "image/png",
+    previewUrl: "data:image/png;base64,AQID",
+  }]);
+});
+
+test("replaceMessage keeps a non-empty draft byte-for-byte and shows the kept-draft notice", () => {
+  const message = { role: "user", content: "historical branch text" };
+  const state = runReplaceMessage({ value: "my precious draft" }, message);
+
+  assert.deepEqual(state.setValueCalls, [], "the draft is never rewritten");
+  assert.equal(state.value, "my precious draft", "the draft survives byte-for-byte");
+  assert.deepEqual(state.noticeCalls, [true], "the skipped restore must be visible, not a silent no-op");
+  assert.equal(state.focusScheduled, false, "focus is not stolen from the kept draft");
+});
+
+test("replaceMessage keeps the draft when the composer state lives in the textarea DOM", () => {
+  const message = { role: "user", content: "historical branch text" };
+  const state = runReplaceMessage({ domValue: "typed but unflushed" }, message);
+
+  assert.deepEqual(state.setValueCalls, []);
+  assert.deepEqual(state.noticeCalls, [true]);
+});
+
+test("replaceMessage keeps the composer over attached and pending images", () => {
+  const message = { role: "user", content: "historical branch text" };
+  const image = { data: "AQID", mimeType: "image/png", previewUrl: "data:image/png;base64,AQID" };
+
+  const attachedState = runReplaceMessage({ attachedImages: [image] }, message);
+  assert.deepEqual(attachedState.setValueCalls, []);
+  assert.deepEqual(attachedState.noticeCalls, [true], "an attached image pins the draft exactly like text does");
+
+  const pendingState = runReplaceMessage({ pendingImages: 1 }, message);
+  assert.deepEqual(pendingState.setValueCalls, []);
+  assert.deepEqual(pendingState.noticeCalls, [true], "a pending image upload pins the draft exactly like text does");
+});
+
+test("the kept-draft notice is transient and localized", () => {
+  const { sourceText } = loadReplaceMessageCache;
+  assert.match(sourceText, /const DRAFT_KEPT_NOTICE_AUTO_HIDE_MS = 6000;/);
+  assert.match(
+    sourceText,
+    /if \(!draftKeptNoticeVisible\) return;\s*\n\s*const timer = window\.setTimeout\(\(\) => setDraftKeptNoticeVisible\(false\), DRAFT_KEPT_NOTICE_AUTO_HIDE_MS\);\s*\n\s*return \(\) => window\.clearTimeout\(timer\);\s*\n\s*\}, \[draftKeptNoticeVisible\]\);/,
+    "the notice must auto-clear so it never lingers over the draft it protects",
+  );
+  assert.match(
+    sourceText,
+    /\{draftKeptNoticeVisible && \(\s*<ModelNoticeBanner\s*\n\s*tone="warning"\s*\n\s*title=\{t\("chat\.draftKeptTitle"\)\}\s*\n\s*body=\{t\("chat\.draftKeptBody"\)\}/,
+    "the notice renders near the composer through the shared banner seam with localized strings",
+  );
+});
+
+test("the kept-draft notice strings exist in every locale catalog", async () => {
+  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+    const catalog = await jiti.import(`@/lib/i18n/messages/${locale}.ts`);
+    const messages = locale === "en" ? catalog.enLocale.messages : locale === "zh-CN" ? catalog.zhCNLocale.messages : catalog.zhTWLocale.messages;
+    assert.equal(typeof messages["chat.draftKeptTitle"], "string", `${locale} must carry chat.draftKeptTitle`);
+    assert.equal(typeof messages["chat.draftKeptBody"], "string", `${locale} must carry chat.draftKeptBody`);
+    assert.ok(messages["chat.draftKeptBody"].length > 0, `${locale} body must not be empty`);
+  }
+});
