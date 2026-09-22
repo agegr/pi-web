@@ -71,10 +71,6 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().loadUrl(serverUrl);
     }
 
-    public String getServerUrl() {
-        return ServerSettings.get(this);
-    }
-
     public void openSettings() {
         startActivityForResult(new Intent(this, SettingsActivity.class), REQUEST_SETTINGS);
     }
