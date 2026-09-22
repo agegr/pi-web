@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
+  <title>pi-web — Connection error</title>
+  <style>
+    :root {
+      --bg: #1e1f24;
+      --text: #e8e8ea;
+      --muted: #9a9aa3;
+      --accent: #4f8cff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .card { max-width: 460px; padding: 0 24px; text-align: center; }
+    h1 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
+    p { color: var(--muted); margin: 0 0 22px; }
+    button {
+      padding: 9px 18px;
+      border-radius: 6px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font: 13px/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Cannot reach the pi-web server</h1>
+    <p>The desktop shell could not connect to the configured pi-web server.
+       Make sure the server is running and reachable, then check its URL.</p>
+    <button id="open-settings">Server settings…</button>
+  </div>
+
+  <script>
+    (function () {
+      document.getElementById('open-settings').addEventListener('click', function () {
+        // On a successful save the main process loads the new URL,
+        // replacing this page in the main window.
+        window.piwebError.openSettings()
+      })
+    })()
+  </script>
+</body>
+</html>
