@@ -1,0 +1,16 @@
+{
+  "name": "pi-web-desktop",
+  "productName": "pi-web",
+  "version": "0.1.0",
+  "description": "Electron desktop shell that hosts a user-self-hosted pi-web server in a desktop window. Ships no server of its own.",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac --linux --win"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

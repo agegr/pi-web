@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
+  <title>pi-web — Server Settings</title>
+  <style>
+    :root {
+      --bg: #1e1f24;
+      --panel: #26272d;
+      --text: #e8e8ea;
+      --muted: #9a9aa3;
+      --accent: #4f8cff;
+      --error: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+    header {
+      padding: 14px 18px 0;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    main { flex: 1; padding: 8px 18px 0; }
+    label { display: block; margin-bottom: 6px; color: var(--muted); }
+    input {
+      width: 100%;
+      padding: 9px 10px;
+      font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid #3a3b42;
+      border-radius: 6px;
+      outline: none;
+    }
+    input:focus { border-color: var(--accent); }
+    .hint { margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .error {
+      margin-top: 8px;
+      color: var(--error);
+      font-size: 12px;
+      min-height: 18px;
+    }
+    footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 14px 18px 16px;
+    }
+    button {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid #3a3b42;
+      background: var(--panel);
+      color: var(--text);
+      font: 13px/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button:hover { filter: brightness(1.1); }
+  </style>
+</head>
+<body>
+  <header>pi-web server URL</header>
+  <main>
+    <label for="server-url">Server URL</label>
+    <input id="server-url" type="text" spellcheck="false" autocomplete="off"
+           placeholder="http://127.0.0.1:30141" />
+    <p class="hint">Address of your self-hosted pi-web server, e.g. http://127.0.0.1:30141</p>
+    <p class="error" id="error" role="alert"></p>
+  </main>
+  <footer>
+    <button id="cancel">Cancel</button>
+    <button id="save" class="primary">Save</button>
+  </footer>
+
+  <script>
+    (function () {
+      const input = document.getElementById('server-url')
+      const errorEl = document.getElementById('error')
+      const saveBtn = document.getElementById('save')
+      const cancelBtn = document.getElementById('cancel')
+
+      const LOCAL_URL_RE = /^https?:\/\/[^\s/]+(:\d+)?(\/\S*)?$/i
+
+      function localValidate(value) {
+        const trimmed = (value || '').trim()
+        if (!trimmed) return 'Enter the pi-web server URL.'
+        if (!LOCAL_URL_RE.test(trimmed)) {
+          return 'URL must start with http:// or https://'
+        }
+        return ''
+      }
+
+      window.piwebSettings.load().then(function (url) {
+        if (url) input.value = url
+        input.focus()
+        input.select()
+      })
+
+      input.addEventListener('input', function () {
+        errorEl.textContent = ''
+      })
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') saveBtn.click()
+        if (event.key === 'Escape') cancelBtn.click()
+      })
+
+      saveBtn.addEventListener('click', function () {
+        const localError = localValidate(input.value)
+        if (localError) {
+          errorEl.textContent = localError
+          return
+        }
+        saveBtn.disabled = true
+        window.piwebSettings.save(input.value).then(function (result) {
+          if (!result.ok) {
+            errorEl.textContent = result.error || 'Could not save the URL.'
+            saveBtn.disabled = false
+          }
+          // On success the main process closes this window.
+        })
+      })
+
+      cancelBtn.addEventListener('click', function () {
+        // Closing without saving lets the main process resolve null.
+        window.close()
+      })
+    })()
+  </script>
+</body>
+</html>

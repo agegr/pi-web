@@ -1,0 +1,27 @@
+appId: dev.piweb.desktop
+productName: pi-web
+directories:
+  output: dist
+  buildResources: build
+files:
+  # Ship only the shell: never the pi-web Next.js app, its server, or .next
+  - src/**/*
+  - build/icons/**/*
+  - package.json
+asar: true
+compression: maximum
+mac:
+  target: dmg
+  icon: build/icons/icon.icns
+  category: public.app-category.developer-tools
+linux:
+  target: AppImage
+  icon: build/icons
+  category: Development
+win:
+  target: nsis
+  icon: build/icons/512x512.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
