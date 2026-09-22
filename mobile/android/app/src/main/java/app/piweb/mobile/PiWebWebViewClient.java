@@ -1,8 +1,10 @@
 package app.piweb.mobile;
 
 import android.net.Uri;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
+import java.util.Objects;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 
@@ -22,11 +24,14 @@ public class PiWebWebViewClient extends BridgeWebViewClient {
 
     public static final String SHELL_SCHEME = "piweb-shell";
     public static final String SHELL_SETTINGS_HOST = "settings";
+    public static final String SHELL_RELOAD_HOST = "reload";
 
+    private final Bridge bridge;
     private final MainActivity activity;
 
     public PiWebWebViewClient(Bridge bridge, MainActivity activity) {
         super(bridge);
+        this.bridge = bridge;
         this.activity = activity;
     }
 
@@ -36,9 +41,31 @@ public class PiWebWebViewClient extends BridgeWebViewClient {
         if (SHELL_SCHEME.equals(url.getScheme())) {
             if (SHELL_SETTINGS_HOST.equals(url.getHost())) {
                 activity.openSettings();
+            } else if (SHELL_RELOAD_HOST.equals(url.getHost())) {
+                activity.reloadServer();
             }
             return true;
         }
         return super.shouldOverrideUrlLoading(view, request);
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        super.onReceivedError(view, request, error);
+        // Capacitor has no built-in main-frame error fallback on Android:
+        // server.errorPath is only consulted for the minimum-WebView check,
+        // so without this a failed server load strands the user on the
+        // system error page with no way back to settings (device pass).
+        if (!request.isForMainFrame()) return;
+        String errorUrl = bridge.getErrorUrl();
+        if (errorUrl == null) return;
+        String failing = String.valueOf(request.getUrl());
+        Uri err = Uri.parse(errorUrl);
+        if (Objects.equals(Uri.parse(failing).getHost(), err.getHost())) {
+            return; // already showing the bundled error page — no loop
+        }
+        view.post(() -> view.loadUrl(errorUrl + "?code=" + Uri.parse(failing).getLastPathSegment() == null
+            ? errorUrl + "?from=" + Uri.encode(failing)
+            : errorUrl + "?code=" + (error != null ? error.getErrorCode() : -1) + "&from=" + Uri.encode(failing)));
     }
 }

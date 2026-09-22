@@ -60,6 +60,17 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    public void reloadServer() {
+        String serverUrl = ServerSettings.get(this);
+        Bridge bridge = getBridge();
+        if (serverUrl == null || bridge == null) {
+            // No stored URL (or no bridge yet): settings is the right place.
+            openSettings();
+            return;
+        }
+        bridge.getWebView().loadUrl(serverUrl);
+    }
+
     public void openSettings() {
         startActivityForResult(new Intent(this, SettingsActivity.class), REQUEST_SETTINGS);
     }
