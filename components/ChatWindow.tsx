@@ -1075,20 +1075,25 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               const rendered: ReactNode[] = [];
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
-                if (!isMessageGroupAnchor(msg)) {
+                const hasAnchor = isMessageGroupAnchor(msg);
+                if (!hasAnchor && idx !== 0) {
                   rendered.push(renderMessage(idx));
                   idx += 1;
                   continue;
                 }
 
-                const userIdx = idx;
-                let endIdx = userIdx + 1;
+                // The first history page starts at a fixed entry count, so a turn
+                // longer than that page begins without its anchor. Group the
+                // leading segment anyway instead of flattening the whole turn.
+                const userIdx = hasAnchor ? idx : -1;
+                const groupStartIdx = hasAnchor ? idx : 0;
+                let endIdx = idx + 1;
                 while (endIdx < messages.length && !isMessageGroupAnchor(messages[endIdx])) endIdx += 1;
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
 
                 if (finalAssistantIdx === -1) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+                  for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
                   }
                   idx = endIdx;
@@ -1097,14 +1102,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
-                  for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
+                  for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
                   }
                   idx = endIdx;
                   continue;
                 }
 
-                rendered.push(renderMessage(userIdx));
+                if (hasAnchor) rendered.push(renderMessage(userIdx));
 
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
                 const finalSplit = splitFinalAssistantBlocks(finalAssistant);
@@ -1148,7 +1153,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (processViews.length > 0) {
                   rendered.push(
                     <div
-                      key={`process-group-${entryIds[userIdx] ?? userIdx}`}
+                      key={`process-group-${entryIds[groupStartIdx] ?? groupStartIdx}`}
                       ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
                     >
                       <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
