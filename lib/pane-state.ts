@@ -101,6 +101,43 @@ export function openNewSessionTab(
   };
 }
 
+// --- Background-tasks panel session (pi#28) ---
+// The background-tasks panel follows the FOCUSED pane's session, not the
+// classic selectedSession: in split view pane focus only updates
+// focusedPaneId (never selectedSession), so reading selectedSession left the
+// panel permanently "unavailable" whenever a real session pane was focused
+// (pi#28 — same family as pi#23's focused-pane usage stats).
+export function resolveBackgroundTasksSessionId({
+  splitPaneEnabled,
+  focusedPaneId,
+  selectedSessionId,
+  lastSessionPaneId,
+  paneTabs,
+}: {
+  splitPaneEnabled: boolean;
+  focusedPaneId: string | null;
+  selectedSessionId: string | null;
+  /** Most recent non-sentinel focused pane id (may point at a closed pane). */
+  lastSessionPaneId: string | null;
+  paneTabs: PaneTab[];
+}): string | null {
+  // Classic layout (split off / mobile): the single chat IS the selection.
+  if (!splitPaneEnabled) return selectedSessionId;
+  // Split view with a real session pane focused: follow it exactly.
+  if (focusedPaneId && !isNewSessionTab(focusedPaneId)) return focusedPaneId;
+  // Sentinel (new-session) pane focused, or no focus yet: keep following the
+  // last focused session pane while it is still open, else any open session
+  // pane, so the panel shows that session's (usually empty) list instead of
+  // "unavailable" while the user drafts a new session beside existing panes.
+  const openSessionIds = new Set(
+    paneTabs.filter((t) => !isNewSessionTab(t.sessionId)).map((t) => t.sessionId),
+  );
+  if (lastSessionPaneId && openSessionIds.has(lastSessionPaneId)) return lastSessionPaneId;
+  const firstOpenSession = paneTabs.find((t) => !isNewSessionTab(t.sessionId));
+  if (firstOpenSession) return firstOpenSession.sessionId;
+  return selectedSessionId;
+}
+
 export function closePane(tabs: PaneTab[], sessionId: string): PaneTab[] {
   return tabs.filter((t) => t.sessionId !== sessionId);
 }
