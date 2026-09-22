@@ -13,6 +13,15 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
+  // Serve HTML and static responses UNCOMPRESSED. The Capacitor Android
+  // proxy (WebViewLocalServer.handleProxyRequest) fetches main-frame HTML
+  // with the WebView's Accept-Encoding: gzip copied verbatim and then
+  // reads the gzip body as UTF-8 text to splice the runtime in — a gzipped
+  // response arrives as mojibake and the WebView fails with
+  // "This page couldn't load" (device pass, pi#31). Self-hosted LAN
+  // deployments don't need server-side gzip; browsers handle their own
+  // content-encoding on every non-proxied request.
+  compress: false,
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever
     // a proxy is present, capped at 10 MB by default. The upload route accepts
