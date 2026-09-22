@@ -205,7 +205,7 @@ interface Props {
    * final answer text-only.
    */
   writtenFiles?: WrittenFile[];
-  hideResultImages?: boolean;
+  hideProcessContent?: boolean;
 }
 
 export function getModelDisplayName(
@@ -273,12 +273,22 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onNavigate, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles, hideResultImages }: Props) {
+export function getAssistantBlockItems(
+  message: AssistantMessage,
+  options: { isStreaming?: boolean; hideProcessContent?: boolean } = {},
+): Array<{ block: AssistantContentBlock; originalIndex: number }> {
+  return (message.content ?? [])
+    .map((block, originalIndex) => ({ block, originalIndex }))
+    .filter(({ block }) => !isEmptyThinkingBlock(block, options))
+    .filter(({ block }) => !options.hideProcessContent || (block.type !== "text" && block.type !== "image"));
+}
+
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onNavigate, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles, hideProcessContent }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} hideResultImages={hideResultImages} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} hideProcessContent={hideProcessContent} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -312,7 +322,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.prevTimestamp === next.prevTimestamp
     && prev.writtenFiles === next.writtenFiles
     && prev.sessionId === next.sessionId
-    && prev.hideResultImages === next.hideResultImages;
+    && prev.hideProcessContent === next.hideProcessContent;
 });
 
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, onEditContent }: {
@@ -611,7 +621,7 @@ function AssistantMessageView({
   entryId,
   searchBlock,
   writtenFiles,
-  hideResultImages,
+  hideProcessContent,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -626,13 +636,14 @@ function AssistantMessageView({
   entryId?: string;
   searchBlock?: AssistantContentBlock;
   writtenFiles?: WrittenFile[];
-  hideResultImages?: boolean;
+  hideProcessContent?: boolean;
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
-  const blockItems = useMemo(() => (message.content ?? [])
-    .map((block, originalIndex) => ({ block, originalIndex }))
-    .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
+  const blockItems = useMemo(
+    () => getAssistantBlockItems(message, { isStreaming, hideProcessContent }),
+    [message, isStreaming, hideProcessContent],
+  );
   const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
   const truncated = isAssistantTruncated(message, { isStreaming });
@@ -807,7 +818,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} hideResultImages={hideResultImages} />
+          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} hideResultImages={hideProcessContent} />
         ))}
       </div>
 

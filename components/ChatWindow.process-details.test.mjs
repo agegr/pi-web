@@ -12,8 +12,9 @@ test("expands process details when a completed turn has no final answer", () => 
   );
 });
 
-test("can keep process text and images visible while retaining tool details", () => {
+test("can keep process text and images visible without shifting deferred thinking indices", () => {
   assert.match(source, /getProcessContentBlocks\(message, toolResultsMap\)/);
   assert.match(source, /block\.type !== "text" && block\.type !== "image"/);
-  assert.match(source, /hideResultImages: showProcessContent/);
+  assert.match(source, /messageOverride: message,[\s\S]*?hideProcessContent: showProcessContent/);
+  assert.doesNotMatch(source, /messageOverride: withAssistantBlocks\(message, detailBlocks\)/);
 });

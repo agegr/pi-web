@@ -1030,7 +1030,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; hideResultImages?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; hideProcessContent?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -1069,7 +1069,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
-                    hideResultImages={options.hideResultImages}
+                    hideProcessContent={options.hideProcessContent}
                   />
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
@@ -1166,9 +1166,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   processViews.push(renderMessage(processIdx, {
                     attachRef: false,
                     keyPrefix: "process",
-                    messageOverride: withAssistantBlocks(message, detailBlocks),
+                    messageOverride: message,
                     showTimestamp: false,
-                    hideResultImages: showProcessContent,
+                    hideProcessContent: showProcessContent,
                   }));
                 }
 

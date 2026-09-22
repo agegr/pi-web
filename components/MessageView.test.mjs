@@ -11,6 +11,7 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   MessageView,
   ThinkingBlock,
+  getAssistantBlockItems,
   getModelDisplayName,
   getTokenEstimateText,
   getToolCallInputText,
@@ -33,7 +34,29 @@ test("updates a reused message when display-only props change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
-  assert.equal(MessageView.compare(props, { ...props, hideResultImages: true }), false);
+  assert.equal(MessageView.compare(props, { ...props, hideProcessContent: true }), false);
+});
+
+test("preserves original deferred-thinking indices when process content is hidden", () => {
+  const message = {
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "" },
+      { type: "thinking", thinking: "First preview", deferred: true },
+      { type: "text", text: "Visible outside details" },
+      { type: "thinking", thinking: "Second preview", deferred: true },
+      { type: "image", data: "YWJj", mimeType: "image/png" },
+    ],
+  };
+
+  assert.deepEqual(
+    getAssistantBlockItems(message, { hideProcessContent: true }).map(({ originalIndex }) => originalIndex),
+    [1, 3],
+  );
+  assert.deepEqual(
+    getAssistantBlockItems(message).map(({ originalIndex }) => originalIndex),
+    [1, 2, 3, 4],
+  );
 });
 
 test("matches response model aliases and otherwise includes the provider", () => {
@@ -396,6 +419,6 @@ test("shows tool-result images while the tool details stay collapsed", () => {
     provider: "anthropic",
     model: "claude-test",
     content: [block],
-  }, { toolResults: new Map([[block.toolCallId, result]]), hideResultImages: true });
+  }, { toolResults: new Map([[block.toolCallId, result]]), hideProcessContent: true });
   assert.doesNotMatch(hiddenHtml, /data:image\/png;base64,YWJj/);
 });
