@@ -26,6 +26,13 @@ const config: CapacitorConfig = {
   // The bundled local pages (settings / connection error) double as the
   // Capacitor webDir so `cap sync` ships them inside the platform builds.
   webDir: "src/pages",
+  android: {
+    // targetSdk 35 forces edge-to-edge on Android 15+, drawing the WebView
+    // under the status bar so the top bar's controls were untappable
+    // (device pass, pi#31). "auto" lets Capacitor add the system-bar
+    // margins to the WebView.
+    adjustMarginsForEdgeToEdge: "auto",
+  },
   server: {
     // Main-frame load failures (server unreachable / wrong URL) fall back to
     // this bundled page on both platforms (Capacitor's built-in errorPath
