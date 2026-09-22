@@ -37,7 +37,13 @@ import androidx.webkit.WebViewAssetLoader;
 public class SettingsActivity extends AppCompatActivity {
 
     private static final String ASSET_ORIGIN = "https://appassets.androidplatform.net";
-    private static final String ASSET_PATH_PREFIX = "/assets/public/";
+    // Register the /assets/ prefix (the canonical androidx pattern): the
+    // handler receives the path AFTER the prefix, and cap sync ships the web
+    // assets under assets/public/, so /assets/public/settings.html maps to
+    // the APK asset public/settings.html. Registering /assets/public/ here
+    // stripped the public/ segment and every load failed with
+    // net::ERR_INVALID_RESPONSE (found on the first real device build).
+    private static final String ASSET_PATH_PREFIX = "/assets/";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -64,7 +70,7 @@ public class SettingsActivity extends AppCompatActivity {
             }
         });
         webView.addJavascriptInterface(new SettingsBridge(this), "piwebSettings");
-        webView.loadUrl(ASSET_ORIGIN + ASSET_PATH_PREFIX + "settings.html");
+        webView.loadUrl(ASSET_ORIGIN + ASSET_PATH_PREFIX + "public/settings.html");
         setContentView(webView);
     }
 
