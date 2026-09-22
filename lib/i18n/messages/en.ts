@@ -437,6 +437,7 @@ export const enLocale: LocalePlugin = {
     "chat.imageNotSupportedBody": "The selected model ({model}) does not support image input. The attached images will likely be ignored.",
     "chat.tokensSaved": "{saved} saved",
     "chatMinimap.locateAssistant": "Locate assistant message",
+    "chatMinimap.toolCalls": "Tool calls this turn: {count}",
     "i18n.close": "Close",
     "i18n.copy": "Copy",
     "i18n.copied": "Copied",

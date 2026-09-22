@@ -38,8 +38,10 @@
   z-index: 1;
   grid-column: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
   width: 34px;
   height: 32px;
   padding: 0;
@@ -47,12 +49,29 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  line-height: 18px;
+  line-height: 13px;
   text-align: center;
 }
 
 .turn[data-located="true"] .number {
   color: var(--text-muted);
+}
+
+/* Tool-call count for the whole turn. Sits under the serial number so the
+   34px rail column keeps its width and the dot rail stays untouched. */
+.toolBadge {
+  display: block;
+  min-width: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--tool-bg);
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 12px;
+}
+
+.turn[data-located="true"] .toolBadge {
+  color: var(--text);
 }
 
 .content {
