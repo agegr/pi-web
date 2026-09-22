@@ -142,6 +142,21 @@ html[data-theme="pine"],
   }
 }
 
+/* Capacitor shells (pi#31) embed the page in a WebView that reports
+   display-mode: browser, so the standalone media query never matches there.
+   The runtime bridge detection (`lib/capacitor-bridge.ts`, applied by
+   AppShell on mount) adds the `capacitor-shell` class to <html> instead, so
+   the same safe-area and keyboard-viewport scenario covers the Android/iOS
+   apps. Browsers and installed PWAs never carry the class and render exactly
+   as before. Keyboard behavior is completed natively: Android
+   windowSoftInputMode=adjustResize plus the page's existing
+   interactiveWidget:resizes-content, iOS Keyboard plugin resize: native. */
+:root.capacitor-shell {
+  --app-viewport-height: 100vh;
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
+}
+
 .catppuccin-file-icon {
   display: block;
   flex-shrink: 0;

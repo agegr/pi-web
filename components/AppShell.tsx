@@ -50,6 +50,7 @@ import {
   shouldShowBrowserNotification,
   showBrowserNotification,
 } from "@/lib/browser-notifications";
+import { applyCapacitorShellScenario, getCapacitorLocalNotifications } from "@/lib/capacitor-bridge";
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import { rekeyDraft } from "@/lib/draft-store";
@@ -125,6 +126,11 @@ export function AppShell() {
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
+
+  // pi#31: LocalNotifications permission state inside the Capacitor shells
+  // ("unrequested" | "granted" | "denied"), so the permission is only asked
+  // for on first notification use, never per notification.
+  const shellNotificationPermissionRef = useRef<"unrequested" | "granted" | "denied">("unrequested");
 
   // Split-pane state (pi#4): ordered pane tabs and the focused pane id. Pane
   // widths are auto-computed from the measured pane-area width (pi#20); the
@@ -1019,6 +1025,38 @@ export function AppShell() {
     }
   }, [handleSelectSession]);
 
+  // pi#31: inside the Capacitor shells the WebView reports display-mode
+  // `browser`, so the safe-area/viewport scenario (pi#1) keys off a class
+  // this bridge-detection helper adds to <html> — no-op in every browser.
+  useEffect(() => {
+    applyCapacitorShellScenario();
+  }, []);
+
+  // pi#31: a tap on a shell notification (foregrounded natively by the OS;
+  // cold-start taps are replayed by the LocalNotifications plugin after
+  // launch) selects the originating session from the extra sessionUrl.
+  useEffect(() => {
+    const localNotifications = getCapacitorLocalNotifications();
+    if (!localNotifications?.addListener) return;
+    let disposed = false;
+    let handle: { remove: () => Promise<void> } | null = null;
+    void localNotifications.addListener("localNotificationActionPerformed", (event) => {
+      const sessionUrl = event?.notification?.extra?.sessionUrl;
+      const match = sessionUrl ? /[?&]session=([^&]+)/.exec(sessionUrl) : null;
+      const sessionId = match ? decodeURIComponent(match[1]) : null;
+      if (sessionId) handleOpenSession(sessionId);
+    }).then((listenerHandle) => {
+      if (disposed) void listenerHandle.remove().catch(() => {});
+      else handle = listenerHandle;
+    }).catch(() => {
+      // A failed listener registration never breaks the app shell.
+    });
+    return () => {
+      disposed = true;
+      void handle?.remove().catch(() => {});
+    };
+  }, [handleOpenSession]);
+
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
     setRefreshKey((k) => k + 1);
@@ -1064,8 +1102,6 @@ export function AppShell() {
     body: string;
     tag?: string;
   }) => {
-    if (!("Notification" in window)) return;
-
     const fire = () => {
       const sessionUrl = targetSession ? `/?session=${encodeURIComponent(targetSession.id)}` : "/";
       void showBrowserNotification({
@@ -1079,6 +1115,27 @@ export function AppShell() {
         },
       });
     };
+
+    // pi#31 shells: WKWebView has no Notification API, so the LocalNotifications
+    // plugin owns delivery. Permission is requested once on first use; denial
+    // is non-fatal and silent (no console errors).
+    const localNotifications = getCapacitorLocalNotifications();
+    if (localNotifications) {
+      if (shellNotificationPermissionRef.current === "granted") {
+        fire();
+        return;
+      }
+      void localNotifications.requestPermissions().then((result) => {
+        const display = result?.display;
+        shellNotificationPermissionRef.current = display === "denied" ? "denied" : "granted";
+        if (shellNotificationPermissionRef.current === "granted") fire();
+      }).catch(() => {
+        // Denied or unavailable — stay silent, the chat itself keeps working.
+      });
+      return;
+    }
+
+    if (!("Notification" in window)) return;
 
     if (Notification.permission === "granted") {
       fire();

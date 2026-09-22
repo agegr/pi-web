@@ -44,3 +44,6 @@ yarn-error.log*
 next-env.d.ts
 .factory
 e2e_*.mjs
+
+# pi harness session tooling (bg task logs) — never ship
+.pi/
