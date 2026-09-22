@@ -48,7 +48,7 @@ test("SplitPaneLayout derives pixel pane widths from the measured pane area", ()
   assert.ok(source.includes("${width}px"), "pane width must be a pixel value");
   assert.ok(!source.includes("VisiblePanes"), "the manual visible-pane cap setting must be gone");
   assert.ok(!source.includes("density"), "the density concept must be gone");
-  assert.ok(paneStateSource.includes("MIN_PANE_WIDTH = 360"), "pane-state owns the single MIN_PANE_WIDTH constant");
+  assert.ok(paneStateSource.includes("MIN_PANE_WIDTH = 520"), "pane-state owns the single MIN_PANE_WIDTH constant (520, pi#27)");
   assert.ok(paneStateSource.includes("Math.max(1, Math.floor(areaWidth / minPaneWidth))"),
     "pane-state clamps capacity to at least one pane");
 });

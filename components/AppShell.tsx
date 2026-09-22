@@ -88,6 +88,28 @@ type AutoNameStatus =
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
 
+// Split-view preference (pi#27): tab mode is the DEFAULT; the stored value
+// only exists to honor an explicit opt-out. Absent/corrupt → default ON.
+const SPLIT_VIEW_ENABLED_STORAGE_KEY = "pi-web:split-view-enabled";
+
+function readSplitPaneEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(SPLIT_VIEW_ENABLED_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function writeSplitPaneEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SPLIT_VIEW_ENABLED_STORAGE_KEY, enabled ? "true" : "false");
+  } catch {
+    // ignore storage quota / privacy-mode errors
+  }
+}
+
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
 }
@@ -106,10 +128,18 @@ export function AppShell() {
   // Split-pane state (pi#4): ordered pane tabs and the focused pane id. Pane
   // widths are auto-computed from the measured pane-area width (pi#20); the
   // old manual visible-pane cap is gone.
-  // Split view is OPT-IN: pane routing and the tab strip only engage after the
-  // toolbar toggle enables it (closing the last pane disables it again), so
-  // the classic single-chat layout stays the default.
-  const [splitPaneEnabled, setSplitPaneEnabled] = useState(false);
+  // Split view is the DEFAULT (pi#27, user-confirmed): pane routing and the
+  // embedded pane headers engage immediately on first visit. A persisted
+  // disable preference (localStorage pi-web:split-view-enabled = "false")
+  // keeps the classic single-chat layout for users who opted out.
+  const [splitPaneEnabled, setSplitPaneEnabledState] = useState(readSplitPaneEnabled);
+  // pi#27: persist explicit toggles; collapse paths write false so a user who
+  // closed everything keeps the classic layout on next entry, while the
+  // default (absent value) stays ON.
+  const setSplitPaneEnabled = useCallback((enabled: boolean) => {
+    setSplitPaneEnabledState(enabled);
+    writeSplitPaneEnabled(enabled);
+  }, []);
   const [paneTabs, setPaneTabs] = useState<PaneTab[]>([]);
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
   const lastSoundAtRef = useRef(0);
@@ -1247,6 +1277,30 @@ export function AppShell() {
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
+
+  // pi#27: entry lands on the new-session tab. When the initial restore
+  // completes with nothing restorable (no ?session=, no last-open session)
+  // and tab mode is on with an empty strip, resolve the default cwd (first
+  // pinned project → default directory) and open the focused sentinel pane.
+  // The placeholder page is thereby retired for the default experience; it
+  // still renders for users who persisted a split-view disable.
+  const entryNewSessionFiredRef = useRef(false);
+  useEffect(() => {
+    if (entryNewSessionFiredRef.current) return;
+    if (!initialSessionRestored) return;
+    if (selectedSession || effectiveNewSessionCwd || paneTabs.length > 0) {
+      entryNewSessionFiredRef.current = true;
+      return;
+    }
+    if (!splitPaneEnabled || isMobile) {
+      entryNewSessionFiredRef.current = true;
+      return;
+    }
+    entryNewSessionFiredRef.current = true;
+    void resolveNewSessionTabCwd().then((cwd) => {
+      if (cwd) handleNewSession(`entry-${Date.now()}`, cwd);
+    });
+  }, [initialSessionRestored, selectedSession, effectiveNewSessionCwd, paneTabs.length, splitPaneEnabled, isMobile, resolveNewSessionTabCwd, handleNewSession]);
 
   useEffect(() => {
     setProjectTrust(null);

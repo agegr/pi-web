@@ -234,6 +234,23 @@ try {
       const url = new URL(response.url());
       if (url.pathname === `/api/sessions/${LONG}/context` && url.searchParams.has("before")) olderResponses.push(response);
     });
+    if (viewport.width > 600) {
+      // pi#27: tab mode is the default. Fresh entry (no ?session, nothing
+      // restorable) lands on the focused new-session tab — assert it before
+      // the classic flows seed their split-view disable below.
+      await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
+      await page.locator("[data-split-pane-area]").waitFor();
+      const entryTabs = page.getByRole("tab");
+      assert.equal(await entryTabs.count(), 1, "fresh entry lands on the new-session tab (default-on split)");
+      assert.equal(await entryTabs.first().getAttribute("aria-selected"), "true",
+        "the entry new-session tab is focused");
+      await page.locator(".chat-input-textarea").waitFor({ state: "visible" });
+      // Classic flows below assume the single-chat layout: seed the
+      // persisted split-view disable so they keep running classic.
+      await page.evaluate(() => {
+        try { localStorage.setItem("pi-web:split-view-enabled", "false"); } catch {}
+      });
+    }
     const stateReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/sessions/${LONG}/state`);
     await page.goto(`${base}/?session=${LONG}`, { waitUntil: "domcontentloaded" });
     assert.equal((await stateReady).status(), 200);
