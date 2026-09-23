@@ -24,6 +24,7 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { RevealInFileManagerButton } from "./RevealInFileManagerButton";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -550,6 +551,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           />
           {watching ? "live" : "static"}
         </span>
+        <RevealInFileManagerButton filePath={filePath} />
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div
@@ -720,6 +722,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           />
           {watching ? "live" : "static"}
         </span>
+        <RevealInFileManagerButton filePath={filePath} />
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div
@@ -873,6 +876,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
           />
           {watching ? "live" : "static"}
         </span>
+        <RevealInFileManagerButton filePath={filePath} />
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div
@@ -1044,6 +1048,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
         </span>
         <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
         {size != null && <span>{formatSize(size)}</span>}
+        <RevealInFileManagerButton filePath={filePath} />
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span
           title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
@@ -1659,6 +1664,7 @@ function TextFileViewer({
             )}
           </div>
 
+          {!isDeletedDiff && <RevealInFileManagerButton filePath={filePath} />}
           {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>

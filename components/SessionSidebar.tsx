@@ -918,6 +918,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
+  const handleOpenFolder = useCallback(async () => {
+    const target = selectedCwd ?? selectedCwdProp;
+    if (!target) return;
+    try {
+      const res = await fetch("/api/open-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: target }),
+      });
+      if (!res.ok) console.error(`open-folder failed: HTTP ${res.status}`);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [selectedCwd, selectedCwdProp]);
+
   const handleCreateWorktree = useCallback(async () => {
     const branch = wtNewBranch.trim();
     if (!branch || wtBusy || !worktreeState) return;
@@ -1920,6 +1935,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {(selectedCwd ?? selectedCwdProp) && (
+              <ToolbarIconButton
+                onClick={() => void handleOpenFolder()}
+                title={t("files.openFolder")}
+                color="var(--text-dim)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </ToolbarIconButton>
             )}

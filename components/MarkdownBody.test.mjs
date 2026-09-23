@@ -174,3 +174,39 @@ test("uses a generic preview label when a markdown image has no alt text", () =>
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.doesNotMatch(html, /Preview image:/);
 });
+
+test("turns inline-code paths into chips with both file actions", () => {
+  const relativeHtml = renderMarkdown("wrote `src/lib/file-links.ts`");
+  const absoluteHtml = renderMarkdown("created `F:/blendermagic/b`");
+
+  assert.match(relativeHtml, /class="inline-file-path"/);
+  assert.match(relativeHtml, /<button[^>]+class="inline-file-path-open"[^>]+title="\/home\/me\/project\/src\/lib\/file-links\.ts"[^>]*>src\/lib\/file-links\.ts<\/button>/);
+  assert.match(relativeHtml, /<button[^>]+class="inline-file-path-reveal"[^>]*>/);
+  // The reveal button reuses the file tree's own folder icon.
+  assert.match(relativeHtml, /class="inline-file-path-reveal"[^>]*><span[^>]*class="catppuccin-file-icon"/);
+  assert.match(relativeHtml, /--catppuccin-icon-light:url\(\/icons\/catppuccin\/latte\/_folder\.svg\)/);
+  assert.match(relativeHtml, /--catppuccin-icon-dark:url\(\/icons\/catppuccin\/mocha\/_folder\.svg\)/);
+  assert.doesNotMatch(relativeHtml, /markdown-inline-code/);
+  assert.match(absoluteHtml, /title="F:\/blendermagic\/b"/);
+});
+
+test("keeps prose inline code plain", () => {
+  const html = renderMarkdown("run `npm test`, the body is `application/json`, see `Node.js`");
+
+  assert.match(html, /class="markdown-inline-code"/);
+  assert.doesNotMatch(html, /inline-file-path/);
+});
+
+test("keeps inline-code paths plain without an in-app file handler", () => {
+  const html = renderMarkdown("wrote `src/lib/file-links.ts`", { onOpenFile: undefined });
+
+  assert.match(html, /class="markdown-inline-code"/);
+  assert.doesNotMatch(html, /inline-file-path/);
+});
+
+test("leaves inline code nested inside a markdown link alone", () => {
+  const html = renderMarkdown("[`src/lib/file-links.ts`](https://example.com/docs)");
+
+  assert.doesNotMatch(html, /inline-file-path/);
+  assert.match(html, /<code class="markdown-inline-code">src\/lib\/file-links\.ts<\/code>/);
+});
