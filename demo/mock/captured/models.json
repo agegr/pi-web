@@ -1,0 +1,253 @@
+{
+ "models": {
+  "deepseek:deepseek-flash": "DeepSeek V4.1 Flash",
+  "deepseek:deepseek-v4-pro": "DeepSeek V4 Pro",
+  "openai-codex:gpt-5.3-codex-spark": "GPT-5.3 Codex Spark",
+  "openai-codex:gpt-5.5": "GPT-5.5",
+  "openai-codex:gpt-5.6-luna": "GPT-5.6 Luna",
+  "openai-codex:gpt-5.6-sol": "GPT-5.6 Sol",
+  "openai-codex:gpt-5.6-terra": "GPT-5.6 Terra",
+  "openai-codex:gpt-6-astra": "GPT-6 Astra",
+  "claude-gateway:claude-opus-5": "Claude Opus 5",
+  "claude-gateway:claude-sonnet-5": "Claude Sonnet 5",
+  "claude-gateway:claude-haiku-4-5": "Claude Haiku 4.5"
+ },
+ "modelList": [
+  {
+   "id": "claude-haiku-4-5",
+   "name": "Claude Haiku 4.5",
+   "provider": "claude-gateway",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "claude-opus-5",
+   "name": "Claude Opus 5",
+   "provider": "claude-gateway",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "claude-sonnet-5",
+   "name": "Claude Sonnet 5",
+   "provider": "claude-gateway",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "deepseek-v4-pro",
+   "name": "DeepSeek V4 Pro",
+   "provider": "deepseek",
+   "input": [
+    "text"
+   ]
+  },
+  {
+   "id": "deepseek-flash",
+   "name": "DeepSeek V4.1 Flash",
+   "provider": "deepseek",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.3-codex-spark",
+   "name": "GPT-5.3 Codex Spark",
+   "provider": "openai-codex",
+   "input": [
+    "text"
+   ]
+  },
+  {
+   "id": "gpt-5.5",
+   "name": "GPT-5.5",
+   "provider": "openai-codex",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.6-luna",
+   "name": "GPT-5.6 Luna",
+   "provider": "openai-codex",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.6-sol",
+   "name": "GPT-5.6 Sol",
+   "provider": "openai-codex",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-5.6-terra",
+   "name": "GPT-5.6 Terra",
+   "provider": "openai-codex",
+   "input": [
+    "text",
+    "image"
+   ]
+  },
+  {
+   "id": "gpt-6-astra",
+   "name": "GPT-6 Astra",
+   "provider": "openai-codex",
+   "input": [
+    "text",
+    "image"
+   ]
+  }
+ ],
+ "defaultModel": {
+  "provider": "openai-codex",
+  "modelId": "gpt-5.5"
+ },
+ "defaultThinkingLevel": "medium",
+ "thinkingLevels": {
+  "deepseek:deepseek-flash": [
+   "off",
+   "low",
+   "high",
+   "max"
+  ],
+  "deepseek:deepseek-v4-pro": [
+   "off",
+   "high",
+   "max"
+  ],
+  "openai-codex:gpt-5.3-codex-spark": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ],
+  "openai-codex:gpt-5.5": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ],
+  "openai-codex:gpt-5.6-luna": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "openai-codex:gpt-5.6-sol": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "openai-codex:gpt-5.6-terra": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "openai-codex:gpt-6-astra": [
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "claude-gateway:claude-opus-5": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high"
+  ],
+  "claude-gateway:claude-sonnet-5": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high"
+  ],
+  "claude-gateway:claude-haiku-4-5": [
+   "off",
+   "minimal",
+   "low",
+   "medium",
+   "high"
+  ]
+ },
+ "thinkingLevelMaps": {
+  "deepseek:deepseek-flash": {
+   "minimal": null,
+   "low": "low",
+   "medium": null,
+   "high": "high",
+   "max": "max"
+  },
+  "deepseek:deepseek-v4-pro": {
+   "minimal": null,
+   "low": null,
+   "medium": null,
+   "high": "high",
+   "max": "max"
+  },
+  "openai-codex:gpt-5.3-codex-spark": {
+   "xhigh": "xhigh",
+   "minimal": "low"
+  },
+  "openai-codex:gpt-5.5": {
+   "xhigh": "xhigh",
+   "minimal": "low"
+  },
+  "openai-codex:gpt-5.6-luna": {
+   "xhigh": "xhigh",
+   "max": "max",
+   "minimal": "low"
+  },
+  "openai-codex:gpt-5.6-sol": {
+   "xhigh": "xhigh",
+   "max": "max",
+   "minimal": "low"
+  },
+  "openai-codex:gpt-5.6-terra": {
+   "xhigh": "xhigh",
+   "max": "max",
+   "minimal": "low"
+  },
+  "openai-codex:gpt-6-astra": {
+   "off": null,
+   "minimal": "low",
+   "low": "low",
+   "medium": "medium",
+   "high": "high",
+   "xhigh": "xhigh",
+   "max": "max"
+  }
+ },
+ "thinkingLevelPins": {}
+}
