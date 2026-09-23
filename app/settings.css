@@ -1308,6 +1308,54 @@
   font-size: 11px;
 }
 
+.settings-general-status {
+  margin: 8px 0 0;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.settings-default-cwd {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.settings-default-cwd-row,
+.settings-default-cwd-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-default-cwd-input {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.settings-default-cwd-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-default-cwd-resolved {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .config-panel-root.is-modal > .config-panel-surface {
     width: calc(100vw - 16px);

@@ -15,7 +15,8 @@ import {
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { ShellToolSettingsResponse } from "@/lib/api-types";
+import type { DefaultCwdSettingsResponse, ShellToolSettingsResponse } from "@/lib/api-types";
+import { DirectoryPicker } from "./DirectoryPicker";
 import {
   setLastSettingsSection,
   type SettingsSection,
@@ -60,6 +61,146 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
   if (section === "agents") return <svg {...common} className="settings-section-icon is-agent"><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" /></svg>;
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
+}
+
+function applyDefaultCwdResponse(
+  data: DefaultCwdSettingsResponse,
+  setPath: (path: string) => void,
+  setSavedPath: (path: string) => void,
+  setResolved: (path: string) => void,
+  setPlaceholder: (path: string) => void,
+  setError: (error: string | null) => void,
+) {
+  setPath(data.path);
+  setSavedPath(data.path);
+  setResolved(data.resolved);
+  setPlaceholder(data.placeholder);
+  setError(data.error ?? null);
+}
+
+function DefaultDirectorySettings() {
+  const { t } = useI18n();
+  const [path, setPath] = useState("");
+  const [savedPath, setSavedPath] = useState("");
+  const [resolved, setResolved] = useState("");
+  const [placeholder, setPlaceholder] = useState("~/pi-cwd-{date}");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [browseOpen, setBrowseOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/default-cwd")
+      .then(async (response) => {
+        const data = await response.json() as DefaultCwdSettingsResponse & { error?: string };
+        if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled) applyDefaultCwdResponse(data, setPath, setSavedPath, setResolved, setPlaceholder, setError);
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const save = async (nextPath: string) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const response = await fetch("/api/default-cwd", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: nextPath }),
+      });
+      const data = await response.json() as DefaultCwdSettingsResponse & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      applyDefaultCwdResponse(data, setPath, setSavedPath, setResolved, setPlaceholder, setError);
+      setStatus(t("i18n.saved"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirty = path.trim() !== savedPath;
+  const canReset = savedPath !== "" || path.trim() !== "";
+
+  return (
+    <section className="settings-general-section">
+      <h3 className="settings-general-heading">{t("settings.defaultDirectory")}</h3>
+      <p className="settings-general-description">{t("settings.defaultDirectoryDescription")}</p>
+      <form
+        className="settings-default-cwd"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (dirty) void save(path);
+        }}
+      >
+        <div className="settings-default-cwd-row">
+          <input
+            id="settings-default-cwd"
+            className="settings-default-cwd-input"
+            type="text"
+            value={path}
+            placeholder={placeholder}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label={t("settings.defaultDirectory")}
+            disabled={saving}
+            onChange={(event) => {
+              setPath(event.target.value);
+              setStatus(null);
+            }}
+          />
+          <ConfigButton
+            variant="secondary"
+            size="small"
+            disabled={saving}
+            onClick={() => setBrowseOpen(true)}
+          >
+            {t("settings.browseDirectory")}
+          </ConfigButton>
+        </div>
+        <div className="settings-default-cwd-actions">
+          <ConfigButton variant="primary" size="small" disabled={saving || !dirty} onClick={() => void save(path)}>
+            {saving ? t("i18n.saving") : t("i18n.save")}
+          </ConfigButton>
+          <ConfigButton
+            variant="ghost"
+            size="small"
+            className="settings-chat-reset"
+            title={t("settings.resetDefaultDirectory")}
+            aria-label={t("settings.resetDefaultDirectory")}
+            disabled={saving || !canReset}
+            onClick={() => void save("")}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
+            </svg>
+          </ConfigButton>
+        </div>
+      </form>
+      {resolved && (
+        <p className="settings-default-cwd-resolved">{t("settings.defaultDirectoryResolved", { path: resolved })}</p>
+      )}
+      {status && <p role="status" className="settings-general-status">{status}</p>}
+      {error && <p role="alert" className="settings-general-error">{error}</p>}
+      {browseOpen && (
+        <DirectoryPicker
+          initialPath={resolved || undefined}
+          onCancel={() => setBrowseOpen(false)}
+          onSelect={(selected) => {
+            setBrowseOpen(false);
+            setPath(selected);
+            void save(selected);
+          }}
+        />
+      )}
+    </section>
+  );
 }
 
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
@@ -267,6 +408,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           </div>
         </div>
       </section>
+
+      <DefaultDirectorySettings />
 
       {shellSettings?.isWindows && (
         <section className="settings-general-section">

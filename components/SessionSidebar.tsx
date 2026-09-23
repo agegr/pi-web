@@ -912,9 +912,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setCustomPathOpen(false);
         setCustomPathError(null);
         setDropdownOpen(false);
+        return;
       }
-    } catch {
-      // ignore
+      setCustomPathError(data.error ?? `HTTP ${res.status}`);
+    } catch (e) {
+      setCustomPathError(e instanceof Error ? e.message : String(e));
     }
   }, []);
 

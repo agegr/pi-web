@@ -147,3 +147,13 @@ test("keeps password authentication to one login field and one settings action",
   assert.match(loginSource, /className="web-login-composer"[\s\S]*?type="password"[\s\S]*?<button type="submit"/);
   assert.match(globalCssSource, /\.web-login-composer \{[\s\S]*?display: flex;[\s\S]*?border-radius: 14px/);
 });
+
+test("lets users customize the sidebar default directory from General settings", () => {
+  assert.match(panelSource, /function DefaultDirectorySettings\(/);
+  assert.match(panelSource, /<DefaultDirectorySettings \/>/);
+  assert.match(panelSource, /fetch\("\/api\/default-cwd"\)/);
+  assert.match(panelSource, /method: "PUT"/);
+  assert.match(panelSource, /<DirectoryPicker/);
+  assert.match(enSource, /"settings\.defaultDirectory": "Default directory"/);
+  assert.match(cssSource, /\.settings-default-cwd-input \{/);
+});
