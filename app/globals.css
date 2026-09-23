@@ -435,9 +435,9 @@ html.dark .web-login-error {
  * Chromium-only scrollbars. Firefox renders its native ones, which the standard
  * `scrollbar-width` / `scrollbar-color` properties would only make thinner and
  * flatter, so this block stays webkit-prefixed on purpose.
- * The 10px box is the grab target; the thumb paints 6px of it through a
- * transparent border, so a scrollbar that is easy to catch does not also read
- * as a heavy rule down the side of every panel.
+ * The 10px box remains the grab target, but subtle scrollbars stay transparent
+ * until their scroll container is active. This keeps long panels usable without
+ * leaving a permanent rule down the side of every panel.
  */
 ::-webkit-scrollbar {
   width: 10px;
@@ -462,6 +462,19 @@ html.dark .web-login-error {
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+.scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text-dim) 45%, transparent);
+}
+.scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text-dim) 72%, transparent);
+}
+.scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb:active {
+  background-color: var(--text-dim);
 }
 
 /* A touch screen scrolls by dragging the content, so the extra width buys
