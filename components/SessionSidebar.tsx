@@ -6,8 +6,15 @@ import { listSessionFamilies, getSessionFamily, type SessionFamily } from "@/lib
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, partitionProjectsByPseudo, sessionsForProject } from "@/lib/project-groups";
-import { getPinnedProjects, isProjectPinned, pinProject, unpinProject } from "@/lib/pinned-projects";
+import { getProjectActivity, getRecentProjects, isPathInsideDirectory, sessionsForDirectory, sessionsForProject } from "@/lib/project-groups";
+import {
+  addCustomDirectory,
+  customDirectoryIdentity,
+  isCustomDirectoryListed,
+  listCustomDirectories,
+  removeCustomDirectory,
+  renameCustomDirectory,
+} from "@/lib/custom-directories";
 import { buildExplorerRoots } from "@/lib/explorer-roots";
 import { shouldShowDefaultCwdShortcut, syntheticProjectFor } from "@/lib/default-cwd-shortcut";
 import {
@@ -143,27 +150,6 @@ interface Props {
   onExternalSessionChange?: (sessionId: string) => void;
 }
 
-interface WorktreeEntry {
-  path: string;
-  branch: string | null;
-  isMain: boolean;
-}
-
-interface WorktreeState {
-  /** The cwd this data was fetched for — guards against stale responses */
-  forCwd: string;
-  projectRoot: string;
-  /** Stable server-computed identity; never derive OS path semantics here. */
-  projectKey: string;
-  isGit: boolean;
-  /** False when forCwd is a repo subdirectory — the switcher is hidden there
-   *  because subdir sessions keep their own project identity */
-  isTopLevel: boolean;
-  /** Canonical path of the checkout containing forCwd, resolved server-side. */
-  currentWorktreePath: string | null;
-  worktrees: WorktreeEntry[];
-}
-
 interface ProjectSelection {
   root: string;
   key: string;
@@ -229,31 +215,10 @@ function displayCwd(cwd: string, homeDir?: string): string {
   return (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
 }
 
-// Hide-toggle preference for unmergeable worktree pseudo-project rows.
-// Default ON per spec assumption: such rows are noise; their sessions stay
-// reachable by turning the toggle off. Re-read from localStorage lazily so
-// reload and hot-reload both see fresh state.
-const HIDE_PSEUDO_PROJECTS_STORAGE_KEY = "pi-web:hide-pseudo-projects";
-
-function readHidePseudoProjects(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const raw = window.localStorage.getItem(HIDE_PSEUDO_PROJECTS_STORAGE_KEY);
-    // Absent key means the default: hide.
-    return raw === null ? true : raw !== "false";
-  } catch {
-    return true;
-  }
-}
-
-function writeHidePseudoProjects(hide: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(HIDE_PSEUDO_PROJECTS_STORAGE_KEY, hide ? "true" : "false");
-  } catch {
-    // ignore storage quota / privacy-mode errors
-  }
-}
+// Hide-toggle for unmergeable worktree pseudo-project rows was retired with
+// the worktree switcher (2026-09-23 user decision): rows render with no
+// worktree-specific hiding. (readHidePseudoProjects and the
+// pi-web:hide-pseudo-projects key are gone.)
 
 // Pinned-group expansion state, persisted across reloads per the confirmed
 // product decision (wi body: 展开状态记住到 localStorage). Stored as a JSON
@@ -419,15 +384,18 @@ function pinnedGroupContentId(key: string): string {
 }
 
 /**
- * Header row of one pinned project group in the session list: chevron +
- * path label (the expand control, a real button with aria-expanded /
- * aria-controls), the per-project activity badge, the unpin toggle and the
- * group's own new-session [+] (relocated from the workspace dropdown). A
- * stale root renders the whole header greyed with the missing-directory
- * hint and disables [+].
+ * Header row of one listed-directory group in the session list: chevron +
+ * label (the expand control, a real button with aria-expanded /
+ * aria-controls), the per-project activity badge, the rename affordance
+ * (edits the entry's displayName; an empty value clears it back to the
+ * path-derived label), the remove-from-list toggle and the group's own
+ * new-session [+] (relocated from the workspace dropdown). A stale root
+ * renders the whole header greyed with the missing-directory hint and
+ * disables [+].
  */
 function PinnedGroupHeader({
   project,
+  label,
   expanded,
   stale,
   activity,
@@ -435,9 +403,12 @@ function PinnedGroupHeader({
   t,
   onToggle,
   onUnpin,
+  onRename,
   onNewSession,
 }: {
   project: SidebarProject;
+  /** User-set display name; absent falls back to the path label. */
+  label?: string;
   expanded: boolean;
   /** Root no longer exists on disk: rendered greyed, [+] disabled. */
   stale: boolean;
@@ -446,9 +417,26 @@ function PinnedGroupHeader({
   t: (key: string, params?: Record<string, string | number>) => string;
   onToggle: () => void;
   onUnpin: () => void;
+  /** Commits a rename; an empty value clears the display name. */
+  onRename: (name: string) => void;
   onNewSession: () => void;
 }) {
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const newSessionLabel = t("sidebar.newSessionTitle", { path: project.root });
+  const displayLabel = label ?? displayCwd(project.root, homeDir);
+
+  const startRename = () => {
+    setRenameValue(label ?? "");
+    setRenaming(true);
+  };
+  const commitRename = () => {
+    setRenaming(false);
+    const name = renameValue.trim();
+    if (name === (label ?? "")) return;
+    onRename(name);
+  };
+
   return (
     <div
       style={{
@@ -460,6 +448,58 @@ function PinnedGroupHeader({
         background: "var(--bg)",
       }}
     >
+      {renaming ? (
+        <>
+          <input
+            value={renameValue}
+            autoFocus
+            placeholder={t("sidebar.renameDirectory")}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commitRename();
+              if (event.key === "Escape") setRenaming(false);
+            }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: 26,
+              margin: "0 0 0 10px",
+              padding: "0 8px",
+              border: "1px solid var(--accent)",
+              borderRadius: 5,
+              outline: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+            }}
+          />
+          <button
+            onClick={commitRename}
+            title={t("sidebar.renameDirectory")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: 22,
+              padding: "0 9px",
+              marginLeft: 4,
+              flexShrink: 0,
+              background: "var(--accent)",
+              border: "none",
+              borderRadius: 5,
+              color: "var(--accent-contrast)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {t("sidebar.renameDirectory")}
+          </button>
+        </>
+      ) : (
+        <>
       <button
         onClick={onToggle}
         aria-expanded={expanded}
@@ -496,11 +536,44 @@ function PinnedGroupHeader({
           <polyline points="3 2 7 5 3 8" />
         </svg>
         <PathLabel
-          text={displayCwd(project.root, homeDir)}
+          text={displayLabel}
           style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.35 }}
         />
       </button>
       {showProjectActivity(activity, t)}
+      <span
+        role="button"
+        tabIndex={0}
+        title={t("sidebar.renameDirectory")}
+        aria-label={t("sidebar.renameDirectory")}
+        onClick={(e) => {
+          e.stopPropagation();
+          startRename();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.stopPropagation();
+            e.preventDefault();
+            startRename();
+          }
+        }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 16,
+          height: 16,
+          flexShrink: 0,
+          marginLeft: 4,
+          borderRadius: 3,
+          color: "var(--text-dim)",
+          cursor: "pointer",
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+        </svg>
+      </span>
       <span
         role="button"
         tabIndex={0}
@@ -559,6 +632,8 @@ function PinnedGroupHeader({
           <line x1="1" y1="6" x2="11" y2="6" />
         </svg>
       </button>
+        </>
+      )}
     </div>
   );
 }
@@ -760,38 +835,40 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     setExpandedGroupKeys(next);
     writeExpandedGroupKeys(next);
   }, []);
-  // Pinned rows, ordered by pin order (most recently pinned first). The pin
-  // store persists each entry's display root, so a pinned project renders
-  // (and stays selectable) even when no currently-loaded session resolves to
-  // it. pinnedRevision is a deliberate refresh trigger: pin/unpin bumps it so
-  // the localStorage re-read runs even though the callback body does not read
-  // it. Until sidebarHydrated the list stays empty (SSR agreement). Declared
-  // early because selection handlers below need the pinned key set.
+  // Listed-directory entries (the user-managed custom list), most-recently-
+  // added first. The store persists each entry's path (and optional display
+  // name), so a listed directory renders (and stays selectable) even when no
+  // currently-loaded session resolves to it — and the store's one-time
+  // migration seeds it from the legacy pinned-projects payload.
+  // pinnedRevision is a deliberate refresh trigger: every store mutation
+  // bumps it so the localStorage re-read runs even though the callback body
+  // does not read it. Until sidebarHydrated the list stays empty (SSR
+  // agreement). Declared early because selection handlers below need the
+  // listed key set.
   const pinnedEntries = useMemo(
-    () => (sidebarHydrated ? getPinnedProjects() : []),
+    () => (sidebarHydrated ? listCustomDirectories() : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pinnedRevision, sidebarHydrated],
   );
-  const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((entry) => entry.key)), [pinnedEntries]);
-  const [hidePseudoProjects, setHidePseudoProjects] = useState(readHidePseudoProjects);
-  const [wtFilter, setWtFilter] = useState("");
+  const pinnedProjects = useMemo(
+    () => pinnedEntries.map((entry) => ({ key: customDirectoryIdentity(entry.path), root: entry.path, displayName: entry.displayName })),
+    [pinnedEntries],
+  );
+  // Optional per-entry display names, keyed by the same normalized identity.
+  const pinnedLabelsByKey = useMemo(
+    () => new Map(pinnedEntries.map((entry) => [customDirectoryIdentity(entry.path), entry.displayName])),
+    [pinnedEntries],
+  );
   const [customPathOpen, setCustomPathOpen] = useState(false);
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  // Worktree switcher state
-  const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
-  const [wtDropdownOpen, setWtDropdownOpen] = useState(false);
-  const [wtNewOpen, setWtNewOpen] = useState(false);
-  const [wtNewBranch, setWtNewBranch] = useState("");
-  const [wtError, setWtError] = useState<string | null>(null);
-  const [wtBusy, setWtBusy] = useState(false);
-  const [wtConfirmRemove, setWtConfirmRemove] = useState<string | null>(null);
-  const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null);
-  const wtDropdownRef = useRef<HTMLDivElement>(null);
-  const wtNewInputRef = useRef<HTMLInputElement>(null);
+  // The add-directory picker (manage mode): adds a directory to the custom
+  // list, registers it as an allowed file root, and can rename/remove list
+  // entries and create folders from the dialog.
+  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
@@ -1126,33 +1203,37 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     if (validatedProject?.cwd === cwd) {
       return projectSelection(validatedProject.root, validatedProject.key);
     }
-    if (worktreeState && worktreeState.forCwd === cwd) {
-      return projectSelection(worktreeState.projectRoot, worktreeState.projectKey);
-    }
-    // Any path in the loaded worktree list belongs to that project — covers
-    // worktrees without sessions, so switching to them keeps the row mounted.
-    if (worktreeState?.worktrees.some((w) => w.path === cwd)) {
-      return projectSelection(worktreeState.projectRoot, worktreeState.projectKey);
-    }
     const match = allSessions.find((session) => (
       session.cwd === cwd || (session.projectRoot ?? session.cwd) === cwd
     ));
     return match
       ? projectSelection(match.projectRoot ?? match.cwd, workspaceKeyOf(match))
       : projectSelection(cwd, cwd);
-  }, [validatedProject, worktreeState, allSessions, projectSelection]);
+  }, [validatedProject, allSessions, projectSelection]);
 
-  // Accordion selection switch: when a selection moves the effective cwd to
-  // a pinned project, that project's group becomes the expanded one — the
-  // previously expanded group collapses. Selecting within the currently
+  // Accordion selection switch: when a selection moves the effective cwd
+  // into a listed directory, that directory's group becomes the expanded one
+  // — the previously expanded group collapses. Selecting within the currently
   // expanded group re-applies the same single-key set (no visible change);
-  // unpinned targets are left alone.
-  const expandPinnedGroupForCwd = useCallback((cwd: string | null) => {
-    const project = projectFor(cwd);
-    if (!project) return;
-    if (!pinnedKeySet.has(project.key)) return;
-    expandPinnedGroup(project.key);
-  }, [projectFor, pinnedKeySet, expandPinnedGroup]);
+  // unlisted targets are left alone. A worktree cwd resolves through the
+  // session's server-provided projectRoot, because linked worktrees live
+  // OUTSIDE their repository directory.
+  const listedEntryForPath = useCallback((path: string | null | undefined): SidebarProject | null => {
+    if (!path) return null;
+    let best: SidebarProject | null = null;
+    for (const project of pinnedProjects) {
+      if (isPathInsideDirectory(project.root, path)
+        && (!best || project.root.length > best.root.length)) {
+        best = project;
+      }
+    }
+    return best;
+  }, [pinnedProjects]);
+  const expandPinnedGroupForCwd = useCallback((cwd: string | null, projectRoot?: string | null) => {
+    const entry = listedEntryForPath(cwd) ?? listedEntryForPath(projectRoot ?? null);
+    if (!entry) return;
+    expandPinnedGroup(entry.key);
+  }, [listedEntryForPath, expandPinnedGroup]);
 
   // A worktree/session refresh can hydrate the stable key without changing
   // cwd, so notify when either changes. The parent treats same-cwd key changes
@@ -1170,10 +1251,10 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     );
   }, [selectedCwd, onCwdChange, projectFor]);
 
-  // Sync the worktree switcher to the selected session's cwd. Sessions of all
-  // worktrees in a project share one list, so clicking a session from another
-  // worktree should move the effective cwd there. Only fires when the prop
-  // value changes, so a manual switcher change is not snapped back.
+  // Sync the effective cwd to the focused session's cwd (prop). Sessions of
+  // all worktrees in a project share one list, so clicking a session from
+  // another worktree moves the effective cwd there. Only fires when the prop
+  // value changes.
   const lastSyncedCwdPropRef = useRef<string | null>(null);
   useEffect(() => {
     if (selectedCwdProp && selectedCwdProp !== lastSyncedCwdPropRef.current) {
@@ -1181,44 +1262,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       setSelectedCwd(selectedCwdProp);
     }
   }, [selectedCwdProp]);
-
-  // Load worktrees for the current effective cwd
-  const [wtRefreshKey, setWtRefreshKey] = useState(0);
-  useLayoutEffect(() => {
-    if (!selectedCwd) {
-      setWorktreeState(null);
-      setWorktreeLoadingCwd(null);
-      return;
-    }
-    let cancelled = false;
-    setWorktreeLoadingCwd(selectedCwd);
-    fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
-      .then((r) => r.json())
-      .then((d: { projectRoot?: string; projectKey?: string; isGit?: boolean; isTopLevel?: boolean; currentWorktreePath?: string | null; worktrees?: WorktreeEntry[]; error?: string }) => {
-        if (cancelled) return;
-        setWorktreeLoadingCwd(null);
-        if (d.error || !d.projectRoot) {
-          setWorktreeState(null);
-          return;
-        }
-        setWorktreeState({
-          forCwd: selectedCwd,
-          projectRoot: d.projectRoot,
-          projectKey: d.projectKey ?? d.projectRoot,
-          isGit: d.isGit ?? false,
-          isTopLevel: d.isTopLevel ?? false,
-          currentWorktreePath: d.currentWorktreePath ?? null,
-          worktrees: d.worktrees ?? [],
-        });
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWorktreeLoadingCwd(null);
-          setWorktreeState(null);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [selectedCwd, wtRefreshKey, refreshKey]);
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
@@ -1250,18 +1293,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       }
     }
   }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
-
-  // Prefer an exact UI selection while a refetch is in flight. Once the
-  // response catches up, the server-resolved path handles Windows case and
-  // separator differences without teaching the browser OS path semantics.
-  const currentWorktree = worktreeState
-    ? worktreeState.worktrees.find((worktree) => worktree.path === selectedCwd)
-      ?? (worktreeState.forCwd === selectedCwd && worktreeState.currentWorktreePath
-        ? worktreeState.worktrees.find((worktree) => worktree.path === worktreeState.currentWorktreePath)
-        : undefined)
-      ?? worktreeState.worktrees.find((worktree) => worktree.isMain)
-    : undefined;
-  const currentWorktreePath = currentWorktree?.path ?? null;
 
   const commitCustomPath = useCallback(async (candidate?: string) => {
     const path = (candidate ?? customPathValue).trim();
@@ -1331,87 +1362,12 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     }
   }, [projectFor]);
 
-  const handleCreateWorktree = useCallback(async () => {
-    const branch = wtNewBranch.trim();
-    if (!branch || wtBusy || !worktreeState) return;
-    setWtBusy(true);
-    setWtError(null);
-    try {
-      const res = await fetch("/api/worktrees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: worktreeState.projectRoot, branch }),
-      });
-      const data = await res.json().catch(() => ({})) as { path?: string; error?: string };
-      if (!res.ok || data.error || !data.path) {
-        setWtError(data.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      setWtNewOpen(false);
-      setWtNewBranch("");
-      setWtDropdownOpen(false);
-      // Optimistically register the new worktree so projectFor() resolves
-      // it to the main repo before the refetch lands (keeps AppShell from
-      // treating the new cwd as a different project).
-      setWorktreeState((prev) => prev ? {
-        ...prev,
-        forCwd: data.path!,
-        currentWorktreePath: data.path!,
-        worktrees: [...prev.worktrees, { path: data.path!, branch, isMain: false }],
-      } : prev);
-      setSelectedCwd(data.path);
-      setWtRefreshKey((k) => k + 1);
-    } catch (e) {
-      setWtError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWtBusy(false);
-    }
-  }, [wtNewBranch, wtBusy, worktreeState]);
-
-  const handleRemoveWorktree = useCallback(async (path: string, force: boolean) => {
-    if (!worktreeState || wtBusy) return;
-    setWtBusy(true);
-    setWtError(null);
-    try {
-      const res = await fetch("/api/worktrees", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: worktreeState.projectRoot, path, force }),
-      });
-      const data = await res.json().catch(() => ({})) as { error?: string; dirty?: boolean };
-      if (!res.ok) {
-        if (data.dirty && !force) {
-          // Dirty worktree — ask the user to confirm a force removal
-          setWtConfirmRemove(path);
-          return;
-        }
-        setWtError(data.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      setWtConfirmRemove(null);
-      if (currentWorktreePath === path) setSelectedCwd(worktreeState.projectRoot);
-      setWtRefreshKey((k) => k + 1);
-    } catch (e) {
-      setWtError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWtBusy(false);
-    }
-  }, [worktreeState, wtBusy, currentWorktreePath]);
-
-  // Close dropdowns on outside click
+  // Close the workspace dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
         setProjectFilter("");
-      }
-      if (wtDropdownRef.current && !wtDropdownRef.current.contains(e.target as Node)) {
-        setWtDropdownOpen(false);
-        setWtNewOpen(false);
-        setWtNewBranch("");
-        setWtError(null);
-        setWtConfirmRemove(null);
-        setWtFilter("");
       }
     };
     document.addEventListener("mousedown", handler);
@@ -1425,9 +1381,9 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number) => {
     setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
     if (s.cwd) setSelectedCwd(s.cwd);
-    // Accordion: selecting a session that resolves to a pinned project
+    // Accordion: selecting a session that resolves into a listed directory
     // other than the expanded one switches the expanded group to it.
-    expandPinnedGroupForCwd(s.cwd);
+    expandPinnedGroupForCwd(s.cwd, s.projectRoot ?? null);
     onSelectSession(s, false, entryId, blockIndex);
   }, [onSelectSession, expandPinnedGroupForCwd]);
 
@@ -1461,52 +1417,80 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   }, [stalePinnedRoots, onNewSession, expandPinnedGroup]);
 
   const recentProjects = getRecentProjects(allSessions);
-  // Pinned rows take their display root from the pin store; when a matching
-  // project row exists its root wins (fresher casing).
-  const pinnedProjects = useMemo(
-    () => pinnedEntries.map((entry) => {
-      const row = recentProjects.find((project) => project.key === entry.key);
-      return { key: entry.key, root: row ? row.root : entry.root };
-    }),
-    [pinnedEntries, recentProjects],
-  );
-  // pi#18: with pinned projects set and the default directory outside that
+  // pi#18: with listed directories set and the default directory outside that
   // set, the shortcut would point somewhere the explorer already steers away
-  // from — hide it. Pin/unpin bumps pinnedRevision, so the rule re-evaluates
-  // immediately, and the default directory is compared loosely (case and
-  // separators) against the pinned display roots.
+  // from — hide it. Store mutations bump pinnedRevision, so the rule
+  // re-evaluates immediately, and the default directory is compared loosely
+  // (case and separators) against the listed roots.
   const showDefaultCwdShortcut = useMemo(
     () => shouldShowDefaultCwdShortcut(pinnedProjects, defaultCwd),
     [pinnedProjects, defaultCwd],
   );
-  // pi#14 explorer section roots: every pinned project (pin order) plus the
-  // workspace selector's current selection as the trailing section, deduped
-  // by stable key so worktrees of a pinned project never add a section.
-  // Unpin bumps pinnedRevision, so a removed pin's section disappears
-  // immediately with the other sections' expansion state intact.
+  // pi#14 explorer section roots: every listed directory (list order) plus
+  // the workspace selector's current selection as the trailing section. A
+  // selection that resolves into a listed directory reuses that entry's
+  // normalized key so identity dedupe keeps one section per directory (the
+  // old key-identity dedupe now happens at this call site, because the
+  // selection's stable workspace key and the entry's normalized path key
+  // are different identities). Store mutations bump pinnedRevision, so a
+  // removed entry's section disappears immediately with the other sections'
+  // expansion state intact.
   const explorerRoots = useMemo(
-    () => buildExplorerRoots(pinnedProjects, explorerSelection),
-    [pinnedProjects, explorerSelection],
-  );
-  const projectPartition = useMemo(
-    () => partitionProjectsByPseudo(recentProjects, allSessions),
-    [recentProjects, allSessions],
+    () => {
+      const owning = explorerSelection ? listedEntryForPath(explorerSelection.root) : null;
+      return buildExplorerRoots(pinnedProjects, owning ?? explorerSelection);
+    },
+    [pinnedProjects, explorerSelection, listedEntryForPath],
   );
   const showProjectFilter = recentProjects.length > 8;
-  // Recent list: pinned rows excluded (they render once, in the pinned
-  // section) and unmergeable pseudo rows suppressed behind the toggle.
-  // Filter text applies to the remainder exactly as before — the pinned
-  // section stays exempt so it is always visible.
-  const recentUnpinnedProjects = hidePseudoProjects
-    ? projectPartition.ordinary.filter((project) => !pinnedKeySet.has(project.key))
-    : recentProjects.filter((project) => !pinnedKeySet.has(project.key));
+  // Recent list: rows whose root resolves into a listed directory are
+  // excluded — they render once, inside their directory group. Filter text
+  // applies to the remainder exactly as before — the listed groups stay
+  // exempt so they are always visible. Pseudo-project suppression is gone
+  // with the worktree switcher: rows render with no worktree-specific
+  // hiding.
+  const recentUnpinnedProjects = recentProjects.filter(
+    (project) => !listedEntryForPath(project.root),
+  );
   const visibleProjects = projectFilter.trim()
     ? recentUnpinnedProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
     : recentUnpinnedProjects;
-  const togglePin = useCallback((key: string, root: string) => {
-    if (isProjectPinned(key)) unpinProject(key);
-    else pinProject(key, root);
+  // Pin/unpin now operate on the custom directory store, leaving exactly
+  // one user-managed list: pin adds the project root at the head, unpin
+  // removes the entry (a list operation only — the disk is untouched).
+  const togglePin = useCallback((root: string) => {
+    if (isCustomDirectoryListed(root)) removeCustomDirectory(root);
+    else addCustomDirectory(root);
     setPinnedRevision((revision) => revision + 1);
+  }, []);
+
+  // Adding a directory from the picker: append to the custom store and
+  // register it as an allowed file root through the same /api/cwd/validate
+  // integration the custom-path commit uses, so its files are browsable
+  // immediately. Idempotent for an already-listed directory (the store moves
+  // it to the head, no duplicate entry). Cancelling the dialog changes
+  // nothing — only an explicit select lands here.
+  const handleAddDirectory = useCallback(async (path: string) => {
+    setAddDirectoryOpen(false);
+    addCustomDirectory(path);
+    setPinnedRevision((revision) => revision + 1);
+    // A newly added directory expands immediately AND scrolls into view:
+    // the list renders most-recently-added first (offset 0), so a scrolled
+    // viewport would window the new group's header out — scroll to top so
+    // the "New session in …" affordance is reachable without a second
+    // interaction.
+    expandPinnedGroup(customDirectoryIdentity(path));
+    listScrollRef.current?.scrollTo({ top: 0 });
+    try {
+      await fetch("/api/cwd/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: path }),
+      });
+    } catch {
+      // Best-effort: an offline failure defers root registration to the
+      // next validate/commit that touches this directory.
+    }
   }, []);
 
   // Stale pinned roots: on sidebar mount (and whenever the pinned set
@@ -1559,21 +1543,23 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   // Sessions of every worktree in the selected project are shown together
   const selectedProject = projectFor(selectedCwd);
 
-  // On load, the selected project's group starts expanded; other groups
+  // On load, the selected directory's group starts expanded; other groups
   // start collapsed unless its persisted state says otherwise. Fires once,
-  // as soon as a pinned project is selected.
+  // as soon as the selection resolves into a listed directory.
   const autoExpandedGroupRef = useRef(false);
   useEffect(() => {
-    if (autoExpandedGroupRef.current || !selectedProject) return;
-    if (!pinnedKeySet.has(selectedProject.key)) return;
+    if (autoExpandedGroupRef.current) return;
+    const entry = listedEntryForPath(selectedCwd)
+      ?? listedEntryForPath(selectedProject?.root ?? null);
+    if (!entry) return;
     autoExpandedGroupRef.current = true;
     // Accordion: the auto-expand replaces the persisted set, so a persisted
     // different group (or legacy multi-key storage) collapses to this one.
-    expandPinnedGroup(selectedProject.key);
+    expandPinnedGroup(entry.key);
     // expandedGroupKeys is deliberately excluded: the ref guard makes this a
     // one-shot effect and reading it here would restart on every toggle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProject, pinnedKeySet]);
+  }, [selectedCwd, selectedProject, listedEntryForPath]);
 
   // Per-project activity counts (running / unread) for the workspace selector.
   // Uses the same stable server key as the project list and filtering.
@@ -1592,20 +1578,46 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     [projectActivity, selectedProject],
   );
 
-  // The main list below the pinned groups keeps its existing filtering
-  // rules, minus pinned projects' sessions — those render only inside their
-  // group, so a pinned project never appears twice. Recomputed per render,
-  // exactly like the pre-group session list was.
+  // The main list below the listed groups keeps its existing filtering
+  // rules, minus the sessions grouped under a listed directory — those
+  // render only inside their group, so a listed directory's sessions never
+  // appear twice. Recomputed per render, exactly like the pre-group session
+  // list was.
   const filteredSessions = selectedProject
     ? sessionsForProject(allSessions, selectedProject.key)
     : allSessions;
-  const mainFamilies = listSessionFamilies(
-    filteredSessions.filter((session) => !pinnedKeySet.has(workspaceKeyOf(session))),
-  );
-  // Session families per pinned project, spanning all its worktrees.
+  // Session families per listed directory. sessionsForDirectory groups by
+  // path containment (plus the server-resolved project root), so sessions
+  // in any git worktree of a listed repository and sessions in non-git
+  // directories both land under their listed entry — no workspace-key,
+  // pseudo-project or worktree-specific filtering.
   const familiesByProject = new Map<string, SessionFamily[]>();
+  const groupedSessionIds = new Set<string>();
   for (const project of pinnedProjects) {
-    familiesByProject.set(project.key, listSessionFamilies(sessionsForProject(allSessions, project.key)));
+    const families = listSessionFamilies(sessionsForDirectory(allSessions, project.root));
+    familiesByProject.set(project.key, families);
+    for (const family of families) {
+      groupedSessionIds.add(family.root.id);
+      for (const subagent of family.subagents) groupedSessionIds.add(subagent.id);
+    }
+  }
+  const mainFamilies = listSessionFamilies(
+    filteredSessions.filter((session) => !groupedSessionIds.has(session.id)),
+  );
+  // Per-group activity counts (running / unread), aggregated over the
+  // directory's grouped sessions and keyed by the entry's normalized path
+  // identity — the group keys, not the workspace keys the dropdown uses.
+  const groupActivity = new Map<string, { running: number; unread: number }>();
+  for (const project of pinnedProjects) {
+    let running = 0;
+    let unread = 0;
+    for (const family of familiesByProject.get(project.key) ?? []) {
+      for (const session of [family.root, ...family.subagents]) {
+        if (runningSessionIds.has(session.id)) running += 1;
+        if (unreadSessionIds.has(session.id)) unread += 1;
+      }
+    }
+    groupActivity.set(project.key, { running, unread });
   }
   // One flat row array with cumulative offsets for the whole scroll area.
   const sidebarRows = buildSidebarRows({
@@ -1690,35 +1702,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     pendingFollowScrollSessionIdRef.current = null;
     applyFollowScroll(sidebarRows, pendingId);
   });
-  const showWorktreeSwitcher = Boolean(
-    worktreeState?.isGit
-    && worktreeState.isTopLevel
-    && selectedCwd
-    && selectedProject?.key === worktreeState.projectKey
-  );
-  const worktreeGuide = selectedCwd
-    && worktreeState
-    && selectedProject?.key === worktreeState.projectKey
-    && !showWorktreeSwitcher
-    ? (worktreeState.isGit
-        ? {
-             label: t("sidebar.openRepoRoot"),
-             title: t("sidebar.openRepoRootTitle"),
-          }
-        : {
-             label: t("sidebar.gitRepoRootOnly"),
-             title: t("sidebar.gitRepoRootOnlyTitle"),
-          })
-    : null;
-  const worktreeLoading = Boolean(selectedCwd && worktreeLoadingCwd === selectedCwd);
-  const inactiveWorktreeSelector = worktreeGuide
-    ?? (worktreeLoading && !showWorktreeSwitcher
-      ? {
-           label: t("sidebar.worktrees"),
-           title: t("sidebar.checkingWorktrees"),
-        }
-      : null);
-
   // One session row, shared by the main list and pinned groups: identical
   // selection behavior — the effective cwd moves to the session's worktree.
   const renderSessionRow = (family: SessionFamily) => {
@@ -1765,6 +1748,27 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
           onSelect={(path) => void commitCustomPath(path)}
         />
       )}
+      {/* Add-directory picker (manage mode): select adds the directory to
+          the custom list and registers it as an allowed file root; the
+          dialog's manage callbacks run the same store operations as the
+          group-header affordances, so create/delete/modify work from both
+          surfaces. */}
+      {addDirectoryOpen && (
+        <DirectoryPicker
+          initialPath={customPathValue || homeDir || undefined}
+          entries={pinnedEntries.map((entry) => ({ path: entry.path, displayName: entry.displayName }))}
+          onRenameEntry={(path, displayName) => {
+            renameCustomDirectory(path, displayName);
+            setPinnedRevision((revision) => revision + 1);
+          }}
+          onRemoveEntry={(path) => {
+            removeCustomDirectory(path);
+            setPinnedRevision((revision) => revision + 1);
+          }}
+          onSelect={(path) => void handleAddDirectory(path)}
+          onCancel={() => setAddDirectoryOpen(false)}
+        />
+      )}
       {/* Header */}
       <div
         style={{
@@ -1796,7 +1800,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
               type="button"
               onClick={() => {
                 setSessionSearchOpen((open) => !open);
-                setWtDropdownOpen(false);
               }}
               title={t("sidebar.toggleSessionSearch")}
               aria-label={t("sidebar.toggleSessionSearch")}
@@ -1943,7 +1946,7 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
                       setCustomPathError(null);
                       setDropdownOpen(false);
                     }}
-                    onTogglePin={() => togglePin(project.key, project.root)}
+                    onTogglePin={() => togglePin(project.root)}
                   />
                 ))}
                 {visibleProjects.length === 0 && projectFilter.trim() && (
@@ -1951,45 +1954,7 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
                 )}
               </div>
 
-              {/* Hide toggle for unmergeable worktree pseudo-projects. Only
-                  offered when such rows exist; their sessions stay reachable
-                  by turning it off. Takes effect immediately and persists. */}
-              {projectPartition.pseudo.length > 0 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const next = !hidePseudoProjects;
-                    setHidePseudoProjects(next);
-                    writeHidePseudoProjects(next);
-                  }}
-                  title={t("sidebar.hidePseudoProjectsTitle")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "none",
-                    border: "none",
-                    borderTop: "1px solid var(--border)",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="1.4" style={{ flexShrink: 0, opacity: hidePseudoProjects ? 1 : 0.35 }}>
-                    {hidePseudoProjects && <polyline points="1.5 5 4 7.5 8.5 2.5" strokeWidth="2" />}
-                    {!hidePseudoProjects && <rect x="1" y="1" width="8" height="8" rx="1.5" />}
-                  </svg>
-                  <span>{t("sidebar.hidePseudoProjects")}</span>
-                  <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>
-                    {hidePseudoProjects ? t("sidebar.pseudoProjectsHidden", { count: projectPartition.pseudo.length }) : t("sidebar.pseudoProjectsVisible", { count: projectPartition.pseudo.length })}
-                  </span>
-                </button>
-              )}
-
-              {/* Default cwd shortcut — hidden while pinned projects exist
+              {/* Default cwd shortcut — hidden while listed directories exist
                   and none of them is the default directory (pi#18) */}
               {!customPathOpen && showDefaultCwdShortcut && (
                 <button
@@ -2002,7 +1967,7 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
                     padding: "8px 10px",
                     background: "none",
                     border: "none",
-                    borderTop: visibleProjects.length > 0 || projectPartition.pseudo.length > 0 ? "1px solid var(--border)" : "none",
+                    borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none",
                     color: "var(--text-muted)",
                     cursor: "pointer",
                     textAlign: "left",
@@ -2065,331 +2030,16 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
           />
         )}
 
-        {/* Worktree switcher — shown only for git projects at a checkout top
-            level (repo subdirs keep their own project identity, so switching
-            from them would jump projects). Rendered whenever the selected cwd
-            belongs to the loaded project (not just when forCwd matches), so
-            switching between worktrees of one project keeps the row mounted
-            instead of flickering while data refetches: all worktrees of a
-            project share the same list anyway. */}
-        {!sessionSearchOpen && showWorktreeSwitcher && (() => {
-          if (!worktreeState) return null;
-          const showWtFilter = worktreeState.worktrees.length >= 8;
-          const visibleWorktrees = showWtFilter && wtFilter.trim()
-            ? worktreeState.worktrees.filter((w) =>
-                (w.branch ?? displayCwd(w.path, homeDir)).toLowerCase().includes(wtFilter.trim().toLowerCase()))
-            : worktreeState.worktrees;
-          return (
-            <div ref={wtDropdownRef} style={{ position: "relative", marginTop: 6 }}>
-              <button
-                onClick={() => setWtDropdownOpen((v) => !v)}
-                 title={currentWorktree ? t("sidebar.switchWorktreeTitle", { path: currentWorktree.path }) : t("sidebar.switchWorktree")}
-                style={{
-                  width: "100%",
-                  height: 29,
-                  boxSizing: "border-box",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "0 10px",
-                  background: "var(--bg-hover)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 7,
-                  cursor: "pointer",
-                  fontSize: 11,
-                  lineHeight: 1.35,
-                  color: "var(--text-muted)",
-                  textAlign: "left",
-                }}
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: currentWorktree && !currentWorktree.isMain ? "var(--accent)" : "var(--text-dim)" }}>
-                  <line x1="6" y1="3" x2="6" y2="15" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                  <path d="M18 9a9 9 0 0 1-9 9" />
-                </svg>
-                <PathLabel
-                  text={currentWorktree ? (currentWorktree.branch ?? displayCwd(currentWorktree.path, homeDir)) : "…"}
-                  style={{ flex: 1, fontFamily: "var(--font-mono)", color: "var(--text)" }}
-                />
-                {currentWorktree?.isMain && (
-                   <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>{t("sidebar.main")}</span>
-                )}
-                {worktreeState.worktrees.length > 1 && (
-                  <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>
-                    {worktreeState.worktrees.length}
-                  </span>
-                )}
-                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <polyline points="2 3.5 5 6.5 8 3.5" />
-                </svg>
-              </button>
-
-              <AnimatedDropdown
-                open={wtDropdownOpen}
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 4px)",
-                  left: 0,
-                  right: 0,
-                  zIndex: 100,
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
-                  overflow: "hidden",
-                }}
-              >
-                  {showWtFilter && (
-                    <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
-                      <input
-                        value={wtFilter}
-                        onChange={(e) => setWtFilter(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Escape") {
-                            setWtFilter("");
-                            setWtDropdownOpen(false);
-                          }
-                        }}
-                        placeholder={t("sidebar.filterWorktrees")}
-                        autoFocus
-                        style={{
-                          width: "100%",
-                          fontSize: 11,
-                          fontFamily: "var(--font-mono)",
-                          padding: "5px 8px",
-                          border: "1px solid var(--border)",
-                          borderRadius: 5,
-                          outline: "none",
-                          background: "var(--bg)",
-                          color: "var(--text)",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                    </div>
-                  )}
-                  <div style={{ maxHeight: "min(40vh, 300px)", overflowY: "auto" }}>
-                    {visibleWorktrees.map((wt) => {
-                      const isCurrent = wt.path === currentWorktreePath;
-                      if (wtConfirmRemove === wt.path) {
-                        return (
-                          <div key={wt.path} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderBottom: "1px solid var(--border)", background: "rgba(239,68,68,0.06)" }}>
-                            <span style={{ flex: 1, fontSize: 11, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {t("sidebar.forceRemoveCheckout")}
-                            </span>
-                            <button
-                              onClick={() => void handleRemoveWorktree(wt.path, true)}
-                              disabled={wtBusy}
-                              style={{ padding: "3px 9px", background: "#ef4444", border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
-                            >
-                              {t("sidebar.force")}
-                            </button>
-                            <button
-                              onClick={() => setWtConfirmRemove(null)}
-                              style={{ padding: "3px 9px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
-                            >
-                              {t("sidebar.cancel")}
-                            </button>
-                          </div>
-                        );
-                      }
-                      return (
-                        <div
-                          key={wt.path}
-                          className="wt-row"
-                          style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}
-                        >
-                          <button
-                            onClick={() => {
-                              setSelectedCwd(wt.path);
-                              // Accordion: switching to a worktree that belongs
-                              // to another pinned project switches the
-                              // expanded group to it.
-                              expandPinnedGroupForCwd(wt.path);
-                              setWtDropdownOpen(false);
-                              setWtError(null);
-                              setWtFilter("");
-                            }}
-                            title={wt.path}
-                            style={{
-                              flex: 1,
-                              minWidth: 0,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 7,
-                              padding: "8px 10px",
-                              background: "var(--bg)",
-                              border: "none",
-                              color: isCurrent ? "var(--text)" : "var(--text-muted)",
-                              cursor: "pointer",
-                              textAlign: "left",
-                              fontSize: 11,
-                              fontFamily: "var(--font-mono)",
-                            }}
-                          >
-                            {isCurrent ? (
-                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                              </svg>
-                            ) : (
-                              <span style={{ width: 10, flexShrink: 0 }} />
-                            )}
-                            <PathLabel text={wt.branch ?? displayCwd(wt.path, homeDir)} style={{ flex: 1 }} />
-                            {wt.isMain && <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>{t("sidebar.main")}</span>}
-                          </button>
-                          {!wt.isMain && (
-                            <button
-                              onClick={() => void handleRemoveWorktree(wt.path, false)}
-                              disabled={wtBusy}
-                               title={t("sidebar.removeWorktreeTitle", { path: wt.path })}
-                              style={{
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                width: 34, height: 28, padding: 0, marginRight: 4,
-                                background: "none", border: "none",
-                                color: "var(--text-dim)", cursor: "pointer",
-                                borderRadius: 5, flexShrink: 0,
-                                transition: "color 0.12s, background 0.12s",
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                                <path d="M10 11v6M14 11v6" />
-                                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {showWtFilter && visibleWorktrees.length === 0 && wtFilter.trim() && (
-                      <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingWorktrees")}</div>
-                    )}
-                  </div>
-
-                  {!wtNewOpen ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setWtNewOpen(true);
-                        setWtError(null);
-                        setTimeout(() => wtNewInputRef.current?.focus(), 0);
-                      }}
-                      title={t("sidebar.createWorktreeTitle")}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        width: "100%",
-                        padding: "8px 10px",
-                        background: "none",
-                        border: "none",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        fontSize: 11,
-                      }}
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                        <line x1="5" y1="1" x2="5" y2="9" />
-                        <line x1="1" y1="5" x2="9" y2="5" />
-                      </svg>
-                       <span>{t("sidebar.newWorktree")}</span>
-                    </button>
-                  ) : (
-                    <div style={{ padding: "6px 8px" }}>
-                      <input
-                        ref={wtNewInputRef}
-                        value={wtNewBranch}
-                        onChange={(e) => {
-                          setWtNewBranch(e.target.value);
-                          setWtError(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void handleCreateWorktree();
-                          }
-                          if (e.key === "Escape") {
-                            setWtNewOpen(false);
-                            setWtNewBranch("");
-                            setWtError(null);
-                          }
-                        }}
-                         placeholder={t("sidebar.branchName")}
-                        style={{
-                          width: "100%",
-                          fontSize: 11,
-                          fontFamily: "var(--font-mono)",
-                          padding: "5px 8px",
-                          border: "1px solid var(--accent)",
-                          borderRadius: 5,
-                          outline: "none",
-                          background: "var(--bg)",
-                          color: "var(--text)",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                      <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
-                        <button
-                          onClick={() => void handleCreateWorktree()}
-                          disabled={wtBusy || !wtNewBranch.trim()}
-                          style={{
-                            flex: 1,
-                            padding: "4px 0",
-                            background: "var(--accent)",
-                            border: "none",
-                            borderRadius: 5,
-                            color: "var(--accent-contrast)",
-                            fontSize: 11,
-                            fontWeight: 600,
-                            cursor: wtBusy || !wtNewBranch.trim() ? "not-allowed" : "pointer",
-                            opacity: wtBusy || !wtNewBranch.trim() ? 0.65 : 1,
-                          }}
-                        >
-                           {wtBusy ? t("sidebar.creating") : t("sidebar.create")}
-                        </button>
-                        <button
-                          onClick={() => { setWtNewOpen(false); setWtNewBranch(""); setWtError(null); }}
-                          style={{
-                            flex: 1,
-                            padding: "4px 0",
-                            background: "var(--bg-hover)",
-                            border: "1px solid var(--border)",
-                            borderRadius: 5,
-                            color: "var(--text-muted)",
-                            fontSize: 11,
-                            cursor: "pointer",
-                          }}
-                        >
-                           {t("sidebar.cancel")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {wtError && (
-                    <div style={{
-                      padding: "5px 10px 8px",
-                      color: "#dc2626",
-                      fontSize: 11,
-                      lineHeight: 1.35,
-                      overflowWrap: "anywhere",
-                    }}>
-                      {wtError}
-                    </div>
-                  )}
-              </AnimatedDropdown>
-            </div>
-          );
-        })()}
-        {!sessionSearchOpen && inactiveWorktreeSelector && (
+        {/* Add directory — opens the picker dialog in manage mode: selecting
+            a directory adds it to the user-managed list (and registers it as
+            an allowed file root), and the dialog can also create folders and
+            rename/remove list entries. */}
+        {!sessionSearchOpen && (
           <button
             type="button"
-            aria-disabled="true"
-            tabIndex={-1}
-            title={inactiveWorktreeSelector.title}
+            onClick={() => setAddDirectoryOpen(true)}
+            title={t("sidebar.addDirectory")}
+            aria-label={t("sidebar.addDirectory")}
             style={{
               width: "100%",
               height: 29,
@@ -2399,25 +2049,25 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
               alignItems: "center",
               gap: 6,
               padding: "0 10px",
-              border: "1px solid var(--border)",
+              border: "1px dashed var(--border)",
               borderRadius: 7,
               background: "var(--bg-hover)",
-              color: "var(--text-dim)",
+              color: "var(--text-muted)",
               fontSize: 11,
               lineHeight: 1.35,
               whiteSpace: "nowrap",
               textAlign: "left",
-              cursor: "default",
-              opacity: 0.82,
+              cursor: "pointer",
             }}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <path d="M1.5 3h4l1.5 2h7.5v7.5h-13z" />
             </svg>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{t("sidebar.addDirectory")}</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0, marginLeft: "auto" }} aria-hidden="true">
+              <line x1="5" y1="1" x2="5" y2="9" />
+              <line x1="1" y1="5" x2="9" y2="5" />
+            </svg>
           </button>
         )}
       </div>
@@ -2549,13 +2199,21 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
                   >
                     <PinnedGroupHeader
                       project={row.project}
+                      label={pinnedLabelsByKey.get(row.project.key)}
                       expanded={expandedGroupKeys.has(row.project.key)}
                       stale={stalePinnedRoots.has(row.project.root)}
-                      activity={projectActivity.get(row.project.key)}
+                      activity={groupActivity.get(row.project.key)}
                       homeDir={homeDir}
                       t={t}
                       onToggle={() => handleToggleGroup(row.project.key)}
-                      onUnpin={() => togglePin(row.project.key, row.project.root)}
+                      onUnpin={() => togglePin(row.project.root)}
+                      onRename={(name) => {
+                        // Rename edits the list entry's displayName; an empty
+                        // value clears it, falling back to the path-derived
+                        // label. List operation only — the disk is untouched.
+                        renameCustomDirectory(row.project.root, name);
+                        setPinnedRevision((revision) => revision + 1);
+                      }}
                       onNewSession={() => handleNewSessionInProject(row.project)}
                     />
                   </div>

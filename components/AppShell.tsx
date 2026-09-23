@@ -41,7 +41,7 @@ import {
   type PaneTab,
 } from "@/lib/pane-state";
 import { projectDisplayNameForPath } from "@/lib/project-groups";
-import { getPinnedProjects } from "@/lib/pinned-projects";
+import { listCustomDirectories } from "@/lib/custom-directories";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName } from "@/lib/file-paths";
@@ -1025,8 +1025,8 @@ export function AppShell() {
   // pinned project, else the default directory, and only then the current
   // workspace — NOT the focused session's cwd.
   const resolveNewSessionTabCwd = useCallback(async (): Promise<string | null> => {
-    const pinned = getPinnedProjects();
-    if (pinned.length > 0) return pinned[0].root;
+    const customDirs = listCustomDirectories();
+    if (customDirs.length > 0) return customDirs[0].path;
     try {
       // POST is the established "use default directory" semantic (pi#18):
       // it creates and allow-lists the directory, so the composer's cwd

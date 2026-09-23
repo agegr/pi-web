@@ -247,7 +247,7 @@ export const MultiRootFileExplorer = forwardRef<MultiRootFileExplorerHandle, Pro
                   <polyline points="3 2 7 5 3 8" />
                 </svg>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl", textAlign: "left", minWidth: 0, flex: 1 }}>
-                  <span style={{ unicodeBidi: "plaintext" }}>{displayRoot(root.root, homeDir)}</span>
+                  <span style={{ unicodeBidi: "plaintext" }}>{root.displayName ?? displayRoot(root.root, homeDir)}</span>
                 </span>
               </div>
             );
@@ -284,7 +284,7 @@ export const MultiRootFileExplorer = forwardRef<MultiRootFileExplorerHandle, Pro
                   <polyline points="3 2 7 5 3 8" />
                 </svg>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl", textAlign: "left", minWidth: 0, flex: 1 }}>
-                  <span style={{ unicodeBidi: "plaintext" }}>{displayRoot(root.root, homeDir)}</span>
+                  <span style={{ unicodeBidi: "plaintext" }}>{root.displayName ?? displayRoot(root.root, homeDir)}</span>
                 </span>
               </button>
               {/* One FileExplorer per root, mounted only while its section is

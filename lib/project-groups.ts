@@ -69,43 +69,47 @@ export function sessionsForProject(
 }
 
 /**
- * True when this session's project row is an unmergeable worktree
- * pseudo-project: the cwd directory is gone from disk and no parent
- * repository could be resolved for it, so the row cannot be merged into a
- * real project. Pure over the server-provided `pseudoProject` flag
- * (set by resolveProject/attachSessionProjectInfo); the sessions stay
- * reachable — the sidebar only hides the row behind its toggle.
+ * Loose client-side path containment (browser-safe, no node:path):
+ * case-insensitive, backslashes normalized to forward slashes, trailing
+ * separators trimmed — the same normalization spirit as
+ * isSameExplorerPath in lib/default-cwd-shortcut.ts. A path equal to the
+ * root counts as inside it.
  */
-export function isPseudoProjectSession(session: SessionInfo): boolean {
-  return session.pseudoProject === true;
+function normalizeDirectoryPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
-export interface ProjectRowPartition {
-  /** Projects with a resolvable identity (ordinary rows). */
-  ordinary: RecentProject[];
-  /** Unmergeable pseudo-project rows (dangling worktree paths). */
-  pseudo: RecentProject[];
+/** Whether `path` is the directory `root` itself or inside it (loosely). */
+export function isPathInsideDirectory(root: string, path: string): boolean {
+  const normalizedRoot = normalizeDirectoryPath(root);
+  if (!normalizedRoot) return false;
+  const normalizedPath = normalizeDirectoryPath(path);
+  if (!normalizedPath) return false;
+  return normalizedPath === normalizedRoot
+    || normalizedPath.startsWith(`${normalizedRoot}/`);
 }
 
 /**
- * Partition recent-project rows into ordinary and pseudo rows, keyed by the
- * same stable identity the rows themselves use. `getProjectActivity` and
- * `sessionsForProject` keep keying on `workspaceKeyOf`, so merged worktree
- * sessions follow their parent row automatically and only the genuinely
- * unmergeable rows land in `pseudo`.
+ * Sessions belonging to one user-listed sidebar directory: every session
+ * whose cwd is the root or inside it, PLUS every session whose resolved
+ * project root is the root or inside it. The project-root clause is what
+ * pulls git-worktree sessions into their listed repository's group — a
+ * linked worktree lives OUTSIDE the repo directory
+ * (`<repoRoot>-worktrees/<branch>`), so cwd containment alone could not
+ * express that membership, but the server resolves the worktree session's
+ * projectRoot back to the repository root. Deliberately free of
+ * workspace-key, pseudo-project and worktree-specific filtering: a
+ * non-git directory groups by plain cwd containment, and any worktree of
+ * a listed repository groups under it alongside the main checkout.
  */
-export function partitionProjectsByPseudo(
-  projects: readonly RecentProject[],
+export function sessionsForDirectory(
   sessions: readonly SessionInfo[],
-): ProjectRowPartition {
-  const pseudoKeys = new Set<string>();
-  for (const session of sessions) {
-    if (isPseudoProjectSession(session)) pseudoKeys.add(workspaceKeyOf(session));
-  }
-  const ordinary: RecentProject[] = [];
-  const pseudo: RecentProject[] = [];
-  for (const project of projects) {
-    (pseudoKeys.has(project.key) ? pseudo : ordinary).push(project);
-  }
-  return { ordinary, pseudo };
+  root: string,
+): SessionInfo[] {
+  return sessions.filter((session) => {
+    if (!session.cwd) return false;
+    if (isPathInsideDirectory(root, session.cwd)) return true;
+    const projectRoot = session.projectRoot ?? null;
+    return projectRoot != null && isPathInsideDirectory(root, projectRoot);
+  });
 }

@@ -1,24 +1,27 @@
 /**
  * Multi-root model for the sidebar file explorer (pi#14).
  *
- * The explorer renders one section per root: every pinned project (pin
- * order, most-recently-pinned first — exactly as getPinnedProjects yields)
- * followed by the currently selected project only when its stable key is
- * not already pinned. Dedupe is by stable key, so all worktrees of one
- * repository share one section and the trailing selection can never
- * duplicate a pinned entry. Pure over its inputs, so the spec scenarios
- * ([A,B]+C → [A,B,C]; selected==pinned A → [A,B]; empty → []) are
- * trivially testable without React.
+ * The explorer renders one section per root: every entry of the user-managed
+ * custom directory list (list order, most-recently-added first — exactly as
+ * listCustomDirectories yields, mapped by the call site to
+ * `{ key: <normalized entry path>, root: entry.path }`) followed by the
+ * currently selected project only when its stable key is not already
+ * covered. Dedupe is by key, so a selection that resolves into a listed
+ * directory never duplicates that directory's section (the call site maps
+ * such a selection onto the entry's normalized key). Pure over its inputs,
+ * so the spec scenarios ([A,B]+C → [A,B,C]; selected==listed A → [A,B];
+ * empty → []) are trivially testable without React.
  *
  * Per-section expansion state persists in localStorage as a JSON array of
  * root keys under "pi-web:file-explorer:section-expanded" — the same
  * best-effort, corrupt-tolerant, storage-injectable pattern as
- * lib/pinned-projects.ts: unavailable or corrupt storage degrades to the
+ * lib/custom-directories.ts: unavailable or corrupt storage degrades to the
  * empty set and never throws; writes are wrapped so a quota or
- * privacy-mode failure is silently ignored. Keys of roots that were later
- * unpinned are harmless leftovers and are never auto-cleaned — a re-pin
- * simply finds its old expansion state again. Sections default to
- * COLLAPSED: an absent key means the empty set, which is the default.
+ * privacy-mode failure is silently ignored. Keys of directories that were
+ * later removed from the list are harmless leftovers and are never
+ * auto-cleaned — a re-add simply finds its old expansion state again.
+ * Sections default to COLLAPSED: an absent key means the empty set, which
+ * is the default.
  */
 
 const SECTION_EXPANDED_STORAGE_KEY = "pi-web:file-explorer:section-expanded";
@@ -28,6 +31,9 @@ export interface ExplorerRoot {
   key: string;
   /** Display root the section's FileExplorer is rooted at. */
   root: string;
+  /** Optional user-set label (custom-directory rename): section headers show
+   *  it instead of the raw path (pi#45 review blocker 1). */
+  displayName?: string;
 }
 
 interface StorageLike {
@@ -46,24 +52,28 @@ function getBrowserStorage(): StorageLike | null {
 }
 
 /**
- * Build the explorer section set: pinned entries in pin order, then the
- * selected project as the trailing section when its key is not already
- * covered. Invalid entries (missing key) and duplicate keys are skipped —
- * the first occurrence wins, mirroring the pinned-store reader.
+ * Build the explorer section set: custom-directory entries in list order,
+ * then the selected project as the trailing section when its key is not
+ * already covered. Invalid entries (missing key) and duplicate keys are
+ * skipped — the first occurrence wins, mirroring the store reader.
  */
 export function buildExplorerRoots(
-  pinned: readonly { key: string; root: string }[],
-  selected: { key: string; root: string } | null,
+  directories: readonly { key: string; root: string; displayName?: string }[],
+  selected: { key: string; root: string; displayName?: string } | null,
 ): ExplorerRoot[] {
   const roots: ExplorerRoot[] = [];
   const seen = new Set<string>();
-  for (const entry of pinned) {
+  for (const entry of directories) {
     if (!entry?.key || seen.has(entry.key)) continue;
     seen.add(entry.key);
-    roots.push({ key: entry.key, root: entry.root || entry.key });
+    roots.push(entry.displayName
+      ? { key: entry.key, root: entry.root || entry.key, displayName: entry.displayName }
+      : { key: entry.key, root: entry.root || entry.key });
   }
   if (selected?.key && !seen.has(selected.key)) {
-    roots.push({ key: selected.key, root: selected.root || selected.key });
+    roots.push(selected.displayName
+      ? { key: selected.key, root: selected.root || selected.key, displayName: selected.displayName }
+      : { key: selected.key, root: selected.root || selected.key });
   }
   return roots;
 }

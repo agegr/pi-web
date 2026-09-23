@@ -22,6 +22,7 @@ import { isApiRequestAllowed } from "@/lib/request-security";
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
+  validateMkdirFolderName,
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
@@ -149,6 +150,36 @@ export async function POST(
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
       return NextResponse.json(inspectUploadTargets(directory, fileNames));
+    }
+
+    if (type === "mkdir") {
+      // Create exactly `directory/<name>`: JSON body { name }. The security
+      // machinery is the upload path's verbatim (isApiRequestAllowed above,
+      // then getUploadDirectory's allowed-roots check against
+      // realpathSync-resolved roots, so symlinks cannot redirect the write
+      // outside an allowed root). recursive:false means intermediates are
+      // never created; an existing target is a typed 409 with nothing
+      // overwritten.
+      const body = await request.json().catch(() => null) as { name?: unknown } | null;
+      const name = typeof body?.name === "string" ? body.name : null;
+      const validationError = validateMkdirFolderName(name);
+      if (validationError) {
+        return NextResponse.json({ error: validationError }, { status: 400 });
+      }
+      const destination = path.join(directory, name as string);
+      try {
+        fs.mkdirSync(destination, { recursive: false });
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EEXIST" || code === "EISDIR" || code === "ENOTEMPTY") {
+          return NextResponse.json(
+            { error: "Folder already exists", conflict: true, path: destination },
+            { status: 409 },
+          );
+        }
+        throw error;
+      }
+      return NextResponse.json({ path: destination });
     }
 
     if (type !== "upload") {

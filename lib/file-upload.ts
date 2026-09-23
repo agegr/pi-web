@@ -36,6 +36,28 @@ export function validateUploadFileNames(fileNames: string[]): string | null {
   return null;
 }
 
+/** Bounded folder-name length for the mkdir route (single path segment). */
+const MAX_FOLDER_NAME_BYTES = 255;
+
+/**
+ * Validate one folder name for POST /api/files/<parent>?type=mkdir. The
+ * name must be exactly one path segment: non-empty, no separators, no
+ * traversal (".."), no NUL, and within the byte budget — anything else is a
+ * 400. Returns null when the name is usable.
+ */
+export function validateMkdirFolderName(name: string | null): string | null {
+  if (name == null || name.length === 0) return "Folder name is required";
+  if (name.includes("\0")) return "Invalid folder name";
+  if (name === "." || name === "..") return `Invalid folder name: ${name}`;
+  if (name.includes("/") || name.includes("\\") || path.basename(name) !== name) {
+    return `Folder names must not contain a path: ${name}`;
+  }
+  if (Buffer.byteLength(name, "utf8") > MAX_FOLDER_NAME_BYTES) {
+    return "Folder name is too long";
+  }
+  return null;
+}
+
 export function inspectUploadTargets(directory: string, fileNames: string[]): UploadTargetInspection {
   const conflicts: string[] = [];
   const nonReplaceable: string[] = [];
