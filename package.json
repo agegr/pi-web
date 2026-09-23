@@ -1,6 +1,6 @@
 {
   "name": "@silgrid/pi-web",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Fork of @agegr/pi-web: local web UI for the pi coding agent with split-pane chat and background task panels",
   "homepage": "https://github.com/silgrid/pi-web#readme",
   "repository": {
