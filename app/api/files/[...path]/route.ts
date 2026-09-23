@@ -29,11 +29,19 @@ import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { readTextPreviewChunk } from "@/lib/text-preview";
 
 const IGNORED_NAMES = new Set([
-  "node_modules", ".git", ".next", "dist", "build", "__pycache__",
+  "node_modules", ".git", ".next", "__pycache__",
   ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
   "target", "vendor", ".DS_Store", ".git",
 ]);
 
+// Build output directories are hidden from type=list by default just like
+// IGNORED_NAMES, but they can be surfaced on demand via ?showBuildOutputs=1|true
+// so users can reach build artifacts (e.g. a Capacitor debug APK under
+// build/outputs/apk/debug/) through the explorer. The exemption applies to
+// exactly these two names and only in the type=list branch; every other
+// ignored name/suffix stays unconditional, and read/download/meta/preview/
+// watch never gated on IGNORED_NAMES to begin with.
+const BUILD_OUTPUT_NAMES = new Set(["dist", "build"]);
 const IGNORED_SUFFIXES = [".pyc"];
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
@@ -629,11 +637,21 @@ export async function GET(
       return NextResponse.json({ error: "Not a directory" }, { status: 400 });
     }
 
+    // Opt-in surfacing of build output directories (see BUILD_OUTPUT_NAMES).
+    // Read only here: the parameter never affects any other request type.
+    const rawShowBuildOutputs = request.nextUrl.searchParams.get("showBuildOutputs");
+    const showBuildOutputs = rawShowBuildOutputs === "1" || rawShowBuildOutputs === "true";
+
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
     const dirents = fs.readdirSync(filePath, { withFileTypes: true });
     const entries = dirents
-      .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
+      .filter((d) => {
+        const ignored = IGNORED_NAMES.has(d.name)
+          || (BUILD_OUTPUT_NAMES.has(d.name) && !showBuildOutputs)
+          || IGNORED_SUFFIXES.some((s) => d.name.endsWith(s));
+        return !ignored;
+      })
       .flatMap((d) => {
         const isDir = resolveDirentIsDirectory(d, path.join(filePath, d.name));
         return isDir === null
