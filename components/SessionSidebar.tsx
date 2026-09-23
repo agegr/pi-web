@@ -733,6 +733,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setSidebarHydrated(true);
     setExpandedGroupKeys(readExpandedGroupKeys());
   }, []);
+  // Accordion: expanding a pinned group makes it the ONLY expanded group —
+  // every other pinned group collapses. The single-key set is persisted
+  // as-is, so legacy multi-key storage written by the pre-accordion version
+  // simply collapses on the first expand action (no migration path).
+  const expandPinnedGroup = useCallback((key: string) => {
+    const next = new Set([key]);
+    setExpandedGroupKeys(next);
+    writeExpandedGroupKeys(next);
+  }, []);
+  // Pinned rows, ordered by pin order (most recently pinned first). The pin
+  // store persists each entry's display root, so a pinned project renders
+  // (and stays selectable) even when no currently-loaded session resolves to
+  // it. pinnedRevision is a deliberate refresh trigger: pin/unpin bumps it so
+  // the localStorage re-read runs even though the callback body does not read
+  // it. Until sidebarHydrated the list stays empty (SSR agreement). Declared
+  // early because selection handlers below need the pinned key set.
+  const pinnedEntries = useMemo(
+    () => (sidebarHydrated ? getPinnedProjects() : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pinnedRevision, sidebarHydrated],
+  );
+  const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((entry) => entry.key)), [pinnedEntries]);
   const [hidePseudoProjects, setHidePseudoProjects] = useState(readHidePseudoProjects);
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
@@ -1102,6 +1124,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : projectSelection(cwd, cwd);
   }, [validatedProject, worktreeState, allSessions, projectSelection]);
 
+  // Accordion selection switch: when a selection moves the effective cwd to
+  // a pinned project, that project's group becomes the expanded one — the
+  // previously expanded group collapses. Selecting within the currently
+  // expanded group re-applies the same single-key set (no visible change);
+  // unpinned targets are left alone.
+  const expandPinnedGroupForCwd = useCallback((cwd: string | null) => {
+    const project = projectFor(cwd);
+    if (!project) return;
+    if (!pinnedKeySet.has(project.key)) return;
+    expandPinnedGroup(project.key);
+  }, [projectFor, pinnedKeySet, expandPinnedGroup]);
+
   // A worktree/session refresh can hydrate the stable key without changing
   // cwd, so notify when either changes. The parent treats same-cwd key changes
   // as identity hydration rather than a workspace switch.
@@ -1373,51 +1407,44 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const handleSelectSessionFromList = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number) => {
     setAllSessions((current) => current.some((session) => session.id === s.id) ? current : [s, ...current]);
     if (s.cwd) setSelectedCwd(s.cwd);
+    // Accordion: selecting a session that resolves to a pinned project
+    // other than the expanded one switches the expanded group to it.
+    expandPinnedGroupForCwd(s.cwd);
     onSelectSession(s, false, entryId, blockIndex);
-  }, [onSelectSession]);
+  }, [onSelectSession, expandPinnedGroupForCwd]);
 
   // Toggle one pinned group's expansion; selection and cwd stay untouched.
-  // The new state is persisted so a reload restores it.
+  // Accordion: expanding makes the group the only expanded one (every other
+  // pinned group collapses); collapsing is independent — it removes just
+  // the toggled key and never expands another group. The new state is
+  // persisted so a reload restores it.
   const handleToggleGroup = useCallback((key: string) => {
-    setExpandedGroupKeys((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+    if (expandedGroupKeys.has(key)) {
+      const next = new Set(expandedGroupKeys);
+      next.delete(key);
+      setExpandedGroupKeys(next);
       writeExpandedGroupKeys(next);
-      return next;
-    });
-  }, []);
+      return;
+    }
+    expandPinnedGroup(key);
+  }, [expandedGroupKeys, expandPinnedGroup]);
 
   // Group [+] starts a session rooted at the group's display root and moves
   // the effective cwd there (mirroring a dropdown row select) so subsequent
   // sidebar actions target that root. The group also expands so the new
-  // session's row is visible (spec R2), and the expansion persists. Disabled
-  // for stale roots.
+  // session's row is visible (spec R2) — accordion-style: expanding it
+  // collapses every other pinned group, and when it is already the expanded
+  // group this is a no-op. Disabled for stale roots.
   const handleNewSessionInProject = useCallback((project: SidebarProject) => {
     if (stalePinnedRoots.has(project.root)) return;
     setSelectedCwd(project.root);
-    setExpandedGroupKeys((previous) => {
-      if (previous.has(project.key)) return previous;
-      const next = new Set([...previous, project.key]);
-      writeExpandedGroupKeys(next);
-      return next;
-    });
+    expandPinnedGroup(project.key);
     onNewSession?.(newTempSessionId(), project.root);
-  }, [stalePinnedRoots, onNewSession]);
+  }, [stalePinnedRoots, onNewSession, expandPinnedGroup]);
 
   const recentProjects = getRecentProjects(allSessions);
-  // Pinned rows, ordered by pin order (most recently pinned first). The pin
-  // store persists each entry's display root, so a pinned project renders
-  // (and stays selectable) even when no currently-loaded session resolves to
-  // it; when a matching project row exists its root wins (fresher casing).
-  // pinnedRevision is a deliberate refresh trigger: pin/unpin bumps it so the
-  // localStorage re-read runs even though the callback body does not read it.
-  // Until sidebarHydrated the list stays empty (SSR agreement).
-  const pinnedEntries = useMemo(
-    () => (sidebarHydrated ? getPinnedProjects() : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pinnedRevision, sidebarHydrated],
-  );
+  // Pinned rows take their display root from the pin store; when a matching
+  // project row exists its root wins (fresher casing).
   const pinnedProjects = useMemo(
     () => pinnedEntries.map((entry) => {
       const row = recentProjects.find((project) => project.key === entry.key);
@@ -1425,7 +1452,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }),
     [pinnedEntries, recentProjects],
   );
-  const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((entry) => entry.key)), [pinnedEntries]);
   // pi#18: with pinned projects set and the default directory outside that
   // set, the shortcut would point somewhere the explorer already steers away
   // from — hide it. Pin/unpin bumps pinnedRevision, so the rule re-evaluates
@@ -1522,17 +1548,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     if (autoExpandedGroupRef.current || !selectedProject) return;
     if (!pinnedKeySet.has(selectedProject.key)) return;
-    if (expandedGroupKeys.has(selectedProject.key)) {
-      autoExpandedGroupRef.current = true;
-      return;
-    }
     autoExpandedGroupRef.current = true;
-    const key = selectedProject.key;
-    setExpandedGroupKeys((previous) => {
-      const next = new Set([...previous, key]);
-      writeExpandedGroupKeys(next);
-      return next;
-    });
+    // Accordion: the auto-expand replaces the persisted set, so a persisted
+    // different group (or legacy multi-key storage) collapses to this one.
+    expandPinnedGroup(selectedProject.key);
     // expandedGroupKeys is deliberately excluded: the ref guard makes this a
     // one-shot effect and reading it here would restart on every toggle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1832,6 +1851,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     t={t}
                     onSelect={() => {
                       setSelectedCwd(project.root);
+                      // Accordion: if this selection resolves to a pinned
+                      // project, that group becomes the expanded one.
+                      expandPinnedGroupForCwd(project.root);
                       // Dropdown row select is an explicit workspace-selector
                       // action: this project becomes the explorer's trailing
                       // section (deduped against pins by its stable key).
@@ -2100,6 +2122,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                           <button
                             onClick={() => {
                               setSelectedCwd(wt.path);
+                              // Accordion: switching to a worktree that belongs
+                              // to another pinned project switches the
+                              // expanded group to it.
+                              expandPinnedGroupForCwd(wt.path);
                               setWtDropdownOpen(false);
                               setWtError(null);
                               setWtFilter("");
