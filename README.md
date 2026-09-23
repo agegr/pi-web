@@ -69,6 +69,10 @@ tmux new-session -d -s piweb 'PI_WEB_IDLE_TIMEOUT_MS=0 pi-web'
 
 Override the session name with `PIWEB_TMUX_SESSION`; attach with `tmux attach -t piweb`.
 
+To reach pi-web from a phone or another network without running your own edge,
+see [Expose pi-web to your phone](#expose-pi-web-to-your-phone) — the deploy
+script ships opt-in exposure modes (`PIWEB_EXPOSE=lan|tailscale|cloudflare`).
+
 ## Configuration
 
 For port and hostname, command-line options override the corresponding environment variables. Either `--no-open` or `PI_WEB_NO_OPEN=1` disables automatic browser opening. Run `pi-web --help` (or `-h`) to print startup options and exit without starting the server. Unknown options exit with an error.
@@ -101,6 +105,8 @@ PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
 
 Password authentication does not encrypt the connection. Do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
 
+For turnkey HTTPS exposure without your own reverse proxy, see [Expose pi-web to your phone](#expose-pi-web-to-your-phone) below.
+
 ### HTTP Proxy
 
 Server-side model and API requests honor the standard `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables.
@@ -122,6 +128,73 @@ $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
 npx @silgrid/pi-web@latest
 ```
+
+## Expose pi-web to your phone
+
+`deploy-piweb.sh` ships opt-in exposure modes: set `PIWEB_EXPOSE=lan|tailscale|cloudflare` when deploying. Leaving `PIWEB_EXPOSE` **unset** keeps the legacy self-managed deployment unchanged — pi-web binds `0.0.0.0` and you run your own edge (the GCP static-IP + Caddy setup, for example), with `PI_WEB_ALLOWED_HOSTS` passed through untouched and no tunnel/serve tooling installed.
+
+| Situation | Mode | Result |
+| --- | --- | --- |
+| You already manage an edge (GCP + Caddy, own reverse proxy) | *unset* | `0.0.0.0:<port>`; edge and certs are yours |
+| Phone on the same WiFi as the host | `PIWEB_EXPOSE=lan` | Direct `http://<host-LAN-IP>:<port>` — zero extra tooling |
+| Your own devices, on any network ⭐ | `PIWEB_EXPOSE=tailscale` | `https://<machine>.<tailnet>.ts.net` with an auto Let's Encrypt cert (recommended) |
+| Sharing with many people at scale | `PIWEB_EXPOSE=cloudflare` + `PIWEB_TUNNEL=named` | Public hostname over an outbound-only Cloudflare tunnel |
+| Just kicking the tires | `PIWEB_EXPOSE=cloudflare` + `PIWEB_TUNNEL=quick` | Random `*.trycloudflare.com` URL — **demo only** |
+
+```bash
+# Same WiFi only
+PIWEB_EXPOSE=lan ./deploy-piweb.sh
+
+# Recommended for personal use: your devices, anywhere (5G, roaming)
+PIWEB_EXPOSE=tailscale ./deploy-piweb.sh
+
+# Cloudflare: named tunnel (stable public hostname) or quick tunnel (demo)
+PIWEB_EXPOSE=cloudflare PIWEB_TUNNEL=quick ./deploy-piweb.sh
+PIWEB_EXPOSE=cloudflare PIWEB_TUNNEL=named \
+  PIWEB_CF_CONFIG=/etc/cloudflared/config.yml \
+  PIWEB_CF_HOSTNAME=pi.example.com ./deploy-piweb.sh
+```
+
+Any other `PIWEB_EXPOSE` value fails fast, before the script uninstalls, installs, or restarts anything.
+
+### LAN mode
+
+Zero extra tooling: pi-web stays reachable at `http://<host-LAN-IP>:<port>` on the local network, and nothing is appended to `PI_WEB_ALLOWED_HOSTS`. Two cleartext caveats to know (the script states them, it cannot fix them):
+
+- The TWA shell needs a cleartext (http) build to open an http origin.
+- PWA install degrades over HTTP — Chrome may not offer “Install app”.
+
+### Tailscale mode (recommended)
+
+Installs Tailscale when absent (macOS via Homebrew, Linux via the upstream install script), runs `tailscale up` (SSO login), and mounts pi-web at `https://<machine>.<tailnet>.ts.net` through `tailscale serve` with an auto-provisioned Let's Encrypt cert — no domain, no ports, no Caddy.
+
+The ts.net HTTPS origin satisfies **both** mobile clients on one origin: the Chrome PWA install criteria and the TWA `assetlinks.json` verification. `tailscale serve` runs as a tmux window of the deploy session, so killing the session stops it, and redeploys reset any stale serve config instead of leaking duplicates.
+
+Node sharing (share this machine with family/colleagues' tailnet accounts) covers the "people I trust" case; public sharing needs Cloudflare mode or Tailscale Funnel (not automated by this script).
+
+### Cloudflare mode
+
+`cloudflared` runs outbound-only — no inbound ports. `PIWEB_TUNNEL=quick` (default) starts a quick tunnel and prints its `*.trycloudflare.com` URL, captured and wired into `PI_WEB_ALLOWED_HOSTS` automatically. **Quick-tunnel URLs are demo-only**: the URL drifts on every restart — never bake one into a PWA/TWA client.
+
+`PIWEB_TUNNEL=named` is for public distribution at scale. It requires a Cloudflare account with your domain on Cloudflare DNS and two operator-supplied settings:
+
+- `PIWEB_CF_CONFIG` — your `cloudflared` `config.yml` (tunnel ID, credentials-file, and an ingress entry mapping your hostname to `http://127.0.0.1:<port>`)
+- `PIWEB_CF_HOSTNAME` — the public ingress hostname to allow
+
+The cloudflared process runs as a tmux window of the deploy session; any previous `cloudflared` from this deployment is killed first so redeploys don't accumulate tunnels.
+
+### Common behavior in exposed modes
+
+- In `tailscale`/`cloudflare` modes the served/tunnel hostname is appended to `PI_WEB_ALLOWED_HOSTS` before pi-web starts (operator entries are preserved and come first) — otherwise request-security rejects the unknown `Host` header. `lan` mode and the unset path append nothing.
+- Serve/tunnel lifecycle is tied to the `${PIWEB_TMUX_SESSION:-piweb}` tmux session: killing it stops the tunnel, re-running the script replaces it.
+- Phone client: install the PWA over the HTTPS origin (Chrome → Install app) or point the TWA shell APK from [`mobile-twa/`](./mobile-twa/) at the same origin.
+
+### China notes
+
+- **Tailscale SSO**: sign in with GitHub or Apple — Google login does not work in mainland China.
+- **Tailscale connectivity**: generally usable in mainland China; direct connections are preferred, with DERP relay as fallback.
+- **Android**: Chrome WebAPK minting and closed-app Web Push go through Google/FCM and need a VPN on mainland networks.
+- **iOS**: PWA Web Push uses APNs and works in mainland China without a VPN.
 
 ## Mobile
 
