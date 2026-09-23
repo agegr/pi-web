@@ -448,6 +448,35 @@ test("restoring a running session does not clear an SSE snapshot", () => {
   assert.doesNotMatch(mountSource, /dispatch\(\{ type: "start" \}\)/);
 });
 
+test("preserves tool execution across result messages and enters it before the start event", () => {
+  const messageStartSource = source.slice(
+    source.indexOf('case "message_start"'),
+    source.indexOf('case "message_end"'),
+  );
+  const messageEndSource = source.slice(
+    source.indexOf('case "message_end"'),
+    source.indexOf('case "tool_execution_start"'),
+  );
+  const startSource = source.slice(
+    source.indexOf('case "tool_execution_start"'),
+    source.indexOf('case "tool_execution_update"'),
+  );
+  const updateSource = source.slice(
+    source.indexOf('case "tool_execution_update"'),
+    source.indexOf('case "tool_execution_end"'),
+  );
+  const endSource = source.slice(
+    source.indexOf('case "tool_execution_end"'),
+    source.indexOf('case "queue_update"'),
+  );
+
+  assert.doesNotMatch(messageStartSource, /else if \(msg\)[\s\S]*?setAgentPhase\(null\)/);
+  assert.match(messageEndSource, /setAgentPhase\(\(prev\) => phaseAfterMessage\(prev, normalizedCompleted\)\)/);
+  assert.match(startSource, /addRunningTool\(prev, id, name\)/);
+  assert.match(updateSource, /updateRunningTool\(prev, id, name, progress\)/);
+  assert.match(endSource, /endRunningTool\(prev, id\)/);
+});
+
 test("shows the latest streamed tool execution progress in the running phase", () => {
   const updateSource = source.slice(
     source.indexOf('case "tool_execution_update"'),
@@ -455,7 +484,7 @@ test("shows the latest streamed tool execution progress in the running phase", (
   );
 
   assert.match(updateSource, /getToolExecutionProgress\(event\.partialResult\)/);
-  assert.match(updateSource, /tools: \[\.\.\.tools\.filter\([\s\S]*?, updated\]/);
+  assert.match(updateSource, /updateRunningTool\(prev, id, name, progress\)/);
   assert.match(chatWindowSource, /if \(latest\?\.progress\)/);
   assert.match(chatWindowSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
 });
