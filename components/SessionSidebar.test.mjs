@@ -20,7 +20,7 @@ test("the session list windows through the unified pinned-group row model", () =
   // The old fixed-height windowing helper is gone.
   assert.doesNotMatch(source, /getSessionListIndices/);
   // Sessions of pinned projects render only inside their group.
-  assert.match(source, /filteredSessions\.filter\(\(session\) => !pinnedKeySet\.has\(workspaceKeyOf\(session\)\)\)/);
+  assert.match(source, /filteredSessions\.filter\(\(session\) => !groupedSessionIds\.has\(session\.id\)\)/);
 });
 
 test("pinned groups are expandable buttons with their own new-session affordance", () => {
@@ -46,7 +46,7 @@ test("pinned-group expansion state persists to localStorage across reloads", () 
   assert.match(source, /useState<ReadonlySet<string>>\(\(\) => new Set\(\)\)/);
   assert.match(source, /setSidebarHydrated\(true\);[\s\S]*?setExpandedGroupKeys\(readExpandedGroupKeys\(\)\);/);
   // Pinned groups render only after hydration so SSR and first client render agree.
-  assert.match(source, /\(sidebarHydrated \? getPinnedProjects\(\) : \[\]\)/);
+  assert.match(source, /\(sidebarHydrated \? listCustomDirectories\(\) : \[\]\)/);
   // Toggling writes the full new state back — collapse deletes just the
   // toggled key; expand goes through the accordion helper below.
   assert.match(
@@ -109,17 +109,18 @@ test("selecting a session in another pinned group switches the expanded group", 
   // expand accordion-style.
   assert.match(
     source,
-    /const expandPinnedGroupForCwd = useCallback\(\(cwd: string \| null\) => \{[\s\S]*?const project = projectFor\(cwd\);[\s\S]*?if \(!project\) return;[\s\S]*?if \(!pinnedKeySet\.has\(project\.key\)\) return;[\s\S]*?expandPinnedGroup\(project\.key\);[\s\S]*?\}, \[projectFor, pinnedKeySet, expandPinnedGroup\]\);/,
+    /const expandPinnedGroupForCwd = useCallback\(\(cwd: string \| null, projectRoot\?: string \| null\) => \{[\s\S]*?const entry = listedEntryForPath\(cwd\) \?\? listedEntryForPath\(projectRoot \?\? null\);[\s\S]*?if \(!entry\) return;[\s\S]*?expandPinnedGroup\(entry\.key\);[\s\S]*?\}, \[listedEntryForPath, expandPinnedGroup\]\);/,
   );
   // Session list and session-search selection go through the same handler.
   const selectBlock = source.slice(
     source.indexOf("const handleSelectSessionFromList"),
     source.indexOf("// Toggle one pinned group"),
   );
-  assert.match(selectBlock, /expandPinnedGroupForCwd\(s\.cwd\);/);
-  // The dropdown row select and the worktree switch route through it too.
+  assert.match(selectBlock, /expandPinnedGroupForCwd\(s\.cwd, s\.projectRoot \?\? null\);/);
+  // Worktree cwds resolve to their listed directory inside the helper
+  // (listedEntryForPath matches by containment — see the helper).
   assert.match(source, /expandPinnedGroupForCwd\(project\.root\);/);
-  assert.match(source, /expandPinnedGroupForCwd\(wt\.path\);/);
+
 });
 
 test("the selected project's group auto-expands at load, collapsing the persisted group", () => {
@@ -128,11 +129,12 @@ test("the selected project's group auto-expands at load, collapsing the persiste
     source.indexOf("const projectActivity"),
   );
   // One-shot guard and pinned-membership check stay intact.
-  assert.match(autoBlock, /if \(autoExpandedGroupRef\.current \|\| !selectedProject\) return;/);
-  assert.match(autoBlock, /if \(!pinnedKeySet\.has\(selectedProject\.key\)\) return;/);
+  assert.match(autoBlock, /if \(autoExpandedGroupRef\.current\) return;/);
+  assert.match(source, /const entry = listedEntryForPath\(selectedCwd\)\s*\?\? listedEntryForPath\(selectedProject\?\.root \?\? null\);/);
+  assert.match(autoBlock, /if \(!entry\) return;/);
   // The auto-expand goes through the accordion helper — the persisted set is
   // replaced, so a different persisted group collapses to the selected one.
-  assert.match(autoBlock, /autoExpandedGroupRef\.current = true;[\s\S]*?expandPinnedGroup\(selectedProject\.key\);/);
+  assert.match(autoBlock, /autoExpandedGroupRef\.current = true;[\s\S]*?expandPinnedGroup\(entry\.key\);/);
   assert.doesNotMatch(autoBlock, /setExpandedGroupKeys\(\(previous\)/);
   // The dependency-exclusion comment (one-shot semantics) stays.
   assert.match(autoBlock, /expandedGroupKeys is deliberately excluded/);
@@ -148,12 +150,12 @@ test("legacy multi-open storage needs no migration: it collapses on the first ex
   assert.match(source, /legacy multi-key storage written by the pre-accordion version/);
 });
 
-test("the workspace dropdown no longer renders a pinned section", () => {
-  assert.doesNotMatch(source, /\{t\("sidebar\.pinnedProjects"\)\}/);
-  // Recent rows still exclude pinned keys and keep their pin toggle.
+test("the toolbar filter list keeps its pin toggles and mount-time stale-root sweep", () => {
+  // The pinned-projects header is gone (groups render as directories),
+  // but the recent-unpinned rows keep their pin toggles.
   assert.match(source, /recentUnpinnedProjects/);
-  assert.match(source, /onTogglePin=\{\(\) => togglePin\(project\.key, project\.root\)\}/);
-  // The stale-root check now runs at sidebar mount, not on dropdown open.
+  assert.match(source, /onTogglePin=\{\(\) => togglePin\(project\.root\)\}/);
+  // The stale-root check runs at sidebar mount.
   assert.doesNotMatch(source, /if \(!dropdownOpen \|\| !pinnedRootsKey\) return;/);
   assert.match(source, /\}, \[pinnedRootsKey\]\);/);
 });
@@ -291,7 +293,7 @@ test("does not expose disk-backed actions for transient sessions", () => {
 });
 
 test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /listSessionFamilies\(\s*filteredSessions\.filter\(\(session\) => !pinnedKeySet\.has\(workspaceKeyOf\(session\)\)\)/);
+  assert.match(source, /listSessionFamilies\(\s*filteredSessions\.filter\(\(session\) => !groupedSessionIds\.has\(session\.id\)\)/);
   assert.match(source, /familySessions\.some\(\(session\) => session\.id === effectiveHighlightSessionId\)/);
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);

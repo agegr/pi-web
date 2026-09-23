@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
+import { encodeFilePathForApi } from "@/lib/file-paths";
 
 interface DirectoryEntry {
   name: string;
@@ -15,6 +16,12 @@ interface BrowseResponse {
   directories?: DirectoryEntry[];
   drives?: DirectoryEntry[];
   error?: string;
+}
+
+/** One sidebar-list entry as the picker's manage panel needs it. */
+export interface PickerManagedEntry {
+  path: string;
+  displayName?: string;
 }
 
 async function loadDirectories(directory?: string): Promise<BrowseResponse> {
@@ -43,8 +50,33 @@ function DriveIcon() {
   );
 }
 
+function PencilIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 function isWindowsDriveRoot(directory: string): boolean {
   return /^[a-zA-Z]:[\\/]?$/.test(directory);
+}
+
+/** Client-side single-segment join for the folder the dialog just created. */
+function joinDirectoryPath(parent: string, name: string): string {
+  const trimmed = parent.replace(/[\\/]+$/, "");
+  if (isWindowsDriveRoot(parent)) return `${trimmed}\\${name}`;
+  return `${trimmed}/${name}`;
 }
 
 interface Props {
@@ -53,10 +85,92 @@ interface Props {
   initialPath?: string;
   busy?: boolean;
   error?: string | null;
+  /**
+   * Manage mode (optional): when `entries` is provided the dialog also shows
+   * the sidebar's directory list with rename/remove affordances and a
+   * "New folder" action. Absent, the dialog behaves exactly as before —
+   * browse, select, cancel.
+   */
+  entries?: readonly PickerManagedEntry[];
+  onRenameEntry?: (path: string, displayName: string | null) => void;
+  onRemoveEntry?: (path: string) => void;
 }
 
-export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false, error }: Props) {
+function ManagedEntryRow({
+  entry,
+  onRename,
+  onRemove,
+}: {
+  entry: PickerManagedEntry;
+  onRename: (path: string, displayName: string | null) => void;
+  onRemove: (path: string) => void;
+}) {
   const { t } = useI18n();
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(entry.displayName ?? "");
+
+  const commitRename = () => {
+    setRenaming(false);
+    const name = renameValue.trim();
+    if (name === (entry.displayName ?? "")) return;
+    onRename(entry.path, name === "" ? null : name);
+  };
+
+  if (renaming) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px" }}>
+        <input
+          type="text"
+          value={renameValue}
+          autoFocus
+          placeholder={t("directoryPicker.entryName")}
+          onChange={(event) => setRenameValue(event.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commitRename();
+            if (event.key === "Escape") setRenaming(false);
+          }}
+          style={{ minWidth: 0, flex: 1, height: 26, padding: "0 8px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11 }}
+        />
+        <button type="button" onClick={commitRename} title={t("directoryPicker.renameEntry")} style={{ padding: "3px 8px", border: 0, borderRadius: 5, background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>
+          {t("directoryPicker.renameEntry")}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", borderBottom: "1px solid var(--border)" }}>
+      <span title={entry.path} style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11, color: entry.displayName ? "var(--text)" : "var(--text-muted)" }}>
+        {entry.displayName ?? entry.path}
+      </span>
+      <button
+        type="button"
+        onClick={() => { setRenameValue(entry.displayName ?? ""); setRenaming(true); }}
+        title={t("directoryPicker.renameEntry")}
+        aria-label={t("directoryPicker.renameEntry")}
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+      >
+        <PencilIcon />
+      </button>
+      <button
+        type="button"
+        onClick={() => onRemove(entry.path)}
+        title={t("directoryPicker.removeEntry")}
+        aria-label={t("directoryPicker.removeEntry")}
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+        onMouseEnter={(event) => { event.currentTarget.style.color = "#ef4444"; }}
+        onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+}
+
+export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false, error, entries, onRenameEntry, onRemoveEntry }: Props) {
+  const { t } = useI18n();
+  const manage = entries !== undefined;
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [currentPath, setCurrentPath] = useState("");
   const [parentDirectory, setParentDirectory] = useState<string | null>(null);
@@ -65,6 +179,11 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const [drives, setDrives] = useState<DirectoryEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // New-folder creation (manage mode): inline name input + typed error state.
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [mkdirError, setMkdirError] = useState<string | null>(null);
+  const [mkdirBusy, setMkdirBusy] = useState(false);
 
   const navigateTo = useCallback(async (directory?: string) => {
     setLoading(true);
@@ -97,6 +216,51 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const hasUncommittedPath = pathInput.trim() !== currentPath;
   const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
+
+  // "New folder": registers the currently browsed parent as an allowed file
+  // root through the same /api/cwd/validate integration the sidebar's
+  // custom-path commit uses, then creates exactly parent/name through the
+  // files API mkdir branch and enters the created folder (which also
+  // refreshes the listing).
+  const handleCreateFolder = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name || !currentPath || mkdirBusy) return;
+    setMkdirBusy(true);
+    setMkdirError(null);
+    try {
+      const validate = await fetch("/api/cwd/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: currentPath }),
+      });
+      if (!validate.ok) {
+        const data = await validate.json().catch(() => ({})) as { error?: string };
+        setMkdirError(data.error ?? `HTTP ${validate.status}`);
+        return;
+      }
+      const res = await fetch(`/api/files/${encodeFilePathForApi(currentPath)}?type=mkdir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        if (res.status === 409) {
+          setMkdirError(t("directoryPicker.mkdirConflict"));
+          return;
+        }
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setMkdirError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setNewFolderOpen(false);
+      setNewFolderName("");
+      await navigateTo(joinDirectoryPath(currentPath, name));
+    } catch (cause) {
+      setMkdirError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setMkdirBusy(false);
+    }
+  }, [newFolderName, currentPath, mkdirBusy, navigateTo, t]);
 
   if (!portalTarget) return null;
 
@@ -207,6 +371,97 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
             <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noSubdirectories")}</div>
           )}
           {(loadError || error) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{loadError ?? error}</div>}
+
+          {/* Manage mode: the sidebar's directory list with rename/remove and
+              folder creation. Absent `entries` keeps the dialog exactly as
+              the plain browse/select consumer sees it. */}
+          {manage && (
+            <div className="directory-picker-manage" style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+              <div style={{ padding: "0 8px 6px", color: "var(--text-dim)", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                {t("directoryPicker.entriesTitle")}
+              </div>
+              {entries.length === 0 && (
+                <div style={{ padding: "4px 8px 8px", color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noEntries")}</div>
+              )}
+              {entries.map((entry) => (
+                <ManagedEntryRow
+                  key={entry.path}
+                  entry={entry}
+                  onRename={onRenameEntry ?? (() => {})}
+                  onRemove={onRemoveEntry ?? (() => {})}
+                />
+              ))}
+
+              {!newFolderOpen ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewFolderOpen(true);
+                    setMkdirError(null);
+                  }}
+                  title={t("directoryPicker.newFolder")}
+                  style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "7px 8px", border: 0, borderRadius: 5, background: "none", color: "var(--text-muted)", cursor: "pointer", textAlign: "left", fontSize: 11 }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
+                    <line x1="5" y1="1" x2="5" y2="9" />
+                    <line x1="1" y1="5" x2="9" y2="5" />
+                  </svg>
+                  <span>{t("directoryPicker.newFolder")}</span>
+                </button>
+              ) : (
+                <div style={{ padding: "4px 8px" }}>
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    autoFocus
+                    placeholder={t("directoryPicker.folderName")}
+                    onChange={(event) => {
+                      setNewFolderName(event.target.value);
+                      setMkdirError(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleCreateFolder();
+                      }
+                      if (event.key === "Escape") {
+                        setNewFolderOpen(false);
+                        setNewFolderName("");
+                        setMkdirError(null);
+                      }
+                    }}
+                    style={{ width: "100%", height: 28, padding: "0 8px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11, boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateFolder()}
+                      disabled={mkdirBusy || !newFolderName.trim()}
+                      style={{ flex: 1, padding: "4px 0", border: 0, borderRadius: 5, background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 11, fontWeight: 600, cursor: mkdirBusy || !newFolderName.trim() ? "not-allowed" : "pointer", opacity: mkdirBusy || !newFolderName.trim() ? 0.65 : 1 }}
+                    >
+                      {mkdirBusy ? t("i18n.checking") : t("directoryPicker.createFolder")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewFolderOpen(false);
+                        setNewFolderName("");
+                        setMkdirError(null);
+                      }}
+                      style={{ flex: 1, padding: "4px 0", border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-hover)", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}
+                    >
+                      {t("i18n.cancel")}
+                    </button>
+                  </div>
+                  {mkdirError && (
+                    <div style={{ marginTop: 6, color: "#dc2626", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                      {mkdirError}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="directory-picker-footer" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, flexShrink: 0, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>

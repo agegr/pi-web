@@ -332,13 +332,24 @@ export async function checkSplitPane(page, sessions) {
   assert.equal(await page.locator("[data-split-tablist]").count(), 0,
     "the strip is gone: no + button exists in the pane chrome");
   // The workspace is still the project (only session panes are open), so the
-  // cwd picker only needs to pin it: pinning makes the pinned-group header
-  // (with its own "+") appear.
-  await page.locator("[data-cwd-picker]").click();
-  await page.getByRole("button", { name: "Pin project", exact: true }).click();
-  await tabs.nth(0).click();
+  // sidebar only needs to LIST it: "Add directory" opens the picker dialog;
+  // selecting the pre-filled cwd adds it to the user-managed list and the
+  // directory group (with its own "+") appears. pi#45 replaced pinning.
+  // "Add directory" opens the DirectoryPicker dialog directly (no parent
+  // dropdown — an open AnimatedDropdown panel would intercept the click).
+  // The picker opens browsing homeDir; type the project path so "Select this
+  // folder" adds THE PROJECT (the group header keys off it).
+  await page.getByRole("button", { name: "Add directory", exact: true }).click();
+  await page.locator("#directory-path").fill(project);
+  await page.locator("#directory-path").press("Enter");
+  await page.getByRole("button", { name: "Select this folder", exact: true }).click();
+  // Wait for the group's new-session affordance BEFORE any pane click: the
+  // follow-on-focus scroll (pi#41) can window the freshly added group's
+  // header out of the viewport, and the assert must observe the add result
+  // first (pi#43 lesson: sequence the assertion before side effects).
   const groupNewSession = page.getByRole("button", { name: `New session in ${project}`, exact: true });
   await groupNewSession.waitFor();
+  await tabs.nth(0).click();
   // The composer is scoped by PANE INDEX (panes map 1:1 to headers in order):
   // the empty new-session page renders no message area, so there is no
   // data-chat-focused to scope by inside the sentinel pane. Each call site

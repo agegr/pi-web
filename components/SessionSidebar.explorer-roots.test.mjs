@@ -21,7 +21,7 @@ test("the explorer section set is built from pins plus the selector's own select
   assert.match(source, /import \{ buildExplorerRoots \} from "@\/lib\/explorer-roots";/);
   assert.match(
     source,
-    /const explorerRoots = useMemo\(\s*\(\) => buildExplorerRoots\(pinnedProjects, explorerSelection\),\s*\[pinnedProjects, explorerSelection\],\s*\);/,
+    /const explorerRoots = useMemo\(\s*\(\) => \{[\s\S]*?return buildExplorerRoots\(pinnedProjects, owning \?\? explorerSelection\);[\s\S]*?\},\s*\[pinnedProjects, explorerSelection, listedEntryForPath\],\s*\);/,
   );
   // The trailing-section selection is dedicated sidebar state.
   assert.match(source, /const \[explorerSelection, setExplorerSelection\] = useState<ProjectSelection \| null>\(null\);/);
@@ -54,14 +54,12 @@ test("pinned-group [+] never moves the explorer selection", () => {
   assert.doesNotMatch(body, /setExplorerSelection/);
 });
 
-test("worktree actions never move the explorer selection", () => {
-  for (const [start, end] of [
-    ["const handleCreateWorktree = useCallback(", "}, [wtNewBranch, wtBusy, worktreeState]);"],
-    ["const handleRemoveWorktree = useCallback(", "}, [worktreeState, wtBusy, currentWorktreePath]);"],
-  ]) {
-    const body = sliceBetween(start, end);
-    assert.doesNotMatch(body, /setExplorerSelection/);
-  }
+test("worktree actions moved into the picker dialog — the sidebar has no create/remove worktree code", () => {
+  // pi#45: worktree create/remove live in the DirectoryPicker dialog now.
+  assert.doesNotMatch(source, /handleCreateWorktree/);
+  assert.doesNotMatch(source, /handleRemoveWorktree/);
+  // The dialog owns mkdir; the sidebar's explorer selection is untouched by it.
+  assert.match(source, /<DirectoryPicker/);
 });
 
 test("explicit workspace-selector actions are the only explorer-selection writers", () => {
