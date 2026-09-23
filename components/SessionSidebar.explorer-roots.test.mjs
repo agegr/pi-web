@@ -30,7 +30,7 @@ test("the explorer section set is built from pins plus the selector's own select
 test("session clicks never move the explorer selection", () => {
   const body = sliceBetween(
     "const handleSelectSessionFromList = useCallback(",
-    "}, [onSelectSession]);",
+    "}, [onSelectSession, expandPinnedGroupForCwd]);",
   );
   assert.match(body, /if \(s\.cwd\) setSelectedCwd\(s\.cwd\);/);
   assert.doesNotMatch(body, /setExplorerSelection/);
@@ -48,7 +48,7 @@ test("pane-focus prop sync never moves the explorer selection", () => {
 test("pinned-group [+] never moves the explorer selection", () => {
   const body = sliceBetween(
     "const handleNewSessionInProject = useCallback(",
-    "}, [stalePinnedRoots, onNewSession]);",
+    "}, [stalePinnedRoots, onNewSession, expandPinnedGroup]);",
   );
   assert.match(body, /setSelectedCwd\(project\.root\);/);
   assert.doesNotMatch(body, /setExplorerSelection/);

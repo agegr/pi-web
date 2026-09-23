@@ -31,10 +31,11 @@ test("pinned groups are expandable buttons with their own new-session affordance
   assert.match(source, /t\("sidebar\.pinnedGroupNoSessions"\)/);
   // Group [+] reuses the temp-id flow and moves the effective cwd.
   assert.match(source, /const handleNewSessionInProject = useCallback\(\(project: SidebarProject\) => \{[\s\S]*?setSelectedCwd\(project\.root\);[\s\S]*?onNewSession\?\.\(newTempSessionId\(\), project\.root\);/);
-  // Group [+] also expands its group so the new session's row is visible (spec R2).
+  // Group [+] also expands its group so the new session's row is visible
+  // (spec R2) — accordion-style, through the shared single-key helper.
   assert.match(
     source,
-    /const handleNewSessionInProject = useCallback\(\(project: SidebarProject\) => \{[\s\S]*?setExpandedGroupKeys\(\(previous\) => \{[\s\S]*?writeExpandedGroupKeys\(next\);/,
+    /const handleNewSessionInProject = useCallback\(\(project: SidebarProject\) => \{[\s\S]*?expandPinnedGroup\(project\.key\);[\s\S]*?onNewSession\?\.\(newTempSessionId\(\), project\.root\);/,
   );
   // Stale roots disable [+] instead of auto-unpinning.
   assert.match(source, /if \(stalePinnedRoots\.has\(project\.root\)\) return;/);
@@ -46,20 +47,105 @@ test("pinned-group expansion state persists to localStorage across reloads", () 
   assert.match(source, /setSidebarHydrated\(true\);[\s\S]*?setExpandedGroupKeys\(readExpandedGroupKeys\(\)\);/);
   // Pinned groups render only after hydration so SSR and first client render agree.
   assert.match(source, /\(sidebarHydrated \? getPinnedProjects\(\) : \[\]\)/);
-  // Toggling writes the full new state back.
+  // Toggling writes the full new state back — collapse deletes just the
+  // toggled key; expand goes through the accordion helper below.
   assert.match(
     source,
-    /const handleToggleGroup = useCallback\(\(key: string\) => \{[\s\S]*?writeExpandedGroupKeys\(next\);[\s\S]*?\}, \[\]\);/,
-  );
-  // The one-shot auto-expand also persists its addition.
-  assert.match(
-    source,
-    /autoExpandedGroupRef\.current = true;[\s\S]*?writeExpandedGroupKeys\(next\);/,
+    /const handleToggleGroup = useCallback\(\(key: string\) => \{[\s\S]*?next\.delete\(key\);[\s\S]*?writeExpandedGroupKeys\(next\);[\s\S]*?expandPinnedGroup\(key\);/,
   );
   // The storage key and reader exist with the graceful-degradation shape.
   assert.match(source, /const PINNED_EXPANDED_STORAGE_KEY = "pi-web:sidebar-pinned-expanded";/);
   assert.match(source, /function readExpandedGroupKeys\(\): ReadonlySet<string> \{/);
   assert.match(source, /parsed\.filter\(\(key\): key is string => typeof key === "string"\)/);
+  // The accordion helper persists the single-key set through the same
+  // writer, so the stored value always describes the one expanded group.
+  assert.match(
+    source,
+    /const expandPinnedGroup = useCallback\(\(key: string\) => \{[\s\S]*?writeExpandedGroupKeys\(next\);[\s\S]*?\}, \[\]\);/,
+  );
+});
+
+test("expanding a pinned group collapses every other pinned group (accordion)", () => {
+  const toggleBlock = source.slice(
+    source.indexOf("const handleToggleGroup"),
+    source.indexOf("const handleNewSessionInProject"),
+  );
+  // Expand replaces the whole set with the one key — it never merges with the
+  // previous state, so repeated toggles keep at most one group expanded.
+  assert.match(
+    source,
+    /const expandPinnedGroup = useCallback\(\(key: string\) => \{\s*\n\s*const next = new Set\(\[key\]\);/,
+  );
+  assert.match(toggleBlock, /\}\s*\n\s*expandPinnedGroup\(key\);/);
+  assert.doesNotMatch(toggleBlock, /next\.add\(key\)/);
+  assert.doesNotMatch(toggleBlock, /new Set\(\[\.\.\.previous/);
+});
+
+test("collapsing a pinned group is independent", () => {
+  const toggleBlock = source.slice(
+    source.indexOf("const handleToggleGroup"),
+    source.indexOf("const handleNewSessionInProject"),
+  );
+  // The collapse branch removes only the toggled key, persists the result,
+  // and returns before the expand path can touch any other group.
+  assert.match(
+    toggleBlock,
+    /if \(expandedGroupKeys\.has\(key\)\) \{[\s\S]*?next = new Set\(expandedGroupKeys\);[\s\S]*?next\.delete\(key\);[\s\S]*?writeExpandedGroupKeys\(next\);[\s\S]*?return;/,
+  );
+});
+
+test("the group [+] affordance expands its group accordion-style", () => {
+  const newSessionBlock = source.slice(
+    source.indexOf("const handleNewSessionInProject"),
+    source.indexOf("const recentProjects"),
+  );
+  assert.match(newSessionBlock, /setSelectedCwd\(project\.root\);[\s\S]*?expandPinnedGroup\(project\.key\);[\s\S]*?onNewSession\?\./);
+  // The affordance no longer hand-rolls expansion state.
+  assert.doesNotMatch(newSessionBlock, /setExpandedGroupKeys/);
+});
+
+test("selecting a session in another pinned group switches the expanded group", () => {
+  // Shared helper: resolve the target project, require it to be pinned, then
+  // expand accordion-style.
+  assert.match(
+    source,
+    /const expandPinnedGroupForCwd = useCallback\(\(cwd: string \| null\) => \{[\s\S]*?const project = projectFor\(cwd\);[\s\S]*?if \(!project\) return;[\s\S]*?if \(!pinnedKeySet\.has\(project\.key\)\) return;[\s\S]*?expandPinnedGroup\(project\.key\);[\s\S]*?\}, \[projectFor, pinnedKeySet, expandPinnedGroup\]\);/,
+  );
+  // Session list and session-search selection go through the same handler.
+  const selectBlock = source.slice(
+    source.indexOf("const handleSelectSessionFromList"),
+    source.indexOf("// Toggle one pinned group"),
+  );
+  assert.match(selectBlock, /expandPinnedGroupForCwd\(s\.cwd\);/);
+  // The dropdown row select and the worktree switch route through it too.
+  assert.match(source, /expandPinnedGroupForCwd\(project\.root\);/);
+  assert.match(source, /expandPinnedGroupForCwd\(wt\.path\);/);
+});
+
+test("the selected project's group auto-expands at load, collapsing the persisted group", () => {
+  const autoBlock = source.slice(
+    source.indexOf("const autoExpandedGroupRef"),
+    source.indexOf("const projectActivity"),
+  );
+  // One-shot guard and pinned-membership check stay intact.
+  assert.match(autoBlock, /if \(autoExpandedGroupRef\.current \|\| !selectedProject\) return;/);
+  assert.match(autoBlock, /if \(!pinnedKeySet\.has\(selectedProject\.key\)\) return;/);
+  // The auto-expand goes through the accordion helper — the persisted set is
+  // replaced, so a different persisted group collapses to the selected one.
+  assert.match(autoBlock, /autoExpandedGroupRef\.current = true;[\s\S]*?expandPinnedGroup\(selectedProject\.key\);/);
+  assert.doesNotMatch(autoBlock, /setExpandedGroupKeys\(\(previous\)/);
+  // The dependency-exclusion comment (one-shot semantics) stays.
+  assert.match(autoBlock, /expandedGroupKeys is deliberately excluded/);
+});
+
+test("legacy multi-open storage needs no migration: it collapses on the first expand", () => {
+  // The read path is unchanged: storage is read as-is at mount, so a legacy
+  // multi-key array survives load untouched.
+  assert.match(source, /return new Set\(parsed\.filter\(\(key\): key is string => typeof key === "string"\)\);/);
+  assert.match(source, /setExpandedGroupKeys\(readExpandedGroupKeys\(\)\);/);
+  // The accordion helper is the only expand path and it always stores a
+  // single-key set; the design note records the no-migration decision.
+  assert.match(source, /legacy multi-key storage written by the pre-accordion version/);
 });
 
 test("the workspace dropdown no longer renders a pinned section", () => {
