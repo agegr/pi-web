@@ -1,4 +1,4 @@
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent, ToolResultMessage } from "./types";
 
 interface DisplayOptions {
   isStreaming?: boolean;
@@ -70,4 +70,22 @@ export function splitFinalAssistantBlocks(
 
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
+}
+
+export function getProcessContentBlocks(
+  message: AssistantMessage,
+  toolResults: Map<string, ToolResultMessage>,
+): AssistantContentBlock[] {
+  const visible: AssistantContentBlock[] = [];
+  for (const block of getDisplayableAssistantBlocks(message)) {
+    if (block.type === "text" || block.type === "image") {
+      visible.push(block);
+      continue;
+    }
+    if (block.type !== "toolCall") continue;
+    for (const part of toolResults.get(block.toolCallId)?.content ?? []) {
+      if (part.type === "image") visible.push(part);
+    }
+  }
+  return visible;
 }
