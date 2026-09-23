@@ -43,7 +43,7 @@ echo "==> Restarting tmux session '${SESSION}'"
 tmux kill-session -t "${SESSION}" 2>/dev/null || true
 tmux new-session -d -s "${SESSION}" "
   while true; do
-    PI_WEB_IDLE_TIMEOUT_MS=0 ${PI_WEB_PASSWORD:+PI_WEB_PASSWORD='${PI_WEB_PASSWORD}'} pi-web -H ${HOST} ${PIWEB_PORT:+--port ${PIWEB_PORT}}
+    PI_WEB_IDLE_TIMEOUT_MS=0 ${PI_WEB_PASSWORD:+PI_WEB_PASSWORD='${PI_WEB_PASSWORD}'} ${PI_WEB_ALLOWED_HOSTS:+PI_WEB_ALLOWED_HOSTS='${PI_WEB_ALLOWED_HOSTS}'} pi-web -H ${HOST} ${PIWEB_PORT:+--port ${PIWEB_PORT}}
     echo '[piweb] pi-web exited; restarting in 5s' >&2
     sleep 5
   done
