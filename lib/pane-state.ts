@@ -20,12 +20,36 @@ export function paneHeaderLabel(tab: PaneTab): string {
 // --- Width-adaptive pane sizing (pi#20) ---
 // Pane widths are auto-computed from the measured pane-area width: panes
 // split the area equally while they all fit, and once the open count exceeds
-// floor(areaWidth / MIN_PANE_WIDTH) every pane is exactly MIN_PANE_WIDTH wide
+// floor(areaWidth / minPaneWidth) every pane is exactly minPaneWidth wide
 // and the pane area scrolls horizontally. This replaces the old localStorage
 // persisted manual visible-pane cap (pi#13).
-export const MIN_PANE_WIDTH = 520;
+//
+// pi#43: the minimum is no longer a fixed 520px constant — it is DERIVED from
+// the chat content width setting, so every pane is at least as wide as the
+// user's configured reading width (SplitPaneLayout feeds
+// minPaneWidthFor(useChatAppearance().width) into the sizing helpers below).
 
-/** How many MIN_PANE_WIDTH-wide panes fit the measured pane area. */
+/**
+ * Horizontal padding rendered around the chat content column inside every
+ * pane: ChatWindow applies `padding: 0 ${CHAT_COLUMN_PADDING}px` around both
+ * the message column and the composer, so a floored pane keeps its full
+ * reading width only when the minimum adds this padding on both sides.
+ * Single-sourced here so the rendered padding and the pane-minimum
+ * derivation can never drift apart.
+ */
+export const CHAT_COLUMN_PADDING = 16;
+
+/**
+ * Minimum pane width for a chat content width setting: the reading width
+ * plus the pane's horizontal padding on both sides (default 820 + 2 × 16 =
+ * 852). The chat content width slider floors at 820, so the derived minimum
+ * is always ≥ 852 even against tampered localStorage.
+ */
+export function minPaneWidthFor(chatContentWidth: number): number {
+  return chatContentWidth + 2 * CHAT_COLUMN_PADDING;
+}
+
+/** How many minPaneWidth-wide panes fit the measured pane area. */
 export function visiblePaneCapacity(
   areaWidth: number,
   minPaneWidth: number,

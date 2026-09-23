@@ -1,5 +1,18 @@
 import assert from "node:assert/strict";
-import { MIN_PANE_WIDTH } from "../lib/pane-state.ts";
+import { minPaneWidthFor, CHAT_COLUMN_PADDING } from "../lib/pane-state.ts";
+
+// pi#43: the pane minimum is no longer a fixed constant — it is derived from
+// the chat content width setting (minPaneWidthFor(width) = width + 2 ×
+// CHAT_COLUMN_PADDING). The pass seeds `pi-chat-content-width` explicitly at
+// entry (its geometry must not depend on what checkChatAppearance left
+// behind) and restores 820 before returning. Default width 820 → minimum
+// 852; the slider floor is 820, so the geometry below can never shrink
+// below that.
+const CHAT_CONTENT_WIDTH_STORAGE_KEY = "pi-chat-content-width";
+const SEEDED_CHAT_CONTENT_WIDTH = 820;
+const DEFAULT_MIN_PANE_WIDTH = minPaneWidthFor(SEEDED_CHAT_CONTENT_WIDTH);
+assert.equal(DEFAULT_MIN_PANE_WIDTH, SEEDED_CHAT_CONTENT_WIDTH + 2 * CHAT_COLUMN_PADDING,
+  "the e2e geometry assumes minPaneWidthFor(820) = 820 + 2 × CHAT_COLUMN_PADDING");
 
 // pi#9: the opt-in split view (pi#4 panes + pi#20 width-adaptive sizing) gets
 // its own desktop-only pass. The classic flow in run.mjs is deliberately
@@ -13,14 +26,21 @@ import { MIN_PANE_WIDTH } from "../lib/pane-state.ts";
 // "<project> · <session>" (the sentinel: "New · <project>"), the pane area
 // itself carries role="tablist" + [data-split-pane-area], and new sessions are
 // opened only from the sidebar. An overflow switcher appears whenever the
-// open count exceeds floor(areaWidth / MIN_PANE_WIDTH).
+// open count exceeds floor(areaWidth / minPaneWidth).
 
 export async function checkSplitPane(page, sessions) {
   const { longTitle, compactedTitle, longTailText } = sessions;
   // checkChatAppearance ends at a mobile viewport with the sidebar in its
-  // mobile drawer state; the split view is desktop-only, so restore the desktop
-  // viewport and re-dock the sidebar before the pass.
-  await page.setViewportSize({ width: 1680, height: 1000 });
+  // mobile drawer state; the split view is desktop-only, so restore a wide
+  // desktop viewport (pi#43: 2560×1440, because the derived 852 minimum fits
+  // floor(2560/852) = 3 panes where the old 1680 geometry fit only 1) and
+  // re-dock the sidebar before the pass. Seed the chat content width
+  // explicitly and reload so the derived pane minimum is deterministic.
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await page.evaluate(({ key, value }) => {
+    try { localStorage.setItem(key, value); } catch {}
+  }, { key: CHAT_CONTENT_WIDTH_STORAGE_KEY, value: String(SEEDED_CHAT_CONTENT_WIDTH) });
+  await page.reload({ waitUntil: "networkidle" });
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
   const chat = () => page.locator("[data-chat-focused='true']");
@@ -131,8 +151,8 @@ export async function checkSplitPane(page, sessions) {
   await chat().getByText("E2E final answer", { exact: true }).waitFor();
 
   // 5. A third pane: three panes at one third each. The sidebar is hidden
-  //    after the click so the pane area tracks the full 1680px
-  //    (floor(1680/520) = 3).
+  //    after the click so the pane area tracks the full 2560px
+  //    (floor(2560/852) = 3 with the seeded 820 width, pi#43).
   await page.locator(`[title="${compactedTitle}"]`).click();
   await tabs.nth(2).waitFor();
   assert.equal(await tabs.count(), 3, "a third session opens a third pane");
@@ -154,10 +174,45 @@ export async function checkSplitPane(page, sessions) {
   assert.equal(await page.locator("[data-pane-overflow]").count(), 0,
     "the overflow switcher is hidden while all panes fit");
 
-  // 6. Width-adaptive floor (pi#20): shrinking the viewport below
-  //    3 × MIN_PANE_WIDTH makes every pane exactly MIN_PANE_WIDTH and the
-  //    pane area scroll horizontally; restoring the width brings the equal
-  //    split back without horizontal scrolling.
+  // 5b. Derived floor (pi#43): opening a fourth pane beyond the 2560px area's
+  //     capacity (floor(2560/852) = 3) floors EVERY pane to exactly the
+  //     derived minimum (820 + 2 × 16 = 852) and shows the overflow switcher.
+  await page.getByRole("button", { name: "Show sidebar", exact: true }).click();
+  await page.locator('[title="Branch root"]').click();
+  await tabs.nth(3).waitFor();
+  assert.equal(await tabs.count(), 4, "a fourth session opens a fourth pane");
+  await page.waitForFunction((minWidth) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    if (!area) return false;
+    const panesList = Array.from(area.children);
+    return panesList.length === 4
+      && area.scrollWidth > area.clientWidth
+      && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - minWidth) < 1);
+  }, DEFAULT_MIN_PANE_WIDTH, { timeout: 10_000 });
+  await assertExactPaneWidth(4, DEFAULT_MIN_PANE_WIDTH);
+  await overflowTrigger.waitFor({ state: "visible" });
+  // Close the fourth pane and hide the sidebar again so the survivors return
+  // to the full-area equal split before the viewport shrinks below.
+  await tabs.nth(3).getByRole("button", { name: "Close tab" }).click();
+  await page.waitForFunction((expected) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    return area && area.querySelectorAll("[role='tab']").length === expected;
+  }, 3, { timeout: 10_000 });
+  await page.getByRole("button", { name: "Hide sidebar", exact: true }).click();
+  await page.waitForFunction(() => {
+    const area = document.querySelector("[data-split-pane-area]");
+    if (!area) return false;
+    const panesList = Array.from(area.children);
+    const expected = area.clientWidth / 3;
+    return panesList.length === 3
+      && area.scrollWidth <= area.clientWidth
+      && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - expected) < 1);
+  }, null, { timeout: 10_000 });
+
+  // 6. Width-adaptive floor (pi#20, pi#43): shrinking the viewport below
+  //    2 × the derived minimum makes every pane exactly minPaneWidthFor(820)
+  //    = 852 and the pane area scroll horizontally; restoring the width
+  //    brings the equal split back without horizontal scrolling.
   await page.setViewportSize({ width: 900, height: 800 });
   await page.waitForFunction((minPaneWidth) => {
     const area = document.querySelector("[data-split-pane-area]");
@@ -166,9 +221,9 @@ export async function checkSplitPane(page, sessions) {
     return panesList.length === 3
       && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - minPaneWidth) < 1)
       && area.scrollWidth > area.clientWidth;
-  }, MIN_PANE_WIDTH, { timeout: 10_000 });
-  await assertExactPaneWidth(3, MIN_PANE_WIDTH);
-  // 6b. Overflow switcher (pi#25): at 900px the area holds floor(900/520) = 1
+  }, DEFAULT_MIN_PANE_WIDTH, { timeout: 10_000 });
+  await assertExactPaneWidth(3, DEFAULT_MIN_PANE_WIDTH);
+  // 6b. Overflow switcher (pi#25): at 900px the area holds floor(900/852) = 1
   //     pane, so 3 open panes make the switcher appear. Its menu lists every
   //     open pane with its attribution label, and activating an entry scrolls
   //     the pane into view and focuses it.
@@ -199,7 +254,7 @@ export async function checkSplitPane(page, sessions) {
   await overflowMenu.waitFor({ state: "visible" });
   await overflowMenu.press("Escape");
   await overflowMenu.waitFor({ state: "hidden" });
-  await page.setViewportSize({ width: 1680, height: 1000 });
+  await page.setViewportSize({ width: 2560, height: 1440 });
   await page.waitForFunction(() => {
     const area = document.querySelector("[data-split-pane-area]");
     return area && area.scrollWidth === area.clientWidth;
@@ -227,11 +282,51 @@ export async function checkSplitPane(page, sessions) {
     "closing the focused pane focuses the last remaining pane");
   assert.equal(await tabs.nth(0).getAttribute("aria-selected"), "false");
 
+  // 7b. The setting drives the minimum live (pi#43): useChatAppearance is
+  //     useSyncExternalStore-based, so moving the existing settings slider
+  //     re-lays out the open panes in the same render pass (no reload — pane
+  //     tabs are not persisted, so a reload would collapse to one pane).
+  //     The sidebar's Settings button is the sole entry to the panel, so
+  //     re-dock the sidebar first (its ~2300px pane area keeps capacity
+  //     floor(2300/2032) = 1 < 2 panes). Width 2000 → minimum 2032: both
+  //     panes floor to exactly 2032 and the overflow switcher appears.
+  const wideMinPaneWidth = minPaneWidthFor(2000);
+  await page.getByRole("button", { name: "Show sidebar", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("slider", { name: "Chat content width", exact: true }).press("End");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction((minWidth) => {
+    const area = document.querySelector("[data-split-pane-area]");
+    if (!area) return false;
+    const panesList = Array.from(area.children);
+    return panesList.length === 2
+      && area.scrollWidth > area.clientWidth
+      && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - minWidth) < 1);
+  }, wideMinPaneWidth, { timeout: 10_000 });
+  await assertExactPaneWidth(2, wideMinPaneWidth);
+  await overflowTrigger.waitFor({ state: "visible" });
+  // Back to 820 (the slider floor): the panes re-widen to the equal split in
+  // the same pass and the overflow switcher hides again.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("slider", { name: "Chat content width", exact: true }).press("Home");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => {
+    const area = document.querySelector("[data-split-pane-area]");
+    if (!area) return false;
+    const panesList = Array.from(area.children);
+    const expected = area.clientWidth / 2;
+    return panesList.length === 2
+      && area.scrollWidth <= area.clientWidth
+      && panesList.every((pane) => Math.abs(pane.getBoundingClientRect().width - expected) < 1);
+  }, null, { timeout: 10_000 });
+  assert.equal(await page.locator("[data-pane-overflow]").count(), 0,
+    "the overflow switcher hides again once the panes re-widen");
+
   // 8. New sessions come from the sidebar only (pi#25): the strip's "+"
   //    button no longer exists, so a pinned project group's "+" is the entry.
   //    Pin the workspace through the cwd picker so the pinned-group header
-  //    (with its own "+") appears.
-  await page.getByRole("button", { name: "Show sidebar", exact: true }).click();
+  //    (with its own "+") appears. The sidebar is already docked (7b left it
+  //    open so its Settings button was reachable).
   assert.equal(await page.getByRole("button", { name: "New", exact: true }).count(), 0,
     "the sidebar header exposes no New button");
   assert.equal(await page.locator("[data-split-tablist]").count(), 0,
@@ -313,4 +408,11 @@ export async function checkSplitPane(page, sessions) {
   assert.equal(await tabs.count(), 1, "selecting a session closes the superseded new-session tab");
   assert.equal(await headerText(0), `${projectName} · ${longTitle}`,
     "the superseding session pane attributes as <project> · <session name>");
+  // pi#43: the 7b slider round-trip must have left the default width stored —
+  // this is also the restore the mobile iteration's appearance checks rely on.
+  assert.equal(
+    await page.evaluate((key) => localStorage.getItem(key), CHAT_CONTENT_WIDTH_STORAGE_KEY),
+    String(SEEDED_CHAT_CONTENT_WIDTH),
+    "the pass must leave pi-chat-content-width restored to 820",
+  );
 }
