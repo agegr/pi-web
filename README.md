@@ -123,6 +123,16 @@ $env:NO_PROXY = "localhost,127.0.0.1"
 npx @silgrid/pi-web@latest
 ```
 
+## Mobile
+
+Both platforms wrap the same self-hosted origin — no bundled server, no proxying, no script injection:
+
+- **Android**: side-load the Trusted Web Activity APK from [`mobile-twa/`](./mobile-twa/) — fullscreen, no address bar, works GMS-free and without a VPN (assetlinks verification only talks to your own server).
+- **iOS**: Safari **Share → Add to Home Screen** installs the PWA, which is the native standalone form on iOS; Web Push rides APNs and works in mainland China without a VPN.
+- **Fallback everywhere**: the zero-install PWA (Chrome → Install app).
+
+Closed-app Web Push on Android goes through FCM, which needs a VPN in mainland China — see the full capability matrix and step-by-step device flows in [`docs/mobile.md`](./docs/mobile.md).
+
 ## Notes
 
 - **Agent data**: Pi Web reads pi data from `~/.pi/agent` by default, including session files under `sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`. Set `PI_CODING_AGENT_DIR` to use another pi agent directory.

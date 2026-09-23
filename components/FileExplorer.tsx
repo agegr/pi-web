@@ -13,7 +13,6 @@ import {
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
-import { filesFromPickedFiles, getCapacitorFilePicker } from "@/lib/capacitor-bridge";
 import {
   getShowBuildOutputs,
   setShowBuildOutputs,
@@ -850,29 +849,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
   useImperativeHandle(ref, () => ({
     openUploadPicker() {
-      if (uploadBusy) return;
-      // pi#31: inside Capacitor shells the native document picker
-      // (@capawesome/capacitor-file-picker) replaces the WebView file chooser;
-      // the picked files flow into the existing uploadFiles XHR pipeline
-      // unchanged. Desktop/mobile browsers keep the standard input flow.
-      const FilePicker = getCapacitorFilePicker();
-      if (FilePicker) {
-        void (async () => {
-          try {
-            // `readData: true` — native picks only carry a path, so the bytes
-            // come back base64 through the bridge (see mobile/docs/spike-remote-bridge.md).
-            const { files } = await FilePicker.pickFiles({ readData: true });
-            await prepareUpload(filesFromPickedFiles(files));
-          } catch {
-            // Cancelled picks and unavailable pickers stay silent, matching the
-            // browser flow where a dismissed chooser is not an error.
-          }
-        })();
-        return;
-      }
-      uploadInputRef.current?.click();
+      if (!uploadBusy) uploadInputRef.current?.click();
     },
-  }), [uploadBusy, prepareUpload]);
+  }), [uploadBusy]);
 
   useEffect(() => {
     onUploadBusyChange?.(uploadBusy);

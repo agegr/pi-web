@@ -19,16 +19,6 @@ import {
   isBase64ImageWithinLimits,
 } from "@/lib/image-attachments";
 import {
-  CAMERA_RESULT_TYPES,
-  CAMERA_SOURCES,
-  fileFromCameraPhoto,
-  filesFromPickedFiles,
-  getCapacitorCamera,
-  getCapacitorFilePicker,
-  isCapacitorShell,
-  isPermissionDeniedError,
-} from "@/lib/capacitor-bridge";
-import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
@@ -615,10 +605,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // pi#33: "Edit from here" skips the restore when a draft exists; the skip
   // must be observable (kept-draft notice), never a silent no-op.
   const [draftKeptNoticeVisible, setDraftKeptNoticeVisible] = useState(false);
-  // pi#31: native attach state — the shell-only source chooser and the
-  // camera-permission notice (surfaced through the same ModelNoticeBanner seam).
-  const [attachSourceMenuOpen, setAttachSourceMenuOpen] = useState(false);
-  const [cameraNoticeVisible, setCameraNoticeVisible] = useState(false);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [builtinCommandPending, setBuiltinCommandPending] = useState(false);
@@ -876,60 +862,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [compact]);
 
   /**
-   * Native attach (pi#31): inside Capacitor shells the attach action offers
-   * camera capture and gallery multi-pick, then feeds the converted results
-   * into the same `processImageFiles` pipeline the browser path uses — same
-   * previews, same filtering, same submission. Camera capture goes through
-   * the official Camera plugin (`resultType: base64`); the gallery uses the
-   * document-picker plugin's image pick with `readData: true`, because the
-   * Camera plugin's gallery results only expose WebView-local `webPath`s
-   * that the remote page cannot fetch cross-origin (see
-   * mobile/docs/spike-remote-bridge.md). Camera-permission denial surfaces a
-   * notice; the gallery option stays usable either way. User cancellation
-   * stays silent.
-   */
-  const runNativeAttach = useCallback(async (source: "camera" | "gallery") => {
-    try {
-      if (source === "camera") {
-        const camera = getCapacitorCamera();
-        if (!camera) return;
-        const photo = await camera.getPhoto({
-          resultType: CAMERA_RESULT_TYPES.base64,
-          source: CAMERA_SOURCES.camera,
-          quality: 90,
-          correctOrientation: true,
-        });
-        if (photo.base64String) {
-          await processImageFiles([fileFromCameraPhoto(photo.base64String, photo.format)]);
-        }
-        return;
-      }
-      const picker = getCapacitorFilePicker();
-      if (picker?.pickImages) {
-        const { files } = await picker.pickImages({ readData: true });
-        const imageFiles = filesFromPickedFiles(files);
-        if (imageFiles.length) await processImageFiles(imageFiles);
-        return;
-      }
-      // No document picker (older shell): fall back to the native
-      // photo-library chooser for a single image.
-      const camera = getCapacitorCamera();
-      if (!camera) return;
-      const photo = await camera.getPhoto({
-        resultType: CAMERA_RESULT_TYPES.base64,
-        source: CAMERA_SOURCES.photos,
-        quality: 90,
-        correctOrientation: true,
-      });
-      if (photo.base64String) {
-        await processImageFiles([fileFromCameraPhoto(photo.base64String, photo.format)]);
-      }
-    } catch (error) {
-      if (isPermissionDeniedError(error)) setCameraNoticeVisible(true);
-    }
-  }, [processImageFiles]);
-
-  /**
    * Opens the OS file chooser synchronously inside the click gesture (never
    * wrapped in a timeout — WebView gesture rules would drop it). In likely
    * embedded-WebView shells it also probes the chooser: if after
@@ -939,12 +871,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
    * leaving the button silently unresponsive.
    */
   const openImagePicker = useCallback(() => {
-    // pi#31 shells: the WebView file chooser is bypassed entirely — native
-    // Camera capture / gallery pick replaces it (see runNativeAttach).
-    if (isCapacitorShell()) {
-      setAttachSourceMenuOpen((open) => !open);
-      return;
-    }
     const input = fileInputRef.current;
     if (!input) return;
     // Cancel any in-flight probe so rapid re-taps never stack listeners.
@@ -995,13 +921,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const timer = window.setTimeout(() => setFilePickerNoticeVisible(false), FILE_PICKER_NOTICE_AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
   }, [filePickerNoticeVisible]);
-
-  // The camera-permission notice is transient for the same reason.
-  useEffect(() => {
-    if (!cameraNoticeVisible) return;
-    const timer = window.setTimeout(() => setCameraNoticeVisible(false), FILE_PICKER_NOTICE_AUTO_HIDE_MS);
-    return () => window.clearTimeout(timer);
-  }, [cameraNoticeVisible]);
 
   // The kept-draft notice is transient for the same reason: it explains a
   // skipped restore and must never linger over the draft it protects.
@@ -1931,14 +1850,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onClose={() => setFilePickerNoticeVisible(false)}
           />
         )}
-        {cameraNoticeVisible && (
-          <ModelNoticeBanner
-            tone="warning"
-            title={t("chat.cameraPermissionDeniedTitle")}
-            body={t("chat.cameraPermissionDeniedBody")}
-            onClose={() => setCameraNoticeVisible(false)}
-          />
-        )}
         {draftKeptNoticeVisible && (
           <ModelNoticeBanner
             tone="warning"
@@ -2548,15 +2459,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }}>
 
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
-          <div style={{
-            flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2,
-            // Anchoring context for the shell-only native attach menu (pi#31).
-            position: isCapacitorShell() ? "relative" : undefined,
-          }}>
+          <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={openImagePicker}
               title={t("chat.attachImage")}
-              aria-expanded={isCapacitorShell() ? attachSourceMenuOpen || undefined : undefined}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
@@ -2582,70 +2488,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
-            {/* pi#31: inside Capacitor shells the attach button opens a native
-                source chooser instead of the WebView file chooser. Camera goes
-                through `Camera.getPhoto`, library through `Camera.pickImages`. */}
-            {isCapacitorShell() && attachSourceMenuOpen && (
-              <>
-                <div
-                  aria-hidden="true"
-                  onClick={() => setAttachSourceMenuOpen(false)}
-                  style={{ position: "fixed", inset: 0, zIndex: 99, background: "transparent" }}
-                />
-                <div role="menu" aria-label={t("chat.attachImage")} style={{
-                  position: "absolute", left: 0, bottom: "calc(100% + 6px)", zIndex: 100,
-                  background: "var(--bg)", border: "1px solid var(--border)",
-                  borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                  overflow: "hidden", minWidth: 180, padding: 4,
-                }}>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setAttachSourceMenuOpen(false);
-                      void runNativeAttach("camera");
-                    }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8, width: "100%",
-                      padding: "8px 10px", background: "none", border: "none",
-                      borderRadius: 6, color: "var(--text)", fontSize: 12, cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                      <circle cx="12" cy="13" r="4" />
-                    </svg>
-                    {t("chat.attachFromCamera")}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setAttachSourceMenuOpen(false);
-                      void runNativeAttach("gallery");
-                    }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8, width: "100%",
-                      padding: "8px 10px", background: "none", border: "none",
-                      borderRadius: 6, color: "var(--text)", fontSize: 12, cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                      <circle cx="8.5" cy="8.5" r="1.5" />
-                      <polyline points="21 15 16 10 5 21" />
-                    </svg>
-                    {t("chat.attachFromGallery")}
-                  </button>
-                </div>
-              </>
-            )}
             {/* Model selector - visible always, disabled while the session or switch is busy */}
             {(modelOptions.length > 0 || model || modelError) && onModelChange && (
               <ModelSelector

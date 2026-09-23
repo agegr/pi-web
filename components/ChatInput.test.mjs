@@ -701,52 +701,6 @@ test("renders image warnings for known text-only defaults without an explicit mo
   }
 });
 
-test("routes attach through the Capacitor bridge only inside native shells (pi#31)", async () => {
-  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-
-  // The shell branch imports the dependency-free bridge and precedes the
-  // WebView file-chooser path inside openImagePicker.
-  assert.match(source, /import \{[\s\S]*?isCapacitorShell[\s\S]*?\} from "@\/lib\/capacitor-bridge";/);
-  assert.match(source, /const openImagePicker = useCallback\(\(\) => \{\s*\n\s*\/\/ pi#31 shells[\s\S]*?if \(isCapacitorShell\(\)\) \{\s*\n\s*setAttachSourceMenuOpen\(\(open\) => !open\);\s*\n\s*return;\s*\n\s*\}/);
-  // Native picks convert to File objects and feed the unchanged pipeline.
-  assert.match(source, /processImageFiles\(\[fileFromCameraPhoto\(photo\.base64String, photo\.format\)\]\)/);
-  // Gallery multi-pick rides the file picker with base64 data (the Camera
-  // plugin's gallery webPaths are not fetchable cross-origin from the remote
-  // page — see mobile/docs/spike-remote-bridge.md).
-  assert.match(source, /picker\.pickImages\(\{ readData: true \}\)/);
-  assert.match(source, /const imageFiles = filesFromPickedFiles\(files\);/);
-  // Camera permission denial surfaces through the existing ModelNoticeBanner
-  // seam; cancellation stays silent.
-  assert.match(source, /if \(isPermissionDeniedError\(error\)\) setCameraNoticeVisible\(true\)/);
-  assert.match(source, /cameraNoticeVisible && \(\s*<ModelNoticeBanner/);
-  assert.match(source, /chat\.cameraPermissionDeniedTitle/);
-
-  // The browser/PWA path is untouched: probe, hidden input and accept filter
-  // all still execute outside the shells.
-  assert.match(source, /const LIKELY_EMBEDDED_WEBVIEW = \(\(\) => \{/);
-  assert.match(source, /accept=\{LIKELY_EMBEDDED_WEBVIEW \? undefined : "image\/\*"\}/);
-  assert.match(source, /\/\/ Synchronous click keeps the user-gesture chain intact\.\s*\n\s*input\.click\(\);/);
-});
-
-test("renders no native attach menu outside Capacitor shells", async () => {
-  const html = renderToStaticMarkup(
-    React.createElement(
-      I18nProvider,
-      null,
-      React.createElement(ChatInput, {
-        onSend() {},
-        onAbort() {},
-        isStreaming: false,
-      }),
-    ),
-  );
-  // No window.Capacitor in this environment → browser markup exactly:
-  // hidden file input present, no native source menu.
-  assert.match(html, /type="file"/);
-  assert.ok(!html.includes("Take photo"));
-  assert.ok(!html.includes('role="menu"'));
-});
-
 // pi#33: "Edit from here" restore semantics — fill only a completely empty
 // composer; keep a non-empty draft byte-for-byte and surface a transient
 // kept-draft notice instead of a silent no-op. These tests execute the REAL

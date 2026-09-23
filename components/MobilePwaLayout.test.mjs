@@ -92,20 +92,3 @@ test("keeps modal dialogs clear of the iOS status bar in standalone mode", () =>
   assert.match(settingsCssSource, /@media \(display-mode: standalone\) and \(orientation: landscape\) \{[\s\S]*?padding-top: max\(8px, env\(safe-area-inset-top\)\);[\s\S]*?padding-right: max\(59px, env\(safe-area-inset-right\)\);[\s\S]*?padding-bottom: max\(8px, env\(safe-area-inset-bottom\)\);[\s\S]*?padding-left: max\(59px, env\(safe-area-inset-left\)\);/);
   assert.match(settingsCssSource, /\.settings-dialog-surface,[\s\S]*?\.config-panel-root\.is-modal > \.config-panel-surface \{[\s\S]*?max-width: 100%;[\s\S]*?max-height: 100%;/);
 });
-
-test("extends the safe-area and viewport scenario to Capacitor shells (pi#31)", async () => {
-  const bridgeSource = await readFile(new URL("../lib/capacitor-bridge.ts", import.meta.url), "utf8");
-
-  // The shell WebView reports display-mode: browser, so the scenario keys off
-  // a bridge-detection class instead of the media query alone.
-  assert.match(cssSource, /:root\.capacitor-shell \{[\s\S]*?--app-viewport-height: 100vh;[\s\S]*?--safe-area-top: env\(safe-area-inset-top\);[\s\S]*?--safe-area-bottom: env\(safe-area-inset-bottom\);[\s\S]*?\}/);
-  // The standalone PWA scenario is untouched.
-  assert.match(cssSource, /@media \(display-mode: standalone\) \{[\s\S]*?--app-viewport-height: 100vh;/);
-  // AppShell applies the scenario class on mount (runtime-only detection).
-  assert.match(appShellSource, /applyCapacitorShellScenario\(\)/);
-  // The class name lives in one place, shared with the CSS.
-  assert.match(bridgeSource, /CAPACITOR_SHELL_SCENARIO_CLASS = "capacitor-shell"/);
-  assert.match(bridgeSource, /classList\.add\(CAPACITOR_SHELL_SCENARIO_CLASS\)/);
-  // Browsers never match it: the helper is a no-op without the native bridge.
-  assert.match(bridgeSource, /if \(!isCapacitorShell\(\)\) return;/);
-});

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The TWA shell opens the origin inside the browser's own process, so
+     this config governs nothing at runtime — it is committed to make the
+     HTTPS-only launch contract explicit and to keep cleartext refused even
+     if a future change adds direct networking. A PIWEB_TWA_LAUNCH_URL of
+     http://... fails the launcher's https:// check before any request. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

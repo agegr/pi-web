@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.piweb.twa",
+      "sha256_cert_fingerprints": ["39b514b000604fea8061b9b3517bdf40d31d0cfa77669a3f27a694ddb391f92f"]
+    }
+  }
+]

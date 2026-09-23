@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- twa_launch_url is GENERATED at build time from the
+         PIWEB_TWA_LAUNCH_URL gradle property (app/build.gradle.kts). -->
+    <string name="app_name">Pi Web</string>
+</resources>
