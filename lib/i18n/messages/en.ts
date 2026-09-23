@@ -21,7 +21,7 @@ export const enLocale: LocalePlugin = {
     "settings.chatContentFontSize": "Chat font size",
     "settings.resetChatContentWidth": "Reset chat content width",
     "settings.resetChatContentFontSize": "Reset chat font size",
-    "settings.chatContentWidthDescription": "Set the maximum width of messages and the composer.",
+    "settings.chatContentWidthDescription": "Set the maximum width of messages and the composer. Also sets the minimum width of a split-pane tab (reading width plus pane padding).",
     "settings.themeLight": "Light",
     "settings.themeDark": "Dark",
     "settings.themeMist": "Mist",

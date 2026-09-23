@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { PaneHeader } from "./PaneHeader";
 import { useI18n } from "@/hooks/useI18n";
+import { useChatAppearance } from "@/hooks/useChatAppearance";
 import {
   isPlainClick,
   paneWidth,
   paneHeaderLabel,
   visiblePaneCapacity,
-  MIN_PANE_WIDTH,
+  minPaneWidthFor,
   type PaneTab,
 } from "@/lib/pane-state";
 
@@ -54,10 +55,14 @@ function SplitPaneLayoutInner(
   // a ResizeObserver on the scroll container, so widths recompute in real
   // time on window resize, sidebar toggle, or any layout change. A single
   // pane takes the full row; with multiple panes each gets an equal split of
-  // the measured area while they all fit, and beyond floor(area / MIN_PANE_WIDTH)
-  // every pane is exactly MIN_PANE_WIDTH and the pane area scrolls
+  // the measured area while they all fit, and beyond floor(area / minPaneWidth)
+  // every pane is exactly minPaneWidth and the pane area scrolls
   // horizontally. (pi#4 integration fix retained: a lone narrow pane cramped
   // the chat and put fixed-width overlays' click targets over the minimap.)
+  // pi#43: the minimum is derived from the chat content width setting
+  // (reading width + pane padding), and useChatAppearance is
+  // useSyncExternalStore-based, so moving the settings slider re-lays out
+  // open panes in the same render pass.
   const [paneAreaWidth, setPaneAreaWidth] = useState(() =>
     typeof window === "undefined" ? 0 : window.innerWidth,
   );
@@ -72,11 +77,15 @@ function SplitPaneLayoutInner(
     return () => observer.disconnect();
   }, []);
 
-  const width = paneWidth(tabs.length, paneAreaWidth, MIN_PANE_WIDTH);
+  // pi#43: the pane minimum follows the live chat content width setting, so
+  // every pane is at least as wide as the user's configured reading width.
+  const { width: chatContentWidth } = useChatAppearance();
+  const minPaneWidth = minPaneWidthFor(chatContentWidth);
+  const width = paneWidth(tabs.length, paneAreaWidth, minPaneWidth);
   // Overflow switcher (pi#25): shown only when the open count exceeds the
-  // area's capacity — the same floor(areaWidth / MIN_PANE_WIDTH) computation
+  // area's capacity — the same floor(areaWidth / minPaneWidth) computation
   // paneWidth() sizes panes by.
-  const paneCapacity = visiblePaneCapacity(paneAreaWidth, MIN_PANE_WIDTH);
+  const paneCapacity = visiblePaneCapacity(paneAreaWidth, minPaneWidth);
   const overflowed = tabs.length > paneCapacity;
 
   // Close the overflow dropdown whenever it stops being needed.

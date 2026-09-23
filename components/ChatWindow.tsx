@@ -33,6 +33,7 @@ import {
   VISIBLE_PAGE_SIZE,
   type ScrollAnchorSnapshot,
 } from "@/lib/chat-lazy-load";
+import { CHAT_COLUMN_PADDING } from "@/lib/pane-state";
 
 interface Props {
   session: SessionInfo | null;
@@ -91,8 +92,6 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
   if (phase?.kind === "running_command") return t("chat.runningCommand");
   return null;
 }
-
-const CHAT_COLUMN_PADDING = 16;
 
 function NewSessionUpdateLink({
   label,
