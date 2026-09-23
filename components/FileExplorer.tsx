@@ -14,6 +14,11 @@ import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { filesFromPickedFiles, getCapacitorFilePicker } from "@/lib/capacitor-bridge";
+import {
+  getShowBuildOutputs,
+  setShowBuildOutputs,
+  subscribeShowBuildOutputs,
+} from "@/lib/build-outputs-preference";
 import { useI18n } from "@/hooks/useI18n";
 type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -79,9 +84,15 @@ interface PendingConflict {
   nonReplaceable: string[];
 }
 
-async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+async function fetchEntries(
+  dirPath: string,
+  opts?: { showBuildOutputs?: boolean },
+): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(`/api/files/${encoded}?type=list`);
+  // showBuildOutputs is the per-workspace opt-in that surfaces build/dist
+  // directories in the tree listing (see lib/build-outputs-preference.ts).
+  const query = opts?.showBuildOutputs ? "?type=list&showBuildOutputs=1" : "?type=list";
+  const res = await fetch(`/api/files/${encoded}${query}`);
   if (!res.ok) {
     let message = `Failed to load files (HTTP ${res.status})`;
     try {
@@ -257,7 +268,12 @@ function TreeNode({
     if (loaded && !force) return;
     setLoading(true);
     try {
-      const entries = await fetchEntries(node.fullPath);
+      // Read the per-workspace preference at fetch time so a toggle (which
+      // bumps the tree refresh token and re-fetches expanded nodes) is honored
+      // without threading a prop through every TreeNode.
+      const entries = await fetchEntries(node.fullPath, {
+        showBuildOutputs: getShowBuildOutputs(cwd),
+      });
       setChildren(entries);
       setLoaded(true);
     } catch {
@@ -265,7 +281,7 @@ function TreeNode({
     } finally {
       setLoading(false);
     }
-  }, [loaded, node.fullPath]);
+  }, [loaded, node.fullPath, cwd]);
 
   // Re-fetch children when the tree refreshes and the directory is open.
   useEffect(() => {
@@ -614,6 +630,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [searchExpanded, setSearchExpanded] = useState<Set<string>>(new Set());
+  const [showBuildOutputs, setShowBuildOutputsState] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -716,6 +733,33 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       return next;
     });
   }, []);
+
+  // Per-workspace "Show build outputs" toggle: default off, hydrated from
+  // localStorage in an effect (not the initial state) so the server
+  // prerender and first client render agree on "off".
+  useEffect(() => {
+    setShowBuildOutputsState(getShowBuildOutputs(cwd));
+  }, [cwd]);
+
+  const handleToggleShowBuildOutputs = useCallback(() => {
+    const next = !showBuildOutputs;
+    setShowBuildOutputs(cwd, next);
+    setShowBuildOutputsState(next);
+    // Bump the shared refresh token: the root effect and every expanded
+    // node re-fetch in place with the new flag, no page reload.
+    setTreeRefreshKey((key) => key + 1);
+  }, [cwd, showBuildOutputs]);
+
+  // Follow preference changes from other explorer instances of the same
+  // workspace root (MultiRootFileExplorer mounts one FileExplorer per root,
+  // and more than one surface can be mounted for the same root).
+  useEffect(() => {
+    return subscribeShowBuildOutputs(({ root, value }) => {
+      if (normalizeFilePathSlashes(root) !== normalizeFilePathSlashes(cwd)) return;
+      setShowBuildOutputsState(value);
+      setTreeRefreshKey((key) => key + 1);
+    });
+  }, [cwd]);
 
   const applyUploadResult = useCallback((data: UploadResponse) => {
     const uploaded = data.uploaded ?? [];
@@ -852,12 +896,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setLoading(cwdChanged);
     setError(null);
     let cancelled = false;
-    fetchEntries(cwd)
+    fetchEntries(cwd, { showBuildOutputs })
       .then((entries) => { if (!cancelled) setRoots(entries); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
+  }, [cwd, refreshKey, treeRefreshKey, showBuildOutputs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -895,6 +939,21 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   return (
     <div style={{ minHeight: "100%" }}>
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
+      <div style={{ display: "flex", alignItems: "center", padding: "4px 10px", borderBottom: "1px solid var(--border)" }}>
+        <label
+          title={t("files.showBuildOutputsHint")}
+          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--text-dim)", cursor: "pointer", userSelect: "none" }}
+        >
+          <input
+            type="checkbox"
+            checked={showBuildOutputs}
+            onChange={handleToggleShowBuildOutputs}
+            aria-label={t("files.showBuildOutputs")}
+            style={{ margin: 0 }}
+          />
+          {t("files.showBuildOutputs")}
+        </label>
+      </div>
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (

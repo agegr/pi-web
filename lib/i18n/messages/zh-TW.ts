@@ -312,6 +312,8 @@ export const zhTWLocale: LocalePlugin = {
     "files.loading": "正在載入檔案...",
     "files.noFiles": "找不到檔案",
     "files.explorer": "檔案瀏覽器",
+    "files.showBuildOutputs": "顯示建置產物",
+    "files.showBuildOutputsHint": "在檔案瀏覽器中顯示 build/dist 建置產物目錄",
     "files.changedCount": "{count} 個檔案",
     "files.changeStats": "{count} 個變更檔案，新增 {additions} 行，刪除 {deletions} 行",
     "files.conflictSummary": "{count} 個檔案已存在：{files}",
