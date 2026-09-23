@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "app.piweb.twa"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.piweb.twa"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
@@ -65,4 +65,9 @@ dependencies {
     // ONLY dependency — the shell contains no WebView code of its own, no
     // proxying, and no script injection (pi#40).
     implementation("androidx.browser:browser:1.8.0")
+    // TWA protocol (session + assetlinks verification): androidx.browser alone
+    // launches a plain Custom Tab in the device's "best" browser — on Chinese
+    // ROMs that is an OEM browser with no TWA support, so the URL bar shows.
+    // browserhelper pins the provider to Chrome and runs the verification.
+    implementation("com.google.androidbrowserhelper:androidbrowserhelper:2.6.2")
 }
