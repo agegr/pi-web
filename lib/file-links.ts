@@ -184,3 +184,47 @@ export function resolveLocalFilePath(filePath: string | undefined, baseDir?: str
 
   return normalizeLocalPath(candidate);
 }
+
+const INLINE_PATH_MAX_LENGTH = 260;
+const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/;
+const WINDOWS_UNC_PATH = /^\\\\/;
+/** A file-looking tail: an alphabetic extension, so `v0.9.2` is not a path. */
+const HAS_FILE_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+
+/**
+ * Resolve an inline-code span that is nothing but a filesystem path.
+ *
+ * Inline code carries prose constants (`npm test`, `application/json`) far more
+ * often than paths, so the match stays deliberately narrow: a single token that
+ * is either rooted (drive letter, UNC, or `/…`) or a slash-separated relative
+ * path whose last segment looks like a file. Bare names (`Node.js`) and
+ * slash-only fragments (`read/write`) stay plain code. Rooted Windows paths may
+ * contain spaces (`C:\Program Files\app`); anything else may not.
+ */
+export function resolveInlineCodePath(text: string, baseDir?: string): string | null {
+  const candidate = text.trim();
+  if (!candidate || candidate.length > INLINE_PATH_MAX_LENGTH) return null;
+  if (candidate.startsWith("-")) return null;
+  if (candidate.includes("://")) return null;
+
+  const isWindowsRooted = WINDOWS_DRIVE_PATH.test(candidate) || WINDOWS_UNC_PATH.test(candidate);
+  if (/\s/.test(candidate) && !isWindowsRooted) return null;
+
+  const withoutTrailingSlash = candidate.replace(/[\\/]+$/, "");
+  if (!withoutTrailingSlash) return null;
+
+  if (isWindowsRooted || candidate.startsWith("/")) {
+    // `/api/files`, `/_next/…` are app routes, not files on disk.
+    if (/^\/(api|_next)\//i.test(candidate)) return null;
+    return resolveLocalFilePath(candidate, baseDir);
+  }
+
+  if (!candidate.includes("/") && !candidate.includes("\\")) return null;
+  if (!HAS_FILE_EXTENSION.test(withoutTrailingSlash)) return null;
+
+  const resolved = resolveLocalFilePath(candidate, baseDir);
+  if (!resolved) return null;
+  // A relative path must stay inside the directory it is resolved against.
+  if (baseDir && !isPathInside(resolved, baseDir)) return null;
+  return resolved;
+}

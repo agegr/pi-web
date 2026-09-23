@@ -85,6 +85,7 @@ app/api/
   terminal/route.ts               POST create a terminal session
   terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
   cwd/browse/route.ts             GET browse allowed cwd directories
+  open-folder/route.ts            POST reveal a folder or file in the OS file manager
   app-update/route.ts             GET current vs latest published pi-web version
   file-index/route.ts             GET file list for @-mentions
   git/status/route.ts             GET changed files for a cwd
@@ -103,6 +104,8 @@ lib/
   enabled-models-runtime.ts  SDK adapter: per-pattern resolution, provider kinds, settings IO
   markdown.ts          shared markdown helpers
   node-cli.ts          locate bundled npm-cli.js / npx-cli.js so npm/npx spawn without a shell (Windows npm.cmd)
+  open-folder.ts       platform command + loopback host check for /api/open-folder (explorer.exe / open / xdg-open; files revealed)
+  path-actions.ts      client path actions: file probe + reveal POST
   npx.ts               npx runner used by skill install
   plugin-updates.ts    npm view update checks for /api/plugins/check
   pi-types.ts          local structural types for pi SDK objects
@@ -123,7 +126,9 @@ components/
   MessageView.tsx     renders one message (user/assistant/toolCall/toolResult)
   BranchNavigator.tsx in-session branch switcher
   ChatMinimap.tsx     scroll minimap alongside the message list
-  MarkdownBody.tsx    markdown renderer
+  MarkdownBody.tsx    markdown renderer (inline-code paths become chips)
+  RevealInFileManagerButton.tsx  reveal a path in the OS file manager
+  InlineFilePath (in MarkdownBody.tsx)  inline-code path chips
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
   EnabledModelsSection.tsx  model switches inside ModelsConfig, backed by enabledModels
   AgentsConfig.tsx    built-in subagent toggle + agent profile editor
