@@ -1,4 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { getWebPluginRuntime, publishWebPluginEvent } from "./web-plugins-server";
+import { validWebPluginHint } from "./web-plugin-types";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -435,6 +437,7 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
+    publishWebPluginEvent(this.sessionId, event);
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -1489,6 +1492,22 @@ export class AgentSessionWrapper {
 
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
+      web: {
+        version: 1,
+        supportsEditorData: true,
+        editor: (request) => {
+          const web = validWebPluginHint(request);
+          if (!web || typeof request.title !== "string" || typeof request.prefill !== "string") {
+            return Promise.reject(new Error("Invalid web plugin editor request"));
+          }
+          return this.requestExtensionUi(
+            { method: "editor", title: request.title, prefill: request.prefill,
+              web: { ...web, ...(request.data === undefined ? {} : { data: request.data }) } },
+            undefined,
+            (response) => "value" in response ? response.value : undefined,
+          );
+        },
+      },
       select: (title, options, opts) => this.requestExtensionUi(
         { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
@@ -1953,6 +1972,7 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: RpcSessionStartOptions = {},
 ): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
+  await getWebPluginRuntime();
   const { initialModel, allowInitialModelFallback, thinkingLevel } = options;
   const requestedToolNames = options.toolNames === undefined
     ? undefined

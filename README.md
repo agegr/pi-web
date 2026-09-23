@@ -100,6 +100,10 @@ npx @agegr/pi-web@latest
 - **File access boundary**: the file browser is limited to working directories selected in Pi Web and project or session roots it already knows about; it is not a general filesystem browser.
 - **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for switcher visibility, worktree creation, and removal behavior.
 
+### Web Plugins (API v1)
+
+Opt-in plugins stored outside the npm installation can mount browser UI in supported slots, add namespaced server routes, and observe session events. These are separate from Pi's agent extensions and run as trusted code. See [Web plugins](./docs/web-plugins.md) for installation, API contracts, and upgrade limitations.
+
 ### Downstream Session Context Menu
 
 Electron wrappers and other downstream integrations can provide a session-row

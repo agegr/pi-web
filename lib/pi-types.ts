@@ -1,3 +1,4 @@
+import type { WebPluginPiUi } from "./web-plugin-types";
 import type {
   AgentSessionEvent,
   BashOperations,
@@ -93,6 +94,7 @@ type WidgetOptionsLike = {
 };
 
 export interface ExtensionUiContextLike {
+  web: WebPluginPiUi;
   select(title: string, options: string[], opts?: DialogOptionsLike): Promise<string | undefined>;
   confirm(title: string, message: string, opts?: DialogOptionsLike): Promise<boolean>;
   input(title: string, placeholder?: string, opts?: DialogOptionsLike): Promise<string | undefined>;
