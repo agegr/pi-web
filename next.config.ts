@@ -13,14 +13,14 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
-  // Serve HTML and static responses UNCOMPRESSED. The Capacitor Android
-  // proxy (WebViewLocalServer.handleProxyRequest) fetches main-frame HTML
-  // with the WebView's Accept-Encoding: gzip copied verbatim and then
-  // reads the gzip body as UTF-8 text to splice the runtime in — a gzipped
-  // response arrives as mojibake and the WebView fails with
-  // "This page couldn't load" (device pass, pi#31). Self-hosted LAN
-  // deployments don't need server-side gzip; browsers handle their own
-  // content-encoding on every non-proxied request.
+  // Serve HTML and static responses UNCOMPRESSED. Self-hosted deployments
+  // sit behind an edge reverse proxy (Caddy in our deploy) that compresses
+  // on the way out, and LAN deployments don't need server-side gzip — the
+  // browser negotiates its own content-encoding in every other setup.
+  // (This setting was originally turned off to work around a since-removed
+  // mobile shell's HTML proxy, pi#40; it stays off because re-enabling would
+  // change deployed behavior for no measured gain — recorded as that
+  // decision.)
   compress: false,
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever
@@ -83,6 +83,19 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/manifest.webmanifest",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
+        ],
+      },
+      {
+        // Digital Asset Links for the Android TWA shell (pi#40). Must stay
+        // reachable WITHOUT the web-password gate — the browser's TWA
+        // verification fetches it unauthenticated. proxy.ts's matcher
+        // (["/", "/login", "/api/:path*"]) never matches this path, so no
+        // proxy change is needed. Regenerate per APK re-sign with
+        // mobile-twa/scripts/assetlinks.sh; max-age=0 so Chrome re-verifies
+        // right after an APK re-sign instead of serving a stale statement.
+        source: "/.well-known/assetlinks.json",
         headers: [
           { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
         ],

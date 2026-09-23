@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the pi-web dark theme color (app/manifest.ts theme_color). -->
+    <color name="ic_launcher_background">#1a1a1a</color>
+</resources>
