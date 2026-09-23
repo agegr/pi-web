@@ -13,9 +13,9 @@ export interface ProjectFileEdit {
 /** Edits to existing files (shown as "modified" in Git). */
 export const PROJECT_FILE_EDITS: ProjectFileEdit[] = [
   {
-    key: "readme-demo-link",
+    key: "readme-help-tip",
     path: "README.md",
-    edits: [{ oldText: "## Features\n", newText: "## Features\n\n> **Try it in your browser:** the [interactive demo](https://agegr.github.io/pi-web/) runs the real Pi Web UI with sample sessions, files and models.\n" }],
+    edits: [{ oldText: "## Quick Start\n", newText: "## Quick Start\n\n> **Tip:** run `pi-web --help` to list every startup option before you launch it.\n" }],
   },
   {
     key: "appshell-format-duration",

@@ -58,8 +58,8 @@ Start it with \`npx @agegr/pi-web@latest\`; it listens on \`127.0.0.1:30141\` by
       kind: "user",
       gapMinutes: 2,
       text: {
-        en: "Add a note under **Features** that links to the live demo.",
-        zh: "在 **Features** 下面加一条提示，链接到在线演示。",
+        en: "Add a tip under **Quick Start** that points people to `pi-web --help`.",
+        zh: "在 **Quick Start** 下面加一条提示，告诉大家可以用 `pi-web --help` 查看启动参数。",
       },
     },
     {
@@ -67,23 +67,23 @@ Start it with \`npx @agegr/pi-web@latest\`; it listens on \`127.0.0.1:30141\` by
       rounds: [
         {
           thinking: {
-            en: "A one-line blockquote right under the Features heading keeps the list intact. Use a single targeted edit.",
-            zh: "在 Features 标题下面加一行引用块，不影响后面的列表。用一次精确替换即可。",
+            en: "A one-line blockquote right under the Quick Start heading keeps the steps below it intact. Use a single targeted edit.",
+            zh: "在 Quick Start 标题下面加一行引用块，不影响后面的步骤。用一次精确替换即可。",
           },
           seconds: 5,
-          tools: [{ name: "edit", args: {}, result: { editKey: "readme-demo-link" } }],
+          tools: [{ name: "edit", args: {}, result: { editKey: "readme-help-tip" } }],
         },
         {
           seconds: 4,
           text: {
-            en: `Done — added a callout under **Features** in \`README.md\`.
+            en: `Done — added a tip under **Quick Start** in \`README.md\`.
 
 You can check it three ways:
 
 - Expand the **edit** card above to see the diff of this change.
 - Click the **changed files** button next to *Explorer* in the sidebar: \`README.md\` is listed as modified, and clicking it opens a side-by-side **Diff**.
 - The \`README.md\` tab on the right already shows the new line — open files refresh automatically when the agent changes them.`,
-            zh: `完成——已在 \`README.md\` 的 **Features** 下方加了一条提示。
+            zh: `完成——已在 \`README.md\` 的 **Quick Start** 下方加了一条提示。
 
 可以通过三种方式查看：
 

@@ -50,6 +50,20 @@ differ from their originals:
 To pick up UI changes from the main project, copy the updated files over and
 re-apply the changes above (search for `demo` / `@/mock` in those files).
 
+## Isolation from Pi Web
+
+The demo never ends up in the app or its npm package:
+
+- **Not published.** The root `package.json` publishes only the paths in its
+  `files` whitelist, so `npm pack` contains nothing from `demo/`.
+- **Not compiled into the app.** Pi Web imports nothing from `demo/`; the root
+  `tsconfig.json` excludes it and `eslint.config.mjs` ignores it.
+- **Kept out of the app's CSS.** Tailwind scans every file that isn't
+  gitignored, so `app/globals.css` has `@source not "../demo";`. The demo's copy
+  of `globals.css` keeps the same line, where it points at nothing.
+- **Its own CI.** Only `.github/workflows/demo-pages.yml` installs and builds
+  `demo/`.
+
 ## Commands
 
 ```bash
