@@ -292,7 +292,81 @@ test("does not expose disk-backed actions for transient sessions", () => {
 
 test("hides subagent rows and aggregates their state into the main session row", () => {
   assert.match(source, /listSessionFamilies\(\s*filteredSessions\.filter\(\(session\) => !pinnedKeySet\.has\(workspaceKeyOf\(session\)\)\)/);
-  assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
+  assert.match(source, /familySessions\.some\(\(session\) => session\.id === effectiveHighlightSessionId\)/);
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
+});
+
+// --- Split-view highlight follow (this wi) ---
+
+test("the row highlight reads the focus-derived id with a classic fallback", () => {
+  // A distinct optional prop — selectedSessionId keeps feeding toast
+  // suppression, unread clearing and the search, so the blast radius stays
+  // exactly highlight + expansion + scroll.
+  assert.match(source, /highlightSessionId\?: string \| null;/);
+  assert.match(source, /followHighlightIntoView\?: boolean;/);
+  assert.match(
+    source,
+    /const effectiveHighlightSessionId = highlightSessionId === undefined\n    \? selectedSessionId\n    : highlightSessionId;/,
+  );
+  // The row highlight — and only it — reads the effective id.
+  assert.match(
+    source,
+    /isSelected=\{familySessions\.some\(\(session\) => session\.id === effectiveHighlightSessionId\)\}/,
+  );
+  // selectedSessionId keeps its classic consumers untouched.
+  assert.match(source, /selectedSessionIdRef = useRef\(selectedSessionId\)/);
+  assert.match(source, /id !== selectedSessionId\)/);
+});
+
+test("the follow effect fires only on a highlight change while the gate is on", () => {
+  const followStart = source.indexOf("const lastSeenHighlightIdRef");
+  assert.ok(followStart >= 0, "SessionSidebar must define the follow effect");
+  const followBlock = source.slice(followStart, source.indexOf("// Applies a queued expansion scroll"));
+  // Mount baselines the highlight without scrolling — no scroll on initial
+  // load, and list refreshes that leave the highlight alone never re-fire
+  // (the effect depends only on the id and the gate).
+  assert.match(
+    followBlock,
+    /if \(lastSeenHighlightIdRef\.current === undefined\) \{[\s\S]*?lastSeenHighlightIdRef\.current = effectiveHighlightSessionId;[\s\S]*?return;[\s\S]*?\}/,
+  );
+  assert.match(
+    followBlock,
+    /if \(!followHighlightIntoView \|\| !changed \|\| effectiveHighlightSessionId == null\) return;/,
+  );
+  assert.match(
+    followBlock,
+    /\}, \[effectiveHighlightSessionId, followHighlightIntoView\]\);/,
+  );
+  // A subagent highlight resolves to its family root before scrolling.
+  assert.match(followBlock, /getSessionFamily\(allSessions, effectiveHighlightSessionId\)/);
+});
+
+test("the follow effect expands the owning pinned group accordion-style and scrolls by offset", () => {
+  const followStart = source.indexOf("const lastSeenHighlightIdRef");
+  const followBlock = source.slice(followStart, source.indexOf("// Applies a queued expansion scroll"));
+  // Collapsed pinned group: expand through the shared single-key accordion
+  // helper — the same semantics as click-driven expansion.
+  assert.match(
+    followBlock,
+    /if \(owningProject && !expandedGroupKeys\.has\(owningProject\.key\)\) \{[\s\S]*?expandPinnedGroup\(owningProject\.key\);/,
+  );
+  // The scrollTop write is offset-based against the row model — never a
+  // rendered-DOM scrollIntoView — and rides the existing onScroll → rAF →
+  // setListScrollTop windowing path.
+  assert.match(
+    source,
+    /const target = scrollTargetForSession\(rows, sessionId, el\.clientHeight, el\.scrollTop\);/,
+  );
+  assert.match(source, /if \(target != null\) el\.scrollTop = target;/);
+  assert.doesNotMatch(source, /scrollIntoView/);
+  // The expansion-path scroll is queued and applied only once the rebuilt
+  // row model reflects the expansion (a synchronous write would clamp
+  // against the pre-expansion DOM height).
+  assert.match(followBlock, /pendingFollowScrollSessionIdRef\.current = rootId;/);
+  const pendingBlock = source.slice(source.indexOf("// Applies a queued expansion scroll"));
+  assert.match(
+    pendingBlock,
+    /if \(!sidebarRows\.some\(\(row\) => row\.kind === "session" && row\.family\.root\.id === pendingId\)\) \{[\s\S]*?return;/,
+  );
 });

@@ -218,3 +218,38 @@ export function getWindowedRows(
     ? [rows[focusedIndex], ...windowRows]
     : [...windowRows, rows[focusedIndex]];
 }
+
+/**
+ * Scroll-into-view target for one session's row on the windowed list —
+ * offset-based, so it needs no rendered DOM node. Returns the nearest
+ * scrollTop that reveals the row fully: top-aligned when the row sits
+ * above the viewport, bottom-aligned when it sits below (minimal scroll
+ * distance either way, so the list never jumps further than needed). Null
+ * when the row is already fully visible, the session has no row in the
+ * given array (e.g. its pinned group is collapsed), or the viewport height
+ * is unknown — callers treat null as "nothing to do".
+ */
+export function scrollTargetForSession(
+  rows: readonly SidebarRow[],
+  sessionId: string,
+  viewportHeight: number,
+  currentScrollTop: number,
+): number | null {
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return null;
+  if (!Number.isFinite(currentScrollTop)) return null;
+  const row = rows.find(
+    (r) => r.kind === "session" && r.family.root.id === sessionId,
+  );
+  if (!row || row.kind !== "session") return null;
+  const top = row.offset;
+  const bottom = row.offset + row.height;
+  if (top >= currentScrollTop && bottom <= currentScrollTop + viewportHeight) {
+    return null; // already fully visible
+  }
+  if (top < currentScrollTop || row.height >= viewportHeight) {
+    // Above the viewport (or taller than it): top-align.
+    return Math.max(0, top);
+  }
+  // Below the viewport: bottom-align.
+  return Math.max(0, bottom - viewportHeight);
+}

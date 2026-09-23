@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
-import { listSessionFamilies, type SessionFamily } from "@/lib/session-family";
+import { listSessionFamilies, getSessionFamily, type SessionFamily } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -13,10 +13,12 @@ import { shouldShowDefaultCwdShortcut, syntheticProjectFor } from "@/lib/default
 import {
   buildSidebarRows,
   getWindowedRows,
+  scrollTargetForSession,
   sidebarRowsHeight,
   SESSION_LIST_ITEM_HEIGHT,
   type GroupEmptyRow,
   type SessionRow,
+  type SidebarRow,
   type SidebarProject,
 } from "@/lib/sidebar-rows";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
@@ -103,6 +105,15 @@ function ToolbarIconButton({
 
 interface Props {
   selectedSessionId: string | null;
+  /** Split-view follow: focus-derived session id the sidebar highlights.
+   *  Falls back to selectedSessionId when the prop is absent, so classic
+   *  call sites keep byte-for-byte the old behavior. Never the new-session
+   *  sentinel — AppShell derives it via resolveSidebarSessionId. */
+  highlightSessionId?: string | null;
+  /** Gate for the highlight's scroll/expand follow effect. AppShell passes
+   *  `splitPaneEnabled && !isMobile` so the classic and mobile layouts keep
+   *  zero new scroll/expansion side effects. */
+  followHighlightIntoView?: boolean;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
@@ -685,8 +696,15 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onExternalSessionChange }: Props) {
+export function SessionSidebar({ selectedSessionId, highlightSessionId, followHighlightIntoView, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onExternalSessionChange }: Props) {
   const { t } = useI18n();
+  // Split-view follow: the row highlight reads the focus-derived id when the
+  // shell passes one and falls back to the classic selection otherwise.
+  // selectedSessionId itself (toast suppression, unread clearing, search)
+  // keeps its exact classic semantics — only the row highlight follows focus.
+  const effectiveHighlightSessionId = highlightSessionId === undefined
+    ? selectedSessionId
+    : highlightSessionId;
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
   const sessionListVersionRef = useRef<number | null>(null);
@@ -1610,6 +1628,68 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     else groupRowsByKey.set(groupKey, [row]);
   }
   const visibleSidebarRows = getWindowedRows(sidebarRows, listScrollTop, listViewportH, focusedSessionId);
+
+  // --- Split-view highlight follow (this wi) ---
+  // When the focus-derived highlight changes while the follow gate is on,
+  // reveal that session's row: expand its collapsed pinned group (accordion,
+  // same single-key helper as click-driven expansion) and scroll the row
+  // into view through the offset-based row model — no DOM node needed. The
+  // effect fires ONLY on a highlight change: never on mount, never on
+  // session-list refreshes that leave the highlight alone, so it never
+  // fights the user's manual scrolling. With the gate off (classic layout,
+  // mobile) there are zero new scroll/expansion side effects.
+  const applyFollowScroll = useCallback((rows: readonly SidebarRow[], sessionId: string) => {
+    const el = listScrollRef.current;
+    if (!el) return;
+    const target = scrollTargetForSession(rows, sessionId, el.clientHeight, el.scrollTop);
+    if (target != null) el.scrollTop = target;
+    // The programmatic write rides the existing onScroll → rAF →
+    // setListScrollTop path, remounting the correct windowed slice.
+  }, []);
+  const lastSeenHighlightIdRef = useRef<string | null | undefined>(undefined);
+  const pendingFollowScrollSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastSeenHighlightIdRef.current === undefined) {
+      // First observation (mount): baseline the highlight without scrolling.
+      lastSeenHighlightIdRef.current = effectiveHighlightSessionId;
+      return;
+    }
+    const changed = lastSeenHighlightIdRef.current !== effectiveHighlightSessionId;
+    lastSeenHighlightIdRef.current = effectiveHighlightSessionId;
+    if (!followHighlightIntoView || !changed || effectiveHighlightSessionId == null) return;
+    // Pane ids are family roots in practice; a subagent id resolves to its
+    // root's row so the scroll math addresses a real row.
+    const family = getSessionFamily(allSessions, effectiveHighlightSessionId);
+    if (!family) return;
+    const rootId = family.root.id;
+    // A stale queued scroll must never win over a newer highlight.
+    pendingFollowScrollSessionIdRef.current = null;
+    const owningProject = pinnedProjects.find((project) =>
+      (familiesByProject.get(project.key) ?? []).some((f) => f.root.id === rootId));
+    if (owningProject && !expandedGroupKeys.has(owningProject.key)) {
+      // The row hides inside a collapsed pinned group. Expand it now, but
+      // queue the scroll: the DOM height still describes the pre-expansion
+      // rows, so a synchronous scrollTop write would clamp short. The
+      // pending effect below applies it once the rebuilt row model lands.
+      expandPinnedGroup(owningProject.key);
+      pendingFollowScrollSessionIdRef.current = rootId;
+      return;
+    }
+    applyFollowScroll(sidebarRows, rootId);
+    // Rows, families and the sessions catalog are render products of the
+    // dependency inputs; listing them would re-scroll on list churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveHighlightSessionId, followHighlightIntoView]);
+  // Applies a queued expansion scroll once the row model reflects it.
+  useEffect(() => {
+    const pendingId = pendingFollowScrollSessionIdRef.current;
+    if (!pendingId) return;
+    if (!sidebarRows.some((row) => row.kind === "session" && row.family.root.id === pendingId)) {
+      return; // the expand re-render has not rebuilt the rows yet
+    }
+    pendingFollowScrollSessionIdRef.current = null;
+    applyFollowScroll(sidebarRows, pendingId);
+  });
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1649,7 +1729,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return (
       <SessionItem
         session={displaySession}
-        isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+        isSelected={familySessions.some((session) => session.id === effectiveHighlightSessionId)}
         isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
         isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
         onClick={() => handleSelectSessionFromList(family.root)}

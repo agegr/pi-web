@@ -34,6 +34,7 @@ import {
   coalesceCompletionSound,
   isNewSessionTab,
   resolveBackgroundTasksSessionId,
+  resolveSidebarSessionId,
   openNewSessionTab,
   hasSessionTab,
   NEW_SESSION_TAB_ID,
@@ -216,6 +217,24 @@ export function AppShell() {
   );
   const activeBgSessionIdRef = useRef<string | null>(null);
   activeBgSessionIdRef.current = activeBgSessionId;
+  // Split-view sidebar follow (this wi): the sidebar's highlight derives from
+  // the FOCUSED pane's session with the same inputs as the background-tasks
+  // memo above, so the two surfaces always agree on the "current" session.
+  // Pane focus still never writes selectedSession (pi#33) — only the
+  // highlight follows it — and when split view closes (or on mobile) the
+  // derivation returns the classic selection, so the highlight falls back
+  // with no further user action.
+  const sidebarSessionId = useMemo(
+    () => resolveSidebarSessionId({
+      splitPaneEnabled: splitPaneEnabled && !isMobile,
+      focusedPaneId,
+      selectedSessionId: selectedSession?.id ?? null,
+      // Read at render; the ref is intentionally not a dependency.
+      lastSessionPaneId: lastSessionPaneIdRef.current,
+      paneTabs,
+    }),
+    [splitPaneEnabled, isMobile, focusedPaneId, selectedSession?.id, paneTabs],
+  );
   const {
     state: bgTasksState,
     logs: bgTaskLogs,
@@ -1430,6 +1449,8 @@ export function AppShell() {
     <>
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
+        highlightSessionId={sidebarSessionId}
+        followHighlightIntoView={splitPaneEnabled && !isMobile}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
