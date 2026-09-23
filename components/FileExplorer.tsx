@@ -1,6 +1,7 @@
 "use client";
 
-import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getFileIcon, FolderIcon } from "./FileIcons";
 import {
   encodeFilePathForApi,
@@ -13,6 +14,7 @@ import {
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
+import { isArchivePath } from "@/lib/archive-names";
 import { useI18n } from "@/hooks/useI18n";
 type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -39,6 +41,8 @@ interface Props {
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
   onUploadBusyChange?: (busy: boolean) => void;
+  /** Called after a successful file mutation (create/rename/delete) so panels showing Git state can refresh. */
+  onFileMutated?: () => void;
   changesCollapsed: boolean;
   onChangesCountChange?: (count: number) => void;
   fileSearchOpen?: boolean;
@@ -76,6 +80,43 @@ interface PendingConflict {
   files: File[];
   conflicts: string[];
   nonReplaceable: string[];
+}
+
+interface ContextMenuTarget {
+  x: number;
+  y: number;
+  fullPath: string;
+  name: string;
+  isDir: boolean;
+}
+
+interface RenameState {
+  fullPath: string;
+  isDir: boolean;
+  name: string;
+  value: string;
+}
+
+interface CreateState {
+  parentDir: string;
+  type: "file" | "dir";
+  value: string;
+}
+
+/** POST a mutation action against the files API and normalize the error surface. */
+async function mutateFileEntry(
+  targetPath: string,
+  type: "write" | "touch" | "mkdir" | "rename" | "delete" | "extract" | "compress",
+  body: Record<string, unknown> = {},
+): Promise<{ ok: boolean; error?: string; data?: { extractedTo?: string; archive?: string } }> {
+  const res = await fetch(`/api/files/${encodeFilePathForApi(targetPath)}?type=${type}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}) as { error?: string; extractedTo?: string; archive?: string });
+  if (res.ok) return { ok: true, data };
+  return { ok: false, error: data.error ?? `Request failed (HTTP ${res.status})` };
 }
 
 async function fetchEntries(dirPath: string): Promise<FileNode[]> {
@@ -213,6 +254,73 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
   );
 }
 
+function CreateEntryInput({
+  depth,
+  type,
+  value,
+  inputRef,
+  onValueChange,
+  onSubmit,
+  onCancel,
+  t,
+}: {
+  depth: number;
+  type: "file" | "dir";
+  value: string;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onValueChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  t: Translate;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        paddingLeft: 8 + depth * 14,
+        paddingRight: 8,
+        height: 24,
+        borderRadius: 4,
+        userSelect: "none",
+      }}
+    >
+      {type === "dir" ? <FolderIcon size={14} open={false} /> : <span style={{ width: 10, flexShrink: 0 }} />}
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onSubmit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        onBlur={onCancel}
+        placeholder={type === "dir" ? t("files.newFolderName") : t("files.newFileName")}
+        aria-label={type === "dir" ? t("files.newFolderName") : t("files.newFileName")}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: 20,
+          padding: "0 4px",
+          border: "1px solid var(--accent)",
+          borderRadius: 3,
+          outline: "none",
+          background: "var(--bg)",
+          color: "var(--text)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+        }}
+      />
+    </div>
+  );
+}
+
 function TreeNode({
   node,
   depth,
@@ -225,6 +333,15 @@ function TreeNode({
   highlightedPaths,
   gitStatusByPath,
   changedDirectoryPaths,
+  onNodeContextMenu,
+  renaming,
+  onRenameValueChange,
+  onRenameSubmit,
+  onRenameCancel,
+  creating,
+  onCreateValueChange,
+  onCreateSubmit,
+  onCreateCancel,
   t,
 }: {
   node: FileNode;
@@ -238,6 +355,15 @@ function TreeNode({
   highlightedPaths: Set<string>;
   gitStatusByPath: Map<string, GitFileStatus>;
   changedDirectoryPaths: Set<string>;
+  onNodeContextMenu?: (node: FileNode, x: number, y: number) => void;
+  renaming: RenameState | null;
+  onRenameValueChange: (value: string) => void;
+  onRenameSubmit: () => void;
+  onRenameCancel: () => void;
+  creating: CreateState | null;
+  onCreateValueChange: (value: string) => void;
+  onCreateSubmit: () => void;
+  onCreateCancel: () => void;
   t: Translate;
 }) {
   const open = expandedPaths.has(node.fullPath);
@@ -251,6 +377,21 @@ function TreeNode({
   const [loaded, setLoaded] = useState(node.loaded ?? false);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const isRenaming = renaming?.fullPath === node.fullPath;
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const createInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isRenaming) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [isRenaming]);
+
+  const isCreatingHere = creating !== null && creating.parentDir === node.fullPath;
+  useEffect(() => {
+    if (isCreatingHere) createInputRef.current?.focus();
+  }, [isCreatingHere]);
 
   const loadChildren = useCallback(async (force = false) => {
     if (loaded && !force) return;
@@ -288,6 +429,14 @@ function TreeNode({
     <div>
       <div
         onClick={handleClick}
+        onContextMenu={(event) => {
+          if (!onNodeContextMenu) return;
+          // Inside the rename/create inputs the native menu (copy/paste) wins.
+          if ((event.target as HTMLElement).closest("input, textarea")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onNodeContextMenu(node, event.clientX, event.clientY);
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -317,19 +466,52 @@ function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            flex: 1,
-          }}
-          title={node.fullPath}
-        >
-          {node.name}
-        </span>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            value={renaming.value}
+            onChange={(event) => onRenameValueChange(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onRenameSubmit();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                onRenameCancel();
+              }
+            }}
+            onBlur={onRenameCancel}
+            aria-label={t("files.renameEntry")}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: 20,
+              padding: "0 4px",
+              border: "1px solid var(--accent)",
+              borderRadius: 3,
+              outline: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+            }}
+          />
+        ) : (
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+            title={node.fullPath}
+          >
+            {node.name}
+          </span>
+        )}
         {highlighted && (
           <span
             title={t("files.newlyUploaded")}
@@ -447,10 +629,31 @@ function TreeNode({
               highlightedPaths={highlightedPaths}
               gitStatusByPath={gitStatusByPath}
               changedDirectoryPaths={changedDirectoryPaths}
+              onNodeContextMenu={onNodeContextMenu}
+              renaming={renaming}
+              onRenameValueChange={onRenameValueChange}
+              onRenameSubmit={onRenameSubmit}
+              onRenameCancel={onRenameCancel}
+              creating={creating}
+              onCreateValueChange={onCreateValueChange}
+              onCreateSubmit={onCreateSubmit}
+              onCreateCancel={onCreateCancel}
               t={t}
             />
           ))}
-          {children.length === 0 && loaded && (
+          {creating && creating.parentDir === node.fullPath && (
+            <CreateEntryInput
+              depth={depth + 1}
+              type={creating.type}
+              value={creating.value}
+              inputRef={createInputRef}
+              onValueChange={onCreateValueChange}
+              onSubmit={onCreateSubmit}
+              onCancel={onCreateCancel}
+              t={t}
+            />
+          )}
+          {children.length === 0 && loaded && !(creating && creating.parentDir === node.fullPath) && (
             <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
               empty
             </div>
@@ -589,6 +792,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onAtMention,
   onAtMentions,
   onUploadBusyChange,
+  onFileMutated,
   changesCollapsed,
   onChangesCountChange,
   fileSearchOpen = false,
@@ -613,12 +817,267 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [searchExpanded, setSearchExpanded] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<ContextMenuTarget | null>(null);
+  const [renaming, setRenaming] = useState<RenameState | null>(null);
+  const [creating, setCreating] = useState<CreateState | null>(null);
+  const [mutating, setMutating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const rootCreateInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
   const hasSearchQuery = searchQuery.trim().length > 0;
+
+  useEffect(() => {
+    if (creating && creating.parentDir === cwd) rootCreateInputRef.current?.focus();
+  }, [creating, cwd]);
+
+  const handleNodeContextMenu = useCallback((node: FileNode, x: number, y: number) => {
+    setRenaming(null);
+    setContextMenu({ x, y, fullPath: node.fullPath, name: node.name, isDir: node.isDir });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const refreshTree = useCallback(() => {
+    setTreeRefreshKey((key) => key + 1);
+    onFileMutated?.();
+  }, [onFileMutated]);
+
+  const submitRename = useCallback(async () => {
+    if (!renaming) return;
+    const target = renaming;
+    const nextName = target.value.trim();
+    setRenaming(null);
+    if (!nextName || nextName === target.name) return;
+    setMutating(true);
+    try {
+      const result = await mutateFileEntry(target.fullPath, "rename", { name: nextName });
+      if (result.ok) {
+        setExpandedPaths((prev) => {
+          if (!prev.has(target.fullPath)) return prev;
+          const next = new Set(prev);
+          next.delete(target.fullPath);
+          next.add(joinFilePath(getFileDirectory(target.fullPath), nextName));
+          return next;
+        });
+        refreshTree();
+      } else {
+        setActionError(result.error ?? null);
+      }
+    } finally {
+      setMutating(false);
+    }
+  }, [renaming, refreshTree]);
+
+  const cancelRename = useCallback(() => setRenaming(null), []);
+
+  const handleRenameValueChange = useCallback((value: string) => {
+    setRenaming((current) => current ? { ...current, value } : current);
+  }, []);
+
+  const handleCreateValueChange = useCallback((value: string) => {
+    setCreating((current) => current ? { ...current, value } : current);
+  }, []);
+
+  const startCreate = useCallback((parentDir: string, type: "file" | "dir") => {
+    setContextMenu(null);
+    setRenaming(null);
+    // The inline input lives in the real tree, not the search results tree —
+    // leave search mode so the destination row is actually rendered.
+    setSearchQuery("");
+    setCreating({ parentDir, type, value: "" });
+    if (parentDir !== cwd) {
+      // The inline input lives inside the directory's row, so open it first.
+      setExpandedPaths((prev) => {
+        if (prev.has(parentDir)) return prev;
+        const next = new Set(prev);
+        next.add(parentDir);
+        return next;
+      });
+    }
+  }, [cwd]);
+
+  const cancelCreate = useCallback(() => setCreating(null), []);
+
+  const submitCreate = useCallback(async () => {
+    if (!creating) return;
+    const target = creating;
+    const name = target.value.trim();
+    if (!name) {
+      setCreating(null);
+      return;
+    }
+    setMutating(true);
+    try {
+      const result = await mutateFileEntry(
+        target.parentDir,
+        target.type === "file" ? "touch" : "mkdir",
+        { name },
+      );
+      if (result.ok) {
+        setCreating(null);
+        if (target.parentDir !== cwd) {
+          setExpandedPaths((prev) => {
+            if (prev.has(target.parentDir)) return prev;
+            const next = new Set(prev);
+            next.add(target.parentDir);
+            return next;
+          });
+        }
+        setHighlightedPaths(new Set([joinFilePath(target.parentDir, name)]));
+        refreshTree();
+      } else {
+        setActionError(result.error ?? null);
+      }
+    } finally {
+      setMutating(false);
+    }
+  }, [creating, cwd, refreshTree]);
+
+  const deleteNode = useCallback(async (node: ContextMenuTarget) => {
+    setContextMenu(null);
+    const message = node.isDir
+      ? t("files.confirmDeleteFolder", { name: node.name })
+      : t("files.confirmDeleteFile", { name: node.name });
+    if (!window.confirm(message)) return;
+    setMutating(true);
+    try {
+      const result = await mutateFileEntry(node.fullPath, "delete", { recursive: node.isDir });
+      if (result.ok) {
+        setExpandedPaths((prev) => {
+          if (!prev.has(node.fullPath)) return prev;
+          const next = new Set(prev);
+          next.delete(node.fullPath);
+          return next;
+        });
+        refreshTree();
+      } else {
+        setActionError(result.error ?? null);
+      }
+    } finally {
+      setMutating(false);
+    }
+  }, [refreshTree, t]);
+
+  const extractNode = useCallback(async (node: ContextMenuTarget) => {
+    setContextMenu(null);
+    setMutating(true);
+    try {
+      const result = await mutateFileEntry(node.fullPath, "extract");
+      if (result.ok) {
+        const extractedTo = result.data?.extractedTo;
+        if (extractedTo) setHighlightedPaths(new Set([extractedTo]));
+        refreshTree();
+      } else {
+        setActionError(result.error ?? null);
+      }
+    } finally {
+      setMutating(false);
+    }
+  }, [refreshTree]);
+
+  const compressNode = useCallback(async (node: ContextMenuTarget) => {
+    setContextMenu(null);
+    setMutating(true);
+    try {
+      const result = await mutateFileEntry(node.fullPath, "compress");
+      if (result.ok) {
+        const archive = result.data?.archive;
+        if (archive) setHighlightedPaths(new Set([archive]));
+        refreshTree();
+      } else {
+        setActionError(result.error ?? null);
+      }
+    } finally {
+      setMutating(false);
+    }
+  }, [refreshTree]);
+
+  const contextMenuItems = useMemo(() => {
+    if (!contextMenu) return [];
+    const parentDir = contextMenu.isDir
+      ? contextMenu.fullPath
+      : getFileDirectory(contextMenu.fullPath);
+    const items: Array<{ key: string; label: string; danger?: boolean; action: () => void }> = [];
+    if (!contextMenu.isDir) {
+      items.push(
+        {
+          key: "open",
+          label: t("files.menuOpen"),
+          action: () => {
+            setContextMenu(null);
+            onOpenFile(contextMenu.fullPath, contextMenu.name);
+          },
+        },
+        {
+          key: "download",
+          label: t("files.menuDownload"),
+          action: () => {
+            setContextMenu(null);
+            const anchor = document.createElement("a");
+            anchor.href = `/api/files/${encodeFilePathForApi(contextMenu.fullPath)}?type=download`;
+            anchor.download = contextMenu.name;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+          },
+        },
+      );
+    }
+    items.push(
+      {
+        key: "new-file",
+        label: t("files.menuNewFile"),
+        action: () => startCreate(parentDir, "file"),
+      },
+      {
+        key: "new-folder",
+        label: t("files.menuNewFolder"),
+        action: () => startCreate(parentDir, "dir"),
+      },
+      {
+        key: "rename",
+        label: t("files.menuRename"),
+        action: () => {
+          setContextMenu(null);
+          setRenaming({ fullPath: contextMenu.fullPath, isDir: contextMenu.isDir, name: contextMenu.name, value: contextMenu.name });
+        },
+      },
+    );
+    if (!contextMenu.isDir && isArchivePath(contextMenu.name)) {
+      items.push({
+        key: "extract",
+        label: t("files.menuExtract"),
+        action: () => void extractNode(contextMenu),
+      });
+    }
+    items.push(
+      {
+        key: "compress",
+        label: t("files.menuCompressZip"),
+        action: () => void compressNode(contextMenu),
+      },
+      {
+        key: "delete",
+        label: t("files.menuDelete"),
+        danger: true,
+        action: () => void deleteNode(contextMenu),
+      },
+    );
+    return items;
+  }, [compressNode, contextMenu, deleteNode, extractNode, onOpenFile, startCreate, t]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [contextMenu]);
 
   // Reuse the cached, bounded file index used by @ mentions.
   useEffect(() => {
@@ -826,6 +1285,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setUploadSummary(null);
       setPendingConflict(null);
       setUploadError(null);
+      setContextMenu(null);
+      setRenaming(null);
+      setCreating(null);
+      setActionError(null);
     }
 
     setLoading(cwdChanged);
@@ -874,6 +1337,58 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   return (
     <div style={{ minHeight: "100%" }}>
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
+      <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 6px", borderBottom: "1px solid var(--border)" }}>
+        <button
+          type="button"
+          onClick={() => { setRenaming(null); startCreate(cwd, "file"); }}
+          disabled={mutating || creating !== null}
+          title={t("files.newFile")}
+          aria-label={t("files.newFile")}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 20, padding: 0, border: "none", borderRadius: 4, background: "none", color: "var(--text-dim)", cursor: "pointer" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 3v5h5" /><path d="M5 3h9l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M12 11v6" /><path d="M9 14h6" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setRenaming(null); startCreate(cwd, "dir"); }}
+          disabled={mutating || creating !== null}
+          title={t("files.newFolder")}
+          aria-label={t("files.newFolder")}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 20, padding: 0, border: "none", borderRadius: 4, background: "none", color: "var(--text-dim)", cursor: "pointer" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /><path d="M12 10v6" /><path d="M9 13h6" />
+          </svg>
+        </button>
+        {actionError && (
+          <span role="alert" style={{ flex: 1, minWidth: 0, fontSize: 10, color: "#f87171", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={actionError}>
+            {actionError}
+          </span>
+        )}
+        {actionError && (
+          <DismissButton onClick={() => setActionError(null)} title={t("files.dismissError")} />
+        )}
+      </div>
+      {creating && creating.parentDir === cwd && (
+        <div style={{ padding: "2px 4px" }}>
+          <CreateEntryInput
+            depth={0}
+            type={creating.type}
+            value={creating.value}
+            inputRef={rootCreateInputRef}
+            onValueChange={handleCreateValueChange}
+            onSubmit={() => void submitCreate()}
+            onCancel={cancelCreate}
+            t={t}
+          />
+        </div>
+      )}
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
@@ -1049,6 +1564,15 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                     highlightedPaths={highlightedPaths}
                     gitStatusByPath={gitStatusByPath}
                     changedDirectoryPaths={changedDirectoryPaths}
+                    onNodeContextMenu={handleNodeContextMenu}
+                    renaming={renaming}
+                    onRenameValueChange={handleRenameValueChange}
+                    onRenameSubmit={() => void submitRename()}
+                    onRenameCancel={cancelRename}
+                    creating={creating}
+                    onCreateValueChange={handleCreateValueChange}
+                    onCreateSubmit={() => void submitCreate()}
+                    onCreateCancel={cancelCreate}
                     t={t}
                   />
                 ))}
@@ -1109,6 +1633,15 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 highlightedPaths={highlightedPaths}
                 gitStatusByPath={gitStatusByPath}
                 changedDirectoryPaths={changedDirectoryPaths}
+                onNodeContextMenu={handleNodeContextMenu}
+                renaming={renaming}
+                onRenameValueChange={handleRenameValueChange}
+                onRenameSubmit={() => void submitRename()}
+                onRenameCancel={cancelRename}
+                creating={creating}
+                onCreateValueChange={handleCreateValueChange}
+                onCreateSubmit={() => void submitCreate()}
+                onCreateCancel={cancelCreate}
                 t={t}
               />
             ))
@@ -1119,6 +1652,58 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             </div>
           )}
         </div>
+      )}
+
+      {contextMenu && createPortal(
+        <>
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 1200 }}
+            onClick={closeContextMenu}
+            onContextMenu={(event) => { event.preventDefault(); closeContextMenu(); }}
+          />
+          <div
+            role="menu"
+            style={{
+              position: "fixed",
+              left: Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 0) - 190),
+              top: Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 0) - 40 - contextMenuItems.length * 30),
+              zIndex: 1201,
+              minWidth: 168,
+              padding: "4px 0",
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.28)",
+              fontSize: 12,
+            }}
+          >
+            {contextMenuItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                role="menuitem"
+                onClick={item.action}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  padding: "6px 14px",
+                  border: "none",
+                  background: "none",
+                  textAlign: "left",
+                  color: item.danger ? "#f87171" : "var(--text)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  whiteSpace: "nowrap",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
       )}
     </div>
   );

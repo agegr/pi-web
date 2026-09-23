@@ -61,7 +61,9 @@ app/api/
   auth/providers/route.ts         GET OAuth and API-key provider lists
   cwd/validate/route.ts           POST validate/select a cwd
   default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
-  files/[...path]/route.ts        GET file contents for viewer
+  files/[...path]/route.ts        GET file contents for viewer; POST file
+                                  mutations (write/rename/delete/mkdir/touch/
+                                  extract/compress) for the file explorer
   home/route.ts                   GET user home directory
   models/route.ts                 GET { models, modelList, defaultModel }
   models/enabled/route.ts         GET/PUT enabledModels switches for the Models panel

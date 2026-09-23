@@ -2003,6 +2003,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
                 onUploadBusyChange={setExplorerUploadBusy}
+                onFileMutated={onExplorerRefresh}
                 changesCollapsed={changesCollapsed}
                 onChangesCountChange={setChangesCount}
                 fileSearchOpen={fileSearchOpen}
