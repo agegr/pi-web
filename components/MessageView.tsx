@@ -220,10 +220,10 @@ export function getModelDisplayName(
       ? [{ id: key.slice(separator + 1).toLowerCase(), name }]
       : [];
   });
-  return configured.find((model) => model.id === normalizedResponse)?.name
+  const foundName = configured.find((model) => model.id === normalizedResponse)?.name
     ?? configured.find((model) => normalizedResponse.endsWith(`/${model.id}`))?.name
-    ?? Object.entries(modelNames ?? {}).find(([key]) => key.toLowerCase() === normalizedResponse)?.[1]
-    ?? `${provider}/${responseModel}`;
+    ?? Object.entries(modelNames ?? {}).find(([key]) => key.toLowerCase() === normalizedResponse)?.[1];
+  return foundName ? `${responseModel} [${provider}]` : `${responseModel} [${provider}]`;
 }
 
 function formatTime(ts?: number): string | null {

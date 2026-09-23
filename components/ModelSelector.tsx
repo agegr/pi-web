@@ -28,6 +28,10 @@ interface ModelSelectorProps {
 const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
+function describeModelOption(option: ModelSelectorOption): string {
+  return `${option.modelId} [${option.provider}]`;
+}
+
 function compareModelOptions(a: ModelSelectorOption, b: ModelSelectorOption): number {
   return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
     || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
@@ -39,7 +43,7 @@ export function filterModelOptions(options: ModelSelectorOption[], query: string
   if (!normalizedQuery) return options;
 
   return options.filter((option) => (
-    `${option.name} ${option.modelId}`
+    `${option.name} ${option.modelId} ${option.provider}/${option.modelId}`
       .toLocaleLowerCase()
       .includes(normalizedQuery)
   ));
@@ -78,8 +82,9 @@ export function ModelSelector({
     else modelsByProvider.push({ provider: option.provider, options: [option] });
   }
 
+  const found = value && sortedOptions.find((option) => option.modelId === value.modelId && option.provider === value.provider);
   const currentName = selectedLabel ?? (value
-    ? sortedOptions.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
+    ? (found ? describeModelOption(found) : `${value.modelId} [${value.provider}]`)
     : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models"));
 
   useEffect(() => {
@@ -297,7 +302,7 @@ export function ModelSelector({
                     <ModelOptionButton
                       key={`${option.provider}:${option.modelId}`}
                       active={option.modelId === value?.modelId && option.provider === value?.provider}
-                      label={option.name}
+                      label={describeModelOption(option)}
                       onClick={() => choose(option)}
                     />
                   ))}
