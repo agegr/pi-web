@@ -101,33 +101,43 @@ export function openNewSessionTab(
   };
 }
 
-// --- Background-tasks panel session (pi#28) ---
-// The background-tasks panel follows the FOCUSED pane's session, not the
-// classic selectedSession: in split view pane focus only updates
-// focusedPaneId (never selectedSession), so reading selectedSession left the
-// panel permanently "unavailable" whenever a real session pane was focused
-// (pi#28 — same family as pi#23's focused-pane usage stats).
-export function resolveBackgroundTasksSessionId({
-  splitPaneEnabled,
-  focusedPaneId,
-  selectedSessionId,
-  lastSessionPaneId,
-  paneTabs,
-}: {
+// --- Focus→session derivation (pi#28 family) ---
+// In split view pane focus only updates focusedPaneId (never selectedSession,
+// by design for the per-pane composer — pi#33), so every surface that must
+// "follow the current session" — the background-tasks panel (pi#28), the
+// usage stats (pi#23) and the sidebar highlight — derives its session id
+// from the focused pane instead of reading selectedSession. One shared core
+// keeps those surfaces from ever disagreeing about which session is current.
+interface FocusedPaneSessionArgs {
   splitPaneEnabled: boolean;
   focusedPaneId: string | null;
   selectedSessionId: string | null;
   /** Most recent non-sentinel focused pane id (may point at a closed pane). */
   lastSessionPaneId: string | null;
   paneTabs: PaneTab[];
-}): string | null {
+}
+
+/**
+ * Shared derivation core: the classic layout (split off / mobile) keeps the
+ * single-chat selection; a focused real session pane is followed exactly;
+ * the sentinel (new-session) pane or no focus falls back to the last focused
+ * session pane while it is still open, else any open session pane, else the
+ * classic selection. The sentinel id itself is never returned.
+ */
+function resolveFocusedSessionId({
+  splitPaneEnabled,
+  focusedPaneId,
+  selectedSessionId,
+  lastSessionPaneId,
+  paneTabs,
+}: FocusedPaneSessionArgs): string | null {
   // Classic layout (split off / mobile): the single chat IS the selection.
   if (!splitPaneEnabled) return selectedSessionId;
   // Split view with a real session pane focused: follow it exactly.
   if (focusedPaneId && !isNewSessionTab(focusedPaneId)) return focusedPaneId;
   // Sentinel (new-session) pane focused, or no focus yet: keep following the
   // last focused session pane while it is still open, else any open session
-  // pane, so the panel shows that session's (usually empty) list instead of
+  // pane, so a surface shows that session's (usually empty) state instead of
   // "unavailable" while the user drafts a new session beside existing panes.
   const openSessionIds = new Set(
     paneTabs.filter((t) => !isNewSessionTab(t.sessionId)).map((t) => t.sessionId),
@@ -136,6 +146,29 @@ export function resolveBackgroundTasksSessionId({
   const firstOpenSession = paneTabs.find((t) => !isNewSessionTab(t.sessionId));
   if (firstOpenSession) return firstOpenSession.sessionId;
   return selectedSessionId;
+}
+
+/** Background-tasks panel session (pi#28): the panel follows the FOCUSED
+ *  pane's session, not the classic selectedSession. */
+export function resolveBackgroundTasksSessionId(
+  args: FocusedPaneSessionArgs,
+): string | null {
+  return resolveFocusedSessionId(args);
+}
+
+/**
+ * Sidebar highlight session (split-view sidebar follow): the row the sidebar
+ * highlights — and, when its follow gate is on, scrolls into view — follows
+ * the FOCUSED pane's session with the same fallbacks as the background-tasks
+ * panel, so the two surfaces always agree. The sentinel never becomes a
+ * highlighted row, and when split view closes the derivation returns the
+ * classic selection, so the highlight falls back with no further user
+ * action.
+ */
+export function resolveSidebarSessionId(
+  args: FocusedPaneSessionArgs,
+): string | null {
+  return resolveFocusedSessionId(args);
 }
 
 export function closePane(tabs: PaneTab[], sessionId: string): PaneTab[] {
