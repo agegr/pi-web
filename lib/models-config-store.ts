@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { writePrivateFileAtomicSync } from "./atomic-file";
+import { writePrivateFileAtomic } from "./atomic-file-async";
 import { invalidateModelsCache } from "./models-cache";
 
 const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+const writesInProgress = new Map<string, Promise<void>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,16 +106,26 @@ export function readModelsConfig(
   return parsed;
 }
 
-export function writeModelsConfig(
+export async function writeModelsConfig(
   data: Record<string, unknown>,
   modelsPath = getModelsConfigPath(),
-): void {
-  // Refuse to replace a file this panel could not read: the draft being saved
-  // was not built from it, so writing would silently discard its contents.
-  readModelsConfig(modelsPath);
-  const dir = dirname(modelsPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const normalized = normalizeModelsConfigCosts(sanitizeModelsConfig(data));
-  writePrivateFileAtomicSync(modelsPath, JSON.stringify(normalized, null, 2));
-  invalidateModelsCache();
+): Promise<void> {
+  const precedingWrite = writesInProgress.get(modelsPath) ?? Promise.resolve();
+  const currentWrite = precedingWrite.catch(() => {}).then(async () => {
+    // Refuse to replace a file this panel could not read: the draft being saved
+    // was not built from it, so writing would silently discard its contents.
+    readModelsConfig(modelsPath);
+    const dir = dirname(modelsPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const normalized = normalizeModelsConfigCosts(sanitizeModelsConfig(data));
+    await writePrivateFileAtomic(modelsPath, JSON.stringify(normalized, null, 2));
+    invalidateModelsCache();
+  });
+
+  writesInProgress.set(modelsPath, currentWrite);
+  try {
+    await currentWrite;
+  } finally {
+    if (writesInProgress.get(modelsPath) === currentWrite) writesInProgress.delete(modelsPath);
+  }
 }

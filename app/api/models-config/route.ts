@@ -17,7 +17,7 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
-    writeModelsConfig(body);
+    await writeModelsConfig(body);
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof ModelsConfigReadError) {
