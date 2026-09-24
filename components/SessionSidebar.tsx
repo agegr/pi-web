@@ -33,6 +33,8 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { RecentProjectsMenu } from "./RecentProjectsMenu";
+import { createDirectoryPinFlow } from "@/lib/custom-directory-pin";
 import { MultiRootFileExplorer, type MultiRootFileExplorerHandle } from "./MultiRootFileExplorer";
 import { SessionSearch } from "./SessionSearch";
 
@@ -285,96 +287,6 @@ function PinIcon({ pinned }: { pinned: boolean }) {
       <path d="M3.6 1h2.8l-.4 2.6 1.5 1.4v.8H2.5v-.8L4 3.6z" />
       <line x1="5" y1="5.8" x2="5" y2="9" />
     </svg>
-  );
-}
-
-/** One workspace-selector project row, with its pin/unpin affordance. */
-function ProjectRow({
-  project,
-  selected,
-  pinned,
-  stale = false,
-  activity,
-  homeDir,
-  t,
-  onSelect,
-  onTogglePin,
-}: {
-  project: { key: string; root: string };
-  selected: boolean;
-  pinned: boolean;
-  /** Root no longer exists on disk: rendered greyed, not selectable. */
-  stale?: boolean;
-  activity?: { running: number; unread: number };
-  homeDir: string;
-  t: (key: string) => string;
-  onSelect: () => void;
-  onTogglePin: () => void;
-}) {
-  return (
-    <button
-      onClick={stale ? undefined : onSelect}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 7,
-        width: "100%",
-        padding: "8px 10px",
-        background: "var(--bg)",
-        border: "none",
-        borderBottom: "1px solid var(--border)",
-        color: stale ? "var(--text-dim)" : selected ? "var(--text)" : "var(--text-muted)",
-        cursor: stale ? "default" : "pointer",
-        textAlign: "left",
-        fontSize: 11,
-        fontFamily: "var(--font-mono)",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
-      title={stale ? `${project.root} — ${t("sidebar.pinnedProjectMissing")}` : project.root}
-    >
-      {selected ? (
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-          <polyline points="1.5 5 4 7.5 8.5 2.5" />
-        </svg>
-      ) : (
-        <span style={{ width: 10, flexShrink: 0 }} />
-      )}
-      <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
-      {showProjectActivity(activity, t)}
-      <span
-        role="button"
-        tabIndex={0}
-        title={pinned ? t("sidebar.unpinProject") : t("sidebar.pinProject")}
-        aria-label={pinned ? t("sidebar.unpinProject") : t("sidebar.pinProject")}
-        onClick={(e) => {
-          e.stopPropagation();
-          onTogglePin();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.stopPropagation();
-            e.preventDefault();
-            onTogglePin();
-          }
-        }}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 16,
-          height: 16,
-          flexShrink: 0,
-          marginLeft: 4,
-          borderRadius: 3,
-          color: pinned ? "var(--accent)" : "var(--text-dim)",
-          cursor: "pointer",
-        }}
-      >
-        <PinIcon pinned={pinned} />
-      </span>
-    </button>
   );
 }
 
@@ -804,7 +716,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   // through POST, which creates and allow-lists the directory.
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [projectFilter, setProjectFilter] = useState("");
   // Pinned projects: the store re-reads localStorage on every call, so a
   // revision counter is all the React state we need — bump it after each
   // pin/unpin and rows move immediately without a reload.
@@ -1367,7 +1278,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
-        setProjectFilter("");
       }
     };
     document.addEventListener("mousedown", handler);
@@ -1442,19 +1352,14 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     },
     [pinnedProjects, explorerSelection, listedEntryForPath],
   );
-  const showProjectFilter = recentProjects.length > 8;
   // Recent list: rows whose root resolves into a listed directory are
-  // excluded — they render once, inside their directory group. Filter text
-  // applies to the remainder exactly as before — the listed groups stay
-  // exempt so they are always visible. Pseudo-project suppression is gone
-  // with the worktree switcher: rows render with no worktree-specific
-  // hiding.
+  // excluded — they render once, inside their directory group. Every
+  // remaining row renders unfiltered: the directory filter box is gone
+  // (wi pi#47). Pseudo-project suppression is gone with the worktree
+  // switcher: rows render with no worktree-specific hiding.
   const recentUnpinnedProjects = recentProjects.filter(
     (project) => !listedEntryForPath(project.root),
   );
-  const visibleProjects = projectFilter.trim()
-    ? recentUnpinnedProjects.filter((project) => project.root.toLowerCase().includes(projectFilter.trim().toLowerCase()))
-    : recentUnpinnedProjects;
   // Pin/unpin now operate on the custom directory store, leaving exactly
   // one user-managed list: pin adds the project root at the head, unpin
   // removes the entry (a list operation only — the disk is untouched).
@@ -1492,6 +1397,27 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       // next validate/commit that touches this directory.
     }
   }, []);
+
+  // Per-row pin flow for the add-directory picker (wi pi#47): validate
+  // BEFORE add, so a failed /api/cwd/validate surfaces a typed error in the
+  // picker and mutates NOTHING. A successful pin registers the directory as
+  // an allowed file root, adds it to the custom store (idempotent
+  // head-of-list), bumps the revision notification and expands/scrolls the
+  // new group. Passed ONLY to the addDirectoryOpen manage picker — the
+  // plain customPath picker stays select-and-close with no pin.
+  const pinDirectory = useMemo(
+    () => createDirectoryPinFlow({
+      // The sidebar OWNS the store: the mutation is injected explicitly, the
+      // flow helper has no production default write (review blocker, pi#47).
+      add: (path: string) => addCustomDirectory(path),
+      onAdded: (path: string) => {
+        setPinnedRevision((revision) => revision + 1);
+        expandPinnedGroup(customDirectoryIdentity(path));
+        listScrollRef.current?.scrollTo({ top: 0 });
+      },
+    }),
+    [expandPinnedGroup],
+  );
 
   // Stale pinned roots: on sidebar mount (and whenever the pinned set
   // changes), ask the server whether each pinned display root still exists
@@ -1766,6 +1692,7 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
             setPinnedRevision((revision) => revision + 1);
           }}
           onSelect={(path) => void handleAddDirectory(path)}
+          onPinDirectory={pinDirectory}
           onCancel={() => setAddDirectoryOpen(false)}
         />
       )}
@@ -1891,122 +1818,35 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
               overflow: "hidden",
             }}
           >
-              {showProjectFilter && (
-                <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
-                  <input
-                    value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setProjectFilter("");
-                        setDropdownOpen(false);
-                      }
-                    }}
-                     placeholder={t("sidebar.filterProjects")}
-                    autoFocus
-                    style={{
-                      width: "100%",
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      padding: "5px 8px",
-                      border: "1px solid var(--border)",
-                      borderRadius: 5,
-                      outline: "none",
-                      background: "var(--bg)",
-                      color: "var(--text)",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-              )}
-              <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
-                {/* Pinned projects render as expandable groups in the session
-                    list above; the dropdown keeps only recent (unpinned)
-                    rows, each with its pin toggle. */}
-                {visibleProjects.map((project) => (
-                  <ProjectRow
-                    key={project.key}
-                    project={project}
-                    selected={project.key === selectedProject?.key}
-                    pinned={false}
-                    activity={projectActivity.get(project.key)}
-                    homeDir={homeDir}
-                    t={t}
-                    onSelect={() => {
-                      setSelectedCwd(project.root);
-                      // Accordion: if this selection resolves to a pinned
-                      // project, that group becomes the expanded one.
-                      expandPinnedGroupForCwd(project.root);
-                      // Dropdown row select is an explicit workspace-selector
-                      // action: this project becomes the explorer's trailing
-                      // section (deduped against pins by its stable key).
-                      setExplorerSelection(project);
-                      setProjectFilter("");
-                      setCustomPathOpen(false);
-                      setCustomPathError(null);
-                      setDropdownOpen(false);
-                    }}
-                    onTogglePin={() => togglePin(project.root)}
-                  />
-                ))}
-                {visibleProjects.length === 0 && projectFilter.trim() && (
-                   <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingProjects")}</div>
-                )}
-              </div>
-
-              {/* Default cwd shortcut — hidden while listed directories exist
-                  and none of them is the default directory (pi#18) */}
-              {!customPathOpen && showDefaultCwdShortcut && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDefaultCwd(); }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "none",
-                    border: "none",
-                    borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
-                  </svg>
-                   <span>{t("sidebar.useDefaultDirectory")}</span>
-                </button>
-              )}
-
-              {/* Custom path directory picker */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCustomPathClick();
+              {/* Dropdown body (rows + shortcuts) lives in the props-only
+                  RecentProjectsMenu so its structure is render-testable.
+                  The directory filter box is gone (wi pi#47): every recent
+                  row renders unfiltered. */}
+              <RecentProjectsMenu
+                t={t}
+                projects={recentUnpinnedProjects}
+                selectedKey={selectedProject?.key ?? null}
+                activityByKey={projectActivity}
+                homeDir={homeDir}
+                showDefaultCwdShortcut={showDefaultCwdShortcut}
+                customPathOpen={customPathOpen}
+                onSelectProject={(project) => {
+                  setSelectedCwd(project.root);
+                  // Accordion: if this selection resolves to a pinned
+                  // project, that group becomes the expanded one.
+                  expandPinnedGroupForCwd(project.root);
+                  // Dropdown row select is an explicit workspace-selector
+                  // action: this project becomes the explorer's trailing
+                  // section (deduped against pins by its stable key).
+                  setExplorerSelection(project);
+                  setCustomPathOpen(false);
+                  setCustomPathError(null);
+                  setDropdownOpen(false);
                 }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  width: "100%",
-                  padding: "8px 10px",
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 11,
-                }}
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0 }}>
-                  <line x1="5" y1="1" x2="5" y2="9" />
-                  <line x1="1" y1="5" x2="9" y2="5" />
-                </svg>
-                <span>{t("sidebar.customPath")}</span>
-              </button>
+                onTogglePin={togglePin}
+                onUseDefaultCwd={() => void handleDefaultCwd()}
+                onCustomPathClick={handleCustomPathClick}
+              />
           </AnimatedDropdown>
         </div>
 

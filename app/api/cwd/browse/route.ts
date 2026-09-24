@@ -37,7 +37,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Path is not a directory" }, { status: 400 });
     }
 
-    const directories = await listDirectories(resolved);
+    // showHidden 在驱动器分支之后才读取：Windows 驱动器列表完全不受该参数
+    // 影响。只有字面量 "true" 才显示隐藏目录；缺省或任何其他值一律隐藏。
+    const directories = await listDirectories(resolved, {
+      showHidden: request.nextUrl.searchParams.get("showHidden") === "true",
+    });
 
     return NextResponse.json({
       path: resolved,

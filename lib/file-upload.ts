@@ -58,6 +58,28 @@ export function validateMkdirFolderName(name: string | null): string | null {
   return null;
 }
 
+/**
+ * Validate one file name for POST /api/files/<parent>?type=create-file.
+ * The same single-segment rule set as validateMkdirFolderName with
+ * file-appropriate messages: non-empty, no separators, no traversal
+ * ("."/".."), no NUL, within the byte budget — ordinary dots inside names
+ * (e.g. "notes.md") stay allowed. Returns null when the name is usable.
+ * The route MUST run this before any path.join/write so an unsafe name can
+ * never reach the filesystem.
+ */
+export function validateNewFileName(name: string | null): string | null {
+  if (name == null || name.length === 0) return "File name is required";
+  if (name.includes("\0")) return "Invalid file name";
+  if (name === "." || name === "..") return `Invalid file name: ${name}`;
+  if (name.includes("/") || name.includes("\\") || path.basename(name) !== name) {
+    return `File names must not contain a path: ${name}`;
+  }
+  if (Buffer.byteLength(name, "utf8") > MAX_FOLDER_NAME_BYTES) {
+    return "File name is too long";
+  }
+  return null;
+}
+
 export function inspectUploadTargets(directory: string, fileNames: string[]): UploadTargetInspection {
   const conflicts: string[] = [];
   const nonReplaceable: string[] = [];

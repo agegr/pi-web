@@ -72,3 +72,81 @@ test("recursive mkdir conflicts are detectable against a real filesystem", async
     (error) => error.code === "ENOENT",
   );
 });
+
+// ---------------------------------------------------------------------------
+// type=create-file (wi pi#47): behavioral coverage against a real temp
+// allowed root. The name is validated server-side BEFORE any path.join, and
+// the empty file is created exclusively (flag "wx"): an existing target is a
+// typed 409 with nothing overwritten.
+// ---------------------------------------------------------------------------
+
+const { POST } = await jiti.import("./[...path]/route.ts");
+const { NextRequest } = await jiti.import("next/server");
+const { validateNewFileName } = await jiti.import("../../../lib/file-upload.ts");
+const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
+
+function createFileRequest(root, name) {
+  const segments = root.split("/").filter(Boolean);
+  return [
+    new NextRequest(
+      `http://localhost/api/files/${segments.map(encodeURIComponent).join("/")}?type=create-file`,
+      {
+        method: "POST",
+        headers: { host: "localhost", "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      },
+    ),
+    { params: Promise.resolve({ path: segments }) },
+  ];
+}
+
+test("unsafe file names are rejected with 400 and no filesystem effect", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-create-file-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  allowFileRoot(root);
+
+  for (const name of ["a/b", "a\\b", "..", ".", "", "x\0y"]) {
+    const [request, context] = createFileRequest(root, name);
+    const response = await POST(request, context);
+    assert.equal(response.status, 400, `name ${JSON.stringify(name)} must be rejected`);
+    const data = await response.json();
+    assert.equal(typeof data.error, "string");
+    // No filesystem effect: the parent stays empty and nothing escaped it.
+    assert.deepEqual(fs.readdirSync(root), []);
+  }
+});
+
+test("a valid name creates an empty file; an existing target is a typed 409", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-create-file-ok-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  allowFileRoot(root);
+
+  // Ordinary dots inside names stay allowed.
+  const [request, context] = createFileRequest(root, "notes.md");
+  const response = await POST(request, context);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.path, path.join(root, "notes.md"));
+  assert.equal(fs.statSync(path.join(root, "notes.md")).size, 0);
+
+  // Creating the same name again: 409, nothing overwritten.
+  const [again, contextAgain] = createFileRequest(root, "notes.md");
+  fs.writeFileSync(path.join(root, "notes.md"), "keep me", "utf8");
+  const conflict = await POST(again, contextAgain);
+  assert.equal(conflict.status, 409);
+  const conflictData = await conflict.json();
+  assert.equal(conflictData.conflict, true);
+  assert.equal(fs.readFileSync(path.join(root, "notes.md"), "utf8"), "keep me");
+});
+
+test("the shared single-segment validator accepts ordinary dots and rejects traversal", () => {
+  assert.equal(validateNewFileName("notes.md"), null);
+  assert.equal(validateNewFileName("a.folder.name.txt"), null);
+  assert.match(validateNewFileName(""), /required/);
+  assert.match(validateNewFileName("a/b"), /must not contain a path/);
+  assert.match(validateNewFileName("a\\b"), /must not contain a path/);
+  assert.match(validateNewFileName(".."), /Invalid file name/);
+  assert.match(validateNewFileName("."), /Invalid file name/);
+  assert.match(validateNewFileName("x\0y"), /Invalid file name/);
+  assert.match(validateNewFileName("n".repeat(256)), /too long/);
+});

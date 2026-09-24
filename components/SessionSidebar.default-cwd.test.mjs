@@ -8,6 +8,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const menuSource = await readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8");
 
 function sliceBetween(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -26,8 +27,16 @@ test("the shortcut's visibility comes from the pure pi#18 rule", () => {
 });
 
 test("the default-directory button is gated by the visibility rule", () => {
-  const body = sliceBetween("{/* Default cwd shortcut", "handleDefaultCwd();");
+  // The shortcut lives in the extracted dropdown body now; the gate still
+  // applies the pi#18 visibility rule to the same props.
+  const body = menuSource.slice(
+    menuSource.indexOf("{!customPathOpen && showDefaultCwdShortcut && ("),
+    menuSource.indexOf("{/* Custom path directory picker */}"),
+  );
   assert.match(body, /\{!customPathOpen && showDefaultCwdShortcut && \(/);
+  // The sidebar forwards its computed rule into the menu.
+  assert.match(source, /showDefaultCwdShortcut=\{showDefaultCwdShortcut\}/);
+  assert.match(source, /customPathOpen=\{customPathOpen\}/);
 });
 
 test("the default directory is read without side effects from GET /api/default-cwd", () => {
