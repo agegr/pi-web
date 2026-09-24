@@ -13,7 +13,7 @@ the parent session is reloaded.
 When the integrated extension is enabled, it takes precedence over an enabled
 legacy `pi-subagents` extension. A legacy extension is suppressed when its package
 source or path identifies it as `pi-subagents` and it registers any of the reserved
-tool names: `Agent`, `get_subagent_result`, or `steer_subagent`. Unrelated extensions
+tool names: `Agent`, `SubagentWorkflow`, `get_subagent_result`, or `steer_subagent`. Unrelated extensions
 are never removed solely because they use one of those names; the SDK reports those
 collisions normally.
 

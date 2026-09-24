@@ -5,6 +5,20 @@ export interface SubagentPromptPlan {
   exactSystemPrompt?: string;
 }
 
+/**
+ * The exact prompt a chat-only or replace-mode subagent sends: the profile body,
+ * followed by whatever skill text the caller resolved for it.
+ *
+ * `skillText` is passed as a string rather than pre-baked into the plan because
+ * both callers resolve it per run — see subagentSkillPromptText().
+ */
+export function composeSubagentExactPrompt(
+  profileSystemPrompt: string,
+  skillText = "",
+): string {
+  return [profileSystemPrompt, skillText].filter(Boolean).join("\n\n");
+}
+
 export function buildSubagentPromptPlan(options: {
   profileSystemPrompt: string;
   tools: readonly string[];
@@ -20,12 +34,15 @@ export function buildSubagentPromptPlan(options: {
   if (options.inheritedParentContext && !chatOnly) {
     appendSystemPrompt.push(options.inheritedParentContext);
   }
+
   return {
     chatOnly,
     appendSystemPrompt,
     delegatedTask: options.inheritedParentContext && chatOnly
       ? `${options.task}\n\n${options.inheritedParentContext}`
       : options.task,
-    ...(chatOnly || replacePrompt ? { exactSystemPrompt: options.profileSystemPrompt } : {}),
+    ...(chatOnly || replacePrompt
+      ? { exactSystemPrompt: composeSubagentExactPrompt(options.profileSystemPrompt) }
+      : {}),
   };
 }

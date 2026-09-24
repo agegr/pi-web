@@ -1,7 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
-  createAgentSessionServices,
   getAgentDir,
   initTheme,
   SessionManager,
@@ -31,10 +30,16 @@ import {
   type SubagentRunInfo,
 } from "./subagents";
 import type { SessionEntry } from "./types";
-import { buildSubagentPromptPlan } from "./subagent-prompt";
+import { buildSubagentPromptPlan, composeSubagentExactPrompt } from "./subagent-prompt";
+import {
+  createSubagentSkillPreloadExtension,
+  subagentSkillsOverride,
+  subagentSkillPromptText,
+} from "./subagent-skills";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
+import { createScopedAgentSessionServices } from "./subagent-extension-scope";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
@@ -54,7 +59,7 @@ export interface SubagentRuntimeDependencies {
   getSession(sessionId: string): HostSession | undefined;
   registerSession(
     inner: AgentSessionLike,
-    options?: { exactSystemPrompt?: string; chatOnly?: boolean },
+    options?: { exactSystemPrompt?: () => string; chatOnly?: boolean },
   ): void;
   reopenSession(sessionId: string, sessionFile: string): Promise<HostSession>;
   resolveSessionPath(sessionId: string): Promise<string | null>;
@@ -214,8 +219,21 @@ export function createSubagentController(
         inheritedParentContext,
       });
       const { chatOnly, appendSystemPrompt, delegatedTask } = promptPlan;
+      // The exact prompt is resolved per run, because the skill text follows
+      // files that may have been edited since this session was created. The
+      // before_agent_start extension reads it through this ref.
+      const exactSystemPromptRef: { current?: () => string } = {};
+      const skillPreloadRef: { current?: () => string } = {};
+      const extensionFactories = [
+        ...(promptPlan.exactSystemPrompt !== undefined
+          ? [createExactSystemPromptExtension(() => exactSystemPromptRef.current?.())]
+          : []),
+        ...(profile.loadSkills && profile.skills !== undefined && profile.promptMode !== "replace"
+          ? [createSubagentSkillPreloadExtension(() => skillPreloadRef.current?.())]
+          : []),
+      ];
       if (!chatOnly) initTheme();
-      const services = await createAgentSessionServices({
+      const services = await createScopedAgentSessionServices({
         cwd: childCwd,
         agentDir,
         modelRuntime: parentModelRuntime,
@@ -223,6 +241,11 @@ export function createSubagentController(
         resourceLoaderOptions: {
           noExtensions: !profile.loadExtensions,
           noSkills: !profile.loadSkills,
+          // `skills:` names an explicit load scope, so the loader discovers the
+          // same set in append mode instead of loading every skill.
+          ...(profile.loadSkills && profile.skills !== undefined
+            ? { skillsOverride: subagentSkillsOverride(profile.skills) }
+            : {}),
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
@@ -233,16 +256,13 @@ export function createSubagentController(
               }
             : {}),
           appendSystemPrompt,
-          // The exact prompt is sent through before_agent_start; see lib/exact-system-prompt.ts.
-          ...(promptPlan.exactSystemPrompt !== undefined
-            ? { extensionFactories: [createExactSystemPromptExtension(() => promptPlan.exactSystemPrompt)] }
-            : {}),
+          // Exact replacement and append-mode named-skill preloads are injected per run.
+          ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
         },
         ...((profile.loadExtensions || profile.loadSkills)
           ? { resourceLoaderReloadOptions: projectTrustReloadOptions(childCwd, agentDir) }
           : {}),
-      });
-
+      }, profile.extensionScope);
       const extensionToolNames = profile.loadExtensions
         ? profile.extensionTools?.length
           ? selectSubagentExtensionTools(services.resourceLoader.getExtensions().extensions, profile.extensionTools)
@@ -252,6 +272,21 @@ export function createSubagentController(
         withSubagentExtensionTools(profile.tools, extensionToolNames),
         settingsManager.getDefaultTools(),
       );
+      const resolvedSkillText = () => subagentSkillPromptText({
+        skills: services.resourceLoader.getSkills().skills,
+        scope: profile.skills,
+        tools: activeTools,
+      });
+      if (promptPlan.exactSystemPrompt !== undefined) {
+        const profileSystemPrompt = promptPlan.exactSystemPrompt;
+        exactSystemPromptRef.current = () => composeSubagentExactPrompt(
+          profileSystemPrompt,
+          profile.loadSkills && profile.promptMode === "replace" ? resolvedSkillText() : "",
+        );
+      }
+      if (profile.loadSkills && profile.skills !== undefined && profile.promptMode !== "replace") {
+        skillPreloadRef.current = resolvedSkillText;
+      }
 
       const sessionManager = isolatedWorktree
         ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
@@ -272,8 +307,15 @@ export function createSubagentController(
           appendSystemPrompt: [...appendSystemPrompt],
           tools: [...activeTools],
           loadSkills: profile.loadSkills,
-        loadExtensions: profile.loadExtensions,
-        ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
+          ...(profile.skills ? { skills: [...profile.skills] } : {}),
+          loadExtensions: profile.loadExtensions,
+          ...(profile.extensionScope !== undefined ? { extensionScope: [...profile.extensionScope] } : {}),
+          // The profile body only. Skill text is resolved from disk on every run,
+          // so a resumed session follows edits to SKILL.md and the session file
+          // does not carry a copy of every skill it loaded.
+          ...(promptPlan.exactSystemPrompt !== undefined
+            ? { exactSystemPrompt: promptPlan.exactSystemPrompt }
+            : {}),
         },
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
@@ -291,9 +333,7 @@ export function createSubagentController(
         excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES],
       });
       dependencies.registerSession(inner, {
-        ...(promptPlan.exactSystemPrompt !== undefined
-          ? { exactSystemPrompt: promptPlan.exactSystemPrompt }
-          : {}),
+        ...(exactSystemPromptRef.current ? { exactSystemPrompt: exactSystemPromptRef.current } : {}),
         chatOnly,
       });
 

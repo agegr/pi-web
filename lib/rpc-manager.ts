@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -14,6 +14,7 @@ import {
 } from "./project-command-env";
 import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
+import { createScopedAgentSessionServices } from "./subagent-extension-scope";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -39,6 +40,12 @@ import {
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
+import {
+  createSubagentSkillPreloadExtension,
+  subagentSkillsOverride,
+  subagentSkillPromptText,
+} from "./subagent-skills";
+import { composeSubagentExactPrompt } from "./subagent-prompt";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
@@ -1688,9 +1695,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
   getSession: (sessionId) => getRegistry().get(sessionId),
   registerSession: (inner, options) => {
     const wrapper = new AgentSessionWrapper(inner, {
-      ...(options?.exactSystemPrompt !== undefined
-        ? { exactSystemPrompt: () => options.exactSystemPrompt! }
-        : {}),
+      ...(options?.exactSystemPrompt ? { exactSystemPrompt: options.exactSystemPrompt } : {}),
       chatOnly: options?.chatOnly,
       suppressCompletionNotifications: true,
     });
@@ -2027,9 +2032,20 @@ export async function startRpcSession(
     // extension: it may read the session's context files, which exist only
     // after the session is created, so the getter is filled in below.
     const exactSystemPromptRef: { current?: () => string } = {};
+    const skillPreloadRef: { current?: () => string } = {};
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
+    const skillPreloadExtension = createSubagentSkillPreloadExtension(() => skillPreloadRef.current?.());
     const usesExactSystemPrompt = chatOnly || subagentResources?.exactSystemPrompt !== undefined;
-    const services = await createAgentSessionServices({
+    const usesSubagentSkillPreload = Boolean(
+      subagentResources?.loadSkills
+      && subagentResources.skills !== undefined
+      && subagentResources.exactSystemPrompt === undefined
+    );
+    const subagentExtensionFactories = [
+      ...(usesExactSystemPrompt ? [exactSystemPromptExtension] : []),
+      ...(usesSubagentSkillPreload ? [skillPreloadExtension] : []),
+    ];
+    const services = await createScopedAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
@@ -2037,6 +2053,9 @@ export async function startRpcSession(
         ? {
             noExtensions: !subagentResources.loadExtensions,
             noSkills: !subagentResources.loadSkills,
+            ...(subagentResources.loadSkills && subagentResources.skills !== undefined
+              ? { skillsOverride: subagentSkillsOverride(subagentResources.skills) }
+              : {}),
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
@@ -2047,7 +2066,9 @@ export async function startRpcSession(
                 }
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
-            ...(usesExactSystemPrompt ? { extensionFactories: [exactSystemPromptExtension] } : {}),
+            ...(subagentExtensionFactories.length > 0
+              ? { extensionFactories: subagentExtensionFactories }
+              : {}),
           }
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
@@ -2066,7 +2087,14 @@ export async function startRpcSession(
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-    });
+    }, subagentResources?.extensionScope);
+    if (usesSubagentSkillPreload && subagentResources) {
+      skillPreloadRef.current = () => subagentSkillPromptText({
+        skills: services.resourceLoader.getSkills().skills,
+        scope: subagentResources.skills,
+        tools: subagentResources.tools,
+      });
+    }
     const scope = await resolveVisibleModels(
       services.modelRuntime,
       services.settingsManager.getEnabledModels(),
@@ -2132,7 +2160,23 @@ export async function startRpcSession(
     }
 
     const exactSystemPrompt = subagentResources?.exactSystemPrompt !== undefined
-      ? () => subagentResources.exactSystemPrompt!
+      ? () => composeSubagentExactPrompt(
+          // A restored replace-mode profile resolves its skills from this loader
+          // on every run, exactly like a fresh one, so a resumed session does not
+          // keep serving the skill text that was current when it first ran.
+          // `loadSkills` alone selects replace mode here: an exact prompt is only
+          // persisted for chat-only and replace profiles, and chat-only requires
+          // skills to be off (see buildSubagentPromptPlan), so the fresh path's
+          // `promptMode === "replace"` gate has nothing else to distinguish.
+          subagentResources.exactSystemPrompt!,
+          subagentResources.loadSkills
+            ? subagentSkillPromptText({
+                skills: inner.resourceLoader.getSkills().skills,
+                scope: subagentResources.skills,
+                tools: subagentResources.tools,
+              })
+            : "",
+        )
       : chatOnly
         ? subagentResources
           ? () => subagentResources.appendSystemPrompt[0] ?? ""
