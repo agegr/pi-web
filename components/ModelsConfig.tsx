@@ -1,22 +1,27 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
+import type { ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import {
   getLastSettingsSelection,
   setLastSettingsSelection,
 } from "@/lib/settings-navigation";
 import {
+  applyContextWindowPreset,
+  collectModelRenames,
+  CONTEXT_WINDOW_PRESETS,
+  fillEmptyModelFields,
+  formatSpecValue,
   hasModelCostDraftValue,
+  matchesContextWindowPreset,
   modelCostToDraft,
   parseCompleteModelCost,
   savedModelIds,
   serializeHeaderRows,
   setCompatBool,
   trackAddedModels,
-  collectModelRenames,
   updateHeaderRow,
   type HeaderRow,
   type ModelCostDraft,
@@ -127,7 +132,13 @@ type ModelDiscoveryState =
 type ModelCatalogState =
   | { phase: "idle" }
   | { phase: "loading" }
-  | { phase: "success"; recommendation: ModelCatalogRecommendation; appliedCount: number }
+  | {
+      phase: "success";
+      recommendation: ModelCatalogRecommendation;
+      appliedCount: number;
+      /** Where the two limit fields came from, when they were filled at all. */
+      specsSource?: "upstream" | "catalog";
+    }
   | { phase: "error"; message: string };
 
 type Selection =
@@ -297,23 +308,51 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
   );
 }
 
+function SpecPresetButton({ label, title, active, onClick }: {
+  label: string;
+  title: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      style={{
+        height: 18, padding: "0 6px",
+        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+        borderRadius: 4,
+        background: active ? "var(--accent)" : "var(--bg-panel)",
+        color: active ? "var(--bg)" : "var(--text-muted)",
+        cursor: "pointer",
+        fontSize: 10,
+        lineHeight: 1,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <ConfigSectionTitle>{children}</ConfigSectionTitle>;
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels, enabledModels }: {
+function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels, enabledModels, discoveryState, onDiscover }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
+  discoveryState: ModelDiscoveryState;
+  onDiscover: (name: string, provider: ProviderEntry) => void;
 }) {
   const { t } = useI18n();
   const [editingName, setEditingName] = useState(name);
-  const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
   const [discoveryQuery, setDiscoveryQuery] = useState("");
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
-  const discoveryRequestIdRef = useRef(0);
   const selectShownRef = useRef<HTMLInputElement>(null);
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
@@ -323,36 +362,9 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider.api]);
 
-  useEffect(() => {
-    discoveryRequestIdRef.current += 1;
-    setDiscoveryState({ phase: "idle" });
-    setDiscoveryQuery("");
-    setSelectedModelIds([]);
-  }, [name, provider.baseUrl, provider.api, provider.apiKey]);
-
-  const handleDiscoverModels = useCallback(async () => {
-    if (!provider.baseUrl?.trim() || discoveryState.phase === "loading") return;
-    const requestId = ++discoveryRequestIdRef.current;
-    setDiscoveryState({ phase: "loading" });
-    setSelectedModelIds([]);
-    try {
-      const res = await fetch("/api/models-config/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providerName: name, provider: { ...provider, models: undefined } }),
-      });
-      const data = await res.json() as { models?: DiscoveredModel[]; endpoint?: string; error?: string };
-      if (requestId !== discoveryRequestIdRef.current) return;
-      if (!res.ok || data.error || !data.models) {
-        setDiscoveryState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
-        return;
-      }
-      setDiscoveryState({ phase: "success", models: data.models, endpoint: data.endpoint ?? provider.baseUrl });
-    } catch (error) {
-      if (requestId !== discoveryRequestIdRef.current) return;
-      setDiscoveryState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
-    }
-  }, [discoveryState.phase, name, provider]);
+  const handleDiscoverModels = useCallback(() => {
+    onDiscover(name, provider);
+  }, [name, onDiscover, provider]);
 
   const existingModelIds = new Set((provider.models ?? []).map((model) => model.id));
   const discoveredModels = discoveryState.phase === "success" ? discoveryState.models : [];
@@ -771,63 +783,21 @@ function HeaderListEditor({ headers, onChange }: {
   );
 }
 
-function fillEmptyModelFields(
-  model: ModelEntry,
-  preset: ModelCatalogPreset,
-): { model: ModelEntry; appliedCount: number } {
-  const next = { ...model };
-  let appliedCount = 0;
-  if (!model.name?.trim() && preset.name) {
-    next.name = preset.name;
-    appliedCount += 1;
-  }
-  if (model.reasoning === undefined && preset.reasoning === true) {
-    next.reasoning = true;
-    appliedCount += 1;
-  }
-  if (!model.input?.length && preset.input?.length) {
-    next.input = [...preset.input];
-    appliedCount += 1;
-  }
-  if (model.contextWindow === undefined && preset.contextWindow !== undefined) {
-    next.contextWindow = preset.contextWindow;
-    appliedCount += 1;
-  }
-  if (model.maxTokens === undefined && preset.maxTokens !== undefined) {
-    next.maxTokens = preset.maxTokens;
-    appliedCount += 1;
-  }
-
-  if (preset.cost) {
-    const cost = { ...(model.cost ?? {}) };
-    let filledCostCount = 0;
-    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
-      if (cost[key] === undefined && preset.cost[key] !== undefined) {
-        cost[key] = preset.cost[key];
-        filledCostCount += 1;
-      }
-    }
-    const completeCost = parseCompleteModelCost(modelCostToDraft(cost));
-    if (filledCostCount > 0 && completeCost) {
-      next.cost = { ...cost, ...completeCost };
-      appliedCount += filledCostCount;
-    }
-  }
-  return { model: next, appliedCount };
-}
-
 function ModelDetail({
   providerName,
   provider,
   model,
   onChange,
   onDelete,
+  discoveredSpecs,
 }: {
   providerName: string;
   provider: ProviderEntry;
   model: ModelEntry;
   onChange: (m: ModelEntry) => void;
   onDelete: () => void;
+  /** Limits the upstream `/models` endpoint reported for this model id, when available. */
+  discoveredSpecs?: { contextWindow?: number; maxTokens?: number };
 }) {
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const { t } = useI18n();
@@ -939,7 +909,11 @@ function ModelDetail({
         setCatalogState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
         return;
       }
-      const filled = fillEmptyModelFields(model, data.recommendation.preset);
+      // Upstream limits from the provider's own model list take precedence over the preset.
+      const specsSource = discoveredSpecs?.contextWindow !== undefined || discoveredSpecs?.maxTokens !== undefined
+        ? "upstream" as const
+        : "catalog" as const;
+      const filled = fillEmptyModelFields(model, data.recommendation.preset, discoveredSpecs);
       if (filled.appliedCount > 0) {
         catalogUndoRef.current = model;
         onChange(filled.model);
@@ -949,12 +923,13 @@ function ModelDetail({
         phase: "success",
         recommendation: data.recommendation,
         appliedCount: filled.appliedCount,
+        specsSource,
       });
     } catch (error) {
       if (requestId !== catalogRequestIdRef.current) return;
       setCatalogState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
     }
-  }, [catalogState.phase, model, onChange, provider.baseUrl, providerName]);
+  }, [catalogState.phase, discoveredSpecs, model, onChange, provider.baseUrl, providerName]);
 
   const undoCatalogFill = () => {
     const previous = catalogUndoRef.current;
@@ -966,15 +941,20 @@ function ModelDetail({
 
   const catalogResultSummary = (() => {
     if (catalogState.phase !== "success") return null;
-    const { recommendation, appliedCount } = catalogState;
+    const { recommendation, appliedCount, specsSource } = catalogState;
     const applied = appliedCount > 0
       ? t("models.catalogFilled", { count: appliedCount })
       : t("models.catalogNoEmptyFields");
+    const specsNote = specsSource === "upstream"
+      ? ` · ${t("models.specsFromUpstreamShort")}`
+      : specsSource === "catalog"
+        ? ` · ${t("models.specsFromCatalogShort")}`
+        : "";
     if (recommendation.price.status === "unreliable") {
       const price = recommendation.price.reason === "no-exact-match"
         ? t("models.catalogNoExactMatch")
         : t("models.catalogPriceUnreliable");
-      return `${applied} · ${price}`;
+      return `${applied}${specsNote} · ${price}`;
     }
     const price = recommendation.price.method === "provider"
       ? t("models.catalogPriceProvider", { provider: recommendation.price.providerName ?? recommendation.price.providerId ?? providerName })
@@ -984,7 +964,7 @@ function ModelDetail({
             support: recommendation.price.support,
             total: recommendation.price.total,
           });
-    return `${applied} · ${price}`;
+    return `${applied}${specsNote} · ${price}`;
   })();
   const catalogStatusText = catalogState.phase === "error"
     ? catalogState.message
@@ -1147,13 +1127,28 @@ function ModelDetail({
       </div>
 
       <section>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <SectionTitle>{t("models.modelSpecs")}</SectionTitle>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            {CONTEXT_WINDOW_PRESETS.map((preset) => (
+              <SpecPresetButton
+                key={preset.labelKey}
+                label={t(preset.labelKey)}
+                title={t("models.presetFillBoth", { context: formatSpecValue(preset.contextWindow), output: formatSpecValue(preset.maxTokens) })}
+                active={matchesContextWindowPreset(model, preset)}
+                onClick={() => {
+                  // Both fields must go through a single onChange: each call spreads the same
+                  // stale `model`, so two sequential calls would drop the first assignment.
+                  onChange(applyContextWindowPreset(model, preset));
+                }}
+              />
+            ))}
+          </div>
           <button
             type="button"
             onClick={toggleCostEditing}
             aria-expanded={costEditing}
-            style={{ padding: "2px 4px", border: "none", background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 10 }}
+            style={{ marginLeft: "auto", padding: "2px 4px", border: "none", background: "transparent", color: "var(--accent)", cursor: "pointer", fontSize: 10 }}
           >
             {costEditing ? t("models.finishEditingCosts") : t("models.editCosts")}
           </button>
@@ -1982,6 +1977,49 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     });
   }, []);
 
+  // Model discovery lives in the parent so a model's specs can be filled from the same
+  // upstream `/models` response the provider panel already fetched, instead of re-fetching.
+  const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
+  const discoveryRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    discoveryRequestIdRef.current += 1;
+    setDiscoveryState({ phase: "idle" });
+  }, []);
+
+  const discoveredSpecsById = useMemo(() => {
+    const map = new Map<string, { contextWindow?: number; maxTokens?: number }>();
+    if (discoveryState.phase !== "success") return map;
+    for (const model of discoveryState.models) {
+      if (model.contextWindow === undefined && model.maxTokens === undefined) continue;
+      map.set(model.id, { contextWindow: model.contextWindow, maxTokens: model.maxTokens });
+    }
+    return map;
+  }, [discoveryState]);
+
+  const handleDiscoverModels = useCallback(async (name: string, provider: ProviderEntry) => {
+    if (!provider.baseUrl?.trim() || discoveryState.phase === "loading") return;
+    const requestId = ++discoveryRequestIdRef.current;
+    setDiscoveryState({ phase: "loading" });
+    try {
+      const res = await fetch("/api/models-config/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerName: name, provider: { ...provider, models: undefined } }),
+      });
+      const data = await res.json() as { models?: DiscoveredModel[]; endpoint?: string; error?: string };
+      if (requestId !== discoveryRequestIdRef.current) return;
+      if (!res.ok || data.error || !data.models) {
+        setDiscoveryState({ phase: "error", message: data.error ?? `HTTP ${res.status}` });
+        return;
+      }
+      setDiscoveryState({ phase: "success", models: data.models, endpoint: data.endpoint ?? provider.baseUrl });
+    } catch (error) {
+      if (requestId !== discoveryRequestIdRef.current) return;
+      setDiscoveryState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [discoveryState.phase]);
+
   const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
     setConfig((prev) => {
       const known = new Set((prev.providers?.[providerName]?.models ?? []).map((model) => model.id));
@@ -1996,7 +2034,13 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
       for (const discoveredModel of discovered) {
         if (existingIds.has(discoveredModel.id)) continue;
         existingIds.add(discoveredModel.id);
-        models.push({ id: discoveredModel.id, name: discoveredModel.name });
+        // Carry upstream-reported limits through so a freshly discovered model starts with
+        // real specs instead of empty inputs. Absent fields stay absent (never zero).
+        const entry: ModelEntry = { id: discoveredModel.id };
+        if (discoveredModel.name !== undefined) entry.name = discoveredModel.name;
+        if (discoveredModel.contextWindow !== undefined) entry.contextWindow = discoveredModel.contextWindow;
+        if (discoveredModel.maxTokens !== undefined) entry.maxTokens = discoveredModel.maxTokens;
+        models.push(entry);
       }
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
@@ -2090,6 +2134,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
           enabledModels={enabledModels}
+          discoveryState={discoveryState}
+          onDiscover={handleDiscoverModels}
         />
       );
     }
@@ -2104,6 +2150,9 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         model={model}
         onChange={(m) => updateModel(selection.providerName, selection.index, m)}
         onDelete={() => removeModel(selection.providerName, selection.index)}
+        discoveredSpecs={discoveryState.phase === "success"
+          ? discoveredSpecsById.get(model.id)
+          : undefined}
       />
     );
   })();

@@ -1,6 +1,34 @@
+/**
+ * Fields commonly used by upstream `/models` endpoints to expose context window and
+ * max output token limits. Providers spell these differently (snake_case top level,
+ * nested under `metadata` / `limits` / `capabilities`, or camelCase), so every known
+ * spelling is checked. Only positive integers are accepted so garbage upstream values
+ * never overwrite a good configuration.
+ */
+const CONTEXT_WINDOW_KEYS = [
+  "context_window",
+  "contextWindow",
+  "context_length",
+  "contextLength",
+  "max_context_tokens",
+  "maxContextTokens",
+  "limit_context",
+] as const;
+
+const MAX_OUTPUT_TOKEN_KEYS = [
+  "max_tokens",
+  "maxTokens",
+  "max_output_tokens",
+  "maxOutputTokens",
+  "max_completion_tokens",
+  "maxCompletionTokens",
+] as const;
+
 export interface DiscoveredModel {
   id: string;
   name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -9,6 +37,50 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cleanString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readLimit(value: unknown): number | undefined {
+  if (typeof value === "string" && value.trim() && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    return parsed > 0 ? parsed : undefined;
+  }
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function pickLimit(source: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = readLimit(source[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function readSpecs(value: unknown, depth = 0): { contextWindow?: number; maxTokens?: number } {
+  const specs: { contextWindow?: number; maxTokens?: number } = {};
+  if (!isRecord(value)) return specs;
+
+  const contextWindow = pickLimit(value, CONTEXT_WINDOW_KEYS);
+  if (contextWindow !== undefined) specs.contextWindow = contextWindow;
+
+  const maxTokens = pickLimit(value, MAX_OUTPUT_TOKEN_KEYS);
+  if (maxTokens !== undefined) specs.maxTokens = maxTokens;
+
+  if (depth >= 2) return specs;
+
+  // Gateways nest the limits one level down, e.g. `metadata.limits.context_window`,
+  // `top_provider.context_length`, `capabilities.limits.max_tokens`.
+  for (const nestedKey of ["metadata", "limits", "limit", "capabilities", "top_provider"]) {
+    if (specs.contextWindow !== undefined && specs.maxTokens !== undefined) break;
+    const nested = readSpecs(value[nestedKey], depth + 1);
+    if (specs.contextWindow === undefined && nested.contextWindow !== undefined) {
+      specs.contextWindow = nested.contextWindow;
+    }
+    if (specs.maxTokens === undefined && nested.maxTokens !== undefined) {
+      specs.maxTokens = nested.maxTokens;
+    }
+  }
+
+  return specs;
 }
 
 function modelFromValue(value: unknown): DiscoveredModel | null {
@@ -25,7 +97,13 @@ function modelFromValue(value: unknown): DiscoveredModel | null {
   const name = cleanString(value.display_name)
     ?? cleanString(value.displayName)
     ?? (cleanString(value.id) || cleanString(value.model) ? cleanString(value.name) : undefined);
-  return name && name !== id ? { id, name } : { id };
+
+  const specs = readSpecs(value);
+  const discovered: DiscoveredModel = { id };
+  if (name && name !== id) discovered.name = name;
+  if (specs.contextWindow !== undefined) discovered.contextWindow = specs.contextWindow;
+  if (specs.maxTokens !== undefined) discovered.maxTokens = specs.maxTokens;
+  return discovered;
 }
 
 function listFromResponse(value: unknown): unknown[] {
