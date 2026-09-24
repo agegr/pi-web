@@ -76,7 +76,7 @@ test("groups chat display controls together without row backgrounds", () => {
   );
   const chatSection = panelSource.slice(
     panelSource.indexOf('{t("settings.chat")}'),
-    panelSource.indexOf("{shellSettings?.isWindows"),
+    panelSource.indexOf('{t("settings.sessionFilter")}'),
   );
 
   assert.doesNotMatch(appearanceSection, /settings-chat-content/);
@@ -146,4 +146,67 @@ test("keeps password authentication to one login field and one settings action",
   assert.match(panelSource, /t\("auth\.logOut"\)/);
   assert.match(loginSource, /className="web-login-composer"[\s\S]*?type="password"[\s\S]*?<button type="submit"/);
   assert.match(globalCssSource, /\.web-login-composer \{[\s\S]*?display: flex;[\s\S]*?border-radius: 14px/);
+});
+
+// ---------------------------------------------------------------------------
+// Session filter (wi pi#49 R1): an editable multi-pattern filter with a
+// reveal toggle, inside the existing general area (no new navigation entry).
+// ---------------------------------------------------------------------------
+
+test("the general area hosts the session filter section with the rules editor and reveal toggle", () => {
+  // Heading, description, the line-per-rule textarea and the reveal switch
+  // all render inside GeneralSettings with the sessionFilter i18n keys.
+  assert.match(panelSource, /t\("settings\.sessionFilter"\)/);
+  assert.match(panelSource, /t\("settings\.sessionFilterDescription"\)/);
+  assert.match(panelSource, /aria-label=\{t\("settings\.sessionFilterPatternsLabel"\)\}/);
+  assert.match(panelSource, /<textarea/);
+  assert.match(panelSource, /t\("settings\.showFilteredSessions"\)/);
+  assert.match(panelSource, /<ConfigSwitch[\s\S]*?label=\{t\("settings\.showFilteredSessions"\)\}[\s\S]*?onChange=\{handleShowFilteredSessionsChange\}/);
+  // The section lives in GeneralSettings, not in a new settings-section tab.
+  const generalStart = panelSource.indexOf("function GeneralSettings");
+  const generalBody = panelSource.slice(generalStart, panelSource.indexOf("export function SettingsPanel"));
+  assert.match(generalBody, /settings\.sessionFilter/);
+});
+
+test("the session filter editor persists on change and hydrates after mount, never writing on first render", () => {
+  // Every edit routes through the LIVE store setters (review B1): the
+  // sidebar subscribes to the same store and re-filters immediately, while
+  // persistence stays best-effort inside the store.
+  assert.match(
+    panelSource,
+    /const handleSessionFilterRulesChange = \(value: string\) => \{[\s\S]*?setSessionFilterPatterns\(value\.split\("\\n"\)\);/,
+  );
+  assert.match(
+    panelSource,
+    /const handleShowFilteredSessionsChange = \(enabled: boolean\) => \{[\s\S]*?setShowFilteredSessionsState\(enabled\);/,
+  );
+  // Initial state is the DEFAULT list joined (SSR-safe, no storage read in
+  // render) and the mount effect only READS: a first run renders the default
+  // without writing the key.
+  assert.match(
+    panelSource,
+    /useState\(\s*\(\) => DEFAULT_SESSION_FILTER_PATTERNS\.join\("\\n"\),\s*\)/,
+  );
+  const mountEffect = panelSource.slice(
+    panelSource.indexOf("setSessionFilterRulesText(loadSessionFilterPatterns"),
+    panelSource.indexOf("}, []);", panelSource.indexOf("setSessionFilterRulesText(loadSessionFilterPatterns")) + "}, []);".length,
+  );
+  assert.match(mountEffect, /loadSessionFilterPatterns\(sessionFilterStorage\(\)\)/);
+  assert.match(mountEffect, /loadShowFilteredSessions\(sessionFilterStorage\(\)\)/);
+  assert.doesNotMatch(mountEffect, /save(SessionFilterPatterns|ShowFilteredSessions)/,
+    "hydration must not persist anything back on the first run");
+});
+
+test("the session filter strings exist in all three locales", async () => {
+  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+    const source = await readFile(new URL(`../lib/i18n/messages/${locale}.ts`, import.meta.url), "utf8");
+    for (const key of [
+      "settings.sessionFilter",
+      "settings.sessionFilterDescription",
+      "settings.sessionFilterPatternsLabel",
+      "settings.showFilteredSessions",
+    ]) {
+      assert.match(source, new RegExp(`"${key}": "`), `${locale} must carry ${key}`);
+    }
+  }
 });

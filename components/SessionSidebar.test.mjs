@@ -9,7 +9,6 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
-const menuSource = await readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8");
 const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
@@ -119,9 +118,10 @@ test("selecting a session in another pinned group switches the expanded group", 
   );
   assert.match(selectBlock, /expandPinnedGroupForCwd\(s\.cwd, s\.projectRoot \?\? null\);/);
   // Worktree cwds resolve to their listed directory inside the helper
-  // (listedEntryForPath matches by containment — see the helper).
-  assert.match(source, /expandPinnedGroupForCwd\(project\.root\);/);
-
+  // (listedEntryForPath matches by containment — see the helper). The
+  // dropdown's onSelectProject caller is gone with the dropdown itself
+  // (wi pi#49 R2); the session-list click path above is the live consumer.
+  assert.doesNotMatch(source, /expandPinnedGroupForCwd\(project\.root\);/);
 });
 
 test("the selected project's group auto-expands at load, collapsing the persisted group", () => {
@@ -151,16 +151,47 @@ test("legacy multi-open storage needs no migration: it collapses on the first ex
   assert.match(source, /legacy multi-key storage written by the pre-accordion version/);
 });
 
-test("the toolbar recent list keeps its pin toggles and mount-time stale-root sweep", () => {
-  // The pinned-projects header is gone (groups render as directories),
-  // but the recent-unpinned rows keep their pin toggles — through the
-  // extracted RecentProjectsMenu, whose rows bind the owner's callback.
-  assert.match(source, /recentUnpinnedProjects/);
-  assert.match(source, /onTogglePin=\{togglePin\}/);
-  assert.match(menuSource, /onTogglePin=\{\(\) => onTogglePin\(project\.root\)\}/);
-  // The stale-root check runs at sidebar mount.
+test("the workspace dropdown is removed entirely; the stale-root sweep and pin affordances survive", () => {
+  // R2 (wi pi#49): the trigger row, the dropdown panel and its extracted
+  // body component are gone from the sidebar — no import, no mount.
+  assert.doesNotMatch(source, /RecentProjectsMenu/);
+  assert.doesNotMatch(source, /data-cwd-picker/);
+  assert.doesNotMatch(source, /AnimatedDropdown/);
+  assert.doesNotMatch(source, /dropdownOpen|dropdownRef/);
+  // The dropdown-only state/handlers died with it.
+  assert.doesNotMatch(source, /recentUnpinnedProjects/);
+  assert.doesNotMatch(source, /handleDefaultCwd|showDefaultCwdShortcut/);
+  assert.doesNotMatch(source, /hasOtherWorkspaceActivity/);
+  assert.doesNotMatch(source, /handleCustomPathClick/);
+  // The stale-root check keeps running at sidebar mount.
   assert.doesNotMatch(source, /if \(!dropdownOpen \|\| !pinnedRootsKey\) return;/);
   assert.match(source, /\}, \[pinnedRootsKey\]\);/);
+});
+
+test("the extracted dropdown body component and its render test are deleted", async () => {
+  await assert.rejects(() => readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8"));
+  await assert.rejects(() => readFile(new URL("./RecentProjectsMenu.test.mjs", import.meta.url), "utf8"));
+});
+
+test("the state pipeline survives the dropdown removal and restore still selects the cwd", () => {
+  // URL restore keeps selecting the restored session's cwd and explorer
+  // trailing section, and the auto-select still picks the most recent
+  // project from the FULL catalog (worker filtering never touches it).
+  assert.match(
+    source,
+    /if \(target\) \{\s*\n\s*setSelectedCwd\(target\.cwd\);\s*[\s\S]*?setExplorerSelection\(\{ root: target\.projectRoot \?\? target\.cwd, key: workspaceKeyOf\(target\) \}\);/,
+  );
+  assert.match(
+    source,
+    /const projects = getRecentProjects\(allSessions\);\s*[\s\S]*?setSelectedCwd\(projects\[0\]\.root\);/,
+  );
+  // selectedCwd / explorerSelection / the standalone custom-path picker and
+  // the standalone Add-directory button all survive.
+  assert.match(source, /const \[selectedCwd, setSelectedCwd\] = useState<string \| null>\(null\);/);
+  assert.match(source, /const \[explorerSelection, setExplorerSelection\] = useState<ProjectSelection \| null>\(null\);/);
+  assert.match(source, /customPathOpen && \(\s*<DirectoryPicker/);
+  assert.match(source, /addDirectoryOpen && \(\s*<DirectoryPicker/);
+  assert.match(source, /onClick=\{\(\) => setAddDirectoryOpen\(true\)\}/);
 });
 
 test("only Shift+click bypasses session deletion confirmation", () => {

@@ -26,6 +26,14 @@ import {
 } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { setupPushSubscription } from "@/lib/push-client";
+import {
+  DEFAULT_SESSION_FILTER_PATTERNS,
+  loadSessionFilterPatterns,
+  loadShowFilteredSessions,
+  setSessionFilterPatterns,
+  setShowFilteredSessions,
+  sessionFilterStorage,
+} from "@/lib/session-filter";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -75,6 +83,21 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  // Session filter (wi pi#49 R1): the editor is line-per-rule. The initial
+  // state is the default list (SSR-safe, no storage read) and the real
+  // persisted value hydrates after mount — the same pattern as the other
+  // client-persisted toggles. Saving happens on every change; the FIRST
+  // render never writes the key, so a fresh install keeps the default as a
+  // display value only.
+  const [sessionFilterRulesText, setSessionFilterRulesText] = useState(
+    () => DEFAULT_SESSION_FILTER_PATTERNS.join("\n"),
+  );
+  const [showFilteredSessions, setShowFilteredSessionsState] = useState(false);
+
+  useEffect(() => {
+    setSessionFilterRulesText(loadSessionFilterPatterns(sessionFilterStorage()).join("\n"));
+    setShowFilteredSessionsState(loadShowFilteredSessions(sessionFilterStorage()));
+  }, []);
 
   useEffect(() => {
     setThinkingExpanded(isThinkingExpandedByDefault());
@@ -133,6 +156,20 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     } finally {
       setShellSaving(false);
     }
+  };
+
+  // Session filter persistence: every edit rewrites the persisted array
+  // (splitting on newlines — one rule per line); the reveal toggle persists
+  // under its own key. Both are best-effort against unavailable storage.
+  const handleSessionFilterRulesChange = (value: string) => {
+    setSessionFilterRulesText(value);
+    // Live store: the sidebar subscribes and re-filters immediately.
+    setSessionFilterPatterns(value.split("\n"));
+  };
+
+  const handleShowFilteredSessionsChange = (enabled: boolean) => {
+    setShowFilteredSessions(enabled);
+    setShowFilteredSessionsState(enabled);
   };
 
   const registerPush = async () => {
@@ -265,6 +302,28 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               onChange={onQuoteSelectionChange}
             />
           </div>
+        </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.sessionFilter")}</h3>
+        <p className="settings-general-description">{t("settings.sessionFilterDescription")}</p>
+        <textarea
+          className="settings-session-filter-rules"
+          aria-label={t("settings.sessionFilterPatternsLabel")}
+          title={t("settings.sessionFilterPatternsLabel")}
+          spellCheck={false}
+          rows={4}
+          value={sessionFilterRulesText}
+          onChange={(event) => handleSessionFilterRulesChange(event.target.value)}
+        />
+        <div className="settings-shell-option">
+          <span>{t("settings.showFilteredSessions")}</span>
+          <ConfigSwitch
+            checked={showFilteredSessions}
+            label={t("settings.showFilteredSessions")}
+            onChange={handleShowFilteredSessionsChange}
+          />
         </div>
       </section>
 

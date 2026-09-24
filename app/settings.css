@@ -1239,3 +1239,25 @@
     }
   }
 }
+
+.settings-session-filter-rules {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 420px;
+  min-height: 72px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.settings-session-filter-rules:focus-visible {
+  border-color: var(--accent);
+}

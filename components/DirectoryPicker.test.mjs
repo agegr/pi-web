@@ -10,15 +10,16 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const {
-  PickerCreateToolbar,
   PickerShowHiddenToggle,
   PickerBrowseRow,
   PickerDriveRow,
   PickerManagePanel,
+  PickerRowCreatePanel,
   createRowPinHandler,
   createPickerErrorState,
   pickerErrorMessage,
   createCreateFlow,
+  createRowCreateFlow,
 } = await jiti.import("./DirectoryPicker.tsx");
 
 const source = await readFile(new URL("./DirectoryPicker.tsx", import.meta.url), "utf8");
@@ -31,14 +32,70 @@ function html(element) {
   return renderToStaticMarkup(element);
 }
 
-test("the browse-area toolbar offers new-folder AND new-file (both modes mount it)", () => {
-  const markup = html(React.createElement(PickerCreateToolbar, {
+test("the browse-area create toolbar is gone; directory rows carry the per-row New button (wi pi#49 R3)", () => {
+  // The toolbar row above the browse list is deleted — its new-folder/
+  // new-file duty moved onto every directory row.
+  assert.doesNotMatch(source, /directory-picker-create-toolbar/);
+  assert.doesNotMatch(source, /PickerCreateToolbar/);
+  // Browse rows: a New button renders beside the pin button when the
+  // callback is present — as a SIBLING of the navigation button.
+  const entry = { name: "project", path: "/work/project" };
+  const withNew = html(React.createElement(PickerBrowseRow, {
+    entry,
     t,
-    onNewFolder: () => {},
-    onNewFile: () => {},
+    onNavigate: () => {},
+    onNew: () => {},
   }));
-  assert.match(markup, /directoryPicker\.newFolder/);
-  assert.match(markup, /directoryPicker\.newFile/);
+  assert.match(withNew, /directory-picker-row-new/);
+  assert.match(withNew, /directoryPicker\.rowNew/);
+  const withoutNew = html(React.createElement(PickerBrowseRow, {
+    entry,
+    t,
+    onNavigate: () => {},
+  }));
+  assert.doesNotMatch(withoutNew, /directory-picker-row-new/);
+  // Managed rows (the sidebar directory list): the New button renders
+  // beside rename/remove, only when the callback is provided.
+  const managedWithNew = html(React.createElement(PickerManagePanel, {
+    t,
+    entries: [{ path: "/work/alpha" }],
+    onRename: () => {},
+    onRemove: () => {},
+    onNew: () => {},
+  }));
+  assert.match(managedWithNew, /directory-picker-row-new/);
+  const managedWithoutNew = html(React.createElement(PickerManagePanel, {
+    t,
+    entries: [{ path: "/work/alpha" }],
+    onRename: () => {},
+    onRemove: () => {},
+  }));
+  assert.doesNotMatch(managedWithoutNew, /directory-picker-row-new/);
+  // Directory-only guard: drive rows (the dialog's only non-directory rows)
+  // never render the New button.
+  const drive = html(React.createElement(PickerDriveRow, { entry: { name: "C:", path: "C:\\" }, onNavigate: () => {} }));
+  assert.doesNotMatch(drive, /directory-picker-row-new/);
+  assert.equal((drive.match(/<button/g) ?? []).length, 1);
+});
+
+test("the inline row create panel offers the file-or-folder choice plus the shared create form", () => {
+  const markup = html(React.createElement(PickerRowCreatePanel, {
+    t,
+    kind: "folder",
+    value: "",
+    busy: false,
+    error: null,
+    onKindChange: () => {},
+    onChange: () => {},
+    onSubmit: () => {},
+    onCancel: () => {},
+  }));
+  assert.match(markup, /directoryPicker\.rowNewFolderChoice/);
+  assert.match(markup, /directoryPicker\.rowNewFileChoice/);
+  assert.match(markup, /aria-pressed="true"/);
+  assert.match(markup, /directory-picker-create-form/);
+  assert.match(markup, /directoryPicker\.createFolder/);
+  assert.doesNotMatch(markup, /aria-pressed="false"[^>]*folder|folder[^>]*aria-pressed="false"/);
 });
 
 test("the show-hidden checkbox renders from its checked prop (default unchecked)", () => {
@@ -380,4 +437,148 @@ test("an unsafe file name is rejected with zero requests and a translated messag
   assert.equal(h.state.busy, false);
   // The local rejection leaves the busy flag untouched and no notice set.
   assert.equal(h.state.notice, null);
+});
+
+// ---------------------------------------------------------------------------
+// createRowCreateFlow (wi pi#49 R3): the row-scoped create seam — deferred-
+// response and conflict tests driving the REAL production flow the per-row
+// New buttons run. By construction the flow has NO navigateTo input and NO
+// close input: a row create can never navigate the picker nor close it.
+// ---------------------------------------------------------------------------
+
+function rowFlowHarness(deps = {}) {
+  const state = { kind: null, name: "", error: null, busy: false, notice: null };
+  const navigated = [];
+  let scope = deps.scope ?? "browse";
+  let rowPath = deps.rowPath ?? "/work/row";
+  const flow = createRowCreateFlow({
+    t: (key) => key,
+    fetchFn: deps.fetchFn,
+    setKind: (kind) => { state.kind = kind; },
+    setName: (name) => { state.name = name; },
+    setError: (message) => { state.error = message; },
+    setBusy: (busy) => { state.busy = busy; },
+    setNotice: (message) => { state.notice = message; },
+    rowPath: () => rowPath,
+    scope: () => scope,
+    navigateTo: (directory) => navigated.push(directory),
+  });
+  return { flow, state, navigated, setScope: (next) => { scope = next; }, setRowPath: (next) => { rowPath = next; } };
+}
+
+test("a browse-row FOLDER creation enters the row's directory so the result is visible", async () => {
+  const { fetchFn, calls } = plannedFetch([
+    { response: jsonResponse200({ cwd: "/work/row" }) },
+    { response: jsonResponse200({ ok: true }) },
+  ]);
+  const h = rowFlowHarness({ fetchFn, rowPath: "/work/row" });
+  await h.flow.submit("folder", "new-dir");
+  // The creation targeted the ROW's directory (its own currentPath), not the
+  // currently browsed one.
+  assert.match(calls[0].url, /cwd\/validate/);
+  assert.match(calls[1].url, /files\/work\/row\?type=mkdir/);
+  // Success enters the ROW's directory: the created folder is a child of it
+  // and can never appear in the parent listing, so navigation IS the
+  // visibility (review B2).
+  assert.deepEqual(h.navigated, ["/work/row"]);
+  assert.equal(h.state.kind, null);
+  assert.equal(h.state.busy, false);
+});
+
+test("a browse-row FILE creation stays put with the confirmation notice (files never render in a dirs-only listing)", async () => {
+  const { fetchFn, calls } = plannedFetch([
+    { response: jsonResponse200({ cwd: "/work/row" }) },
+    { response: jsonResponse200({ ok: true }) },
+  ]);
+  const h = rowFlowHarness({ fetchFn, rowPath: "/work/row" });
+  await h.flow.submit("file", "notes.md");
+  assert.match(calls[1].url, /files\/work\/row\?type=create-file/);
+  assert.deepEqual(h.navigated, [], "no navigation for a file create");
+  assert.equal(h.state.notice, "directoryPicker.fileCreated");
+});
+
+test("a file created from a managed row confirms via i18n with no navigation and no pointless refetch", async () => {
+  const { fetchFn, calls } = plannedFetch([
+    { response: jsonResponse200({ cwd: "/listed/beta" }) },
+    { response: jsonResponse200({ ok: true }) },
+  ]);
+  const h = rowFlowHarness({ fetchFn, rowPath: "/listed/beta", scope: "manage" });
+  await h.flow.submit("file", "notes.md");
+  assert.match(calls[1].url, /files\/listed\/beta\?type=create-file/);
+  assert.equal(h.state.notice, "directoryPicker.fileCreated");
+  assert.equal(h.state.kind, null, "the row form closes on success");
+  assert.deepEqual(h.navigated ?? [], []);
+});
+
+test("a name clash surfaces the typed conflict message in the still-open row form", async () => {
+  const conflict = new Response(JSON.stringify({ error: "exists" }), {
+    status: 409,
+    headers: { "Content-Type": "application/json" },
+  });
+  const { fetchFn, release } = plannedFetch([
+    { response: jsonResponse200({ cwd: "/work/row" }) },
+    { defer: true, response: conflict },
+  ]);
+  const h = rowFlowHarness({ fetchFn });
+  h.flow.open("file");
+  const submission = h.flow.submit("file", "notes.md");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.state.busy, true);
+  // Cancel mid-flight is refused: the 409 must land in the open form.
+  h.flow.cancel();
+  release();
+  await submission;
+  assert.equal(h.state.error, "directoryPicker.createFileConflict");
+  assert.equal(h.state.kind, "file", "the row form stays open showing the failure");
+});
+
+test("an unsafe row-create name is rejected locally with zero requests", async () => {
+  const { fetchFn, calls } = plannedFetch([]);
+  const h = rowFlowHarness({ fetchFn });
+  await h.flow.submit("file", "a/b");
+  assert.equal(calls.length, 0);
+  assert.equal(h.state.error, "directoryPicker.validation.pathSeparator");
+  assert.equal(h.state.busy, false);
+  // No replacement form opens while a creation is in flight, and an idle
+  // cancel hides the form.
+  h.flow.open("folder");
+  assert.equal(h.state.kind, "folder");
+  h.flow.cancel();
+  assert.equal(h.state.kind, null);
+});
+
+// ---------------------------------------------------------------------------
+// Footer layout (wi pi#49 R3): the show-hidden checkbox sits in the footer
+// row, LEFT of cancel and "Select this folder"; the browse-area toolbar row
+// above the list is gone.
+// ---------------------------------------------------------------------------
+
+test("the show-hidden checkbox moved to the footer, left of the select button", () => {
+  const footerStart = source.indexOf('className="directory-picker-footer"');
+  assert.ok(footerStart !== -1, "the picker still has a footer");
+  const footerEnd = source.indexOf("</div>\n      </div>\n    </div>,", footerStart);
+  const footer = source.slice(footerStart, footerEnd);
+  const toggleIndex = footer.indexOf("<PickerShowHiddenToggle");
+  const cancelIndex = footer.indexOf('{t("i18n.cancel")}');
+  const selectIndex = footer.indexOf("directoryPicker.selectThisFolder");
+  assert.ok(toggleIndex !== -1 && cancelIndex !== -1 && selectIndex !== -1);
+  assert.ok(toggleIndex < cancelIndex, "the checkbox renders left of cancel");
+  assert.ok(cancelIndex < selectIndex, "the checkbox renders left of the select button");
+  // The checkbox lives on the footer's LEFT side (the buttons are pushed
+  // right by marginLeft: auto).
+  assert.match(footer, /marginLeft: "auto"/);
+  // No second show-hidden toggle exists anywhere else in the dialog.
+  assert.equal((source.match(/<PickerShowHiddenToggle/g) ?? []).length, 1);
+});
+
+test("no create-toolbar row remains above the browse list and no trigger mounts the top-level form", () => {
+  assert.doesNotMatch(source, /directory-picker-create-toolbar/);
+  // The footer is the only row carrying the toggle: the old toolbar row
+  // (borderBottom above the list) is gone from the source entirely.
+  const toolbarArea = source.slice(
+    source.indexOf("</form>"),
+    source.indexOf("{createKind && ("),
+  );
+  assert.doesNotMatch(toolbarArea, /PickerShowHiddenToggle/);
+  assert.doesNotMatch(toolbarArea, /borderBottom/);
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
 import type { PinOutcome } from "@/lib/custom-directory-pin";
@@ -238,6 +238,103 @@ export function createCreateFlow(deps: {
 }
 
 /**
+ * Row-scoped create flow (wi pi#49 R3): the same engine submission
+ * (runCreateSubmission — unsafe names issue zero requests, 409/207 are
+ * typed in-dialog failures) but rooted at a ROW's directory instead of
+ * the currently browsed one, and with a NO-NAVIGATION completion:
+ * - a folder success refreshes the displayed listing (never enters the
+ *   created folder),
+ * - a file success confirms via i18n and refreshes,
+ * - the picker dialog never navigates and never closes on a row create,
+ * - the same pending guards as the top-level flow: `open`/`cancel` are
+ *   no-ops while a creation is in flight, so a mid-flight cancel can never
+ *   swallow the eventual in-dialog failure.
+ * The row's directory is re-read at submit time through `rowPath`, so a
+ * stale closure can never retarget the creation.
+ */
+export function createRowCreateFlow(deps: {
+  t: Translate;
+  fetchFn?: typeof fetch;
+  setKind: (kind: "folder" | "file" | null) => void;
+  setName: (name: string) => void;
+  setError: (message: string | null) => void;
+  setBusy: (busy: boolean) => void;
+  setNotice: (message: string | null) => void;
+  /** The ROW's directory the creation targets (read at submit time). */
+  rowPath: () => string;
+  /** Which list the row belongs to (read at submit time). */
+  scope: () => "browse" | "manage";
+  /** Enters a browsed directory (SplitPaneLayout unaffected — the picker
+   *  only re-reads its listing). */
+  navigateTo: (directory: string) => void;
+}) {
+  let pending = false;
+  let submittedScope: "browse" | "manage" = "browse";
+  return {
+    isPending: () => pending,
+    open(kind: "folder" | "file", scope: "browse" | "manage") {
+      if (pending) return; // no replacement while a creation is in flight
+      submittedScope = scope;
+      deps.setKind(kind);
+      deps.setName("");
+      deps.setError(null);
+      deps.setNotice(null);
+    },
+    cancel() {
+      // An idle form hides; a pending one STAYS visible so the in-flight
+      // operation's eventual failure is not swallowed.
+      if (pending) return;
+      deps.setKind(null);
+      deps.setName("");
+      deps.setError(null);
+    },
+    async submit(kind: "folder" | "file", rawName: string) {
+      if (pending) return;
+      const currentPath = deps.rowPath();
+      if (!currentPath) return;
+      pending = true;
+      try {
+        await runCreateSubmission({
+          kind,
+          rawName,
+          currentPath,
+          fetchFn: deps.fetchFn,
+          translateIssue: (issue) => deps.t(`directoryPicker.validation.${issue}`),
+          conflictMessage: deps.t(kind === "folder" ? "directoryPicker.mkdirConflict" : "directoryPicker.createFileConflict"),
+          onBusy: deps.setBusy,
+          onFormError: deps.setError,
+          onFolderCreated: () => {
+            deps.setKind(null);
+            deps.setName("");
+            if (submittedScope === "browse") {
+              // Browse-row folder (review B2): the created entry is a child
+              // of the ROW's directory and can never appear in the parent
+              // listing — enter the row's directory so the result is
+              // immediately visible.
+              deps.setNotice(null);
+              deps.navigateTo(currentPath);
+            } else {
+              // Manage rows render only the listed directory entries
+              // themselves; a created child is not representable here, so
+              // the typed notice is the feedback.
+              deps.setNotice(deps.t("directoryPicker.folderCreated"));
+            }
+          },
+          onFileCreated: () => {
+            deps.setKind(null);
+            deps.setName("");
+            deps.setNotice(deps.t("directoryPicker.fileCreated"));
+          },
+          onListingRefresh: () => {},
+        });
+      } finally {
+        pending = false;
+      }
+    },
+  };
+}
+
+/**
  * Show-hidden checkbox (props-only presentational export): the checked
  * state and persistence live with the picker through the browse engine.
  */
@@ -266,49 +363,6 @@ export function PickerShowHiddenToggle({
       />
       <span>{t("directoryPicker.showHidden")}</span>
     </label>
-  );
-}
-
-/**
- * Browse-area create toolbar (props-only presentational export): new-folder
- * AND new-file, available in BOTH plain and manage modes (the picker mounts
- * it unconditionally).
- */
-export function PickerCreateToolbar({
-  t,
-  disabled,
-  onNewFolder,
-  onNewFile,
-}: {
-  t: Translate;
-  disabled?: boolean;
-  onNewFolder: () => void;
-  onNewFile: () => void;
-}) {
-  const buttonStyle = {
-    display: "flex" as const,
-    alignItems: "center" as const,
-    gap: 6,
-    padding: "5px 9px",
-    border: "1px solid var(--border)",
-    borderRadius: 5,
-    background: "var(--bg-hover)",
-    color: "var(--text-muted)",
-    cursor: disabled ? "default" : "pointer",
-    fontSize: 11,
-    opacity: disabled ? 0.5 : 1,
-  };
-  return (
-    <div className="directory-picker-create-toolbar" style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-      <button type="button" onClick={onNewFolder} disabled={disabled} title={t("directoryPicker.newFolder")} style={buttonStyle}>
-        <PlusIcon />
-        <span>{t("directoryPicker.newFolder")}</span>
-      </button>
-      <button type="button" onClick={onNewFile} disabled={disabled} title={t("directoryPicker.newFile")} style={buttonStyle}>
-        <PlusIcon />
-        <span>{t("directoryPicker.newFile")}</span>
-      </button>
-    </div>
   );
 }
 
@@ -383,6 +437,72 @@ export function PickerCreateForm({
 }
 
 /**
+ * Inline row-scoped create panel (wi pi#49 R3, props-only presentational
+ * export): the file-or-folder choice plus the shared create form, expanded
+ * in place under the row whose “New” button was activated. The lifecycle
+ * lives with the picker through the row create flow seam.
+ */
+export function PickerRowCreatePanel({
+  t,
+  kind,
+  value,
+  busy,
+  error,
+  onKindChange,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  t: Translate;
+  kind: "folder" | "file";
+  value: string;
+  busy: boolean;
+  error: string | null;
+  onKindChange: (kind: "folder" | "file") => void;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const choiceStyle = (active: boolean): CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "4px 9px",
+    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+    borderRadius: 5,
+    background: active ? "var(--bg-hover)" : "none",
+    color: active ? "var(--accent)" : "var(--text-muted)",
+    fontSize: 11,
+    cursor: "pointer",
+    flexShrink: 0,
+  });
+  return (
+    <div className="directory-picker-row-create" style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, padding: "4px 8px 8px 30px" }}>
+      <div style={{ display: "flex", gap: 6 }} role="group" aria-label={t("directoryPicker.rowNew")}>
+        <button type="button" aria-pressed={kind === "folder"} onClick={() => onKindChange("folder")} style={choiceStyle(kind === "folder")}>
+          <FolderIcon />
+          <span>{t("directoryPicker.rowNewFolderChoice")}</span>
+        </button>
+        <button type="button" aria-pressed={kind === "file"} onClick={() => onKindChange("file")} style={choiceStyle(kind === "file")}>
+          <FileIcon />
+          <span>{t("directoryPicker.rowNewFileChoice")}</span>
+        </button>
+      </div>
+      <PickerCreateForm
+        t={t}
+        kind={kind}
+        value={value}
+        busy={busy}
+        error={error}
+        onChange={onChange}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+      />
+    </div>
+  );
+}
+
+/**
  * One browsed-directory row (props-only presentational export): a row
  * CONTAINER holding the navigation button and — only when the store owner
  * provided a pin callback — a pin button as a SIBLING (never nested, so
@@ -393,11 +513,15 @@ export function PickerBrowseRow({
   t,
   onNavigate,
   onPin,
+  onNew,
 }: {
   entry: BrowseDirectoryEntry;
   t: Translate;
   onNavigate: (path: string) => void;
   onPin?: (path: string) => void;
+  /** Row-scoped create (wi pi#49 R3): opens the inline create form for THIS
+   *  row's directory. Only directory rows receive it — drive rows never do. */
+  onNew?: (path: string) => void;
 }) {
   return (
     <div className="directory-picker-row" style={{ display: "flex", alignItems: "stretch" }}>
@@ -411,6 +535,20 @@ export function PickerBrowseRow({
         <FolderIcon />
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.name}</span>
       </button>
+      {onNew && (
+        <button
+          className="directory-picker-row-new"
+          type="button"
+          onClick={() => onNew(entry.path)}
+          title={t("directoryPicker.rowNew")}
+          aria-label={t("directoryPicker.rowNew")}
+          style={{ width: 30, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer" }}
+          onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
+          onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
+        >
+          <PlusIcon />
+        </button>
+      )}
       {onPin && (
         <button
           className="directory-picker-pin"
@@ -456,11 +594,15 @@ function ManagedEntryRow({
   t,
   onRename,
   onRemove,
+  onNew,
 }: {
   entry: PickerManagedEntry;
   t: Translate;
   onRename: (path: string, displayName: string | null) => void;
   onRemove: (path: string) => void;
+  /** Row-scoped create (wi pi#49 R3): managed rows are directory rows, so
+   *  each gains a “New” affordance beside rename/remove. */
+  onNew?: (path: string) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(entry.displayName ?? "");
@@ -500,6 +642,20 @@ function ManagedEntryRow({
       <span title={entry.path} style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)", fontSize: 11, color: entry.displayName ? "var(--text)" : "var(--text-muted)" }}>
         {entry.displayName ?? entry.path}
       </span>
+      {onNew && (
+        <button
+          className="directory-picker-row-new"
+          type="button"
+          onClick={() => onNew(entry.path)}
+          title={t("directoryPicker.rowNew")}
+          aria-label={t("directoryPicker.rowNew")}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+          onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
+          onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
+        >
+          <PlusIcon />
+        </button>
+      )}
       <button
         type="button"
         onClick={() => { setRenameValue(entry.displayName ?? ""); setRenaming(true); }}
@@ -526,20 +682,25 @@ function ManagedEntryRow({
 
 /**
  * The manage panel (props-only presentational export): the sidebar's
- * directory list with rename/remove ONLY. The old "New folder" button and
- * its inline form are gone — creation affordances live in the browse-area
- * toolbar (PickerCreateToolbar), which is available in both modes.
+ * directory list with rename/remove plus the per-row “New” affordance
+ * (wi pi#49 R3). Creation runs row-scoped: `onNew` opens the inline form
+ * for that row's directory and `renderRowCreate` mounts it in place —
+ * both supplied by the picker, which owns the flow state.
  */
 export function PickerManagePanel({
   t,
   entries,
   onRename,
   onRemove,
+  onNew,
+  renderRowCreate,
 }: {
   t: Translate;
   entries: readonly PickerManagedEntry[];
   onRename: (path: string, displayName: string | null) => void;
   onRemove: (path: string) => void;
+  onNew?: (path: string) => void;
+  renderRowCreate?: (path: string) => ReactNode;
 }) {
   return (
     <div className="directory-picker-manage" style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
@@ -550,13 +711,16 @@ export function PickerManagePanel({
         <div style={{ padding: "4px 8px 8px", color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noEntries")}</div>
       )}
       {entries.map((entry) => (
-        <ManagedEntryRow
-          key={entry.path}
-          entry={entry}
-          t={t}
-          onRename={onRename}
-          onRemove={onRemove}
-        />
+        <Fragment key={entry.path}>
+          <ManagedEntryRow
+            entry={entry}
+            t={t}
+            onRename={onRename}
+            onRemove={onRemove}
+            onNew={onNew}
+          />
+          {renderRowCreate?.(entry.path) ?? null}
+        </Fragment>
       ))}
     </div>
   );
@@ -697,10 +861,11 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
 
-  const openCreate = useCallback((kind: "folder" | "file") => {
-    createFlow.open(kind);
-  }, [createFlow]);
-
+  // Note (wi pi#49 R3): the browse-area toolbar that opened this top-level
+  // create form is removed — per-row “New” buttons are the replacement and
+  // run through the row-scoped flow below. The form itself (and its race
+  // guards in the createCreateFlow seam) stays mounted for the row-flow
+  // parity the tests exercise; the row flow never opens it.
   const cancelCreate = useCallback(() => {
     createFlow.cancel();
   }, [createFlow]);
@@ -738,6 +903,72 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       : undefined,
     [onPinDirectory, pickerErrors],
   );
+
+  // Per-row create (wi pi#49 R3): one inline form at a time, scoped to the
+  // row whose “New” button was activated. `rowCreateScope`+`rowCreatePath`
+  // identify the owning row; the row's directory is re-read at submit time
+  // through the ref, so a stale flow closure can never retarget a creation.
+  // A successful creation closes the form (kind → null) and refreshes the
+  // displayed listing — never a navigation, never a dialog close.
+  const [rowCreateScope, setRowCreateScope] = useState<"browse" | "manage" | null>(null);
+  const [rowCreatePath, setRowCreatePath] = useState("");
+  const [rowCreateKind, setRowCreateKind] = useState<"folder" | "file" | null>(null);
+  const [rowCreateName, setRowCreateName] = useState("");
+  const [rowCreateError, setRowCreateError] = useState<string | null>(null);
+  const [rowCreateBusy, setRowCreateBusy] = useState(false);
+  const rowCreatePathRef = useRef("");
+  rowCreatePathRef.current = rowCreatePath;
+
+  const rowCreateFlow = useMemo(() => createRowCreateFlow({
+    t,
+    setKind: setRowCreateKind,
+    setName: setRowCreateName,
+    setError: setRowCreateError,
+    setBusy: setRowCreateBusy,
+    setNotice: setCreateNotice,
+    rowPath: () => rowCreatePathRef.current,
+    scope: () => rowCreateScopeRef.current,
+    navigateTo: (directory) => void controllerRef.current.browse(directory),
+  }), [t]);
+
+  const rowCreateOpenFor = useCallback((scope: "browse" | "manage", path: string): boolean =>
+    rowCreateScope === scope && rowCreatePath === path && rowCreateKind !== null,
+    [rowCreateScope, rowCreatePath, rowCreateKind],
+  );
+
+  const rowCreateScopeRef = useRef<"browse" | "manage">("browse");
+  rowCreateScopeRef.current = rowCreateScope ?? "browse";
+  const openRowCreate = useCallback((scope: "browse" | "manage", path: string) => {
+    if (rowCreateFlow.isPending()) return; // no replacement while a creation is in flight
+    setRowCreateScope(scope);
+    setRowCreatePath(path);
+    rowCreateFlow.open("folder", scope);
+  }, [rowCreateFlow]);
+
+  const handleRowCreateCancel = useCallback(() => {
+    rowCreateFlow.cancel();
+  }, [rowCreateFlow]);
+
+  const handleRowCreateSubmit = useCallback(async () => {
+    if (rowCreateKind == null) return;
+    await rowCreateFlow.submit(rowCreateKind, rowCreateName);
+  }, [rowCreateFlow, rowCreateKind, rowCreateName]);
+
+  const renderRowCreatePanel = useCallback((scope: "browse" | "manage", path: string): ReactNode => (
+    rowCreateOpenFor(scope, path) ? (
+      <PickerRowCreatePanel
+        t={t}
+        kind={rowCreateKind!}
+        value={rowCreateName}
+        busy={rowCreateBusy}
+        error={rowCreateError}
+        onKindChange={setRowCreateKind}
+        onChange={(value) => { setRowCreateName(value); setRowCreateError(null); }}
+        onSubmit={() => void handleRowCreateSubmit()}
+        onCancel={handleRowCreateCancel}
+      />
+    ) : null
+  ), [t, rowCreateOpenFor, rowCreateKind, rowCreateName, rowCreateBusy, rowCreateError, handleRowCreateSubmit, handleRowCreateCancel]);
 
   if (!portalTarget) return null;
 
@@ -807,20 +1038,6 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
           </button>
         </form>
 
-        {/* Browse-area toolbar (wi pi#47): new-folder + new-file in BOTH
-            plain and manage modes, plus the persisted show-hidden checkbox.
-            Toggling reloads the current browsed directory; creating acts on
-            the currently browsed directory. */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexShrink: 0, padding: "8px 14px", borderBottom: "1px solid var(--border)" }}>
-          <PickerCreateToolbar
-            t={t}
-            disabled={loading || !currentPath || createBusy}
-            onNewFolder={() => openCreate("folder")}
-            onNewFile={() => openCreate("file")}
-          />
-          <PickerShowHiddenToggle t={t} checked={showHidden} disabled={loading} onChange={handleToggleShowHidden} />
-        </div>
-
         {createKind && (
           <PickerCreateForm
             t={t}
@@ -854,13 +1071,16 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
             </>
           ) : directories.length > 0 ? (
             directories.map((entry) => (
-              <PickerBrowseRow
-                key={entry.path}
-                entry={entry}
-                t={t}
-                onNavigate={(path) => navigateTo(path)}
-                onPin={handleRowPin ? (path) => void handleRowPin(path) : undefined}
-              />
+              <Fragment key={entry.path}>
+                <PickerBrowseRow
+                  entry={entry}
+                  t={t}
+                  onNavigate={(path) => navigateTo(path)}
+                  onPin={handleRowPin ? (path) => void handleRowPin(path) : undefined}
+                  onNew={(path) => openRowCreate("browse", path)}
+                />
+                {renderRowCreatePanel("browse", entry.path)}
+              </Fragment>
             ))
           ) : (
             <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noSubdirectories")}</div>
@@ -868,20 +1088,27 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
           {(loadError || error || pinError) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{pickerErrorMessage({ pinError, loadError, external: error })}</div>}
 
           {/* Manage mode: the sidebar's directory list with rename/remove
-              ONLY (creation lives in the browse-area toolbar above, so the
-              panel's "New folder" form is gone). Absent `entries` keeps the
-              dialog exactly as the plain browse/select consumer sees it. */}
+              plus the per-row “New” affordance (wi pi#49 R3). Absent
+              `entries` keeps the dialog exactly as the plain browse/select
+              consumer sees it. */}
           {manage && (
             <PickerManagePanel
               t={t}
               entries={entries}
               onRename={onRenameEntry ?? (() => {})}
               onRemove={onRemoveEntry ?? (() => {})}
+              onNew={(path) => openRowCreate("manage", path)}
+              renderRowCreate={(path) => renderRowCreatePanel("manage", path)}
             />
           )}
         </div>
 
-        <div className="directory-picker-footer" style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, flexShrink: 0, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>
+        {/* Footer (wi pi#49 R3): the persisted show-hidden checkbox sits on
+            the LEFT of the same row as cancel and “Select this folder”;
+            toggling reloads the current browsed directory. */}
+        <div className="directory-picker-footer" style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, padding: "10px 18px", borderTop: "1px solid var(--border)" }}>
+          <PickerShowHiddenToggle t={t} checked={showHidden} disabled={loading} onChange={handleToggleShowHidden} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
           <button className="directory-picker-action" type="button" onClick={onCancel} disabled={busy} style={{ padding: "6px 14px", border: "1px solid var(--border)", borderRadius: 6, background: "none", color: "var(--text-muted)", cursor: busy ? "default" : "pointer", fontSize: 13 }}>{t("i18n.cancel")}</button>
           <button
             className="directory-picker-action"
@@ -893,6 +1120,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
           >
             {busy ? t("i18n.checking") : t("directoryPicker.selectThisFolder")}
           </button>
+          </div>
         </div>
       </div>
     </div>,
