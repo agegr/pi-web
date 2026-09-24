@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, getSessionFamily, type SessionFamily } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, isPathInsideDirectory, sessionsForDirectory, sessionsForProject } from "@/lib/project-groups";
+import { getRecentProjects, isPathInsideDirectory, sessionsForDirectory, sessionsForProject } from "@/lib/project-groups";
 import {
   addCustomDirectory,
   customDirectoryIdentity,
@@ -16,7 +16,12 @@ import {
   renameCustomDirectory,
 } from "@/lib/custom-directories";
 import { buildExplorerRoots } from "@/lib/explorer-roots";
-import { shouldShowDefaultCwdShortcut, syntheticProjectFor } from "@/lib/default-cwd-shortcut";
+import {
+  getServerSessionFilterState,
+  getSessionFilterState,
+  isSessionFiltered,
+  subscribeSessionFilter,
+} from "@/lib/session-filter";
 import {
   buildSidebarRows,
   getWindowedRows,
@@ -33,7 +38,6 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { DirectoryPicker } from "./DirectoryPicker";
-import { RecentProjectsMenu } from "./RecentProjectsMenu";
 import { createDirectoryPinFlow } from "@/lib/custom-directory-pin";
 import { MultiRootFileExplorer, type MultiRootFileExplorerHandle } from "./MultiRootFileExplorer";
 import { SessionSearch } from "./SessionSearch";
@@ -277,8 +281,6 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
     </span>
   );
 }
-
-const DROPDOWN_ANIMATION_MS = 140;
 
 /** Pushpin glyph for the pin affordance; filled when pinned. */
 function PinIcon({ pinned }: { pinned: boolean }) {
@@ -550,49 +552,6 @@ function PinnedGroupHeader({
   );
 }
 
-function AnimatedDropdown({ open, children, style }: { open: boolean; children: ReactNode; style: CSSProperties }) {
-  const [mounted, setMounted] = useState(open);
-  const [visible, setVisible] = useState(open);
-
-  useEffect(() => {
-    let frame: number | undefined;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    if (open) {
-      setMounted(true);
-      setVisible(false);
-      frame = window.requestAnimationFrame(() => {
-        frame = window.requestAnimationFrame(() => setVisible(true));
-      });
-    } else {
-      setVisible(false);
-      timeout = setTimeout(() => setMounted(false), DROPDOWN_ANIMATION_MS);
-    }
-
-    return () => {
-      if (frame !== undefined) window.cancelAnimationFrame(frame);
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [open]);
-
-  if (!mounted) return null;
-
-  return (
-    <div
-      style={{
-        ...style,
-        opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0) scale(1)" : "translateY(-8px) scale(0.96)",
-        transformOrigin: "top center",
-        transition: `opacity ${DROPDOWN_ANIMATION_MS}ms ease, transform ${DROPDOWN_ANIMATION_MS}ms ease`,
-        pointerEvents: open ? "auto" : "none",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 
 
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
@@ -716,11 +675,22 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   // selectedCwd.
   const [explorerSelection, setExplorerSelection] = useState<ProjectSelection | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
-  // Today's default directory (GET /api/default-cwd, no side effects).
-  // Drives the shortcut-visibility rule; the click itself still goes
-  // through POST, which creates and allow-lists the directory.
-  const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Worker-session filter (wi pi#49 R1): patterns + reveal toggle, read once
+  // per mount (the Settings dialog owns edits; a reload picks them up).
+  // The lazy initializers are hydration-safe: the rendered session list is
+  // empty on both server render and first client render (it fills only
+  // after the first /api/sessions response lands client-side), so a stored
+  // preference can never cause a hydration mismatch.
+  // Session filter (review B1): a LIVE subscription to the shared
+  // session-filter store — editing rules or the reveal toggle in Settings
+  // updates the rendered sidebar immediately, without a remount.
+  // getServerSnapshot: the app server-renders client components — without a
+  // stable server snapshot React 19 SSR throws "Missing getServerSnapshot".
+  // The server never reads storage: defaults only (hydration-safe, and the
+  // client snapshot replaces it after hydration).
+  const sessionFilter = useSyncExternalStore(subscribeSessionFilter, getSessionFilterState, getServerSessionFilterState);
+  const sessionFilterPatterns = sessionFilter.patterns;
+  const showFilteredSessions = sessionFilter.showFiltered;
   // Pinned projects: the store re-reads localStorage on every call, so a
   // revision counter is all the React state we need — bump it after each
   // pin/unpin and rows move immediately without a reload.
@@ -780,7 +750,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   // The add-directory picker (manage mode): adds a directory to the custom
   // list, registers it as an allowed file root, and can rename/remove list
   // entries and create folders from the dialog.
@@ -1104,13 +1073,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     }).catch(() => {});
   }, []);
 
-  // Read-only: reports today's ~/pi-cwd-<date> without creating it.
-  useEffect(() => {
-    fetch("/api/default-cwd").then((r) => r.json()).then((d: { cwd?: string }) => {
-      if (d.cwd) setDefaultCwd(d.cwd);
-    }).catch(() => {});
-  }, []);
-
   const restoredRef = useRef(false);
 
   const projectSelection = useCallback((root: string, key: string): ProjectSelection => ({
@@ -1251,50 +1213,12 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       // validated project identity becomes the explorer's trailing section.
       setExplorerSelection({ root: data.projectRoot, key: data.projectKey });
       setCustomPathOpen(false);
-      setDropdownOpen(false);
     } catch (e) {
       setCustomPathError(e instanceof Error ? e.message : String(e));
     } finally {
       setCustomPathValidating(false);
     }
   }, [customPathValue, customPathValidating]);
-
-  const handleCustomPathClick = useCallback(() => {
-    setCustomPathOpen(true);
-    setCustomPathError(null);
-    setDropdownOpen(false);
-  }, []);
-  const handleDefaultCwd = useCallback(async () => {
-    try {
-      const res = await fetch("/api/default-cwd", { method: "POST" });
-      const data = await res.json() as { cwd?: string; error?: string };
-      if (data.cwd) {
-        setSelectedCwd(data.cwd);
-        // Default-directory shortcut is an explicit workspace-selector
-        // action: resolve its project identity for the explorer tail. When
-        // the directory has no sessions (and no identity resolved yet),
-        // fall back to a synthetic entry so the explorer's trailing
-        // section always follows the click (pi#18).
-        setExplorerSelection(projectFor(data.cwd) ?? syntheticProjectFor(data.cwd));
-        setCustomPathOpen(false);
-        setCustomPathError(null);
-        setDropdownOpen(false);
-      }
-    } catch {
-      // ignore
-    }
-  }, [projectFor]);
-
-  // Close the workspace dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   // Clicking a session moves the effective cwd to that session's worktree.
   // Done on the click path (not via the selectedCwd prop sync) so it also
@@ -1338,16 +1262,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     onNewSession?.(newTempSessionId(), project.root);
   }, [stalePinnedRoots, onNewSession, expandPinnedGroup]);
 
-  const recentProjects = getRecentProjects(allSessions);
-  // pi#18: with listed directories set and the default directory outside that
-  // set, the shortcut would point somewhere the explorer already steers away
-  // from — hide it. Store mutations bump pinnedRevision, so the rule
-  // re-evaluates immediately, and the default directory is compared loosely
-  // (case and separators) against the listed roots.
-  const showDefaultCwdShortcut = useMemo(
-    () => shouldShowDefaultCwdShortcut(pinnedProjects, defaultCwd),
-    [pinnedProjects, defaultCwd],
-  );
   // pi#14 explorer section roots: every listed directory (list order) plus
   // the workspace selector's current selection as the trailing section. A
   // selection that resolves into a listed directory reuses that entry's
@@ -1363,14 +1277,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       return buildExplorerRoots(pinnedProjects, owning ?? explorerSelection);
     },
     [pinnedProjects, explorerSelection, listedEntryForPath],
-  );
-  // Recent list: rows whose root resolves into a listed directory are
-  // excluded — they render once, inside their directory group. Every
-  // remaining row renders unfiltered: the directory filter box is gone
-  // (wi pi#47). Pseudo-project suppression is gone with the worktree
-  // switcher: rows render with no worktree-specific hiding.
-  const recentUnpinnedProjects = recentProjects.filter(
-    (project) => !listedEntryForPath(project.root),
   );
   // Pin/unpin now operate on the custom directory store, leaving exactly
   // one user-managed list: pin adds the project root at the head, unpin
@@ -1499,31 +1405,28 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCwd, selectedProject, listedEntryForPath]);
 
-  // Per-project activity counts (running / unread) for the workspace selector.
-  // Uses the same stable server key as the project list and filtering.
-  const projectActivity = useMemo(
-    () => getProjectActivity(allSessions, runningSessionIds, unreadSessionIds),
-    [allSessions, runningSessionIds, unreadSessionIds],
+  // Worker-session filter (wi pi#49 R1): sessions matching any pattern (a
+  // case-insensitive substring hit on name OR firstMessage) are hidden from
+  // every RENDERED list before grouping — the main list and the pinned
+  // groups both derive from visibleSessions. Non-render concerns
+  // (background-completion notifications, unread/running bookkeeping,
+  // initial-project restore, recent-project selection) keep operating on
+  // allSessions. The reveal toggle disables the filtering entirely, so a
+  // re-revealed session renders with no visual difference.
+  const visibleSessions = useMemo(
+    () => showFilteredSessions || sessionFilterPatterns.length === 0
+      ? allSessions
+      : allSessions.filter((session) => !isSessionFiltered(session, sessionFilterPatterns)),
+    [allSessions, showFilteredSessions, sessionFilterPatterns],
   );
-
-  // Any activity in a project other than the one currently selected — shown as
-  // a dot on the (collapsed) selector button so it is visible without opening
-  // the dropdown.
-  const hasOtherWorkspaceActivity = useMemo(
-    () => [...projectActivity.entries()].some(
-      ([key, { running, unread }]) => key !== selectedProject?.key && (running > 0 || unread > 0),
-    ),
-    [projectActivity, selectedProject],
-  );
-
   // The main list below the listed groups keeps its existing filtering
   // rules, minus the sessions grouped under a listed directory — those
   // render only inside their group, so a listed directory's sessions never
   // appear twice. Recomputed per render, exactly like the pre-group session
   // list was.
   const filteredSessions = selectedProject
-    ? sessionsForProject(allSessions, selectedProject.key)
-    : allSessions;
+    ? sessionsForProject(visibleSessions, selectedProject.key)
+    : visibleSessions;
   // Session families per listed directory. sessionsForDirectory groups by
   // path containment (plus the server-resolved project root), so sessions
   // in any git worktree of a listed repository and sessions in non-git
@@ -1532,7 +1435,7 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   const familiesByProject = new Map<string, SessionFamily[]>();
   const groupedSessionIds = new Set<string>();
   for (const project of pinnedProjects) {
-    const families = listSessionFamilies(sessionsForDirectory(allSessions, project.root));
+    const families = listSessionFamilies(sessionsForDirectory(visibleSessions, project.root));
     familiesByProject.set(project.key, families);
     for (const family of families) {
       groupedSessionIds.add(family.root.id);
@@ -1753,115 +1656,21 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
           </div>
         </div>
 
-        {/* CWD picker */}
-        <div ref={dropdownRef} style={{ position: "relative" }}>
-          <button
-            onClick={() => setDropdownOpen((v) => !v)}
-            data-cwd-picker="true"
-            title={selectedProject?.root ?? selectedCwd ?? ""}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              padding: "6px 10px",
-              background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
-              border: selectedCwd ? "1px solid var(--border)" : "1px solid rgba(37,99,235,0.4)",
-              borderRadius: 7,
-              cursor: "pointer",
-              fontSize: 12,
-              color: "var(--text)",
-              textAlign: "left",
-              transition: "border-color 0.15s, background 0.15s",
-            }}
-          >
-            {selectedCwd ? (
-              <PathLabel
-                text={displayCwd(selectedProject?.root ?? selectedCwd, homeDir)}
-                style={{
-                  flex: 1,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text)",
-                }}
-              />
-            ) : (
-              <span
-                style={{
-                  flex: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                }}
-              >
-                 {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
-              </span>
-            )}
-            {hasOtherWorkspaceActivity && (
-              <span
-                title={t("sidebar.newActivity")}
-                aria-label={t("sidebar.newActivity")}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  flexShrink: 0,
-                  marginLeft: 6,
-                  background: "var(--accent)",
-                }}
-              />
-            )}
-          </button>
-
-          <AnimatedDropdown
-            open={dropdownOpen}
-            style={{
-              position: "absolute",
-              top: "calc(100% + 4px)",
-              left: 0,
-              right: 0,
-              zIndex: 100,
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              boxShadow: "0 6px 20px rgba(0,0,0,0.10)",
-              overflow: "hidden",
-            }}
-          >
-              {/* Dropdown body (rows + shortcuts) lives in the props-only
-                  RecentProjectsMenu so its structure is render-testable.
-                  The directory filter box is gone (wi pi#47): every recent
-                  row renders unfiltered. */}
-              <RecentProjectsMenu
-                t={t}
-                projects={recentUnpinnedProjects}
-                selectedKey={selectedProject?.key ?? null}
-                activityByKey={projectActivity}
-                homeDir={homeDir}
-                showDefaultCwdShortcut={showDefaultCwdShortcut}
-                customPathOpen={customPathOpen}
-                onSelectProject={(project) => {
-                  setSelectedCwd(project.root);
-                  // Accordion: if this selection resolves to a pinned
-                  // project, that group becomes the expanded one.
-                  expandPinnedGroupForCwd(project.root);
-                  // Dropdown row select is an explicit workspace-selector
-                  // action: this project becomes the explorer's trailing
-                  // section (deduped against pins by its stable key).
-                  setExplorerSelection(project);
-                  setCustomPathOpen(false);
-                  setCustomPathError(null);
-                  setDropdownOpen(false);
-                }}
-                onTogglePin={togglePin}
-                onUseDefaultCwd={() => void handleDefaultCwd()}
-                onCustomPathClick={handleCustomPathClick}
-              />
-          </AnimatedDropdown>
-        </div>
-
+        {/* R2b (pi#49): top-level New button — opens the directory picker
+            (manage mode), replacing the removed in-list Add directory row. */}
+        <button
+          type="button"
+          onClick={() => setAddDirectoryOpen(true)}
+          title={t("sidebar.addNew")}
+          aria-label={t("sidebar.addNew")}
+          className="mt-[6px] flex h-[30px] w-full shrink-0 cursor-pointer items-center justify-center gap-[6px] rounded-[7px] border border-border bg-bg-hover text-xs font-semibold text-text-muted hover:bg-bg-selected hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+            <line x1="5" y1="1" x2="5" y2="9" />
+            <line x1="1" y1="5" x2="9" y2="5" />
+          </svg>
+          <span>{t("sidebar.addNew")}</span>
+        </button>
         {sessionSearchOpen && (
           <input
             id="session-search-input"
@@ -1882,46 +1691,6 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
           />
         )}
 
-        {/* Add directory — opens the picker dialog in manage mode: selecting
-            a directory adds it to the user-managed list (and registers it as
-            an allowed file root), and the dialog can also create folders and
-            rename/remove list entries. */}
-        {!sessionSearchOpen && (
-          <button
-            type="button"
-            onClick={() => setAddDirectoryOpen(true)}
-            title={t("sidebar.addDirectory")}
-            aria-label={t("sidebar.addDirectory")}
-            style={{
-              width: "100%",
-              height: 29,
-              boxSizing: "border-box",
-              marginTop: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "0 10px",
-              border: "1px dashed var(--border)",
-              borderRadius: 7,
-              background: "var(--bg-hover)",
-              color: "var(--text-muted)",
-              fontSize: 11,
-              lineHeight: 1.35,
-              whiteSpace: "nowrap",
-              textAlign: "left",
-              cursor: "pointer",
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-              <path d="M1.5 3h4l1.5 2h7.5v7.5h-13z" />
-            </svg>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{t("sidebar.addDirectory")}</span>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0, marginLeft: "auto" }} aria-hidden="true">
-              <line x1="5" y1="1" x2="5" y2="9" />
-              <line x1="1" y1="5" x2="9" y2="5" />
-            </svg>
-          </button>
-        )}
       </div>
 
       {/* Session list — upstream #825 resizable panes: the list pane adopts the

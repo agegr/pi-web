@@ -8,55 +8,36 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
-const menuSource = await readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8");
 
-function sliceBetween(startMarker, endMarker) {
-  const start = source.indexOf(startMarker);
-  assert.ok(start !== -1, `marker not found: ${startMarker}`);
-  const end = source.indexOf(endMarker, start);
-  assert.ok(end !== -1, `end marker not found after ${startMarker}: ${endMarker}`);
-  return source.slice(start, end);
-}
+// wi pi#49 R2 removed the workspace dropdown entirely — and with it the
+// default-directory shortcut that lived in the dropdown body. The default
+// cwd is now covered by the entry logic only: the one-shot initial
+// auto-select / URL restore picks the effective workspace on load.
+test("the default-directory shortcut and its visibility rule are gone with the dropdown", () => {
+  assert.doesNotMatch(source, /shouldShowDefaultCwdShortcut|syntheticProjectFor/);
+  assert.doesNotMatch(source, /default-cwd/);
+  assert.doesNotMatch(source, /handleDefaultCwd|showDefaultCwdShortcut/);
+  assert.doesNotMatch(source, /const \[defaultCwd, setDefaultCwd\]/);
+});
 
-test("the shortcut's visibility comes from the pure pi#18 rule", () => {
-  assert.match(source, /import \{ shouldShowDefaultCwdShortcut, syntheticProjectFor \} from "@\/lib\/default-cwd-shortcut";/);
+test("the entry logic still selects an effective workspace on first load", () => {
+  // URL restore: the restored session's cwd becomes the effective cwd.
   assert.match(
     source,
-    /const showDefaultCwdShortcut = useMemo\(\s*\(\) => shouldShowDefaultCwdShortcut\(pinnedProjects, defaultCwd\),\s*\[pinnedProjects, defaultCwd\],\s*\);/,
+    /const target = allSessions\.find\(\(s\) => s\.id === initialSessionId\);[\s\S]*?setSelectedCwd\(target\.cwd\);/,
+  );
+  // Auto-select: the most recent project's root becomes the effective cwd.
+  assert.match(
+    source,
+    /const projects = getRecentProjects\(allSessions\);[\s\S]*?setSelectedCwd\(projects\[0\]\.root\);/,
   );
 });
 
-test("the default-directory button is gated by the visibility rule", () => {
-  // The shortcut lives in the extracted dropdown body now; the gate still
-  // applies the pi#18 visibility rule to the same props.
-  const body = menuSource.slice(
-    menuSource.indexOf("{!customPathOpen && showDefaultCwdShortcut && ("),
-    menuSource.indexOf("{/* Custom path directory picker */}"),
-  );
-  assert.match(body, /\{!customPathOpen && showDefaultCwdShortcut && \(/);
-  // The sidebar forwards its computed rule into the menu.
-  assert.match(source, /showDefaultCwdShortcut=\{showDefaultCwdShortcut\}/);
-  assert.match(source, /customPathOpen=\{customPathOpen\}/);
-});
-
-test("the default directory is read without side effects from GET /api/default-cwd", () => {
-  const body = sliceBetween(
-    "// Read-only: reports today's ~/pi-cwd-<date> without creating it.",
-    "}, []);",
-  );
-  assert.match(body, /fetch\("\/api\/default-cwd"\)/);
-  assert.doesNotMatch(body, /method: "POST"/);
-  assert.match(body, /if \(d\.cwd\) setDefaultCwd\(d\.cwd\);/);
-});
-
-test("clicking the shortcut always writes an explorer selection", () => {
-  // Even a session-less default directory gets a synthetic trailing section.
-  const body = sliceBetween(
-    "const handleDefaultCwd = useCallback(",
-    "}, [projectFor]);",
-  );
-  assert.match(body, /setExplorerSelection\(projectFor\(data\.cwd\) \?\? syntheticProjectFor\(data\.cwd\)\);/);
-  // The click itself still goes through POST, which creates and
-  // allow-lists the directory.
-  assert.match(body, /fetch\("\/api\/default-cwd", \{ method: "POST" \}\)/);
+test("arbitrary paths stay reachable through the Add-directory dialog", () => {
+  // The standalone Add-directory button opens the picker (manage mode),
+  // whose path input browses to any directory; the plain custom-path picker
+  // (path input + browse, validated on commit) survives as its engine.
+  assert.match(source, /addDirectoryOpen && \(\s*<DirectoryPicker/);
+  assert.match(source, /onClick=\{\(\) => setAddDirectoryOpen\(true\)\}/);
+  assert.match(source, /initialPath=\{customPathValue \|\| homeDir \|\| undefined\}/);
 });

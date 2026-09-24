@@ -327,8 +327,8 @@ export async function checkSplitPane(page, sessions) {
   //    Pin the workspace through the cwd picker so the pinned-group header
   //    (with its own "+") appears. The sidebar is already docked (7b left it
   //    open so its Settings button was reachable).
-  assert.equal(await page.getByRole("button", { name: "New", exact: true }).count(), 0,
-    "the sidebar header exposes no New button");
+  assert.equal(await page.getByRole("button", { name: "Add", exact: true }).count(), 1,
+    "the sidebar exposes exactly one top-level Add (new directory) button");
   assert.equal(await page.locator("[data-split-tablist]").count(), 0,
     "the strip is gone: no + button exists in the pane chrome");
   // The workspace is still the project (only session panes are open), so the
@@ -339,7 +339,7 @@ export async function checkSplitPane(page, sessions) {
   // dropdown — an open AnimatedDropdown panel would intercept the click).
   // The picker opens browsing homeDir; type the project path so "Select this
   // folder" adds THE PROJECT (the group header keys off it).
-  await page.getByRole("button", { name: "Add directory", exact: true }).click();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.locator("#directory-path").fill(project);
   await page.locator("#directory-path").press("Enter");
   await page.getByRole("button", { name: "Select this folder", exact: true }).click();

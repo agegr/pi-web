@@ -8,7 +8,6 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
-const menuSource = await readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8");
 
 function sliceBetween(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -64,29 +63,18 @@ test("worktree actions moved into the picker dialog — the sidebar has no creat
 });
 
 test("explicit workspace-selector actions are the only explorer-selection writers", () => {
-  // Dropdown row select (the body lives in the extracted RecentProjectsMenu;
-  // the selection writer is the sidebar's onSelectProject callback).
-  const dropdownStart = source.indexOf("onSelectProject={(project) => {");
-  assert.ok(dropdownStart !== -1);
-  const dropdownBody = source.slice(dropdownStart, source.indexOf("onTogglePin={togglePin}", dropdownStart));
-  assert.match(dropdownBody, /setSelectedCwd\(project\.root\);/);
-  assert.match(dropdownBody, /setExplorerSelection\(project\);/);
-  // The extracted menu itself never writes the explorer selection.
-  assert.doesNotMatch(menuSource, /setExplorerSelection/);
+  // The workspace dropdown is gone (wi pi#49 R2), so the remaining explicit
+  // writers are: the custom-path commit, and the one-shot initial
+  // auto-select / URL restore.
+  assert.doesNotMatch(source, /onSelectProject=\{\(project\) => \{/);
+  assert.doesNotMatch(source, /setExplorerSelection\(project\);/);
+  assert.doesNotMatch(source, /handleDefaultCwd/);
   // Custom-path commit.
   const commitBody = sliceBetween(
     "const commitCustomPath = useCallback(",
     "}, [customPathValue, customPathValidating]);",
   );
   assert.match(commitBody, /setExplorerSelection\(\{ root: data\.projectRoot, key: data\.projectKey \}\);/);
-  // Default-directory shortcut: identity from projectFor with a synthetic
-  // fallback so a session-less default directory still gets a trailing
-  // section (pi#18).
-  const defaultBody = sliceBetween(
-    "const handleDefaultCwd = useCallback(",
-    "}, [projectFor]);",
-  );
-  assert.match(defaultBody, /setExplorerSelection\(projectFor\(data\.cwd\) \?\? syntheticProjectFor\(data\.cwd\)\);/);
   // One-shot initial auto-select / URL restore.
   assert.match(
     source,
