@@ -1308,6 +1308,38 @@
   font-size: 11px;
 }
 
+.settings-retry-num-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 28px;
+}
+
+.settings-retry-num-row label {
+  flex-shrink: 0;
+}
+
+.settings-retry-num-input {
+  width: 100px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+}
+
+.settings-retry-num-input-wide {
+  width: 120px;
+}
+
+.settings-retry-save-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 640px) {
   .config-panel-root.is-modal > .config-panel-surface {
     width: calc(100vw - 16px);
