@@ -7,6 +7,13 @@ export function normalizeFilePathSlashes(filePath: string): string {
 
 export function encodeFilePathForApi(filePath: string): string {
   const normalized = normalizeFilePathSlashes(filePath);
+  // The POSIX filesystem root has no non-empty segments, but the catch-all
+  // handler requires at least one. The established convention for a segment
+  // that must decode back to a slash is a percent-encoded one (see the UNC
+  // root below): "/" encodes as "%2F", which the route decodes back to "/"
+  // through filePathFromApiSegments — so a create/browse at the root
+  // actually reaches the handler (review blocker, pi#47).
+  if (normalized === "/") return "%2F";
   const segments = normalized.split("/").filter(Boolean);
   // A literal "//" prefix is normalized away by URL routing before it reaches
   // the catch-all handler, so a UNC root must live inside the first segment:

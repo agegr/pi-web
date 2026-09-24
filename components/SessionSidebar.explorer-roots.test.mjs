@@ -8,6 +8,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const menuSource = await readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8");
 
 function sliceBetween(startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -63,12 +64,15 @@ test("worktree actions moved into the picker dialog — the sidebar has no creat
 });
 
 test("explicit workspace-selector actions are the only explorer-selection writers", () => {
-  // Dropdown row select.
-  const dropdownStart = source.indexOf("visibleProjects.map((project) => (");
+  // Dropdown row select (the body lives in the extracted RecentProjectsMenu;
+  // the selection writer is the sidebar's onSelectProject callback).
+  const dropdownStart = source.indexOf("onSelectProject={(project) => {");
   assert.ok(dropdownStart !== -1);
-  const dropdownBody = source.slice(dropdownStart, source.indexOf("onTogglePin={() => togglePin", dropdownStart));
+  const dropdownBody = source.slice(dropdownStart, source.indexOf("onTogglePin={togglePin}", dropdownStart));
   assert.match(dropdownBody, /setSelectedCwd\(project\.root\);/);
   assert.match(dropdownBody, /setExplorerSelection\(project\);/);
+  // The extracted menu itself never writes the explorer selection.
+  assert.doesNotMatch(menuSource, /setExplorerSelection/);
   // Custom-path commit.
   const commitBody = sliceBetween(
     "const commitCustomPath = useCallback(",

@@ -57,10 +57,22 @@ export async function resolveDirectory(directory: string): Promise<string> {
   return realpath(normalizeDirectory(directory));
 }
 
-export async function listDirectories(directory: string): Promise<BrowsableDirectory[]> {
+/** Options for listDirectories: dot-prefixed (hidden) directories are
+ * excluded unless the caller opts in with showHidden. */
+export interface ListDirectoriesOptions {
+  showHidden?: boolean;
+}
+
+export async function listDirectories(
+  directory: string,
+  options?: ListDirectoriesOptions,
+): Promise<BrowsableDirectory[]> {
+  const showHidden = options?.showHidden === true;
   const entries = await readdir(directory, { withFileTypes: true });
-  // 忽略损坏、不可访问或不指向目录的符号链接。
+  // 忽略损坏、不可访问或不指向目录的符号链接；点前缀（隐藏）目录
+  // 默认同样被排除，除非调用方以 showHidden 显式放开。
   const candidates = await Promise.all(entries.map(async (entry) => {
+    if (!showHidden && entry.name.startsWith(".")) return null;
     if (entry.isDirectory()) {
       return { name: entry.name, path: path.join(directory, entry.name) };
     }

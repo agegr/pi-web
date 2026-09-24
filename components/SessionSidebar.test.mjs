@@ -9,6 +9,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const menuSource = await readFile(new URL("./RecentProjectsMenu.tsx", import.meta.url), "utf8");
 const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
@@ -150,11 +151,13 @@ test("legacy multi-open storage needs no migration: it collapses on the first ex
   assert.match(source, /legacy multi-key storage written by the pre-accordion version/);
 });
 
-test("the toolbar filter list keeps its pin toggles and mount-time stale-root sweep", () => {
+test("the toolbar recent list keeps its pin toggles and mount-time stale-root sweep", () => {
   // The pinned-projects header is gone (groups render as directories),
-  // but the recent-unpinned rows keep their pin toggles.
+  // but the recent-unpinned rows keep their pin toggles — through the
+  // extracted RecentProjectsMenu, whose rows bind the owner's callback.
   assert.match(source, /recentUnpinnedProjects/);
-  assert.match(source, /onTogglePin=\{\(\) => togglePin\(project\.root\)\}/);
+  assert.match(source, /onTogglePin=\{togglePin\}/);
+  assert.match(menuSource, /onTogglePin=\{\(\) => onTogglePin\(project\.root\)\}/);
   // The stale-root check runs at sidebar mount.
   assert.doesNotMatch(source, /if \(!dropdownOpen \|\| !pinnedRootsKey\) return;/);
   assert.match(source, /\}, \[pinnedRootsKey\]\);/);

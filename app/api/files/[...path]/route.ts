@@ -23,6 +23,7 @@ import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
   validateMkdirFolderName,
+  validateNewFileName,
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
@@ -174,6 +175,35 @@ export async function POST(
         if (code === "EEXIST" || code === "EISDIR" || code === "ENOTEMPTY") {
           return NextResponse.json(
             { error: "Folder already exists", conflict: true, path: destination },
+            { status: 409 },
+          );
+        }
+        throw error;
+      }
+      return NextResponse.json({ path: destination });
+    }
+
+    if (type === "create-file") {
+      // Create exactly `directory/<name>` as an EMPTY file: JSON body
+      // { name }. Same security machinery as mkdir (trust gate above, then
+      // getUploadDirectory's allowed-roots + realpath symlink defense). The
+      // name is validated BEFORE any path.join so an unsafe name can never
+      // reach the filesystem; the write is exclusive (flag "wx") so an
+      // existing target is a typed 409 with nothing overwritten.
+      const body = await request.json().catch(() => null) as { name?: unknown } | null;
+      const name = typeof body?.name === "string" ? body.name : null;
+      const validationError = validateNewFileName(name);
+      if (validationError) {
+        return NextResponse.json({ error: validationError }, { status: 400 });
+      }
+      const destination = path.join(directory, name as string);
+      try {
+        fs.writeFileSync(destination, "", { flag: "wx" });
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EEXIST" || code === "EISDIR" || code === "ENOTEMPTY") {
+          return NextResponse.json(
+            { error: "File already exists", conflict: true, path: destination },
             { status: 409 },
           );
         }
