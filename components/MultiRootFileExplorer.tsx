@@ -25,6 +25,11 @@ import {
   writeExplorerSectionExpanded,
   type ExplorerRoot,
 } from "@/lib/explorer-roots";
+import {
+  getShowBuildOutputs,
+  setShowBuildOutputs,
+  subscribeShowBuildOutputs,
+} from "@/lib/build-outputs-preference";
 import { useI18n } from "@/hooks/useI18n";
 
 export interface MultiRootFileExplorerHandle {
@@ -77,6 +82,31 @@ export const MultiRootFileExplorer = forwardRef<MultiRootFileExplorerHandle, Pro
     onSectionToggle,
   }, ref) {
     const { t } = useI18n();
+    // Single global "show build outputs" toggle (rendered once at the
+    // bottom of this block): default off, hydrated from localStorage in
+    // an effect (not the initial state) so the server prerender and the
+    // first client render agree on "off".
+    const [showBuildOutputs, setShowBuildOutputsState] = useState(false);
+    useEffect(() => {
+      setShowBuildOutputsState(getShowBuildOutputs());
+    }, []);
+    useEffect(() => {
+      // Follow every broadcast (the preference is one global value), so the
+      // checkbox stays in step even when another setter drives it.
+      return subscribeShowBuildOutputs(({ value }) => {
+        setShowBuildOutputsState(value);
+      });
+    }, []);
+    const handleToggleShowBuildOutputs = useCallback(() => {
+      const next = !showBuildOutputs;
+      // The broadcast drives every mounted FileExplorer's in-place
+      // re-fetch (treeRefreshKey bump), including roots expanded later.
+      setShowBuildOutputs(next);
+      // Apply the EFFECTIVE value: the setter broadcasts the read-back
+      // (false when storage failed), and this checkbox must agree with
+      // what the explorers actually got (review B1, pi#50).
+      setShowBuildOutputsState(getShowBuildOutputs());
+    }, [showBuildOutputs]);
     // Sections default to COLLAPSED. The persisted expansion state restores
     // after mount so the server prerender and the first client render agree
     // (same hydration pattern as the pinned-group expansion state).
@@ -310,6 +340,32 @@ export const MultiRootFileExplorer = forwardRef<MultiRootFileExplorerHandle, Pro
             </div>
           );
         })}
+        {/* Exactly one global "show build outputs" toggle for the whole
+            block: at the very bottom, below every root's tree, spanning the
+            full block width. */}
+        <label
+          title={t("files.showBuildOutputsHint")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            width: "100%",
+            padding: "4px 10px",
+            fontSize: 10,
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showBuildOutputs}
+            onChange={handleToggleShowBuildOutputs}
+            aria-label={t("files.showBuildOutputs")}
+            style={{ margin: 0 }}
+          />
+          {t("files.showBuildOutputs")}
+        </label>
       </div>
     );
   },

@@ -15,7 +15,6 @@ import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import {
   getShowBuildOutputs,
-  setShowBuildOutputs,
   subscribeShowBuildOutputs,
 } from "@/lib/build-outputs-preference";
 import { useI18n } from "@/hooks/useI18n";
@@ -267,11 +266,11 @@ function TreeNode({
     if (loaded && !force) return;
     setLoading(true);
     try {
-      // Read the per-workspace preference at fetch time so a toggle (which
+      // Read the global preference at fetch time so a toggle (which
       // bumps the tree refresh token and re-fetches expanded nodes) is honored
       // without threading a prop through every TreeNode.
       const entries = await fetchEntries(node.fullPath, {
-        showBuildOutputs: getShowBuildOutputs(cwd),
+        showBuildOutputs: getShowBuildOutputs(),
       });
       setChildren(entries);
       setLoaded(true);
@@ -280,7 +279,7 @@ function TreeNode({
     } finally {
       setLoading(false);
     }
-  }, [loaded, node.fullPath, cwd]);
+  }, [loaded, node.fullPath]);
 
   // Re-fetch children when the tree refreshes and the directory is open.
   useEffect(() => {
@@ -311,7 +310,13 @@ function TreeNode({
           display: "flex",
           alignItems: "center",
           gap: 4,
-          paddingLeft: 8 + depth * 14,
+          // Indent the ROW BOX itself (not just its inner content) so the
+          // box left edge — and with it the hover-highlight strip — visibly
+          // shifts per nesting level (fix for the "no visible indent"
+          // defect: content padding inside a full-width row leaves the row
+          // flush with its parent).
+          marginLeft: depth * 14,
+          paddingLeft: 8,
           paddingRight: 8,
           height: 24,
           cursor: "pointer",
@@ -467,7 +472,7 @@ function TreeNode({
             />
           ))}
           {children.length === 0 && loaded && (
-            <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
+            <div style={{ marginLeft: (depth + 1) * 14, paddingLeft: 8, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
               empty
             </div>
           )}
@@ -733,32 +738,24 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  // Per-workspace "Show build outputs" toggle: default off, hydrated from
+  // Global "Show build outputs" toggle: default off, hydrated from
   // localStorage in an effect (not the initial state) so the server
-  // prerender and first client render agree on "off".
+  // prerender and first client render agree on "off". The toggle itself
+  // is rendered once by MultiRootFileExplorer at the bottom of the block.
   useEffect(() => {
-    setShowBuildOutputsState(getShowBuildOutputs(cwd));
-  }, [cwd]);
+    setShowBuildOutputsState(getShowBuildOutputs());
+  }, []);
 
-  const handleToggleShowBuildOutputs = useCallback(() => {
-    const next = !showBuildOutputs;
-    setShowBuildOutputs(cwd, next);
-    setShowBuildOutputsState(next);
-    // Bump the shared refresh token: the root effect and every expanded
-    // node re-fetch in place with the new flag, no page reload.
-    setTreeRefreshKey((key) => key + 1);
-  }, [cwd, showBuildOutputs]);
-
-  // Follow preference changes from other explorer instances of the same
-  // workspace root (MultiRootFileExplorer mounts one FileExplorer per root,
-  // and more than one surface can be mounted for the same root).
+  // Follow global preference changes broadcast by the single bottom toggle
+  // (or any other setter): apply every broadcast — the preference is one
+  // global value — and bump the shared refresh token so the root effect and
+  // every expanded TreeNode re-fetch in place, no page reload.
   useEffect(() => {
-    return subscribeShowBuildOutputs(({ root, value }) => {
-      if (normalizeFilePathSlashes(root) !== normalizeFilePathSlashes(cwd)) return;
+    return subscribeShowBuildOutputs(({ value }) => {
       setShowBuildOutputsState(value);
       setTreeRefreshKey((key) => key + 1);
     });
-  }, [cwd]);
+  }, []);
 
   const applyUploadResult = useCallback((data: UploadResponse) => {
     const uploaded = data.uploaded ?? [];
@@ -918,21 +915,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   return (
     <div style={{ minHeight: "100%" }}>
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
-      <div style={{ display: "flex", alignItems: "center", padding: "4px 10px", borderBottom: "1px solid var(--border)" }}>
-        <label
-          title={t("files.showBuildOutputsHint")}
-          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "var(--text-dim)", cursor: "pointer", userSelect: "none" }}
-        >
-          <input
-            type="checkbox"
-            checked={showBuildOutputs}
-            onChange={handleToggleShowBuildOutputs}
-            aria-label={t("files.showBuildOutputs")}
-            style={{ margin: 0 }}
-          />
-          {t("files.showBuildOutputs")}
-        </label>
-      </div>
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (

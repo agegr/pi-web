@@ -108,3 +108,40 @@ test("section headers carry stable locator attributes for e2e", () => {
   assert.match(source, /data-explorer-section=\{root\.root\}/);
   assert.match(source, /aria-expanded=\{expanded\}/);
 });
+
+test("exactly one global build-outputs toggle renders at the bottom of the block", () => {
+  // One checkbox for the whole block, rendered once — never per root.
+  const checkboxCount = (source.match(/checked=\{showBuildOutputs\}/g) ?? []).length;
+  assert.equal(checkboxCount, 1, "exactly one build-outputs checkbox in the container");
+  // It reuses the existing i18n keys — no new keys, no copy changes.
+  assert.match(source, /t\("files\.showBuildOutputsHint"\)/);
+  assert.match(source, /\{t\("files\.showBuildOutputs"\)\}/);
+  // Toggling writes the global preference so the broadcast drives every
+  // mounted FileExplorer's in-place re-fetch.
+  assert.match(source, /setShowBuildOutputs\(next\);/);
+  // Hydration + subscription keep the single checkbox in step.
+  assert.match(source, /setShowBuildOutputsState\(getShowBuildOutputs\(\)\);/);
+  assert.match(source, /return subscribeShowBuildOutputs\(\(\{ value \}\) => \{/);
+  // Position: the label must come AFTER the roots.map sections in source
+  // order, so it renders below every root tree.
+  const mapClose = source.indexOf("        })}\n");
+  const labelPos = source.indexOf("checked={showBuildOutputs}");
+  assert.ok(mapClose !== -1 && labelPos > mapClose, "the toggle must render after the last root section");
+});
+
+test("TreeNode indents the row box itself by depth", () => {
+  // The indent must shift the ROW BOX (its left edge and hover-highlight
+  // strip), not merely pad content inside a full-width row: per-level
+  // marginLeft on the row element.
+  assert.match(explorerSource, /marginLeft: depth \* 14,/);
+  // Base content padding is kept so rows do not hug the container edge.
+  assert.match(explorerSource, /paddingLeft: 8,/);
+  // Children render one level deeper, so each nesting level shifts right
+  // by a further 14px (>= 12px per level).
+  assert.match(explorerSource, /depth=\{depth \+ 1\}/);
+  // The "empty" placeholder row follows the same geometry.
+  assert.match(explorerSource, /marginLeft: \(depth \+ 1\) \* 14, paddingLeft: 8/);
+  // The old content-only indent must be gone: padding inside a full-width
+  // row left the row box flush with its parent (the observed defect).
+  assert.ok(!explorerSource.includes("paddingLeft: 8 + depth * 14"), "no content-only indent may remain");
+});
