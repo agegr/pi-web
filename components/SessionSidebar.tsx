@@ -1030,7 +1030,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     onNewSession?.(tempId, selectedCwd);
-  }, [selectedCwd, onNewSession]);
+    // A new session is always followed by typing the first prompt.
+    onFocusComposer?.();
+  }, [selectedCwd, onNewSession, onFocusComposer]);
 
   // Shared by the toolbar button and the global Cmd/Ctrl+K shortcut.
   const toggleSessionSearch = useCallback(() => {
