@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { matchGlobalShortcut } from "@/lib/global-shortcuts";
+import { detectApplePlatform, matchGlobalShortcut } from "@/lib/global-shortcuts";
 
 // ---------------------------------------------------------------------------
 // Module-level registry — ChatWindow registers the abort handler here so that
@@ -67,6 +67,10 @@ interface UseGlobalKeyboardShortcutsOptions {
  *   Cmd/Ctrl+K         – toggle the sidebar session search
  *   Ctrl+Alt+N         – create a new session in the active project directory
  *
+ * "Cmd/Ctrl" is the platform's primary modifier: Command on Apple platforms,
+ * Control elsewhere. Control chords are deliberately left alone on Apple
+ * platforms, where Control belongs to Emacs-style text editing.
+ *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
  * the agent when no menu is open) because it needs intimate knowledge of menu
@@ -78,12 +82,16 @@ export function useGlobalKeyboardShortcuts(
   const { onNewSession, activeCwd } = options;
 
   useEffect(() => {
+    // Read once per effect run: the chords are bound to the platform's primary
+    // modifier, so the handler has to know which one that is.
+    const applePlatform = detectApplePlatform();
     const handler = (e: KeyboardEvent): void => {
       const shortcut = matchGlobalShortcut(e, {
         hasAbortHandler: globalAbortHandler !== null,
         hasSessionSearchHandler: globalSessionSearchHandler !== null,
         hasWorkspaceSelectorHandler: globalWorkspaceSelectorHandler !== null,
         activeCwd,
+        applePlatform,
       });
 
       if (shortcut === "abort") {

@@ -12,7 +12,7 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { registerSessionSearchHandler, registerWorkspaceSelectorHandler } from "@/hooks/useKeyboardShortcuts";
-import { useShortcutHint } from "@/hooks/useShortcutHint";
+import { useShortcutHint, useShortcutKeys } from "@/hooks/useShortcutHint";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -1048,6 +1048,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Tooltip hints for the two global shortcuts these buttons expose.
   const newSessionHint = useShortcutHint("j");
   const sessionSearchHint = useShortcutHint("k");
+  // Same chords in `aria-keyshortcuts` form, resolved on the client so they name
+  // the modifier the platform actually binds.
+  const newSessionKeys = useShortcutKeys("j");
+  const sessionSearchKeys = useShortcutKeys("k");
   const newSessionLabel = selectedCwd
     ? t("sidebar.newSessionTitle", { path: selectedCwd })
     : t("sidebar.selectProject");
@@ -1059,6 +1063,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     ? t("sidebar.shortcutHint", { label: sessionSearchLabel, shortcut: sessionSearchHint })
     : sessionSearchLabel;
   const workspaceSelectorHint = useShortcutHint("p", { shift: true });
+  const workspaceSelectorKeys = useShortcutKeys("p", { shift: true });
 
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const showProjectFilter = recentProjects.length > 8;
@@ -1273,7 +1278,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
               title={newSessionTitle}
-              aria-keyshortcuts="Meta+J Control+J"
+              aria-keyshortcuts={newSessionKeys ?? undefined}
               onMouseEnter={(e) => {
                 if (!selectedCwd) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
@@ -1299,7 +1304,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               }}
               title={sessionSearchTitle}
               aria-label={sessionSearchLabel}
-              aria-keyshortcuts="Meta+K Control+K"
+              aria-keyshortcuts={sessionSearchKeys ?? undefined}
               aria-expanded={sessionSearchOpen}
               aria-controls="session-search-input"
               className={`flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border hover:bg-bg-selected focus-visible:outline-2 focus-visible:outline-accent ${sessionSearchOpen ? "bg-bg-selected text-accent" : "bg-bg-hover text-text-muted"}`}
@@ -1316,7 +1321,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <button
             onClick={() => (dropdownOpen ? closeProjectDropdown() : openProjectDropdown())}
             title={workspaceSelectorTitle}
-            aria-keyshortcuts="Meta+Shift+P Control+Shift+P"
+            aria-keyshortcuts={workspaceSelectorKeys ?? undefined}
             aria-expanded={dropdownOpen}
             style={{
               width: "100%",

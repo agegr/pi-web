@@ -25,6 +25,13 @@ export interface MatchGlobalShortcutOptions {
   hasWorkspaceSelectorHandler: boolean;
   /** The active project directory. Cmd/Ctrl+J needs one to start a session. */
   activeCwd?: string | null;
+  /**
+   * Whether the platform's primary modifier is Command rather than Control.
+   * Apple platforms bind the chords to Command only; Control there belongs to
+   * the system's Emacs-style text editing (`Ctrl+K` kills to end of line,
+   * `Ctrl+J` inserts a newline).
+   */
+  applePlatform: boolean;
 }
 
 /** True when the event originated inside the built-in terminal. */
@@ -34,19 +41,47 @@ function isTerminalTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * True for macOS, iOS, and iPadOS, where the primary modifier is Command.
+ * `platform` is any string that identifies the user's platform, such as
+ * `navigator.platform` or `navigator.userAgent`.
+ */
+export function isApplePlatform(platform: string): boolean {
+  return /mac|iphone|ipad|ipod/i.test(platform);
+}
+
+/** Read the platform from the browser, for callers outside a render. */
+export function detectApplePlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return isApplePlatform(navigator.platform || navigator.userAgent);
+}
+
+/**
  * Format a shortcut for display, e.g. "⌘K" on Apple platforms and "Ctrl+K"
- * elsewhere. `platform` is any string that identifies the user's platform,
- * such as `navigator.platform` or `navigator.userAgent`.
+ * elsewhere.
  */
 export function formatShortcutHint(
   key: string,
   platform: string,
   options: { shift?: boolean } = {},
 ): string {
-  const apple = /mac|iphone|ipad|ipod/i.test(platform);
+  const apple = isApplePlatform(platform);
   const letter = key.toUpperCase();
   if (apple) return `⌘${options.shift ? "⇧" : ""}${letter}`;
   return `Ctrl+${options.shift ? "Shift+" : ""}${letter}`;
+}
+
+/**
+ * The `aria-keyshortcuts` form of the same chord, e.g. "Meta+Shift+P" on Apple
+ * platforms and "Control+Shift+P" elsewhere.
+ */
+export function formatShortcutKeys(
+  key: string,
+  platform: string,
+  options: { shift?: boolean } = {},
+): string {
+  const value = key.toUpperCase();
+  const modifier = isApplePlatform(platform) ? "Meta" : "Control";
+  return `${modifier}+${options.shift ? "Shift+" : ""}${value}`;
 }
 
 /**
@@ -58,6 +93,9 @@ export function formatShortcutHint(
  *   Cmd/Ctrl+K         – toggle the sidebar session search
  *   Ctrl+Alt+N         – new session (kept for compatibility)
  *
+ * "Cmd/Ctrl" means the platform's primary modifier: Command on Apple
+ * platforms, Control elsewhere.
+ *
  * The Cmd/Ctrl chords are ignored while the built-in terminal owns the
  * keyboard: Ctrl+J (LF) and Ctrl+K (kill line) are real readline bindings and
  * have to reach the shell.
@@ -66,7 +104,13 @@ export function matchGlobalShortcut(
   event: ShortcutEventLike,
   options: MatchGlobalShortcutOptions,
 ): GlobalShortcut {
-  const { hasAbortHandler, hasSessionSearchHandler, hasWorkspaceSelectorHandler, activeCwd } = options;
+  const {
+    hasAbortHandler,
+    hasSessionSearchHandler,
+    hasWorkspaceSelectorHandler,
+    activeCwd,
+    applePlatform,
+  } = options;
 
   // ---- Esc: stop agent ----
   if (event.key === "Escape") {
@@ -86,7 +130,12 @@ export function matchGlobalShortcut(
   }
 
   // ---- Cmd/Ctrl+J, Cmd/Ctrl+Shift+P, Cmd/Ctrl+K ----
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
+  // The primary modifier is platform-specific: Command on Apple platforms,
+  // Control everywhere else. Accepting either one would swallow macOS's
+  // Emacs-style Control bindings in every text field on the page.
+  const primary = applePlatform ? event.metaKey : event.ctrlKey;
+  const secondary = applePlatform ? event.ctrlKey : event.metaKey;
+  if (!primary || secondary || event.altKey) return null;
   if (isTerminalTarget(event.target)) return null;
 
   const key = event.key.toLowerCase();
