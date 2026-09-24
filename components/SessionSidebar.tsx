@@ -696,6 +696,11 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
+  // Pane-tab restore (this wi): flips once the FIRST session-list load settles
+  // (success or failure). Until then `allSessions` is just the initial empty
+  // state, and reporting it to the shell would make "loaded but empty"
+  // indistinguishable from "not yet loaded" for the shell's restore gating.
+  const [sessionsLoadSettled, setSessionsLoadSettled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Pull-to-refresh tracking: fires the force scan when the list is pulled
@@ -909,7 +914,10 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
     } finally {
-      if (loadId === sessionLoadIdRef.current) setLoading(false);
+      if (loadId === sessionLoadIdRef.current) {
+        setLoading(false);
+        setSessionsLoadSettled(true);
+      }
     }
   }, []);
 
@@ -1030,8 +1038,12 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
   }, [onRunningSessionIdsChange, runningSessionIds]);
 
   useEffect(() => {
+    // Report only settled lists: the pre-load mount emission of the initial
+    // empty state is a no-op over the shell's own initial state, and the
+    // shell's pane-tab restore gates on "the live catalog has settled".
+    if (!sessionsLoadSettled) return;
     onSessionsChange?.(allSessions);
-  }, [allSessions, onSessionsChange]);
+  }, [allSessions, onSessionsChange, sessionsLoadSettled]);
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
