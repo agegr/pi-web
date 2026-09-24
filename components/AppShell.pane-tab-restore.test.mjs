@@ -91,7 +91,15 @@ test("restore re-selects the focused pane through the isRestore short-circuit", 
   assert.match(restoreEffect, /handleSelectSession\(focusSession, true\);/);
 });
 
-test("the pi#27 entry fallback waits for the pane restore attempt", () => {
+test("the pi#27 entry fallback waits for the pane restore attempt and an auto-selected cwd does not supersede an empty strip", () => {
+  // The empty-strip-not-superseded rule: in tab mode the sidebar's auto-select
+  // (most-recent project) sets activeCwd in the same load window, and without
+  // the sentinel tab the split layout renders nothing — so a cwd alone must
+  // NOT consume the entry fallback while the strip is empty (the e2e
+  // fresh-entry regression).
+  assert.match(entryEffect, /const entrySuperseded = splitPaneEnabled && !isMobile/);
+  assert.match(entryEffect, /\? Boolean\(selectedSession\) \|\| paneTabs\.length > 0/);
+  assert.match(entryEffect, /: Boolean\(selectedSession\) \|\| Boolean\(effectiveNewSessionCwd\) \|\| paneTabs\.length > 0/);
   // Pending-guard: while a persisted strip may still be restored, the entry
   // new-session tab must not fire first.
   assert.match(entryEffect, /if \(splitPaneEnabled && !isMobile && !paneRestoreAttempted\) return;/);
@@ -101,7 +109,7 @@ test("the pi#27 entry fallback waits for the pane restore attempt", () => {
     /\[initialSessionRestored, selectedSession, effectiveNewSessionCwd, paneTabs\.length, splitPaneEnabled, isMobile, paneRestoreAttempted, resolveNewSessionTabCwd, handleNewSession\]/,
   );
   // Once attempted, the existing pi#27 conditions apply unchanged.
-  assert.match(entryEffect, /if \(selectedSession \|\| effectiveNewSessionCwd \|\| paneTabs\.length > 0\) \{/);
+  assert.match(entryEffect, /if \(entrySuperseded\) \{/);
   assert.match(entryEffect, /void resolveNewSessionTabCwd\(\)\.then\(\(cwd\) => \{/);
 });
 

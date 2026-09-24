@@ -1464,7 +1464,19 @@ export function AppShell() {
     // restored, hold the entry fallback back — otherwise the sentinel
     // new-session tab fires first and the restore would replace it.
     if (splitPaneEnabled && !isMobile && !paneRestoreAttempted) return;
-    if (selectedSession || effectiveNewSessionCwd || paneTabs.length > 0) {
+    // In tab mode an EMPTY STRIP is not "superseded" by a cwd alone: the
+    // sidebar's auto-select (most-recent project) sets activeCwd during the
+    // same load window, and without the sentinel new-session tab the split
+    // layout renders nothing (the classic composer never mounts in tab
+    // mode). The entry fallback therefore fires for an empty strip even
+    // when a cwd was auto-selected — exactly the race the pre-restore entry
+    // used to win at mount time. Superseded in tab mode = a selected
+    // session or a non-empty strip (incl. a restored one, set by the
+    // restore effect earlier in this same commit).
+    const entrySuperseded = splitPaneEnabled && !isMobile
+      ? Boolean(selectedSession) || paneTabs.length > 0
+      : Boolean(selectedSession) || Boolean(effectiveNewSessionCwd) || paneTabs.length > 0;
+    if (entrySuperseded) {
       entryNewSessionFiredRef.current = true;
       return;
     }
