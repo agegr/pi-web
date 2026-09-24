@@ -5,8 +5,13 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const {
+  applyContextWindowPreset,
   collectModelRenames,
+  CONTEXT_WINDOW_PRESETS,
+  fillEmptyModelFields,
+  formatSpecValue,
   hasModelCostDraftValue,
+  matchesContextWindowPreset,
   modelCostToDraft,
   parseCompleteModelCost,
   savedModelIds,
@@ -231,4 +236,122 @@ test("a blank id in a half-typed row is not a rename yet", () => {
 
 test("a provider added since the last save has no saved slots to compare", () => {
   assert.deepEqual(collectModelRenames(draft(["aaa"]), new Map(), new Map()), []);
+});
+
+test("context window presets fill both fields in a single assignment", () => {
+  for (const preset of CONTEXT_WINDOW_PRESETS) {
+    const model = { id: "some-model" };
+    const next = applyContextWindowPreset(model, preset);
+
+    // Regression: two sequential field updates each spread the same stale `model`, so the
+    // second call used to drop the first field and only max output tokens got written.
+    assert.equal(next.contextWindow, preset.contextWindow, `${preset.labelKey} context window`);
+    assert.equal(next.maxTokens, preset.maxTokens, `${preset.labelKey} max output tokens`);
+    assert.equal(next.id, "some-model", "unrelated fields survive");
+  }
+});
+
+test("context window presets keep existing fields they do not own", () => {
+  const preset = CONTEXT_WINDOW_PRESETS[1];
+  const next = applyContextWindowPreset({ id: "m", name: "Model", cost: { input: 1 } }, preset);
+
+  assert.deepEqual(next, {
+    id: "m",
+    name: "Model",
+    cost: { input: 1 },
+    contextWindow: preset.contextWindow,
+    maxTokens: preset.maxTokens,
+  });
+});
+
+test("a preset reports active only when both fields match it", () => {
+  const preset = CONTEXT_WINDOW_PRESETS[0];
+
+  assert.equal(matchesContextWindowPreset({ contextWindow: preset.contextWindow, maxTokens: preset.maxTokens }, preset), true);
+  // A partially matching entry is not "this preset" — it was edited afterwards.
+  assert.equal(matchesContextWindowPreset({ contextWindow: preset.contextWindow, maxTokens: 999 }, preset), false);
+  assert.equal(matchesContextWindowPreset({ contextWindow: 999, maxTokens: preset.maxTokens }, preset), false);
+  assert.equal(matchesContextWindowPreset({}, preset), false);
+});
+
+test("formats spec values with the unit the button label uses", () => {
+  assert.equal(formatSpecValue(2_000_000), "2M");
+  assert.equal(formatSpecValue(1_000_000), "1M");
+  assert.equal(formatSpecValue(256_000), "256K");
+  assert.equal(formatSpecValue(64_000), "64K");
+  assert.equal(formatSpecValue(8_192), "8,192");
+  assert.equal(formatSpecValue(8_000), "8,000");
+  assert.equal(formatSpecValue(1_500_000), "1.5M");
+  assert.equal(formatSpecValue(262_144), "262.1K");
+});
+
+test("every preset label key is translated in all three locales", async () => {
+  const en = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
+  const zhCN = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
+  const zhTW = await readFile(new URL("../lib/i18n/messages/zh-TW.ts", import.meta.url), "utf8");
+
+  for (const preset of CONTEXT_WINDOW_PRESETS) {
+    for (const [name, source] of [["en", en], ["zh-CN", zhCN], ["zh-TW", zhTW]]) {
+      assert.ok(source.includes(`"${preset.labelKey}"`), `${name} is missing ${preset.labelKey}`);
+    }
+  }
+});
+
+test("upstream limits beat the models.dev preset when both are available", () => {
+  const preset = { name: "Preset Name", contextWindow: 128_000, maxTokens: 16_384 };
+
+  // The provider's own /models response describes the endpoint being configured, so it wins.
+  const fromUpstream = fillEmptyModelFields(
+    { id: "m" },
+    preset,
+    { contextWindow: 1_000_000, maxTokens: 128_000 },
+  );
+  assert.equal(fromUpstream.model.contextWindow, 1_000_000);
+  assert.equal(fromUpstream.model.maxTokens, 128_000);
+  assert.equal(fromUpstream.model.name, "Preset Name", "other preset fields still apply");
+  assert.equal(fromUpstream.appliedCount, 3);
+});
+
+test("models.dev preset fills the limits when the provider reports none", () => {
+  const filled = fillEmptyModelFields(
+    { id: "m" },
+    { contextWindow: 128_000, maxTokens: 16_384 },
+    { contextWindow: undefined, maxTokens: undefined },
+  );
+  assert.equal(filled.model.contextWindow, 128_000);
+  assert.equal(filled.model.maxTokens, 16_384);
+  assert.equal(filled.appliedCount, 2);
+});
+
+test("upstream limits cover only the fields the preset is missing", () => {
+  const filled = fillEmptyModelFields(
+    { id: "m", maxTokens: 8_192 },
+    { contextWindow: 128_000, maxTokens: 16_384 },
+    { contextWindow: 256_000 },
+  );
+  // maxTokens was already set, so neither source may touch it.
+  assert.equal(filled.model.contextWindow, 256_000, "upstream value used");
+  assert.equal(filled.model.maxTokens, 8_192, "existing value kept");
+  assert.equal(filled.appliedCount, 1);
+});
+
+test("nothing is written when every field already has a value", () => {
+  const model = {
+    id: "m",
+    name: "Existing",
+    reasoning: true,
+    input: ["text"],
+    contextWindow: 200_000,
+    maxTokens: 8_192,
+  };
+  const filled = fillEmptyModelFields(model, {
+    name: "Preset Name",
+    reasoning: true,
+    input: ["text", "image"],
+    contextWindow: 128_000,
+    maxTokens: 16_384,
+  }, { contextWindow: 1_000_000, maxTokens: 128_000 });
+
+  assert.deepEqual(filled.model, model, "entry is untouched");
+  assert.equal(filled.appliedCount, 0);
 });

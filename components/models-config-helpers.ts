@@ -1,3 +1,5 @@
+import type { ModelCatalogPreset } from "@/lib/model-catalog";
+
 export interface CompatEntry {
   compat?: Record<string, unknown>;
 }
@@ -11,10 +13,52 @@ export interface HeaderRow {
 export const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
 export type ModelCostKey = (typeof MODEL_COST_KEYS)[number];
-
 export type ModelCostRates = Record<ModelCostKey, number>;
 
 export type ModelCostDraft = Record<ModelCostKey, string>;
+
+/**
+ * Common context window / max output token presets, mirrored from the provider tiers
+ * used across the gateways this app talks to. Both fields are filled together because
+ * providers publish them as a matched pair rather than two independent sliders.
+ */
+export const CONTEXT_WINDOW_PRESETS: readonly { labelKey: string; contextWindow: number; maxTokens: number }[] = [
+  { labelKey: "models.preset2M", contextWindow: 2_000_000, maxTokens: 8_192 },
+  { labelKey: "models.preset1M", contextWindow: 1_000_000, maxTokens: 128_000 },
+  { labelKey: "models.preset256K", contextWindow: 256_000, maxTokens: 32_000 },
+  { labelKey: "models.preset200K", contextWindow: 200_000, maxTokens: 8_192 },
+  { labelKey: "models.preset128K", contextWindow: 128_000, maxTokens: 8_192 },
+  { labelKey: "models.preset64K", contextWindow: 64_000, maxTokens: 8_000 },
+];
+
+export function formatSpecValue(value: number): string {
+  // Sub-10k values are the common power-of-two output limits (8192, 8000) and read better
+  // as plain numbers than as a rounded "8.2K".
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000;
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
+  }
+  if (value >= 10_000) {
+    const thousands = value / 1_000;
+    return `${Number.isInteger(thousands) ? thousands : Math.round(thousands * 10) / 10}K`;
+  }
+  return value.toLocaleString("en-US");
+}
+
+/** The fields a spec preset writes, applied in one object so neither assignment is lost. */
+export function applyContextWindowPreset<T extends { contextWindow?: number; maxTokens?: number }>(
+  entry: T,
+  preset: { contextWindow: number; maxTokens: number },
+): T {
+  return { ...entry, contextWindow: preset.contextWindow, maxTokens: preset.maxTokens };
+}
+
+export function matchesContextWindowPreset(
+  entry: { contextWindow?: number; maxTokens?: number },
+  preset: { contextWindow: number; maxTokens: number },
+): boolean {
+  return entry.contextWindow === preset.contextWindow && entry.maxTokens === preset.maxTokens;
+}
 
 export function modelCostToDraft(cost?: Partial<ModelCostRates>): ModelCostDraft {
   return {
@@ -117,4 +161,74 @@ export function collectModelRenames(
     });
   }
   return renames;
+}
+
+/** The parts of a models.json model entry this module needs. */
+export interface ModelSpecsEntry {
+  id?: string;
+  name?: string;
+  reasoning?: boolean;
+  input?: string[];
+  contextWindow?: number;
+  maxTokens?: number;
+  cost?: Record<string, unknown>;
+}
+
+/**
+ * Fills the empty fields of a model entry from whatever source is available.
+ *
+ * Upstream limits from the provider's own `/models` response win over the models.dev
+ * preset, because they describe the very endpoint being configured. Only empty fields are
+ * written, so this is always safe to apply.
+ */
+export function fillEmptyModelFields<T extends ModelSpecsEntry>(
+  model: T,
+  preset: ModelCatalogPreset,
+  upstreamSpecs?: { contextWindow?: number; maxTokens?: number },
+): { model: T; appliedCount: number } {
+  const next = { ...model };
+  let appliedCount = 0;
+  if (!model.name?.trim() && preset.name) {
+    next.name = preset.name;
+    appliedCount += 1;
+  }
+  if (model.reasoning === undefined && preset.reasoning === true) {
+    next.reasoning = true;
+    appliedCount += 1;
+  }
+  if (!model.input?.length && preset.input?.length) {
+    next.input = [...preset.input];
+    appliedCount += 1;
+  }
+  if (model.contextWindow === undefined) {
+    const contextWindow = upstreamSpecs?.contextWindow ?? preset.contextWindow;
+    if (contextWindow !== undefined) {
+      next.contextWindow = contextWindow;
+      appliedCount += 1;
+    }
+  }
+  if (model.maxTokens === undefined) {
+    const maxTokens = upstreamSpecs?.maxTokens ?? preset.maxTokens;
+    if (maxTokens !== undefined) {
+      next.maxTokens = maxTokens;
+      appliedCount += 1;
+    }
+  }
+
+  if (preset.cost) {
+    const cost = { ...(model.cost ?? {}) };
+    let filledCostCount = 0;
+    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+      if (cost[key] === undefined && preset.cost[key] !== undefined) {
+        cost[key] = preset.cost[key];
+        filledCostCount += 1;
+      }
+    }
+    const completeCost = parseCompleteModelCost(modelCostToDraft(cost));
+    if (filledCostCount > 0 && completeCost) {
+      next.cost = { ...cost, ...completeCost };
+      appliedCount += filledCostCount;
+    }
+  }
+  return { model: next, appliedCount };
 }
