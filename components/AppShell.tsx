@@ -40,6 +40,7 @@ import {
   NEW_SESSION_TAB_ID,
   type PaneTab,
 } from "@/lib/pane-state";
+import { readOpenPaneTabs, writeOpenPaneTabs } from "@/lib/pane-tab-state";
 import { projectDisplayNameForPath } from "@/lib/project-groups";
 import { listCustomDirectories } from "@/lib/custom-directories";
 import { copyText } from "@/lib/clipboard";
@@ -144,6 +145,13 @@ export function AppShell() {
   }, []);
   const [paneTabs, setPaneTabs] = useState<PaneTab[]>([]);
   const [focusedPaneId, setFocusedPaneId] = useState<string | null>(null);
+  // Pane-tab restore (this wi): one-shot latch for the persisted-strip
+  // restore effect below. It also gates the pi#27 entry fallback (which must
+  // not fire the sentinel new-session tab while a strip may still restore)
+  // and the persistence writer (so the mount-time empty strip never clobbers
+  // the record). The mirrored state gives those consumers reactivity.
+  const paneRestoreAttemptedRef = useRef(false);
+  const [paneRestoreAttempted, setPaneRestoreAttempted] = useState(false);
   const lastSoundAtRef = useRef(0);
   const splitPaneLayoutRef = useRef<{ scrollPaneIntoView: (id: string) => void } | null>(null);
 
@@ -273,8 +281,14 @@ export function AppShell() {
     }
   }, [applyBgTasksEvent, translate]);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
+  // Pane-tab restore (this wi): the sidebar reports its session list only
+  // after the initial load settles, so this flag means "the live catalog is
+  // final for gating purposes" — an empty but settled list still flips it,
+  // which a not-yet-loaded list never does.
+  const [sessionCatalogReported, setSessionCatalogReported] = useState(false);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
+    setSessionCatalogReported(true);
   }, []);
   // Sidebar-detected external write (TUI / another pi process) targeting the
   // selected session; converted into a keyed signal that ChatWindow consumes
@@ -1361,6 +1375,81 @@ export function AppShell() {
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
+  // Pane-tab restore (this wi): a browser reload re-opens every previously
+  // open split-view pane, not just the single ?session= deep-link target.
+  // One-shot: the attempt is consumed as soon as the sidebar's session list
+  // settles, in every layout mode — classic and mobile never restore, but
+  // consuming the attempt there keeps a later split toggle from replaying a
+  // stale record over the chat the user is already looking at.
+  useEffect(() => {
+    if (!sessionCatalogReported) return;
+    if (paneRestoreAttemptedRef.current) return;
+    paneRestoreAttemptedRef.current = true;
+    setPaneRestoreAttempted(true);
+    if (!splitPaneEnabled || isMobile) return;
+    const record = readOpenPaneTabs();
+    const byId = new Map(sessionCatalog.map((session) => [session.id, session]));
+    // Resolve persisted tabs against the live catalog — deleted sessions
+    // drop out — and rebuild the strip in persisted order with live labels.
+    const restored: PaneTab[] = [];
+    for (const tab of record?.tabs ?? []) {
+      const session = byId.get(tab.sessionId);
+      if (!session) continue;
+      restored.push({
+        sessionId: session.id,
+        // Live name first; the persisted label is the fallback (spec R3),
+        // then firstMessage, then the id prefix.
+        label: session.name || tab.label || session.firstMessage || session.id.slice(0, 12),
+        projectName: projectDisplayNameForPath(session.projectRoot ?? session.cwd),
+        hasBadge: false,
+      });
+    }
+    // Nothing restorable keeps the strip and the pi#27 entry fallback
+    // (new-session tab) exactly as they were.
+    if (restored.length === 0) return;
+    // A valid ?session= deep-link target the persisted strip did not contain
+    // is appended as an extra pane.
+    const deepLink = initialSessionId ? byId.get(initialSessionId) ?? null : null;
+    if (deepLink && !restored.some((t) => t.sessionId === deepLink.id)) {
+      restored.push({
+        sessionId: deepLink.id,
+        label: deepLink.name || deepLink.firstMessage || deepLink.id.slice(0, 12),
+        projectName: projectDisplayNameForPath(deepLink.projectRoot ?? deepLink.cwd),
+        hasBadge: false,
+      });
+    }
+    // Focus resolution, fixed order: persisted focused pane → valid
+    // deep-link target → first restored pane.
+    const persistedFocus = record?.focusedPaneId ?? null;
+    const focus = persistedFocus && restored.some((t) => t.sessionId === persistedFocus)
+      ? persistedFocus
+      : deepLink?.id ?? restored[0].sessionId;
+    const focusSession = byId.get(focus) ?? null;
+    if (!focusSession) return;
+    setPaneTabs(restored);
+    // Select the focused pane's session through the ordinary selection path:
+    // its split-pane already-open branch (isRestore) scrolls and focuses it
+    // without duplicating or remounting the pane.
+    handleSelectSession(focusSession, true);
+    // The pi#26 workspace last-open restore must not resurrect a different
+    // single session over the rebuilt strip, and the URL must reflect the
+    // focused pane.
+    invalidateWorkspaceRestore();
+    if (new URLSearchParams(window.location.search).get("session") !== focus) {
+      router.replace(`?session=${encodeURIComponent(focus)}`, { scroll: false });
+    }
+  }, [sessionCatalogReported, sessionCatalog, splitPaneEnabled, isMobile, initialSessionId, handleSelectSession, invalidateWorkspaceRestore, router]);
+
+  // Pane-tab persistence writer (this wi): every strip/focus change after the
+  // one-shot restore writes the record, so the next reload re-opens exactly
+  // these panes. The restore-attempt gate keeps the mount-time empty strip
+  // from clobbering the record, and classic/mobile modes persist nothing.
+  useEffect(() => {
+    if (!splitPaneEnabled || isMobile) return;
+    if (!paneRestoreAttempted) return;
+    writeOpenPaneTabs(paneTabs, focusedPaneId);
+  }, [splitPaneEnabled, isMobile, paneRestoreAttempted, paneTabs, focusedPaneId]);
+
   // pi#27: entry lands on the new-session tab. When the initial restore
   // completes with nothing restorable (no ?session=, no last-open session)
   // and tab mode is on with an empty strip, resolve the default cwd (first
@@ -1371,6 +1460,10 @@ export function AppShell() {
   useEffect(() => {
     if (entryNewSessionFiredRef.current) return;
     if (!initialSessionRestored) return;
+    // Pane-tab restore (this wi): while a persisted strip may still be
+    // restored, hold the entry fallback back — otherwise the sentinel
+    // new-session tab fires first and the restore would replace it.
+    if (splitPaneEnabled && !isMobile && !paneRestoreAttempted) return;
     if (selectedSession || effectiveNewSessionCwd || paneTabs.length > 0) {
       entryNewSessionFiredRef.current = true;
       return;
@@ -1383,7 +1476,7 @@ export function AppShell() {
     void resolveNewSessionTabCwd().then((cwd) => {
       if (cwd) handleNewSession(`entry-${Date.now()}`, cwd);
     });
-  }, [initialSessionRestored, selectedSession, effectiveNewSessionCwd, paneTabs.length, splitPaneEnabled, isMobile, resolveNewSessionTabCwd, handleNewSession]);
+  }, [initialSessionRestored, selectedSession, effectiveNewSessionCwd, paneTabs.length, splitPaneEnabled, isMobile, paneRestoreAttempted, resolveNewSessionTabCwd, handleNewSession]);
 
   useEffect(() => {
     setProjectTrust(null);
