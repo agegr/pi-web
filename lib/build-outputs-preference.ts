@@ -1,28 +1,28 @@
 /**
- * Per-workspace "Show build outputs" preference for the file explorer.
+ * Global "Show build outputs" preference for the file explorer.
  *
  * The explorer tree (GET /api/files/[...path]?type=list) hides directories
  * named `build`/`dist` unless the request opts in via ?showBuildOutputs=1.
- * Whether a given explorer opts in is a per-workspace-root, browser-local
- * preference: default off, persisted in localStorage under a key derived
- * from the workspace root path (the same best-effort, corrupt-tolerant,
- * storage-injectable pattern as lib/explorer-roots.ts — unavailable storage
- * degrades to the default and never throws).
+ * Whether the explorer opts in is a single global, browser-local
+ * preference shared by every mounted root tree: default off, persisted in
+ * localStorage under one fixed key (the same best-effort,
+ * corrupt-tolerant, storage-injectable pattern as lib/explorer-roots.ts —
+ * unavailable, quota-limited, or corrupt storage degrades to the default
+ * and never throws).
  *
- * MultiRootFileExplorer mounts one FileExplorer per root, so every setter
- * also broadcasts a change event on `window`. Explorer instances of the
- * same root that are mounted simultaneously follow each other without any
- * prop drilling; instances of other roots ignore the change (they check the
- * event's root before applying it).
+ * MultiRootFileExplorer renders the single toggle and mounts one
+ * FileExplorer per root, so every setter also broadcasts a change event
+ * on `window`. All mounted explorers follow the change without any prop
+ * drilling. Legacy per-root keys (with a root-suffixed storage key) are
+ * neither read nor migrated: after this change there is exactly one key
+ * and a user who previously toggled per root re-toggles once.
  */
 
-const STORAGE_PREFIX = "pi-web:file-explorer:show-build-outputs";
+const STORAGE_KEY = "pi-web:file-explorer:show-build-outputs";
 
 export const BUILD_OUTPUTS_CHANGE_EVENT = "pi-web:build-outputs-change";
 
 export interface BuildOutputsChange {
-  /** Workspace root the change applies to (the explorer's `cwd`). */
-  root: string;
   value: boolean;
 }
 
@@ -50,44 +50,43 @@ function getBrowserWindow(): EventTargetLike | null {
   return typeof window === "undefined" ? null : (window as unknown as EventTargetLike);
 }
 
-function storageKeyFor(root: string): string {
-  return `${STORAGE_PREFIX}:${encodeURIComponent(root)}`;
-}
-
 /**
- * Current preference for a workspace root. Absent/unavailable/corrupt
- * storage reads as false (build outputs hidden). Every accessor re-reads
- * storage, so a reload or hot-reload sees fresh state.
+ * Current global preference. Absent/unavailable/corrupt storage reads as
+ * false (build outputs hidden). Every accessor re-reads storage, so a
+ * reload or hot-reload sees fresh state.
  */
 export function getShowBuildOutputs(
-  root: string,
   storage: StorageLike | null = getBrowserStorage(),
 ): boolean {
   if (!storage) return false;
   try {
-    return storage.getItem(storageKeyFor(root)) === "1";
+    return storage.getItem(STORAGE_KEY) === "1";
   } catch {
     return false;
   }
 }
 
 /**
- * Persist the preference for a workspace root and broadcast the change so
- * every mounted explorer of the same root re-reads it. Best-effort: quota
- * or privacy-mode failures are silently ignored.
+ * Persist the global preference and broadcast the change so every mounted
+ * explorer re-reads it. Best-effort: quota or privacy-mode failures are
+ * silently ignored.
  */
 export function setShowBuildOutputs(
-  root: string,
   value: boolean,
   storage: StorageLike | null = getBrowserStorage(),
   eventTarget: EventTargetLike | null = getBrowserWindow(),
 ): void {
   try {
-    storage?.setItem(storageKeyFor(root), value ? "1" : "0");
+    storage?.setItem(STORAGE_KEY, value ? "1" : "0");
   } catch {
     // Browser storage is best-effort.
   }
-  emitBuildOutputsChange({ root, value }, eventTarget);
+  // Broadcast the EFFECTIVE value (read back from the SAME storage the
+  // write targeted), never the optimistic request: when storage is
+  // unavailable or the write throws, the preference stays false, and every
+  // surface must agree on that instead of half-applying the requested
+  // value (review B1, pi#50).
+  emitBuildOutputsChange({ value: getShowBuildOutputs(storage) }, eventTarget);
 }
 
 /** Broadcast a preference change; package-private, exported for tests. */
