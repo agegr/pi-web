@@ -16,6 +16,7 @@ Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi)
 - **Git worktrees**: switch checkouts from the sidebar while keeping sessions from the same repository grouped together.
 - **Web-based configuration**: manage provider login and API keys, models, model tests, plugin packages, and skills without leaving Pi Web.
 - **English, Simplified Chinese, and Traditional Chinese UI**: Pi Web follows the browser language initially and provides a language switcher in the top bar.
+- **Built-in Enhancement Plugins Suite**: Modular frontend plugins including session context menus, quick quote action bar, execution duration breakdown tooltip, Token/s speed monitoring, modern settings sidebar, and auto-folding tool cards (see [Enhancements Guide](./enhancements/README.md)).
 
 ## Quick Start
 
