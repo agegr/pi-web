@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { matchGlobalShortcut } from "@/lib/global-shortcuts";
 
 // ---------------------------------------------------------------------------
 // Module-level registry — ChatWindow registers the abort handler here so that
@@ -17,11 +18,25 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level registry — SessionSidebar owns the search panel state, so it
+// registers the toggle here for the global Cmd/Ctrl+K shortcut.
+// ---------------------------------------------------------------------------
+let globalSessionSearchHandler: (() => void) | null = null;
+
+/**
+ * Register (or clear) the session search toggle for the global Cmd/Ctrl+K
+ * shortcut. Call this from SessionSidebar whenever the toggle changes.
+ */
+export function registerSessionSearchHandler(handler: (() => void) | null): void {
+  globalSessionSearchHandler = handler;
+}
+
+// ---------------------------------------------------------------------------
 // Hook: global keyboard shortcuts
 // ---------------------------------------------------------------------------
 
 interface UseGlobalKeyboardShortcutsOptions {
-  /** Called when Ctrl+Alt+N is pressed. Receives current cwd. */
+  /** Called when Ctrl+Alt+N or Cmd/Ctrl+J is pressed. Receives current cwd. */
   onNewSession?: (cwd: string) => void;
   /** The currently selected project directory (sidebar cwd). */
   activeCwd?: string | null;
@@ -32,6 +47,8 @@ interface UseGlobalKeyboardShortcutsOptions {
  *
  * Shortcuts handled here:
  *   Esc          – stop the running agent (via module-level abort handler)
+ *   Cmd/Ctrl+J   – create a new session in the active project directory
+ *   Cmd/Ctrl+K   – toggle the sidebar session search
  *   Ctrl+Alt+N   – create a new session in the active project directory
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
@@ -46,24 +63,28 @@ export function useGlobalKeyboardShortcuts(
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      // ---- Esc: stop agent ----
-      if (e.key === "Escape") {
-        if (!globalAbortHandler) return;
+      const shortcut = matchGlobalShortcut(e, {
+        hasAbortHandler: globalAbortHandler !== null,
+        hasSessionSearchHandler: globalSessionSearchHandler !== null,
+        activeCwd,
+      });
 
-        const tag = (e.target as HTMLElement)?.tagName;
-        // Let textarea/input handle Esc internally (ChatInput menus / stop).
-        if (tag === "TEXTAREA" || tag === "INPUT") return;
-
+      if (shortcut === "abort") {
         e.preventDefault();
-        globalAbortHandler();
+        globalAbortHandler?.();
         return;
       }
 
-      // ---- Ctrl+Alt+N: new session ----
-      if (e.key === "n" && e.ctrlKey && e.altKey) {
+      if (shortcut === "newSession") {
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
+        return;
+      }
+
+      if (shortcut === "toggleSessionSearch") {
+        e.preventDefault();
+        globalSessionSearchHandler?.();
       }
     };
 

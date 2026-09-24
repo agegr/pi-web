@@ -207,6 +207,7 @@ export const zhCNLocale: LocalePlugin = {
     "layout.resizeHeightHint": "上下拖动调整高度。双击或按 Enter 恢复默认值。",
     "sidebar.new": "新建",
     "sidebar.newSessionTitle": "在 {path} 中新建会话",
+    "sidebar.shortcutHint": "{label}（{shortcut}）",
     "sidebar.refresh": "刷新",
     "sidebar.selectProject": "选择项目…",
     "sidebar.filterProjects": "筛选项目…",

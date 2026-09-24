@@ -11,6 +11,8 @@ import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { registerSessionSearchHandler } from "@/hooks/useKeyboardShortcuts";
+import { useShortcutHint } from "@/hooks/useShortcutHint";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -1025,6 +1027,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
+  // Shared by the toolbar button and the global Cmd/Ctrl+K shortcut.
+  const toggleSessionSearch = useCallback(() => {
+    setSessionSearchOpen((open) => !open);
+    setWtDropdownOpen(false);
+  }, []);
+
+  useEffect(() => {
+    registerSessionSearchHandler(toggleSessionSearch);
+    return () => registerSessionSearchHandler(null);
+  }, [toggleSessionSearch]);
+
+  // Tooltip hints for the two global shortcuts these buttons expose.
+  const newSessionHint = useShortcutHint("j");
+  const sessionSearchHint = useShortcutHint("k");
+  const newSessionLabel = selectedCwd
+    ? t("sidebar.newSessionTitle", { path: selectedCwd })
+    : t("sidebar.selectProject");
+  const newSessionTitle = newSessionHint
+    ? t("sidebar.shortcutHint", { label: newSessionLabel, shortcut: newSessionHint })
+    : newSessionLabel;
+  const sessionSearchLabel = t("sidebar.toggleSessionSearch");
+  const sessionSearchTitle = sessionSearchHint
+    ? t("sidebar.shortcutHint", { label: sessionSearchLabel, shortcut: sessionSearchHint })
+    : sessionSearchLabel;
+
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = useMemo(() => {
@@ -1149,7 +1176,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 flexShrink: 0,
                 transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
-             title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
+              title={newSessionTitle}
+              aria-keyshortcuts="Meta+J Control+J"
               onMouseEnter={(e) => {
                 if (!selectedCwd) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
@@ -1171,11 +1199,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <button
               type="button"
               onClick={() => {
-                setSessionSearchOpen((open) => !open);
-                setWtDropdownOpen(false);
+                toggleSessionSearch();
               }}
-              title={t("sidebar.toggleSessionSearch")}
-              aria-label={t("sidebar.toggleSessionSearch")}
+              title={sessionSearchTitle}
+              aria-label={sessionSearchLabel}
+              aria-keyshortcuts="Meta+K Control+K"
               aria-expanded={sessionSearchOpen}
               aria-controls="session-search-input"
               className={`flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border hover:bg-bg-selected focus-visible:outline-2 focus-visible:outline-accent ${sessionSearchOpen ? "bg-bg-selected text-accent" : "bg-bg-hover text-text-muted"}`}
