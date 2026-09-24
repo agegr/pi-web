@@ -71,6 +71,7 @@ app/api/
   models-config/discover/route.ts POST fetch a configured provider's upstream model list
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
+  mcp/route.ts                    GET/POST MCP server config (~/.pi/agent/mcp.json + <cwd>/.pi/mcp.json)
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
   skills/search/route.ts          GET/POST skills.sh search
