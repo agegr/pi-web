@@ -207,6 +207,7 @@ export const enLocale: LocalePlugin = {
     "layout.resizeHeightHint": "Drag vertically to resize. Double-click or press Enter to reset.",
     "sidebar.new": "New",
     "sidebar.newSessionTitle": "New session in {path}",
+    "sidebar.shortcutHint": "{label} ({shortcut})",
     "sidebar.refresh": "Refresh",
     "sidebar.selectProject": "Select project…",
     "sidebar.filterProjects": "Filter projects…",

@@ -207,6 +207,7 @@ export const zhTWLocale: LocalePlugin = {
     "layout.resizeHeightHint": "上下拖曳以調整高度。按兩下或按 Enter 鍵即可重設。",
     "sidebar.new": "新增",
     "sidebar.newSessionTitle": "在 {path} 中新增工作階段",
+    "sidebar.shortcutHint": "{label}（{shortcut}）",
     "sidebar.refresh": "重新整理",
     "sidebar.selectProject": "選擇專案…",
     "sidebar.filterProjects": "篩選專案…",
