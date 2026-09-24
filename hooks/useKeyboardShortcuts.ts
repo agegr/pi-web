@@ -32,6 +32,21 @@ export function registerSessionSearchHandler(handler: (() => void) | null): void
 }
 
 // ---------------------------------------------------------------------------
+// Module-level registry — SessionSidebar also owns the workspace selector, so
+// it registers the opener here for the global Cmd/Ctrl+Shift+P shortcut.
+// ---------------------------------------------------------------------------
+let globalWorkspaceSelectorHandler: (() => void) | null = null;
+
+/**
+ * Register (or clear) the workspace selector opener for the global
+ * Cmd/Ctrl+Shift+P shortcut. Call this from SessionSidebar whenever the opener
+ * changes.
+ */
+export function registerWorkspaceSelectorHandler(handler: (() => void) | null): void {
+  globalWorkspaceSelectorHandler = handler;
+}
+
+// ---------------------------------------------------------------------------
 // Hook: global keyboard shortcuts
 // ---------------------------------------------------------------------------
 
@@ -46,10 +61,11 @@ interface UseGlobalKeyboardShortcutsOptions {
  * Register global keyboard shortcuts for the application.
  *
  * Shortcuts handled here:
- *   Esc          – stop the running agent (via module-level abort handler)
- *   Cmd/Ctrl+J   – create a new session in the active project directory
- *   Cmd/Ctrl+K   – toggle the sidebar session search
- *   Ctrl+Alt+N   – create a new session in the active project directory
+ *   Esc                – stop the running agent (via module-level abort handler)
+ *   Cmd/Ctrl+J         – create a new session in the active project directory
+ *   Cmd/Ctrl+Shift+P   – open the sidebar workspace selector
+ *   Cmd/Ctrl+K         – toggle the sidebar session search
+ *   Ctrl+Alt+N         – create a new session in the active project directory
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
@@ -66,6 +82,7 @@ export function useGlobalKeyboardShortcuts(
       const shortcut = matchGlobalShortcut(e, {
         hasAbortHandler: globalAbortHandler !== null,
         hasSessionSearchHandler: globalSessionSearchHandler !== null,
+        hasWorkspaceSelectorHandler: globalWorkspaceSelectorHandler !== null,
         activeCwd,
       });
 
@@ -85,6 +102,12 @@ export function useGlobalKeyboardShortcuts(
       if (shortcut === "toggleSessionSearch") {
         e.preventDefault();
         globalSessionSearchHandler?.();
+        return;
+      }
+
+      if (shortcut === "openWorkspaceSelector") {
+        e.preventDefault();
+        globalWorkspaceSelectorHandler?.();
       }
     };
 

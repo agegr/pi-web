@@ -807,6 +807,16 @@ export function AppShell() {
     router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
+  // Focus the main composer, e.g. after picking a workspace from the sidebar
+  // selector with the keyboard. The workspace switch bumps sessionKey, which
+  // remounts ChatWindow, so the composer to focus is the next one: wait two
+  // frames for that commit before reaching for the ref.
+  const handleFocusComposer = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => chatInputRef.current?.focus());
+    });
+  }, []);
+
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
@@ -1195,6 +1205,7 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        onFocusComposer={handleFocusComposer}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([

@@ -6,12 +6,12 @@ import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
+import { getProjectActivity, getRecentProjects, sessionsForProject, type RecentProject } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
-import { registerSessionSearchHandler } from "@/hooks/useKeyboardShortcuts";
+import { registerSessionSearchHandler, registerWorkspaceSelectorHandler } from "@/hooks/useKeyboardShortcuts";
 import { useShortcutHint } from "@/hooks/useShortcutHint";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -133,6 +133,8 @@ interface Props {
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  /** Focus the main chat composer, e.g. after picking a workspace from the selector. */
+  onFocusComposer?: () => void;
 }
 
 interface WorktreeEntry {
@@ -384,7 +386,7 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onFocusComposer }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   // Tracked in a ref only: the version is compared against the polled value to
@@ -396,6 +398,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Index into visibleProjects for keyboard navigation of the workspace list.
+  const [projectActiveIndex, setProjectActiveIndex] = useState(-1);
   const [projectFilter, setProjectFilter] = useState("");
   const [wtFilter, setWtFilter] = useState("");
   const [customPathOpen, setCustomPathOpen] = useState(false);
@@ -404,6 +408,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const projectListRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
   const [wtDropdownOpen, setWtDropdownOpen] = useState(false);
@@ -1051,6 +1056,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionSearchTitle = sessionSearchHint
     ? t("sidebar.shortcutHint", { label: sessionSearchLabel, shortcut: sessionSearchHint })
     : sessionSearchLabel;
+  const workspaceSelectorHint = useShortcutHint("p", { shift: true });
 
   const recentProjects = useMemo(() => getRecentProjects(allSessions), [allSessions]);
   const showProjectFilter = recentProjects.length > 8;
@@ -1085,6 +1091,94 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     () => selectedProject ? sessionsForProject(allSessions, selectedProject.key) : allSessions,
     [allSessions, selectedProject],
   );
+
+  const workspaceSelectorTitle = workspaceSelectorHint
+    ? t("sidebar.shortcutHint", {
+      label: selectedProject?.root ?? selectedCwd ?? "",
+      shortcut: workspaceSelectorHint,
+    })
+    : selectedProject?.root ?? selectedCwd ?? "";
+
+  // ---------------------------------------------------------------------------
+  // Workspace selector: open/close, keyboard navigation (Cmd/Ctrl+Shift+P +
+  // ArrowUp/ArrowDown + Enter), and composer focus after a pick.
+  // ---------------------------------------------------------------------------
+  const closeProjectDropdown = useCallback(() => {
+    setDropdownOpen(false);
+    setProjectFilter("");
+    setProjectActiveIndex(-1);
+  }, []);
+
+  const openProjectDropdown = useCallback(() => {
+    setWtDropdownOpen(false);
+    setCustomPathOpen(false);
+    setProjectFilter("");
+    // Start on the current workspace so Enter keeps it and the arrows move away.
+    const currentKey = selectedProject?.key;
+    const currentIndex = currentKey ? recentProjects.findIndex((p) => p.key === currentKey) : -1;
+    setProjectActiveIndex(currentIndex >= 0 ? currentIndex : 0);
+    setDropdownOpen(true);
+  }, [recentProjects, selectedProject]);
+
+  useEffect(() => {
+    registerWorkspaceSelectorHandler(openProjectDropdown);
+    return () => registerWorkspaceSelectorHandler(null);
+  }, [openProjectDropdown]);
+
+  const selectProject = useCallback((project: RecentProject) => {
+    setSelectedCwd(project.root);
+    setProjectFilter("");
+    setCustomPathOpen(false);
+    setCustomPathError(null);
+    setProjectActiveIndex(-1);
+    setDropdownOpen(false);
+    // Picking a workspace is followed by typing, so hand the keyboard to the
+    // composer once the new draft is in place.
+    onFocusComposer?.();
+  }, [onFocusComposer]);
+
+  // Arrow/Enter handling while the selector is open. Kept on the window so it
+  // also works when the project filter input owns the focus.
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return;
+      const count = visibleProjects.length;
+
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (count === 0) return;
+        event.preventDefault();
+        setProjectActiveIndex((current) => {
+          if (current < 0) return event.key === "ArrowDown" ? 0 : count - 1;
+          return event.key === "ArrowDown" ? (current + 1) % count : (current - 1 + count) % count;
+        });
+        return;
+      }
+
+      if (event.key === "Enter") {
+        const project = visibleProjects[projectActiveIndex];
+        if (!project) return;
+        event.preventDefault();
+        selectProject(project);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeProjectDropdown();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [dropdownOpen, visibleProjects, projectActiveIndex, selectProject, closeProjectDropdown]);
+
+  // Keep the keyboard-selected row visible without scrolling the page.
+  useEffect(() => {
+    if (!dropdownOpen || projectActiveIndex < 0) return;
+    const row = projectListRef.current?.querySelector(`[data-project-index="${projectActiveIndex}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+  }, [dropdownOpen, projectActiveIndex]);
+
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
     && worktreeState.isTopLevel
@@ -1218,8 +1312,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         {/* CWD picker */}
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
-            onClick={() => setDropdownOpen((v) => !v)}
-            title={selectedProject?.root ?? selectedCwd ?? ""}
+            onClick={() => (dropdownOpen ? closeProjectDropdown() : openProjectDropdown())}
+            title={workspaceSelectorTitle}
+            aria-keyshortcuts="Meta+Shift+P Control+Shift+P"
+            aria-expanded={dropdownOpen}
             style={{
               width: "100%",
               display: "flex",
@@ -1295,7 +1391,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                   <input
                     value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
+                    onChange={(e) => {
+                      setProjectFilter(e.target.value);
+                      // The list shrinks under the cursor; keep the highlight on
+                      // a row that still exists.
+                      setProjectActiveIndex(0);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
                         setProjectFilter("");
@@ -1319,24 +1420,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   />
                 </div>
               )}
-              <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
-                {visibleProjects.map((project) => (
+              <div ref={projectListRef} role="listbox" aria-label={t("sidebar.selectProject")} style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
+                {visibleProjects.map((project, index) => (
                   <button
                     key={project.key}
-                    onClick={() => {
-                      setSelectedCwd(project.root);
-                      setProjectFilter("");
-                      setCustomPathOpen(false);
-                      setCustomPathError(null);
-                      setDropdownOpen(false);
-                    }}
+                    data-project-index={index}
+                    role="option"
+                    aria-selected={index === projectActiveIndex}
+                    onClick={() => selectProject(project)}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 7,
                       width: "100%",
                       padding: "8px 10px",
-                      background: "var(--bg)",
+                      background: index === projectActiveIndex ? "var(--bg-selected)" : "var(--bg)",
                       border: "none",
                       borderBottom: "1px solid var(--border)",
                       color: project.key === selectedProject?.key ? "var(--text)" : "var(--text-muted)",
@@ -1349,6 +1447,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                       whiteSpace: "nowrap",
                     }}
                     title={project.root}
+                    onMouseEnter={() => setProjectActiveIndex(index)}
                   >
                     {project.key === selectedProject?.key && (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
