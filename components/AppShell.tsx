@@ -177,6 +177,12 @@ export function AppShell() {
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
   const [projectTrustBusy, setProjectTrustBusy] = useState(false);
   const [projectTrustError, setProjectTrustError] = useState<string | null>(null);
+  // Browser password authentication (`PI_WEB_PASSWORD`). When it is enabled the
+  // desktop top bar offers a logout shortcut next to the session stats; when it
+  // is disabled no authentication UI is rendered at all.
+  const [webAuthEnabled, setWebAuthEnabled] = useState(false);
+  const [webAuthLoggingOut, setWebAuthLoggingOut] = useState(false);
+  const [webAuthLogoutFailed, setWebAuthLogoutFailed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
@@ -1135,6 +1141,34 @@ export function AppShell() {
     return () => controller.abort();
   }, [projectTrustCwd]);
 
+  // `/api/web-auth` answers even for a signed-out browser, so this reports
+  // whether the top bar should offer a logout button at all.
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/web-auth", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { enabled?: boolean } | null) => setWebAuthEnabled(data?.enabled === true))
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        console.error("Failed to load web auth status:", error);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const handleWebLogout = useCallback(async () => {
+    setWebAuthLoggingOut(true);
+    setWebAuthLogoutFailed(false);
+    try {
+      const response = await fetch("/api/web-auth", { method: "DELETE" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      window.location.replace("/login");
+    } catch (error) {
+      console.error("Failed to log out:", error);
+      setWebAuthLogoutFailed(true);
+      setWebAuthLoggingOut(false);
+    }
+  }, []);
+
   const handleTrustProject = useCallback(async () => {
     if (!projectTrustCwd || projectTrustBusy) return;
     setProjectTrustBusy(true);
@@ -1596,6 +1630,54 @@ export function AppShell() {
     );
   };
 
+  // Desktop-only logout shortcut for browser password auth. It carries the
+  // `margin-left: auto` that right-aligns the top bar group, so the session
+  // stats button and the file toggle drop their own auto margin while it is
+  // visible — two auto margins would split the free space and pull the group
+  // toward the middle of the bar.
+  const renderLogoutButton = () => {
+    if (!webAuthEnabled) return null;
+    const label = translate("auth.logOut");
+    const title = webAuthLogoutFailed ? translate("auth.logoutFailed") : label;
+    const tone = webAuthLogoutFailed ? "#dc2626" : webAuthLoggingOut ? "var(--text-dim)" : "var(--text-muted)";
+    return (
+      <button
+        type="button"
+        onClick={() => void handleWebLogout()}
+        disabled={webAuthLoggingOut}
+        title={title}
+        aria-label={title}
+        data-top-bar-logout="true"
+        style={{
+          marginLeft: "auto",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          height: "100%", padding: "0 12px",
+          background: "none", border: "none",
+          borderTop: "2px solid transparent",
+          borderRight: "1px solid var(--border)",
+          color: tone,
+          cursor: webAuthLoggingOut ? "wait" : "pointer",
+          flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+          transition: "color 0.1s, background 0.1s",
+        }}
+        onMouseEnter={(event) => {
+          if (webAuthLoggingOut) return;
+          event.currentTarget.style.color = webAuthLogoutFailed ? "#dc2626" : "var(--text)";
+          event.currentTarget.style.background = "var(--bg-hover)";
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = tone;
+          event.currentTarget.style.background = "none";
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+        </svg>
+        <span>{label}</span>
+      </button>
+    );
+  };
+
   const renderSessionStatsButton = (mobile: boolean) => {
     if (!mobile && (!showChat || (!sessionStats && !contextUsage))) return null;
 
@@ -1654,7 +1736,7 @@ export function AppShell() {
         className={mobile ? "mobile-session-stats" : undefined}
         data-mobile-toolbar-stats={mobile ? "true" : undefined}
         style={{
-          marginLeft: mobile ? 0 : "auto",
+          marginLeft: mobile || webAuthEnabled ? 0 : "auto",
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           flex: mobile ? 1 : undefined,
           minWidth: 0,
@@ -1774,7 +1856,7 @@ export function AppShell() {
         aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         data-mobile-toolbar-file={mobile ? "true" : undefined}
         style={{
-          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
+          marginLeft: !mobile && !webAuthEnabled && !sessionStats && !contextUsage ? "auto" : 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
@@ -2039,6 +2121,7 @@ export function AppShell() {
             <>
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
+              {renderLogoutButton()}
               {renderSessionStatsButton(false)}
             </>
           )}
