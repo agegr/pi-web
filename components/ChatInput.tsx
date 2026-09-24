@@ -2156,7 +2156,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
-                : t("chat.messagePlaceholder")
+                : ""
             }
             rows={1}
             style={{

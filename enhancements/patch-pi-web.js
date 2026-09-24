@@ -43,6 +43,16 @@ function repairStreamingSendShortcuts(content) {
   return content.replace(pattern, 'tT((e.ctrlKey||e.metaKey)&&n?"steer":"followup")');
 }
 
+function repairModelSelectorMobileAutoFocus(content) {
+  if (typeof content !== "string" || !content) return content;
+  // 原生上游在 ModelSelector 的筛选输入框硬编码了 autoFocus:!0，导致移动端点击切换模型时系统强制弹起软键盘并遮挡菜单
+  // 彻底固化修复：将 autoFocus:!0 精准替换为 autoFocus:!1，杜绝移动端误弹虚拟键盘
+  return content.replace(
+    /("chat\.filterModels"\),["']aria-label["']:[A-Za-z0-9_$]+\("chat\.filterModels"\),)autoFocus:!0,/g,
+    '$1autoFocus:!1,'
+  );
+}
+
 function repairComposerInitialMount(content) {
   if (typeof content !== "string" || !content) return content;
 
@@ -784,6 +794,12 @@ function patchPackage(pkgDir, options = {}) {
             modified = true;
           }
 
+          const repairedModelAutoFocus = repairModelSelectorMobileAutoFocus(content);
+          if (repairedModelAutoFocus !== content) {
+            content = repairedModelAutoFocus;
+            modified = true;
+          }
+
           // 确保新会话与草稿态下始终提供思考深度、工具预设与压缩功能，绝不漏掉
           const draftThinkingRegex = /onToolPresetChange:e\|\|[A-Za-z0-9_$]+\?([A-Za-z0-9_$]+):void 0,thinkingLevel:([A-Za-z0-9_$]+),onThinkingLevelChange:e\|\|[A-Za-z0-9_$]+\?([A-Za-z0-9_$]+):void 0/g;
           if (draftThinkingRegex.test(content)) {
@@ -1349,4 +1365,4 @@ if (require.main === module) {
   run();
 }
 
-module.exports = { run, patchPackage, patchNoEscape: run, repairStreamingThinkingLevel, patchDirectToolbarControls, patchSidebarBottomShortcuts, repairStreamingSendShortcuts, repairComposerInitialMount, patchUserMessageReconcile };
+module.exports = { run, patchPackage, patchNoEscape: run, repairStreamingThinkingLevel, patchDirectToolbarControls, patchSidebarBottomShortcuts, repairStreamingSendShortcuts, repairComposerInitialMount, patchUserMessageReconcile, repairModelSelectorMobileAutoFocus };

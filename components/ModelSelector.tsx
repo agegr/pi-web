@@ -151,7 +151,7 @@ export function ModelSelector({
     <div
       ref={rootRef}
       className={`model-selector is-${variant}${locked ? " is-disabled" : ""}`}
-      style={{ position: "relative", width: variant === "field" || isMobile ? "100%" : undefined, minWidth: 0, flex: variant === "toolbar" && isMobile ? "1 1 auto" : undefined }}
+      style={{ position: "relative", width: variant === "field" || isMobile ? "100%" : undefined, minWidth: 0, flex: variant === "toolbar" && isMobile ? "1 1 auto" : undefined, zIndex: open ? 1200 : undefined }}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         event.preventDefault();
@@ -170,6 +170,9 @@ export function ModelSelector({
         title={busy ? "Switching model" : locked ? currentName : sortedOptions.length > 0 || onClear ? "Change model" : "No available models"}
         style={buttonStyle}
         onClick={(event) => {
+          if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
           const rect = event.currentTarget.getBoundingClientRect();
           setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
           setOpen((current) => {
@@ -217,10 +220,11 @@ export function ModelSelector({
       {open && anchorRect && (() => {
         const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
         const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-        const spaceAbove = anchorRect.top - 8;
-        const spaceBelow = viewportHeight - anchorRect.bottom - 8;
+        const spaceAbove = Math.max(0, anchorRect.top - 8);
+        const spaceBelow = Math.max(0, viewportHeight - anchorRect.bottom - 8);
         const openAbove = placement === "up" || spaceAbove > spaceBelow;
-        const maxHeight = Math.max(120, Math.min(openAbove ? spaceAbove : spaceBelow, viewportHeight * 0.6));
+        const availableSpace = openAbove ? spaceAbove : spaceBelow;
+        const maxHeight = Math.max(80, Math.min(availableSpace, viewportHeight * 0.6));
         const verticalPosition = openAbove
           ? { bottom: viewportHeight - anchorRect.top + 6 }
           : { top: anchorRect.bottom + 6 };
@@ -237,7 +241,7 @@ export function ModelSelector({
               position: "fixed",
               ...verticalPosition,
               ...horizontalPosition,
-              zIndex: 500,
+              zIndex: 1200,
               display: "flex",
               flexDirection: "column",
               maxHeight,
@@ -255,7 +259,7 @@ export function ModelSelector({
                   onChange={(event) => setFilter(event.target.value)}
                   placeholder={t("chat.filterModels")}
                   aria-label={t("chat.filterModels")}
-                  autoFocus
+                  autoFocus={!isMobile}
                   autoComplete="off"
                   spellCheck={false}
                   style={{

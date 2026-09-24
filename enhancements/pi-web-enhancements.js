@@ -6422,6 +6422,20 @@
       pointer-events: none;
       transition: transform 0.15s ease;
     }
+
+    /* 当模型选择器或任何下拉列表打开时，回到底部按钮绝不得挡在菜单前面 */
+    body:has(div[role="listbox"]) .pi-enh-scroll-bottom-btn,
+    body:has([data-pi-thinking-control] div[style*="position"]) .pi-enh-scroll-bottom-btn,
+    .chat-content:has(div[role="listbox"]) .pi-enh-scroll-bottom-btn,
+    .chat-content:has([data-pi-thinking-control] div[style*="position"]) .pi-enh-scroll-bottom-btn,
+    body:has(div[role="listbox"]) .chat-scroll-to-bottom,
+    body:has([data-pi-thinking-control] div[style*="position"]) .chat-scroll-to-bottom,
+    .chat-content:has(div[role="listbox"]) .chat-scroll-to-bottom,
+    .chat-content:has([data-pi-thinking-control] div[style*="position"]) .chat-scroll-to-bottom {
+      opacity: 0 !important;
+      pointer-events: none !important;
+      z-index: 1 !important;
+    }
     .pi-enh-scroll-bottom-btn:hover svg {
       transform: translateY(1px);
     }
@@ -8205,6 +8219,20 @@
       defaultEnabled: true,
     },
     {
+      id: "mobile-model-keyboard-guard",
+      name: "移动端模型切换防弹软键盘",
+      desc: "移动端点击切换模型时自动收起软键盘并禁用搜索框自动聚焦，限制下拉菜单顶部视口边界，防止菜单被软键盘顶出屏幕。",
+      category: "交互增强",
+      defaultEnabled: true,
+    },
+    {
+      id: "composer-clean-placeholder",
+      name: "清空输入框提示词",
+      desc: "清空主输入框中冗长繁杂的占位提示词（如‘输入 / 使用命令，输入 @ 查找文件’），去除折行干扰，优化中文字体呈现，保持输入框纯净极简。",
+      category: "显示增强",
+      defaultEnabled: true,
+    },
+    {
       id: "ask-user-web-native",
       name: "ask_user 网页原生选择器",
       desc: "在对话滚动容器普通文档流中呈现 Codex 风格单列紧凑问答列表；方案与选项说明默认收起，悬停/聚焦可读，支持回看运行内容与自定义回答。", 
@@ -8560,8 +8588,8 @@
     { id: "conversation-navigation", name: "对话阅读与导航", desc: "管理过程折叠、工具卡片布局、滚动稳定、会话导航和回到底部工具。", category: "交互增强", version: "1.0.0", defaultEnabled: true, features: ["task-tool-auto-collapse", "tool-card-layout-stability", "subagent-dispatch-cards", "history-scroll-stability", "session-scroll-restore", "session-virtual-scroll", "compaction-auto-collapse", "chat-scrollbar", "native-message-font", "minimap-full-nav", "scroll-to-bottom", "image-dblclick-preview"] },
     { id: "selection-context", name: "划选引用与上下文", desc: "管理文本划选引用、注释与发送上下文。", category: "交互增强", version: "1.0.0", defaultEnabled: true, features: ["quick-quote"] },
     { id: "session-sidebar", name: "会话列表增强", desc: "管理会话列表的快捷菜单、归档、标签、布局、颜色、快捷入口和搜索。", category: "交互增强", version: "1.0.0", defaultEnabled: true, features: ["context-menu", "session-pin-archive", "session-section-headers", "session-model-label", "session-item-compact", "session-color", "session-tags", "session-odoo-addons", "session-dblclick-rename", "session-search-shortcut", "session-search-project-folding", "session-batch-actions", "settings-tab-shortcuts", "mobile-swipe-drawer"] },
-    { id: "composer-workflow", name: "输入与附件增强", desc: "管理编辑器快捷操作、草稿、附件和移动端输入保护。", category: "交互增强", version: "1.0.0", defaultEnabled: true, features: ["quick-action-buttons", "empty-send-continue", "composer-draft-cache", "composer-file-paste", "composer-image-zoom", "mobile-enter-newline", "codex-composer-layout", "composer-model-reasoning-pill", "composer-queue-panel", "running-model-switch", "composer-markdown-format", "composer-format-toggle", "composer-compact-button", "composer-tool-preset", "composer-modes"] },
-    { id: "ask-user-experience", name: "ask_user 交互", desc: "管理网页原生问答选择器与批量原型预览。", category: "交互增强", version: "1.1.0", defaultEnabled: true, features: ["ask-user-web-native", "ask-user-batch-prototype"] },
+    { id: "composer-workflow", name: "输入与附件增强", desc: "管理编辑器快捷操作、草稿、附件和移动端输入保护。", category: "交互增强", version: "1.0.0", defaultEnabled: true, features: ["quick-action-buttons", "empty-send-continue", "composer-draft-cache", "composer-file-paste", "composer-image-zoom", "mobile-enter-newline", "mobile-model-keyboard-guard", "composer-clean-placeholder", "codex-composer-layout", "composer-model-reasoning-pill", "composer-queue-panel", "running-model-switch", "composer-markdown-format", "composer-format-toggle", "composer-compact-button", "composer-tool-preset", "composer-modes"] },
+    { id: "ask-user-experience", name: "ask_user 交互", desc: "管理网页原生问答选择器与批量原型预览。", category: "交互增强", version: "1.1.1", defaultEnabled: true, features: ["ask-user-web-native", "ask-user-batch-prototype"] },
     { id: "background-attention", name: "后台会话提醒", desc: "管理跨项目状态、站内提醒与桌面通知。", category: "运行监控", version: "1.0.0", defaultEnabled: true, features: ["project-status-indicator", "session-attention-notifications", "session-attention-sound", "session-attention-desktop"] },
     { id: "notification-management", name: "通知管理", desc: "管理所有站内通知、网页操作提示、提示音与桌面提醒，并查看通知历史。", category: "偏好记忆", version: "1.0.0", defaultEnabled: true, features: ["notification-center"] },
     { id: "safety-performance", name: "安全与性能保护", desc: "管理误触保护、模型警告可见性和代码块扫描保护。", category: "安全防护", version: "1.0.0", defaultEnabled: true, features: ["model-scope-warning", "esc-guard", "code-block-scan-guard", "streaming-thinking-guard", "client-crash-diagnostics"] },
@@ -9157,6 +9185,18 @@
         removeComposerModelPill();
       } else {
         syncComposerModelPill();
+      }
+    } else if (id === "mobile-model-keyboard-guard") {
+      if (!enabled) {
+        removeMobileModelKeyboardGuard();
+      } else {
+        syncMobileModelKeyboardGuard();
+      }
+    } else if (id === "composer-clean-placeholder") {
+      if (!enabled) {
+        removeComposerCleanPlaceholder();
+      } else {
+        syncComposerCleanPlaceholder();
       }
     } else if (id === "composer-queue-panel") {
       if (enabled) syncComposerQueuePanel();
@@ -9820,7 +9860,7 @@
       if (!loc) return false;
       const hostname = loc.hostname;
       const port = String(loc.port || "");
-      const allowedHosts = ["127.0.0.1", "localhost", (typeof window !== "undefined" && window.location?.hostname) || "localhost"];
+      const allowedHosts = ["127.0.0.1", "localhost"];
       if (!allowedHosts.includes(hostname)) return false;
       if (port !== "30141" && port !== "30142") return false;
       return true;
@@ -11590,12 +11630,28 @@
 
     renderList("");
 
+    let isComposing = false;
+    searchInput.addEventListener("compositionstart", () => {
+      isComposing = true;
+    });
+    searchInput.addEventListener("compositionend", () => {
+      isComposing = false;
+      renderList(searchInput.value);
+    });
+
     searchInput.addEventListener("input", () => {
       renderList(searchInput.value);
     });
 
     searchInput.addEventListener("keydown", (e) => {
+      // 阻止冒泡，避免向上冒泡触发任何全局快捷键
+      e.stopPropagation();
+
       if (e.key === "Enter") {
+        // 如果输入法正在打字/选词中，绝对不处理回车，防止未完成的拼音把子菜单关闭
+        if (isComposing || e.isComposing || e.keyCode === 229) {
+          return;
+        }
         e.preventDefault();
         const trimmed = searchInput.value.trim();
         if (!trimmed) return;
@@ -11622,6 +11678,34 @@
         e.stopPropagation();
         closeSessionTagsPopover(false);
       }
+    });
+
+    searchInput.addEventListener("keyup", (e) => {
+      e.stopPropagation();
+    });
+    searchInput.addEventListener("keypress", (e) => {
+      e.stopPropagation();
+    });
+
+    searchInput.addEventListener("focus", () => {
+      if (activeSessionTagsTriggerItem) {
+        if (activeSessionTagsTriggerItem._closeSubmenuTimer) {
+          clearTimeout(activeSessionTagsTriggerItem._closeSubmenuTimer);
+          activeSessionTagsTriggerItem._closeSubmenuTimer = null;
+        }
+        activeSessionTagsTriggerItem.classList.add("is-submenu-open");
+      }
+    });
+
+    searchInput.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (!activeSessionTagsPopover) return;
+        const isHovering = (typeof activeSessionTagsPopover.matches === "function" && activeSessionTagsPopover.matches(":hover")) ||
+          (activeSessionTagsTriggerItem && typeof activeSessionTagsTriggerItem.matches === "function" && activeSessionTagsTriggerItem.matches(":hover"));
+        if (!isHovering && (!document.activeElement || !activeSessionTagsPopover.contains(document.activeElement))) {
+          closeSessionTagsPopover(false);
+        }
+      }, 150);
     });
 
     listEl.addEventListener("click", (e) => {
@@ -11685,17 +11769,22 @@
       }
     });
 
-    // 鼠标移出二级子菜单，延时平滑关闭
+    // 鼠标移出二级子菜单，延时平滑关闭（若输入框正处于聚焦或编辑状态，绝不关闭）
     popover.addEventListener("mouseleave", () => {
+      if (document.activeElement && popover.contains(document.activeElement)) {
+        return;
+      }
       if (activeSessionTagsTriggerItem) {
         if (activeSessionTagsTriggerItem._closeSubmenuTimer) {
           clearTimeout(activeSessionTagsTriggerItem._closeSubmenuTimer);
         }
         activeSessionTagsTriggerItem._closeSubmenuTimer = setTimeout(() => {
+          if (document.activeElement && popover.contains(document.activeElement)) return;
           closeSessionTagsPopover(false);
         }, 220);
       } else {
         setTimeout(() => {
+          if (document.activeElement && popover.contains(document.activeElement)) return;
           closeSessionTagsPopover(false);
         }, 220);
       }
@@ -15493,7 +15582,10 @@
           titleSpan.setAttribute("data-pi-enh-raw-title", rawTitle);
         }
         if (regex.test(rawTitle)) {
-          titleSpan.innerHTML = escapeHtml(rawTitle).replace(regex, `<mark class="pi-enh-search-highlight">$1</mark>`);
+          const nextTitleHtml = escapeHtml(rawTitle).replace(regex, `<mark class="pi-enh-search-highlight">$1</mark>`);
+          if (titleSpan.innerHTML !== nextTitleHtml) {
+            titleSpan.innerHTML = nextTitleHtml;
+          }
         }
       }
 
@@ -15505,7 +15597,10 @@
           snippetSpan.setAttribute("data-pi-enh-raw-snippet", rawSnippet);
         }
         if (regex.test(rawSnippet)) {
-          snippetSpan.innerHTML = escapeHtml(rawSnippet).replace(regex, `<mark class="pi-enh-search-highlight">$1</mark>`);
+          const nextSnippetHtml = escapeHtml(rawSnippet).replace(regex, `<mark class="pi-enh-search-highlight">$1</mark>`);
+          if (snippetSpan.innerHTML !== nextSnippetHtml) {
+            snippetSpan.innerHTML = nextSnippetHtml;
+          }
         }
       }
 
@@ -18506,7 +18601,14 @@
           tagsMenuItem._openSubmenuTimer = null;
         }
         if (activeSessionTagsPopover) {
+          // 若子菜单内输入框聚焦中，绝不启动关闭定时器
+          if (document.activeElement && activeSessionTagsPopover.contains(document.activeElement)) {
+            return;
+          }
           tagsMenuItem._closeSubmenuTimer = setTimeout(() => {
+            if (document.activeElement && activeSessionTagsPopover?.contains(document.activeElement)) {
+              return;
+            }
             closeSessionTagsPopover(false);
           }, 220);
         }
@@ -18519,6 +18621,10 @@
           if (tagsMenuItem._openSubmenuTimer) {
             clearTimeout(tagsMenuItem._openSubmenuTimer);
             tagsMenuItem._openSubmenuTimer = null;
+          }
+          // 关键防护：如果子菜单内的输入框已经获得焦点（用户输入文字中），哪怕鼠标不小心滑过兄弟项，也绝不能杀死子菜单！
+          if (activeSessionTagsPopover && document.activeElement && activeSessionTagsPopover.contains(document.activeElement)) {
+            return;
           }
           if (activeSessionTagsPopover) {
             closeSessionTagsPopover(false);
@@ -20942,39 +21048,140 @@
     }
   }
 
+  const ASK_USER_KEY_SEQUENCES = {
+    Enter: "\r",
+    ArrowUp: "\x1b[A",
+    ArrowDown: "\x1b[B",
+    ArrowRight: "\x1b[C",
+    ArrowLeft: "\x1b[D",
+    Escape: "\x1b",
+    Backspace: "\x7f",
+    Tab: "\t",
+    " ": " ",
+  };
+
+  function toAskUserTerminalData(key, modifiers = {}) {
+    if (modifiers.ctrlKey && !modifiers.altKey && typeof key === "string" && key.length === 1) {
+      const code = key.toUpperCase().charCodeAt(0);
+      if (code >= 64 && code <= 95) return String.fromCharCode(code & 0x1f);
+    }
+    if (key === "Enter") return modifiers.shiftKey ? "\n" : "\r";
+    return ASK_USER_KEY_SEQUENCES[key] ?? (typeof key === "string" && key.length === 1 ? key : null);
+  }
+
+  function extractAskUserReactBridge(panel) {
+    if (!panel) return null;
+    const dialog = panel.matches?.('[role="dialog"]') ? panel : panel.querySelector?.('[role="dialog"]');
+    const input = findAskUserInput(panel);
+    const candidates = [input, dialog, panel].filter(Boolean);
+
+    for (const node of candidates) {
+      try {
+        const key = Object.keys(node).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
+        let fiber = key ? node[key] : null;
+        while (fiber) {
+          const props = fiber.memoizedProps;
+          if (props?.request?.id && typeof props?.onInput === "function") {
+            return {
+              request: props.request,
+              onInput: props.onInput,
+              requestId: props.request.id,
+            };
+          }
+          fiber = fiber.return;
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  async function postAskUserAgentInput(sessionId, requestId, data) {
+    if (!sessionId || !requestId || typeof data !== "string") return false;
+    try {
+      const fetcher = baseFetch || window.fetch;
+      const res = await fetcher(`/api/agent/${encodeURIComponent(sessionId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "extension_ui_input",
+          id: requestId,
+          data,
+        }),
+      });
+      return Boolean(res?.ok);
+    } catch (e) {
+      return false;
+    }
+  }
+
   function findAskUserInput(panel) {
     return Array.from(panel.querySelectorAll("textarea")).find((input) => !input.hasAttribute("data-pi-enh-ask-freeform")) || null;
   }
 
-  function sendAskUserKey(panel, key, modifiers = {}) {
+  function sendAskUserKey(panel, key, modifiers = {}, state = null) {
+    const terminalData = toAskUserTerminalData(key, modifiers);
+    const bridge = extractAskUserReactBridge(panel);
+    const sessionId = state?.sessionId || getSessionIdFromCurrentUrl();
+    let bridgeHandled = false;
+
+    // 通道 A: React Fiber 原生 onInput（彻底免疫移动端 IME/composing 拦截与虚拟键盘事件丢失）
+    if (bridge && terminalData !== null) {
+      try {
+        bridge.onInput(bridge.request, terminalData);
+        bridgeHandled = true;
+      } catch (e) {}
+    }
+
+    // 通道 B: 后台 API 冗余直投（当 React 桥接缺失时走标准 HTTP 接口，防止任何前端事件丢包）
+    if (!bridgeHandled && bridge?.requestId && sessionId && terminalData !== null) {
+      void postAskUserAgentInput(sessionId, bridge.requestId, terminalData);
+      bridgeHandled = true;
+    }
+
+    // 通道 C: 原生 DOM 事件派发与安全焦点处理（向下兼容桌面端与纯 HTML 宿主）
     const input = findAskUserInput(panel);
-    if (!input) return false;
-    input.focus({ preventScroll: true });
-    // Synthetic keydown does not insert printable characters. Pi Web forwards
-    // these via onInput; otherwise clicking option 2 only sends Enter (= option 1).
-    if (key.length === 1 && !modifiers.ctrlKey && !modifiers.metaKey && !modifiers.altKey) return sendAskUserText(panel, key);
-    input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }));
-    return true;
+    if (input) {
+      const isMobileTouch = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+      if (!isMobileTouch) {
+        try { input.focus({ preventScroll: true }); } catch (e) {}
+      }
+
+      // 清除可能处于激活状态的移动端 IME composition
+      try {
+        input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, cancelable: true }));
+      } catch (e) {}
+
+      if (key.length === 1 && !modifiers.ctrlKey && !modifiers.metaKey && !modifiers.altKey) {
+        sendAskUserText(panel, key);
+      } else {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }));
+      }
+      return true;
+    }
+
+    return bridgeHandled;
   }
 
-  function sendAskUserKeys(panel, keys, onDone) {
+  function sendAskUserKeys(panel, keys, onDone, state = null) {
     const stepMs = 55;
     keys.forEach((entry, index) => {
       const key = typeof entry === "string" ? entry : entry.key;
       const modifiers = typeof entry === "string" ? {} : entry;
       addManagedTimeout(() => {
-        if (isPluginEnabled("ask-user-web-native") && panel.isConnected && !askUserNativeStates.get(panel)?.disabled) sendAskUserKey(panel, key, modifiers);
+        if (isPluginEnabled("ask-user-web-native") && panel.isConnected && !askUserNativeStates.get(panel)?.disabled) {
+          sendAskUserKey(panel, key, modifiers, state);
+        }
       }, index * stepMs);
     });
     if (onDone) addManagedTimeout(onDone, keys.length * stepMs + 90);
     return keys.length * stepMs + 90;
   }
 
-  function moveAskUserCursor(panel, data, targetIndex, action, onDone) {
+  function moveAskUserCursor(panel, data, targetIndex, action, onDone, state = null) {
     if (targetIndex < 0) return 0;
     const itemCount = data.options.length + (data.hasComment ? 1 : 0) + (data.hasFreeform ? 1 : 0);
     const delta = ((targetIndex - data.currentIndex) % itemCount + itemCount) % itemCount;
-    return sendAskUserKeys(panel, [...Array(delta).fill("ArrowDown"), action], onDone);
+    return sendAskUserKeys(panel, [...Array(delta).fill("ArrowDown"), action], onDone, state);
   }
 
   function sendAskUserText(panel, text) {
@@ -20998,6 +21205,8 @@
       data,
       data.options.length + (data.hasComment ? 1 : 0),
       "Enter",
+      null,
+      state
     );
   }
 
@@ -21006,7 +21215,7 @@
     if (!/\bCustom response\b|自定义回答/i.test(getAskUserPanelText(panel))) return;
     if (!sendAskUserText(panel, state.pendingFreeformValue)) return;
     state.freeformResponseSent = true;
-    sendAskUserKey(panel, "Enter", { ctrlKey: true });
+    sendAskUserKey(panel, "Enter", { ctrlKey: true }, state);
     resolveCurrentAskUserStatus(state.sessionId);
   }
 
@@ -21255,6 +21464,10 @@
       if (panel && !shouldCleanPanel(panel)) continue;
       const state = panel && askUserNativeStates.get(panel);
       if (state) {
+        if (state.submitWatchdog) {
+          clearTimeout(state.submitWatchdog);
+          state.submitWatchdog = null;
+        }
         state.draft = element.querySelector("[data-pi-enh-ask-freeform]")?.value ?? state.draft ?? "";
         state.disabled = true;
         if (state.root === element) state.root = null;
@@ -21415,15 +21628,15 @@
           if (state.submitting) return;
           hideAskUserTooltip();
           if (data.isMultiple) {
-            if (option.number <= 9) sendAskUserKeys(panel, [String(option.number)]);
-            else moveAskUserCursor(panel, data, option.number - 1, " ");
+            if (option.number <= 9) sendAskUserKeys(panel, [String(option.number)], null, state);
+            else moveAskUserCursor(panel, data, option.number - 1, " ", null, state);
             return;
           }
           lockSubmission();
           state.resolved = true;
           const clearAttention = () => resolveCurrentAskUserStatus(state.sessionId);
-          if (option.number <= 9) sendAskUserKeys(panel, [String(option.number), "Enter"], clearAttention);
-          else moveAskUserCursor(panel, data, option.number - 1, "Enter", clearAttention);
+          if (option.number <= 9) sendAskUserKeys(panel, [String(option.number), "Enter"], clearAttention, state);
+          else moveAskUserCursor(panel, data, option.number - 1, "Enter", clearAttention, state);
         });
 
         let inlineDesc = null;
@@ -21513,6 +21726,19 @@
     const footer = element("footer", "pi-enh-ask-footer");
     const progress = element("div", "pi-enh-ask-progress");
     progress.setAttribute("role", "status");
+    const unlockSubmission = (reason) => {
+      state.submitting = false;
+      state.resolved = false;
+      root.classList.remove("is-submitting");
+      root.removeAttribute("aria-busy");
+      for (const btn of root.querySelectorAll("button")) {
+        btn.disabled = false;
+      }
+      const input = root.querySelector("[data-pi-enh-ask-freeform]");
+      if (input) input.disabled = false;
+      progress.textContent = reason || "发送未响应，可点击重试";
+    };
+
     const lockSubmission = () => {
       state.submitting = true;
       root.classList.add("is-submitting");
@@ -21523,6 +21749,14 @@
       const input = root.querySelector("[data-pi-enh-ask-freeform]");
       if (input) input.disabled = true;
       progress.textContent = "正在发送回答，请等待确认…";
+
+      // 4.5秒防卡死看门狗：如果后端未能完成答复闭环，自动恢复按钮可点击状态，允许用户点击重试
+      if (state.submitWatchdog) clearTimeout(state.submitWatchdog);
+      state.submitWatchdog = setTimeout(() => {
+        if (panel.isConnected && state.submitting && !state.disabled) {
+          unlockSubmission("发送未收到确认，点击选项可重新发送");
+        }
+      }, 4500);
     };
 
     if (data.hasFreeform) {
@@ -21559,7 +21793,7 @@
       hideAskUserTooltip();
       lockSubmission();
       state.resolved = true;
-      sendAskUserKeys(panel, ["Escape"], () => resolveCurrentAskUserStatus(state.sessionId));
+      sendAskUserKeys(panel, ["Escape"], () => resolveCurrentAskUserStatus(state.sessionId), state);
     }));
     actions.appendChild(element("span", "pi-enh-ask-hint", data.isMultiple ? "可多选，确认后提交" : "点选即提交 · 自定义回答 Ctrl/⌘ + Enter"));
     if (data.isMultiple) actions.appendChild(action("确认选择", () => {
@@ -21567,7 +21801,7 @@
       hideAskUserTooltip();
       lockSubmission();
       state.resolved = true;
-      sendAskUserKeys(panel, ["Enter"], () => resolveCurrentAskUserStatus(state.sessionId));
+      sendAskUserKeys(panel, ["Enter"], () => resolveCurrentAskUserStatus(state.sessionId), state);
     }, true));
 
     footer.append(actions, progress);
@@ -21613,6 +21847,10 @@
       }
       if (panel.__pi_enh_root) panel.__pi_enh_root = null;
       restoreAskUserNativeHost(panel);
+      if (state?.submitWatchdog) {
+        clearTimeout(state.submitWatchdog);
+        state.submitWatchdog = null;
+      }
       if (state && !state.resolved) {
         state.resolved = true;
         resolveCurrentAskUserStatus(state.sessionId);
@@ -30597,6 +30835,21 @@
           grid-column: -3 !important;
         }
 
+        /* 当模型选择器或思考控件展开下拉菜单时，外层与控件层叠上下文提升至最前，确保绝不被任何浮动按钮遮挡 */
+        .pi-enh-cursor-composer:has(div[role="listbox"]),
+        .pi-enh-cursor-composer:has([data-pi-thinking-control] div[style*="position"]),
+        .pi-enh-cursor-composer.pi-enh-composer-model-pill:has(div[role="listbox"]),
+        .pi-enh-cursor-composer.pi-enh-composer-model-pill:has([data-pi-thinking-control] div[style*="position"]),
+        .pi-enh-cursor-composer.pi-enh-composer-model-pill .model-selector:has(div[role="listbox"]),
+        .pi-enh-cursor-composer.pi-enh-composer-model-pill [data-pi-thinking-control]:has(div[style*="position"]),
+        .model-selector:has(div[role="listbox"]) {
+          z-index: 1200 !important;
+        }
+
+        div[role="listbox"] {
+          z-index: 1200 !important;
+        }
+
         /* 胶囊背景跨越 model 与 thinking：平时完全透明不显示边框，仅悬停/聚焦时显现 */
         .pi-enh-cursor-composer.pi-enh-composer-model-pill::after {
           content: "" !important;
@@ -30872,6 +31125,7 @@
 
   function handleModelSwitchAutoDocClick(e) {
     if (!isModelOrThinkingSelectorTarget(e?.target)) return;
+    if (typeof isMobileEnvironment === "function" && isMobileEnvironment()) return;
     focusComposerTextarea();
   }
 
@@ -30879,6 +31133,7 @@
     if (!e || (e.key !== "Enter" && e.key !== "Escape")) return;
     const target = e.target || (typeof document !== "undefined" ? document.activeElement : null);
     if (!isModelOrThinkingSelectorTarget(target)) return;
+    if (typeof isMobileEnvironment === "function" && isMobileEnvironment()) return;
     focusComposerTextarea();
   }
 
@@ -30887,6 +31142,186 @@
 
   window.__PI_ENH_IS_MODEL_OR_THINKING_TARGET__ = isModelOrThinkingSelectorTarget;
   window.__PI_ENH_FOCUS_COMPOSER_TEXTAREA__ = focusComposerTextarea;
+
+  // ==========================================
+  // 3.54.8 Mobile Model Keyboard Guard (移动端模型切换防弹软键盘与视口安全守护)
+  // ==========================================
+  const MOBILE_MODEL_GUARD_STYLE_ID = "pi-enh-mobile-model-keyboard-guard-style";
+
+  function ensureMobileModelGuardStyle() {
+    if (document.getElementById(MOBILE_MODEL_GUARD_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = MOBILE_MODEL_GUARD_STYLE_ID;
+    style.textContent = `
+      /* 移动端/触屏环境下模型下拉列表视口与边界安全保护 */
+      div[role="listbox"] {
+        z-index: 1200 !important;
+      }
+      .pi-enh-mobile div[role="listbox"]:not([data-pi-modal] *),
+      @media (max-width: 1024px), (pointer: coarse) {
+        div[role="listbox"]:not([data-pi-modal] *) {
+          max-height: min(72vh, calc(100dvh - 84px)) !important;
+          overflow-y: auto !important;
+          -webkit-overflow-scrolling: touch !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function handleModelSelectorPointerDown(e) {
+    if (!isPluginEnabled("mobile-model-keyboard-guard")) return;
+    if (typeof isMobileEnvironment === "function" && !isMobileEnvironment()) return;
+    const target = e?.target;
+    if (!target) return;
+    const el = target.nodeType === 1 ? target : target.parentElement;
+    if (!el || typeof el.closest !== "function") return;
+
+    // 绝对防御铁律：如果点击的是输入框本身或任何可编辑容器，绝不拦截，坚决退出！
+    if (el.closest('textarea, [contenteditable], .pi-enh-formatted-composer, .pi-enh-cursor-editor, input')) {
+      return;
+    }
+
+    if (el.closest('dialog, .settings-modal, [data-modal]')) return;
+
+    // 检查是否真正点击了模型选择器触发按钮或思考控件触发按钮（严禁包含外层 card 的 .pi-enh-composer-model-pill）
+    const isTrigger = el.closest(
+      '.model-selector button, .model-selector [role="button"], [data-pi-thinking-control] > button, [data-pi-thinking-button]'
+    );
+    if (!isTrigger) return;
+
+    // 若点击已在展开的菜单内部列表项，不干扰
+    if (el.closest('div[role="listbox"], [role="option"]')) return;
+
+    // 主动让输入法软键盘收起：失焦当前编辑框或活跃输入元素
+    const active = document.activeElement;
+    if (
+      active &&
+      (active.tagName === "TEXTAREA" ||
+        active.tagName === "INPUT" ||
+        active.isContentEditable ||
+        active.classList?.contains("pi-enh-formatted-composer"))
+    ) {
+      try {
+        active.blur();
+      } catch (err) {}
+    }
+  }
+
+  function inspectAndProtectModelListbox(listbox) {
+    if (!listbox || typeof listbox.closest !== "function") return;
+    if (listbox.closest('dialog, .settings-modal, [data-modal]')) return;
+    if (!isPluginEnabled("mobile-model-keyboard-guard")) return;
+
+    const isMobile = typeof isMobileEnvironment === "function" && isMobileEnvironment();
+
+    // 1. 视口顶部溢出保护：如果因 bottom 定位向上生长导致顶部超出屏幕（top < 8）
+    listbox.style.zIndex = "1200";
+    const selectorParent = listbox.closest('.model-selector');
+    if (selectorParent) selectorParent.style.zIndex = "1200";
+    const composerParent = listbox.closest('.pi-enh-cursor-composer');
+    if (composerParent) composerParent.style.zIndex = "1200";
+
+    const rect = listbox.getBoundingClientRect();
+    if (rect.top < 8) {
+      listbox.style.top = "8px";
+      listbox.style.bottom = "auto";
+      const maxHeight = Math.max(120, window.innerHeight - 90);
+      listbox.style.maxHeight = `${maxHeight}px`;
+    }
+
+    // 2. 移动端/触屏环境下，拦截搜索框自动聚焦调起虚拟键盘
+    if (isMobile) {
+      const filterInput = listbox.querySelector('input');
+      if (filterInput) {
+        if (filterInput.hasAttribute("autofocus")) {
+          filterInput.removeAttribute("autofocus");
+        }
+        filterInput.autofocus = false;
+
+        // 若挂载时被浏览器/React 自动聚焦，且用户未显式点击该 input，立即 blur()
+        if (document.activeElement === filterInput && !filterInput.__piUserExplicitClicked) {
+          try {
+            filterInput.blur();
+          } catch (err) {}
+        }
+
+        if (!filterInput.__piKeyboardGuarded) {
+          filterInput.__piKeyboardGuarded = true;
+          // 用户主动点击该搜索框时，放行允许弹出键盘打字
+          filterInput.addEventListener("pointerdown", () => {
+            filterInput.__piUserExplicitClicked = true;
+          }, { passive: true, capture: true });
+
+          // 拦截被动聚焦事件
+          filterInput.addEventListener("focus", (ev) => {
+            if (!filterInput.__piUserExplicitClicked && (typeof isMobileEnvironment === "function" && isMobileEnvironment())) {
+              try {
+                filterInput.blur();
+              } catch (err) {}
+            }
+          }, { capture: true });
+        }
+      }
+    }
+  }
+
+  function syncMobileModelKeyboardGuard() {
+    if (!isPluginEnabled("mobile-model-keyboard-guard")) {
+      removeMobileModelKeyboardGuard();
+      return;
+    }
+    ensureMobileModelGuardStyle();
+    // 立即扫描页面上已存在的 listbox
+    const listboxes = document.querySelectorAll('div[role="listbox"]');
+    for (const lb of listboxes) {
+      inspectAndProtectModelListbox(lb);
+    }
+  }
+
+  function removeMobileModelKeyboardGuard() {
+    const style = document.getElementById(MOBILE_MODEL_GUARD_STYLE_ID);
+    if (style) style.remove();
+  }
+
+  // 在 pointerdown、touchstart 与 click 捕获阶段绑定主动收起键盘
+  addManagedListener(document, "pointerdown", handleModelSelectorPointerDown, true);
+  addManagedListener(document, "touchstart", handleModelSelectorPointerDown, { passive: true, capture: true });
+  addManagedListener(document, "click", handleModelSelectorPointerDown, true);
+
+  // 观察 DOM 中 listbox 的动态挂载
+  if (typeof MutationObserver !== "undefined") {
+    const listboxObserver = new MutationObserver((mutations) => {
+      if (!isPluginEnabled("mobile-model-keyboard-guard")) return;
+      for (const mut of mutations) {
+        if (mut.addedNodes?.length) {
+          for (const node of mut.addedNodes) {
+            if (node.nodeType === 1) {
+              if (node.matches?.('div[role="listbox"]')) {
+                inspectAndProtectModelListbox(node);
+              } else if (typeof node.querySelector === "function") {
+                const lb = node.querySelector('div[role="listbox"]');
+                if (lb) inspectAndProtectModelListbox(lb);
+              }
+            }
+          }
+        }
+      }
+    });
+    try {
+      listboxObserver.observe(document.body, { childList: true, subtree: true });
+      activeCleanups.push(() => {
+        try { listboxObserver.disconnect(); } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
+  syncMobileModelKeyboardGuard();
+  activeCleanups.push(removeMobileModelKeyboardGuard);
+  window.__PI_ENH_SYNC_MOBILE_MODEL_GUARD__ = syncMobileModelKeyboardGuard;
+  window.__PI_ENH_REMOVE_MOBILE_MODEL_GUARD__ = removeMobileModelKeyboardGuard;
+  window.__PI_ENH_INSPECT_MODEL_LISTBOX__ = inspectAndProtectModelListbox;
+  window.__PI_ENH_HANDLE_MODEL_POINTERDOWN__ = handleModelSelectorPointerDown;
 
   // ==========================================
   // 3.55.0 Composer Thinking Options Refinement (思考深度选项垂直排布与排除“默认”)
@@ -32450,7 +32885,8 @@
       formattedComposer.style.display = "none";
       formattedComposer.spellcheck = false;
       formattedComposer.role = "textbox";
-      const placeholderText = textarea.placeholder || "消息…输入 / 使用命令，输入 @ 查找文件";
+      const isClean = isPluginEnabled("composer-clean-placeholder");
+      const placeholderText = isClean ? "" : (textarea.placeholder || "消息…输入 / 使用命令，输入 @ 查找文件");
       if (formattedComposer.dataset) {
         formattedComposer.dataset.placeholder = placeholderText;
       } else {
@@ -32722,6 +33158,168 @@
   window.__PI_ENH_REMOVE_COMPOSER_MARKDOWN_FORMAT__ = removeComposerMarkdownFormat;
   window.__PI_ENH_HTML_TO_MARKDOWN__ = htmlToMarkdown;
   window.__PI_ENH_MARKDOWN_TO_FORMATTED_HTML__ = markdownToFormattedHtml;
+
+  // ==========================================
+  // 3.55.25 Composer Clean Placeholder (清空主输入框提示词与字体优化)
+  // ==========================================
+  const CLEAN_PLACEHOLDER_STYLE_ID = "pi-enh-composer-clean-placeholder-style";
+  let origTextareaPlaceholderDesc = null;
+
+  function ensureComposerCleanPlaceholderPrototype() {
+    if (typeof HTMLTextAreaElement === "undefined" || !HTMLTextAreaElement.prototype) return;
+    if (HTMLTextAreaElement.prototype.__piPatchedCleanPlaceholder) return;
+    try {
+      origTextareaPlaceholderDesc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "placeholder");
+      if (origTextareaPlaceholderDesc && origTextareaPlaceholderDesc.configurable) {
+        HTMLTextAreaElement.prototype.__piPatchedCleanPlaceholder = true;
+        Object.defineProperty(HTMLTextAreaElement.prototype, "placeholder", {
+          get() {
+            if (
+              typeof isPluginEnabled === "function" &&
+              isPluginEnabled("composer-clean-placeholder") &&
+              (this.classList?.contains("chat-input-textarea") || this.closest?.("fieldset, .pi-enh-cursor-composer"))
+            ) {
+              return "";
+            }
+            return origTextareaPlaceholderDesc.get ? origTextareaPlaceholderDesc.get.call(this) : "";
+          },
+          set(val) {
+            if (typeof val === "string") {
+              this.setAttribute("data-pi-orig-placeholder", val);
+            }
+            if (
+              typeof isPluginEnabled === "function" &&
+              isPluginEnabled("composer-clean-placeholder") &&
+              (this.classList?.contains("chat-input-textarea") || this.closest?.("fieldset, .pi-enh-cursor-composer"))
+            ) {
+              if (origTextareaPlaceholderDesc.set) {
+                origTextareaPlaceholderDesc.set.call(this, "");
+              }
+              return;
+            }
+            if (origTextareaPlaceholderDesc.set) {
+              origTextareaPlaceholderDesc.set.call(this, val);
+            }
+          },
+          configurable: true,
+          enumerable: true,
+        });
+      }
+    } catch (e) {}
+  }
+
+  function ensureComposerCleanPlaceholderStyle() {
+    ensureComposerCleanPlaceholderPrototype();
+    let style = document.getElementById(CLEAN_PLACEHOLDER_STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = CLEAN_PLACEHOLDER_STYLE_ID;
+      style.textContent = `
+        /* 纯净极简输入框：清空主输入框冗长提示词，消除折行干扰 */
+        html.pi-enh-clean-placeholder textarea.chat-input-textarea::placeholder,
+        html.pi-enh-clean-placeholder .chat-input-textarea::placeholder,
+        textarea.chat-input-textarea.pi-enh-clean-placeholder::placeholder {
+          color: transparent !important;
+          opacity: 0 !important;
+          -webkit-text-fill-color: transparent !important;
+        }
+
+        html.pi-enh-clean-placeholder .pi-enh-formatted-composer:empty::before,
+        .pi-enh-formatted-composer.pi-enh-clean-placeholder:empty::before {
+          content: "" !important;
+          display: none !important;
+        }
+
+        /* 统一输入框优质中文字体栈 */
+        .chat-input-textarea,
+        .pi-enh-formatted-composer {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif !important;
+          letter-spacing: normal !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }
+
+  function syncComposerCleanPlaceholder() {
+    ensureComposerCleanPlaceholderStyle();
+    const enabled = isPluginEnabled("composer-clean-placeholder");
+    document.documentElement?.classList?.toggle("pi-enh-clean-placeholder", enabled);
+
+    const textarea = findComposerTextarea();
+    if (textarea) {
+      if (enabled) {
+        if (!textarea.hasAttribute("data-pi-orig-placeholder")) {
+          const raw = textarea.getAttribute("placeholder") || "";
+          if (raw) textarea.setAttribute("data-pi-orig-placeholder", raw);
+        }
+        try {
+          textarea.placeholder = "";
+          textarea.setAttribute("placeholder", "");
+        } catch (e) {}
+        textarea.classList.add("pi-enh-clean-placeholder");
+      } else {
+        const orig = textarea.getAttribute("data-pi-orig-placeholder");
+        if (orig !== null) {
+          try {
+            textarea.placeholder = orig;
+            textarea.setAttribute("placeholder", orig);
+          } catch (e) {}
+        }
+        textarea.classList.remove("pi-enh-clean-placeholder");
+      }
+    }
+
+    const formatted = document.querySelector(".pi-enh-formatted-composer");
+    if (formatted) {
+      if (enabled) {
+        if (!formatted.hasAttribute("data-pi-orig-placeholder")) {
+          formatted.setAttribute("data-pi-orig-placeholder", formatted.getAttribute("data-placeholder") || "");
+        }
+        formatted.setAttribute("data-placeholder", "");
+        if (formatted.dataset) formatted.dataset.placeholder = "";
+        formatted.classList.add("pi-enh-clean-placeholder");
+      } else {
+        const orig = formatted.getAttribute("data-pi-orig-placeholder");
+        if (orig !== null) {
+          formatted.setAttribute("data-placeholder", orig);
+          if (formatted.dataset) formatted.dataset.placeholder = orig;
+        }
+        formatted.classList.remove("pi-enh-clean-placeholder");
+      }
+    }
+  }
+
+  function removeComposerCleanPlaceholder() {
+    const style = document.getElementById(CLEAN_PLACEHOLDER_STYLE_ID);
+    if (style) style.remove();
+    document.documentElement?.classList?.remove("pi-enh-clean-placeholder");
+    const textarea = findComposerTextarea();
+    if (textarea) {
+      const orig = textarea.getAttribute("data-pi-orig-placeholder");
+      if (orig !== null) {
+        try {
+          textarea.placeholder = orig;
+          textarea.setAttribute("placeholder", orig);
+        } catch (e) {}
+      }
+      textarea.classList.remove("pi-enh-clean-placeholder");
+    }
+    const formatted = document.querySelector(".pi-enh-formatted-composer");
+    if (formatted) {
+      const orig = formatted.getAttribute("data-pi-orig-placeholder");
+      if (orig !== null) {
+        formatted.setAttribute("data-placeholder", orig);
+        if (formatted.dataset) formatted.dataset.placeholder = orig;
+      }
+      formatted.classList.remove("pi-enh-clean-placeholder");
+    }
+  }
+
+  syncComposerCleanPlaceholder();
+  activeCleanups.push(removeComposerCleanPlaceholder);
+  window.__PI_ENH_SYNC_COMPOSER_CLEAN_PLACEHOLDER__ = syncComposerCleanPlaceholder;
+  window.__PI_ENH_REMOVE_COMPOSER_CLEAN_PLACEHOLDER__ = removeComposerCleanPlaceholder;
 
   // ==========================================
   // 3.55.3 Composer Modes (Codex Style Goal & Plan Modes)
@@ -39207,6 +39805,7 @@
       executeSyncStep(syncComposerThinkingOptions);
       executeSyncStep(syncComposerMarkdownFormat);
       executeSyncStep(syncComposerModes);
+      executeSyncStep(syncComposerCleanPlaceholder);
       executeSyncStep(syncImageDblClickPreview);
       executeSyncStep(syncSessionPanelBinding);
       executeSyncStep(syncSearchButtonHint);
@@ -42335,6 +42934,7 @@
               syncComposerMarkdownFormat();
               syncComposerModes();
               syncComposerQueuePanel();
+              syncComposerCleanPlaceholder();
               const textarea = findComposerTextarea();
               const card = textarea?.closest('fieldset > div[style*="max-width"]');
               if (card && textarea) updateCardContentState(card, textarea);
@@ -46881,8 +47481,8 @@ window.__PI_ENH_RENDER_USAGE_PANEL__ = renderUsagePanel;
     const hostname = (typeof window !== "undefined" && window.location?.hostname) || "127.0.0.1";
     // On non-Windows localhost there is no desktop bridge; go directly to the NAS.
     const candidates = /^(127\.0\.0\.1|localhost)$/.test(hostname) && !/Win/i.test(navigator.platform || "")
-      ? [`http://${hostname}:30149`]
-      : [`http://${hostname}:30149`, "http://127.0.0.1:30149"];
+      ? ["http://127.0.0.1:30149"]
+      : [`http://${hostname}:30149`, "http://127.0.0.1:30149", "http://127.0.0.1:30149"];
     for (const cand of candidates) {
       try {
         const res = await fetch(`${cand}/ping`, { signal: AbortSignal.timeout(1500) });
