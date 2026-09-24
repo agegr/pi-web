@@ -1598,7 +1598,7 @@ function ExtensionDialog({
           overflow: "hidden",
         }}
       >
-        <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)", maxHeight: "50%", overflowY: "auto" }}>
+        <div style={{ flexShrink: 1, minHeight: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)", maxHeight: "50vh", overflowY: "auto" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Pi's TUI shows the title verbatim, newlines included; select/input have no
                 separate message field, so extensions put multi-line text here. */}
