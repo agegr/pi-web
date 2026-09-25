@@ -17,13 +17,23 @@ html[data-theme="endfield"] {
   --tool-bg: #1a1c20;
   --bg-subtle: #ffffff0d;
   --session-selected-border: transparent;
+  --font-ui: "Maple Mono CN", "Maple Mono NF CN", Consolas, monospace;
   --font-mono: "JetBrains Mono NL", Consolas, monospace;
 }
 
-/* Match the local Codex UI font stack while keeping code in JetBrains Mono NL. */
+/* Maple's optional glyphs match the selected choices in the font preview. */
 html[data-theme="endfield"] body {
-  font-family: ui-monospace, "SFMono-Regular", "SF Mono",
-    Menlo, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-ui);
+  font-feature-settings: "cv01" 1, "cv04" 0, "cv32" 1, "cv33" 1,
+    "cv34" 1, "cv35" 1, "cv36" 1, "cv37" 1, "zero" 1;
+}
+
+html[data-theme="endfield"] :is(button, input, select, textarea) {
+  font-family: var(--font-ui);
+}
+
+html[data-theme="endfield"] :is(pre, code) {
+  font-feature-settings: normal;
 }
 
 /* Keep surfaces distinct without changing Pi Web's layout. */

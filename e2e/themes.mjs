@@ -54,6 +54,26 @@ try {
       await expectTheme(theme === "auto" ? "light" : theme);
       assert.equal(await radio.isChecked(), true);
       assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), theme);
+      if (theme === "endfield") {
+        const fonts = await page.evaluate(() => {
+          const code = document.createElement("code");
+          code.textContent = "const value = 42";
+          document.body.append(code);
+          const result = {
+            ui: getComputedStyle(document.body).fontFamily,
+            features: getComputedStyle(document.body).fontFeatureSettings,
+            code: getComputedStyle(code).fontFamily,
+            codeFeatures: getComputedStyle(code).fontFeatureSettings,
+          };
+          code.remove();
+          return result;
+        });
+        assert.match(fonts.ui, /Maple Mono CN/);
+        assert.match(fonts.features, /"cv01"/);
+        assert.match(fonts.features, /"zero"/);
+        assert.match(fonts.code, /JetBrains Mono NL/);
+        assert.equal(fonts.codeFeatures, "normal");
+      }
       const colors = await page.locator("html").evaluate((root) => {
         const style = getComputedStyle(root);
         return Object.fromEntries(["bg", "bg-panel", "bg-hover", "bg-selected", "user-bg", "assistant-bg", "tool-bg", "text", "text-muted", "text-dim", "accent", "accent-hover", "accent-contrast"].map((key) => [key, style.getPropertyValue(`--${key}`).trim()]));
