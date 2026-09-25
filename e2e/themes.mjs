@@ -70,7 +70,10 @@ try {
         const label = option.querySelector(".settings-theme-option-label");
         const box = option.getBoundingClientRect();
         const text = label.getBoundingClientRect();
-        return option.scrollWidth <= option.clientWidth && text.right <= box.right && text.bottom <= box.bottom;
+        const labelHeight = text.height;
+        const fontSize = Number.parseFloat(getComputedStyle(label).fontSize);
+        return option.scrollWidth <= option.clientWidth && text.right <= box.right && text.bottom <= box.bottom
+          && labelHeight <= fontSize * 1.5;
       })), true, `Theme labels must fit at ${width}px`);
       await page.screenshot({ path: `${artifacts}/${theme}-${width}.png`, animations: "disabled" });
       await page.reload();

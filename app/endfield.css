@@ -17,9 +17,16 @@ html[data-theme="endfield"] {
   --tool-bg: #1a1c20;
   --bg-subtle: #ffffff0d;
   --session-selected-border: transparent;
+  --font-mono: "JetBrains Mono NL", Consolas, monospace;
 }
 
-/* Keep surfaces distinct without changing Pi Web's layout or text fonts. */
+/* Match the local Codex UI font stack while keeping code in JetBrains Mono NL. */
+html[data-theme="endfield"] body {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono",
+    Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Keep surfaces distinct without changing Pi Web's layout. */
 html[data-theme="endfield"] .markdown-code-block,
 html[data-theme="endfield"] .markdown-table-wrap,
 html[data-theme="endfield"] .web-login-composer {
@@ -104,6 +111,19 @@ html[data-theme="endfield"] .markdown-body li::marker {
 
 html[data-theme="endfield"] .markdown-body th {
   color: #e8ebee;
+}
+
+@media (max-width: 360px) {
+  html[data-theme="endfield"] .settings-theme-option {
+    gap: 4px;
+    padding-inline: 2px;
+    font-size: 11px;
+  }
+
+  html[data-theme="endfield"] .settings-theme-option-label {
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
 }
 
 /* Scrollbar feedback is subtle until the user points at it. */
