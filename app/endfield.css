@@ -77,9 +77,20 @@ html[data-theme="endfield"] .markdown-body a {
   text-decoration-color: #899ca5;
 }
 
+/* External references keep the original bright yellow; local file links stay quiet. */
+html[data-theme="endfield"] .markdown-body a[target="_blank"] {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
 html[data-theme="endfield"] .markdown-body a:hover {
   color: var(--accent);
   text-decoration-color: var(--accent);
+}
+
+html[data-theme="endfield"] .markdown-body a[target="_blank"]:hover {
+  color: var(--accent-hover);
+  text-decoration-color: var(--accent-hover);
 }
 
 html[data-theme="endfield"] .markdown-body a:focus-visible {
