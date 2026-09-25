@@ -16,7 +16,7 @@ test("uses a compact narrow-mobile toolbar with a floating action layer", () => 
   assert.match(source, /data-mobile-toolbar="true"[\s\S]*?flex: 1,[\s\S]*?minWidth: 0/);
   assert.match(
     source,
-    /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
+    /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: MOBILE_TOP_BAR_SIZE/,
   );
 
   for (const action of ["history", "name", "agents", "branches", "system", "tools"]) {
