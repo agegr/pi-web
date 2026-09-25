@@ -1,0 +1,102 @@
+/* Endfield: a quiet industrial workspace built on the original local palette. */
+html[data-theme="endfield"] {
+  color-scheme: dark;
+  --bg: #141518;
+  --bg-panel: #1d1f23;
+  --bg-hover: #26292e;
+  --bg-selected: #30333a;
+  --border: #3d4046;
+  --text: #d8dce0;
+  --text-muted: #afb6bc;
+  --text-dim: #9ba4ad;
+  --accent: #ffc72c;
+  --accent-hover: #ffd75e;
+  --accent-contrast: #141518;
+  --user-bg: #22252b;
+  --assistant-bg: #141518;
+  --tool-bg: #1a1c20;
+  --bg-subtle: #ffffff0d;
+  --session-selected-border: transparent;
+}
+
+/* Keep surfaces distinct without changing Pi Web's layout or text fonts. */
+html[data-theme="endfield"] .markdown-code-block,
+html[data-theme="endfield"] .markdown-table-wrap,
+html[data-theme="endfield"] .web-login-composer {
+  border-radius: 3px;
+}
+
+/* One short locator line marks the current item and the code block header. */
+html[data-theme="endfield"] .session-list-row,
+html[data-theme="endfield"] .config-sidebar-item,
+html[data-theme="endfield"] .markdown-code-header {
+  position: relative;
+}
+
+html[data-theme="endfield"] .session-list-row[data-selected="true"]::before,
+html[data-theme="endfield"] .config-sidebar-item[aria-current="page"]::before,
+html[data-theme="endfield"] .settings-theme-option:has(input:checked)::before,
+html[data-theme="endfield"] .markdown-code-header::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--accent);
+  content: "";
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+html[data-theme="endfield"] .settings-theme-option:has(input:checked)::before {
+  left: 3px;
+}
+
+html[data-theme="endfield"] .markdown-code-header {
+  padding-left: 13px;
+}
+
+/* Reading stays neutral; yellow is reserved for controls and active focus. */
+html[data-theme="endfield"] .markdown-body h1,
+html[data-theme="endfield"] .markdown-body h2,
+html[data-theme="endfield"] .markdown-body h3,
+html[data-theme="endfield"] .markdown-body h4,
+html[data-theme="endfield"] .markdown-body h5,
+html[data-theme="endfield"] .markdown-body h6 {
+  color: #e8ebee;
+}
+
+html[data-theme="endfield"] .markdown-body strong {
+  color: #edf0f2;
+  font-weight: 650;
+}
+
+html[data-theme="endfield"] .markdown-body a {
+  color: #b9c9d0;
+  text-decoration-color: #899ca5;
+}
+
+html[data-theme="endfield"] .markdown-body a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+html[data-theme="endfield"] .markdown-body a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+html[data-theme="endfield"] .markdown-body li::marker {
+  color: var(--text-dim);
+}
+
+html[data-theme="endfield"] .markdown-body th {
+  color: #e8ebee;
+}
+
+/* Scrollbar feedback is subtle until the user points at it. */
+html[data-theme="endfield"] ::-webkit-scrollbar-thumb:hover,
+html[data-theme="endfield"] .scrollbar-subtle.scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}

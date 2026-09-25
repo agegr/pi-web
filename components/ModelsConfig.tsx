@@ -2023,7 +2023,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (loadError) return;
+    if (loading || loadError) return;
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
@@ -2053,7 +2053,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     } finally {
       setSaving(false);
     }
-  }, [config, enabledModels, loadError]);
+  }, [config, enabledModels, loading, loadError]);
 
   const providers = Object.entries(config.providers ?? {});
   // `12/40` next to a provider makes a narrowed selector visible at a glance.
@@ -2239,7 +2239,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
           <ConfigButton
             variant="primary"
             onClick={handleSave}
-            disabled={saving || savedOk || loadError !== null}
+            disabled={loading || saving || savedOk || loadError !== null}
             className={savedOk ? "is-success" : undefined}
           >
             {savedOk && (

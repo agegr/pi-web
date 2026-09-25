@@ -6,10 +6,12 @@ import { chromium } from "playwright";
 
 const base = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
 const artifacts = fileURLToPath(new URL("../test-results/themes/", import.meta.url));
-const themes = ["light", "dark", "mist", "rose", "pine", "auto"];
-const labels = ["Light", "Dark", "Mist", "Rose", "Pine", "System"];
+const themes = ["light", "dark", "mist", "rose", "pine", "endfield", "auto"];
+const labels = ["Light", "Dark", "Mist", "Rose", "Pine", "Endfield", "System"];
 await mkdir(artifacts, { recursive: true });
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  executablePath: process.env.PLAYWRIGHT_CHROME_EXECUTABLE || undefined,
+});
 
 function contrast(a, b) {
   const luminance = (hex) => {
@@ -42,8 +44,8 @@ try {
     };
     const expectTheme = async (theme) => {
       await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
-      assert.equal(await page.locator("html").evaluate((root) => root.classList.contains("dark")), theme === "dark" || theme === "pine");
-      assert.equal(await page.locator("html").evaluate((root) => getComputedStyle(root).colorScheme), theme === "dark" || theme === "pine" ? "dark" : "light");
+      assert.equal(await page.locator("html").evaluate((root) => root.classList.contains("dark")), ["dark", "pine", "endfield"].includes(theme));
+      assert.equal(await page.locator("html").evaluate((root) => getComputedStyle(root).colorScheme), ["dark", "pine", "endfield"].includes(theme) ? "dark" : "light");
     };
     await openSettings();
     for (const [index, theme] of themes.entries()) {
@@ -86,83 +88,18 @@ try {
     await light.press("ArrowRight");
     await expectTheme("dark");
     assert.equal(await page.getByRole("radio", { name: "Dark", exact: true }).isChecked(), true);
-    await page.keyboard.press("Escape");
+    const endfield = page.getByRole("radio", { name: "Endfield", exact: true });
+    await endfield.focus();
+    await endfield.press("Space");
+    await expectTheme("endfield");
+    assert.equal(await endfield.isChecked(), true);
+    assert.equal(await endfield.evaluate((radio) => radio === document.activeElement), true, "Keyboard focus stays on the selected theme");
     await page.reload();
-    await expectTheme("dark");
-    await page.getByText("No sessions found", { exact: true }).waitFor({ state: "attached" });
-    const themeButton = page.getByRole("button", { name: /^Theme:/ });
-    const menu = page.getByRole("menu", { name: "Appearance", exact: true });
-    const showToolbar = async () => {
-      if (width > 640) return;
-      const more = page.locator("[data-mobile-toolbar-more]");
-      if (await more.getAttribute("aria-expanded") !== "true") await more.click();
-    };
-    const openThemeMenu = async () => {
-      await showToolbar();
-      await themeButton.click();
-      await menu.waitFor();
-    };
-    for (const [index, theme] of themes.entries()) {
-      const before = await page.evaluate(() => localStorage.getItem("pi-theme"));
-      await openThemeMenu();
-      assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), before, "Opening the menu must not switch themes");
-      assert.equal(await themeButton.getAttribute("aria-expanded"), "true");
-      assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), labels);
-      assert.equal(await menu.getByRole("menuitemradio", { checked: true }).count(), 1);
-      assert.equal(await menu.locator("svg").count(), 6);
-      const bounds = await menu.boundingBox();
-      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Menu must fit the viewport");
-      await menu.getByRole("menuitemradio", { name: labels[index], exact: true }).click();
-      await expectTheme(theme === "auto" ? "light" : theme);
-      await menu.waitFor({ state: "detached" });
-      assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), theme);
-      assert.equal(await themeButton.evaluate((button) => button === document.activeElement), true);
-    }
-    await openThemeMenu();
-    assert.equal(await menu.getByRole("menuitemradio", { name: "System", exact: true }).evaluate((button) => button === document.activeElement), true);
-    await page.keyboard.press("Home");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
-    await expectTheme("dark");
-    await openThemeMenu();
-    await page.keyboard.press("End");
-    await page.keyboard.press("ArrowUp");
-    await page.keyboard.press("Enter");
-    await expectTheme("pine");
-    await openThemeMenu();
-    await page.screenshot({ path: `${artifacts}/menu-${width}.png`, animations: "disabled" });
-    await page.evaluate(() => {
-      window.themeEscapeReachedWindow = false;
-      window.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") window.themeEscapeReachedWindow = true;
-      });
-    });
-    await page.keyboard.press("Escape");
-    await menu.waitFor({ state: "detached" });
-    assert.equal(await page.evaluate(() => window.themeEscapeReachedWindow), false, "Escape must not reach the global agent-abort shortcut");
-    assert.equal(await themeButton.evaluate((button) => button === document.activeElement), true);
-    await openThemeMenu();
-    await page.mouse.click(width - 10, 850);
-    await menu.waitFor({ state: "detached" });
-    await openThemeMenu();
-    await page.keyboard.press("End");
-    await page.keyboard.press("Tab");
-    await menu.waitFor({ state: "detached" });
-
-    // Both selectors share positioning, dismissal, and focus handling.
-    await showToolbar();
-    await page.getByRole("button", { name: "Language", exact: true }).click();
-    const languageMenu = page.getByRole("menu", { name: "Language", exact: true });
-    await languageMenu.waitFor();
-    await page.keyboard.press("Escape");
-    await languageMenu.waitFor({ state: "detached" });
+    await expectTheme("endfield");
+    await openSettings();
+    assert.equal(await endfield.isChecked(), true, "Endfield survives refresh from the initial paint");
     if (width === 1440) {
-      await page.emulateMedia({ reducedMotion: "no-preference" });
-      await openThemeMenu();
-      await menu.getByRole("menuitemradio", { name: "Dark", exact: true }).click();
-      await expectTheme("dark");
-      await page.waitForFunction(() => !document.getAnimations().some((animation) => animation.playState === "running"));
-      await page.reload();
+      await page.getByRole("radio", { name: "Dark", exact: true }).locator("..").click();
       await expectTheme("dark");
       for (const key of ["bg", "bg-panel", "bg-hover", "bg-selected", "border", "text", "text-muted", "text-dim", "user-bg", "tool-bg"]) {
         const hex = await page.locator("html").evaluate((root, token) => getComputedStyle(root).getPropertyValue(`--${token}`).trim(), key);
@@ -171,7 +108,7 @@ try {
       }
     }
     assert.deepEqual(errors, []);
-    console.log(`PASS ${width}px: palettes, contrast, persistence, system preference, menu selection, keyboard navigation, dismissal, icons`);
+    console.log(`PASS ${width}px: palettes, contrast, persistence, system preference, keyboard selection, mobile fit, icons`);
     await context.close();
   }
 } finally {

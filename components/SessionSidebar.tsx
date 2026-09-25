@@ -2247,6 +2247,8 @@ function SessionItem({
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   return (
     <div
+      className="session-list-row"
+      data-selected={(isSelected && !confirmDelete) || undefined}
       onClick={confirmDelete || renaming ? undefined : onClick}
       onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
       onMouseEnter={() => setHovered(true)}
@@ -2263,7 +2265,7 @@ function SessionItem({
           : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
         borderLeft: confirmDelete
           ? "2px solid #ef4444"
-          : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
+          : isSelected ? "2px solid var(--session-selected-border, var(--accent))" : "2px solid transparent",
         transition: "background 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,

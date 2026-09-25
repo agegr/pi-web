@@ -28,5 +28,8 @@ export function ThemeIcon({ preference, size = 17 }: { preference: ThemePreferen
   if (preference === "pine") {
     return <svg {...common}><path d="M12 3c-.9 2.5-2.3 4.2-4.5 6h3c-1 2.1-2.6 3.7-5 5.3h4c-.7 2-1.9 3.8-3.7 5.4h12.4c-1.8-1.6-3-3.4-3.7-5.4h4c-2.4-1.6-4-3.2-5-5.3h3c-2.2-1.8-3.6-3.5-4.5-6Z" /><path d="M12 20v2" /></svg>;
   }
+  if (preference === "endfield") {
+    return <svg {...common}><path d="M12 3 19.8 7.5v9L12 21l-7.8-4.5v-9L12 3Z" /><path d="M12 7.5v9M8.1 9.75 12 7.5l3.9 2.25" /></svg>;
+  }
   return <svg {...common}><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
 }
