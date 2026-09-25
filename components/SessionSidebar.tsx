@@ -14,7 +14,17 @@ import {
   listCustomDirectories,
   removeCustomDirectory,
   renameCustomDirectory,
+  renameCustomDirectoryPath,
 } from "@/lib/custom-directories";
+import {
+  discardExpandedGroupKey,
+  readExpandedGroupKeys,
+  writeExpandedGroupKeys,
+} from "@/lib/pinned-expansion";
+import {
+  createRowDeleteHandler,
+  createRowPathRenameHandler,
+} from "@/lib/custom-directory-manage";
 import { buildExplorerRoots } from "@/lib/explorer-roots";
 import {
   getServerSessionFilterState,
@@ -226,34 +236,10 @@ function displayCwd(cwd: string, homeDir?: string): string {
 // worktree-specific hiding. (readHidePseudoProjects and the
 // pi-web:hide-pseudo-projects key are gone.)
 
-// Pinned-group expansion state, persisted across reloads per the confirmed
-// product decision (wi body: 展开状态记住到 localStorage). Stored as a JSON
-// array of project keys; absent/corrupt values read as the empty set. Keys of
-// projects that were later unpinned are harmless and left alone — a re-pin
-// simply finds its old expansion state again.
-const PINNED_EXPANDED_STORAGE_KEY = "pi-web:sidebar-pinned-expanded";
-
-function readExpandedGroupKeys(): ReadonlySet<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(PINNED_EXPANDED_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((key): key is string => typeof key === "string"));
-  } catch {
-    return new Set();
-  }
-}
-
-function writeExpandedGroupKeys(keys: ReadonlySet<string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(PINNED_EXPANDED_STORAGE_KEY, JSON.stringify([...keys]));
-  } catch {
-    // ignore storage quota / privacy-mode errors
-  }
-}
+// Pinned-group expansion state now lives in lib/pinned-expansion.ts (wi
+// pi#52): ONE storage-injectable implementation — read, persist, and the
+// new discardExpandedGroupKey used by the manage-mode delete path so a
+// deleted group leaves no stale expanded key behind.
 
 /**
  * Path label that ellipsizes on the LEFT, keeping the (most relevant) trailing
@@ -1314,7 +1300,7 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       // Best-effort: an offline failure defers root registration to the
       // next validate/commit that touches this directory.
     }
-  }, []);
+  }, [expandPinnedGroup]);
 
   // Per-row pin flow for the add-directory picker (wi pi#47): validate
   // BEFORE add, so a failed /api/cwd/validate surfaces a typed error in the
@@ -1335,6 +1321,46 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       },
     }),
     [expandPinnedGroup],
+  );
+
+  // Manage-mode row seams (wi pi#52): the picker's per-row delete and inline
+  // path rename run through the SAME injectable-callback factories the
+  // behavioral tests drive. The sidebar OWNS the store (mutations injected,
+  // no production default writes in the seams). Delete carries the
+  // last-entry guard and discards the removed group's expansion key (both
+  // the persisted set and the in-memory accordion state, so no stale
+  // reference survives); rename delegates to the store's path-edit
+  // primitive. The refusal reason is read from the returned outcome —
+  // onError exists for consumers that prefer push notification.
+  const rowDeleteHandler = useMemo(
+    () => createRowDeleteHandler({
+      list: () => listCustomDirectories(),
+      remove: (path: string) => removeCustomDirectory(path),
+      discardExpandedKey: (key: string) => {
+        discardExpandedGroupKey(key);
+        setExpandedGroupKeys((previous) => {
+          if (!previous.has(key)) return previous;
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        });
+      },
+      onError: () => {
+        // The typed reason travels on the returned outcome; nothing else
+        // to notify in the sidebar itself.
+      },
+    }),
+    [],
+  );
+  const rowPathRenameHandler = useMemo(
+    () => createRowPathRenameHandler({
+      renamePath: (currentPath: string, nextPath: string) =>
+        renameCustomDirectoryPath(currentPath, nextPath),
+      onError: () => {
+        // Same as above: the returned outcome carries the typed reason.
+      },
+    }),
+    [],
   );
 
   // Stale pinned roots: on sidebar mount (and whenever the pinned set
@@ -1591,20 +1617,40 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
       )}
       {/* Add-directory picker (manage mode): select adds the directory to
           the custom list and registers it as an allowed file root; the
-          dialog's manage callbacks run the same store operations as the
-          group-header affordances, so create/delete/modify work from both
-          surfaces. */}
+          dialog's manage callbacks run the guarded seams above (wi pi#52),
+          so delete/rename from the picker behave exactly like the other
+          surfaces and report typed refusals back into the dialog. */}
       {addDirectoryOpen && (
         <DirectoryPicker
           initialPath={customPathValue || homeDir || undefined}
           entries={pinnedEntries.map((entry) => ({ path: entry.path, displayName: entry.displayName }))}
-          onRenameEntry={(path, displayName) => {
-            renameCustomDirectory(path, displayName);
-            setPinnedRevision((revision) => revision + 1);
+          onRenameEntryPath={(path, nextPath) => {
+            const outcome = rowPathRenameHandler(path, nextPath);
+            if (outcome.ok) {
+              // When the renamed entry's group was the expanded one, keep it
+              // expanded under the NEW identity so the group does not
+              // visually collapse on rename (the old key is gone).
+              const oldKey = customDirectoryIdentity(path);
+              if (expandedGroupKeys.has(oldKey)) {
+                expandPinnedGroup(customDirectoryIdentity(nextPath.trim()));
+              }
+              setPinnedRevision((revision) => revision + 1);
+              return { ok: true };
+            }
+            return {
+              ok: false,
+              error: t(outcome.reason === "empty"
+                ? "directoryPicker.renamePathRequired"
+                : "directoryPicker.renamePathDuplicate"),
+            };
           }}
           onRemoveEntry={(path) => {
-            removeCustomDirectory(path);
-            setPinnedRevision((revision) => revision + 1);
+            const outcome = rowDeleteHandler(path);
+            if (outcome.ok) {
+              setPinnedRevision((revision) => revision + 1);
+              return { ok: true };
+            }
+            return { ok: false, error: t("directoryPicker.cannotRemoveLastEntry") };
           }}
           onSelect={(path) => void handleAddDirectory(path)}
           onPinDirectory={pinDirectory}
@@ -1653,24 +1699,28 @@ export function SessionSidebar({ selectedSessionId, highlightSessionId, followHi
                 <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
               </svg>
             </button>
+            {/* R2b (pi#49 → wi pi#52): the Add button moved INTO the toolbar
+                row, level with refresh and search — the standalone
+                full-width button below is gone. Same 32px icon-button
+                styling, same label, same behavior: opens the directory
+                picker in manage mode. */}
+            <button
+              type="button"
+              onClick={() => setAddDirectoryOpen(true)}
+              title={t("sidebar.addNew")}
+              aria-label={t("sidebar.addNew")}
+              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] border border-border bg-bg-hover text-text-muted hover:bg-bg-selected focus-visible:outline-2 focus-visible:outline-accent"
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-selected)"; e.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-muted)"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </button>
           </div>
         </div>
 
-        {/* R2b (pi#49): top-level New button — opens the directory picker
-            (manage mode), replacing the removed in-list Add directory row. */}
-        <button
-          type="button"
-          onClick={() => setAddDirectoryOpen(true)}
-          title={t("sidebar.addNew")}
-          aria-label={t("sidebar.addNew")}
-          className="mt-[6px] flex h-[30px] w-full shrink-0 cursor-pointer items-center justify-center gap-[6px] rounded-[7px] border border-border bg-bg-hover text-xs font-semibold text-text-muted hover:bg-bg-selected hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
-        >
-          <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-            <line x1="5" y1="1" x2="5" y2="9" />
-            <line x1="1" y1="5" x2="9" y2="5" />
-          </svg>
-          <span>{t("sidebar.addNew")}</span>
-        </button>
         {sessionSearchOpen && (
           <input
             id="session-search-input"

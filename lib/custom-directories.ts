@@ -247,4 +247,57 @@ export function renameCustomDirectory(
   }
 }
 
+/** Typed outcome of an inline path edit (wi pi#52): a successful update,
+ * the same-identity no-op (silent success), or a typed refusal. */
+export type CustomDirectoryPathRenameOutcome =
+  | { status: "updated" }
+  | { status: "noop" }
+  | { status: "refused"; reason: "empty" | "duplicate" };
+
+/**
+ * Edit a listed entry's PATH in place (wi pi#52). The entry's identity
+ * changes to the new path, while its displayName, list position and
+ * addedAt are preserved. Contract:
+ *
+ * - an empty/whitespace next path is refused with reason "empty",
+ * - a next path that identity-equals ANOTHER listed entry is refused
+ *   with reason "duplicate",
+ * - a next path that identity-equals the entry itself is a silent no-op
+ *   ({ status: "noop" } — the caller treats it as success),
+ * - refusals and no-ops NEVER write; only { status: "updated" } persists.
+ * An unlisted current path is a no-op (nothing to rename). Best-effort:
+ * unavailable storage degrades to a no-op, never throws.
+ */
+export function renameCustomDirectoryPath(
+  currentPath: string,
+  nextPath: string,
+  storage: StorageLike | null = getBrowserStorage(),
+): CustomDirectoryPathRenameOutcome {
+  const trimmed = nextPath.trim();
+  if (trimmed === "") return { status: "refused", reason: "empty" };
+  if (!storage || !currentPath) return { status: "noop" };
+  try {
+    const currentIdentity = customDirectoryIdentity(currentPath);
+    const nextIdentity = customDirectoryIdentity(trimmed);
+    if (currentIdentity === nextIdentity) return { status: "noop" };
+    const entries = readList(storage);
+    const target = entries.find(
+      (entry) => customDirectoryIdentity(entry.path) === currentIdentity,
+    );
+    if (!target) return { status: "noop" };
+    if (entries.some(
+      (entry) => entry !== target && customDirectoryIdentity(entry.path) === nextIdentity,
+    )) {
+      return { status: "refused", reason: "duplicate" };
+    }
+    writeList(storage, entries.map((entry) =>
+      entry === target ? { ...entry, path: trimmed } : entry,
+    ));
+    return { status: "updated" };
+  } catch {
+    // storage unavailable — best-effort no-op
+    return { status: "noop" };
+  }
+}
+
 export { STORAGE_KEY as CUSTOM_DIRECTORIES_STORAGE_KEY };

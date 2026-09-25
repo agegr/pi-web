@@ -9,6 +9,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const pinnedExpansionSource = await readFile(new URL("../lib/pinned-expansion.ts", import.meta.url), "utf8");
 const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
@@ -53,10 +54,13 @@ test("pinned-group expansion state persists to localStorage across reloads", () 
     source,
     /const handleToggleGroup = useCallback\(\(key: string\) => \{[\s\S]*?next\.delete\(key\);[\s\S]*?writeExpandedGroupKeys\(next\);[\s\S]*?expandPinnedGroup\(key\);/,
   );
-  // The storage key and reader exist with the graceful-degradation shape.
-  assert.match(source, /const PINNED_EXPANDED_STORAGE_KEY = "pi-web:sidebar-pinned-expanded";/);
-  assert.match(source, /function readExpandedGroupKeys\(\): ReadonlySet<string> \{/);
-  assert.match(source, /parsed\.filter\(\(key\): key is string => typeof key === "string"\)/);
+  // The storage key and reader live in the extracted persistence seam
+  // (wi pi#52: lib/pinned-expansion.ts) with the graceful-degradation shape;
+  // the sidebar imports them instead of redefining them.
+  assert.match(source, /import \{[\s\S]*?discardExpandedGroupKey,[\s\S]*?readExpandedGroupKeys,[\s\S]*?writeExpandedGroupKeys,[\s\S]*?\} from "@\/lib\/pinned-expansion";/);
+  assert.match(pinnedExpansionSource, /const PINNED_EXPANDED_STORAGE_KEY = "pi-web:sidebar-pinned-expanded"/);
+  assert.match(pinnedExpansionSource, /export function readExpandedGroupKeys\(/);
+  assert.match(pinnedExpansionSource, /parsed\.filter\(\(key\): key is string => typeof key === "string"\)/);
   // The accordion helper persists the single-key set through the same
   // writer, so the stored value always describes the one expanded group.
   assert.match(
@@ -97,7 +101,7 @@ test("collapsing a pinned group is independent", () => {
 test("the group [+] affordance expands its group accordion-style", () => {
   const newSessionBlock = source.slice(
     source.indexOf("const handleNewSessionInProject"),
-    source.indexOf("const recentProjects"),
+    source.indexOf("const togglePin = useCallback"),
   );
   assert.match(newSessionBlock, /setSelectedCwd\(project\.root\);[\s\S]*?expandPinnedGroup\(project\.key\);[\s\S]*?onNewSession\?\./);
   // The affordance no longer hand-rolls expansion state.
@@ -143,12 +147,13 @@ test("the selected project's group auto-expands at load, collapsing the persiste
 
 test("legacy multi-open storage needs no migration: it collapses on the first expand", () => {
   // The read path is unchanged: storage is read as-is at mount, so a legacy
-  // multi-key array survives load untouched.
-  assert.match(source, /return new Set\(parsed\.filter\(\(key\): key is string => typeof key === "string"\)\);/);
+  // multi-key array survives load untouched (the reader lives in the
+  // extracted persistence seam, wi pi#52).
+  assert.match(pinnedExpansionSource, /return new Set\(parsed\.filter\(\(key\): key is string => typeof key === "string"\)\);/);
   assert.match(source, /setExpandedGroupKeys\(readExpandedGroupKeys\(\)\);/);
   // The accordion helper is the only expand path and it always stores a
   // single-key set; the design note records the no-migration decision.
-  assert.match(source, /legacy multi-key storage written by the pre-accordion version/);
+  assert.match(pinnedExpansionSource, /legacy multi-key storage written by the pre-accordion version/);
 });
 
 test("the workspace dropdown is removed entirely; the stale-root sweep and pin affordances survive", () => {

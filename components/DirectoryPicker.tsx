@@ -19,6 +19,14 @@ export interface PickerManagedEntry {
   displayName?: string;
 }
 
+/**
+ * Outcome contract of the manage-mode row actions (wi pi#52): silent
+ * success, or a typed failure whose message (already locale-resolved by the
+ * store owner) the picker surfaces in-dialog — under the path editor for a
+ * rename refusal, in the error area for a delete refusal.
+ */
+export type ManageOutcome = { ok: true } | { ok: false; error: string };
+
 type Translate = (key: string) => string;
 
 function FolderIcon() {
@@ -112,41 +120,146 @@ export function createRowPinHandler(options: {
 }
 
 /**
- * Error-lifecycle seam (review P2): the picker's browse errors and pin
+ * Error-lifecycle seam (review P2): the picker's browse, pin and manage
  * errors are managed by ONE production-used helper so stale errors can
  * never mask a fresh failure —
  *
- * - every new browse request resets BOTH stale errors (a fresh navigation
+ * - every new browse request resets ALL stale errors (a fresh navigation
  *   invalidates the previous action's context),
  * - a successful browse clears the browse error,
  * - every new pin attempt resets the previous pin error first,
- * - and a genuine pin failure ALWAYS wins the render precedence over a
- *   leftover browse error (see pickerErrorMessage).
+ * - every new manage attempt (delete / path rename, wi pi#52) resets the
+ *   previous manage error first,
+ * - and a genuine pin/manage failure ALWAYS wins the render precedence
+ *   over a leftover browse error (see pickerErrorMessage).
  */
 export function createPickerErrorState(setters: {
   setLoadError: (message: string | null) => void;
   setPinError: (message: string | null) => void;
+  setManageError: (message: string | null) => void;
 }) {
   return {
     onBrowseStart: () => {
       setters.setLoadError(null);
       setters.setPinError(null);
+      setters.setManageError(null);
     },
     onBrowseSuccess: () => setters.setLoadError(null),
     onBrowseError: (message: string) => setters.setLoadError(message),
-    onPinStart: () => setters.setPinError(null),
+    onPinStart: () => {
+      // A new pin attempt supersedes ALL stale action errors (manage
+      // refusal, browse failure): otherwise pickerErrorMessage's
+      // precedence keeps showing an old message and masks the pin
+      // attempt's own failure — or lingers after its success (review r1
+      // B2, wi pi#51).
+      setters.setPinError(null);
+      setters.setManageError(null);
+      setters.setLoadError(null);
+    },
     onPinError: (message: string) => setters.setPinError(message),
+    onManageStart: () => {
+      // Symmetric with onPinStart: a new manage attempt supersedes stale
+      // pin/browse errors too, so a successful manage never leaves an
+      // obsolete message on screen (review r1 B2 family, wi pi#51).
+      setters.setManageError(null);
+      setters.setPinError(null);
+      setters.setLoadError(null);
+    },
+    onManageError: (message: string) => setters.setManageError(message),
   };
 }
 
-/** Render precedence: a pin failure outranks a stale browse error, which
- * outranks the externally supplied `error` prop. null when nothing to show. */
+/** Render precedence: a manage failure (wi pi#52) outranks a pin failure,
+ * which outranks a stale browse error, which outranks the externally
+ * supplied `error` prop. null when nothing to show. */
 export function pickerErrorMessage(state: {
+  manageError: string | null;
   pinError: string | null;
   loadError: string | null;
   external: string | null | undefined;
 }): string | null {
-  return state.pinError ?? state.loadError ?? state.external ?? null;
+  return state.manageError ?? state.pinError ?? state.loadError ?? state.external ?? null;
+}
+
+/**
+ * Row path-edit lifecycle seam (wi pi#52): the inline PATH editor's
+ * behavior as ONE production-used helper so tests drive the real rules
+ * without a DOM —
+ *
+ * - `begin` prefills the input with the entry's CURRENT path and clears
+ *   any previous row error,
+ * - `commit` trims and delegates to the outcome-returning manage
+ *   callback: success (including the same-identity no-op) closes the
+ *   editor; a refusal KEEPS it open with the typed message under it,
+ * - `cancel` closes the editor unchanged and never invokes the callback.
+ */
+export function createRowPathEdit(deps: {
+  entryPath: () => string;
+  onCommit: (currentPath: string, nextPath: string) => ManageOutcome;
+  setEditing: (editing: boolean) => void;
+  setValue: (value: string) => void;
+  setError: (message: string | null) => void;
+}) {
+  return {
+    begin() {
+      deps.setValue(deps.entryPath());
+      deps.setError(null);
+      deps.setEditing(true);
+    },
+    change(value: string) {
+      deps.setValue(value);
+    },
+    cancel() {
+      deps.setEditing(false);
+      deps.setError(null);
+    },
+    commit(value: string) {
+      const outcome = deps.onCommit(deps.entryPath(), value.trim());
+      if (outcome.ok) {
+        deps.setEditing(false);
+        deps.setError(null);
+      } else {
+        deps.setError(outcome.error);
+      }
+    },
+  };
+}
+
+/**
+ * Field keydown seam (review r1 B1, wi pi#51): the inline inputs'
+ * Enter/Escape handling as ONE production-used helper so tests drive
+ * the real rules without a DOM. Escape cancels ONLY the field's own
+ * edit: preventDefault suppresses the browser default and
+ * stopPropagation keeps the dialog-level Escape handler from ALSO
+ * firing and dismissing the whole picker.
+ */
+export function createPickerFieldKeyDown(seam: {
+  submit: () => void;
+  cancel: () => void;
+}): (event: { key: string; preventDefault(): void; stopPropagation(): void }) => void {
+  return (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      seam.submit();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      seam.cancel();
+    }
+  };
+}
+
+/**
+ * Dialog keydown seam (review r1 B1, wi pi#51): an Escape that a nested
+ * field already consumed (defaultPrevented) is treated as handled and
+ * does NOT dismiss the dialog — defense in depth behind stopPropagation.
+ */
+export function dialogEscapeDismisses(
+  event: { key: string; defaultPrevented: boolean },
+  opts: { busy: boolean; onCancel: () => void },
+): void {
+  if (event.key === "Escape" && !opts.busy && !event.defaultPrevented) opts.onCancel();
 }
 
 /**
@@ -401,16 +514,7 @@ export function PickerCreateForm({
           autoFocus
           placeholder={t(isFile ? "directoryPicker.fileName" : "directoryPicker.folderName")}
           onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onSubmit();
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onCancel();
-            }
-          }}
+          onKeyDown={createPickerFieldKeyDown({ submit: onSubmit, cancel: onCancel })}
           style={{ minWidth: 0, flex: 1, height: 28, padding: "0 8px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11, boxSizing: "border-box" }}
         />
         <button
@@ -589,7 +693,15 @@ export function PickerDriveRow({
   );
 }
 
-function ManagedEntryRow({
+/**
+ * One sidebar-list entry row (props-only presentational export, wi pi#52):
+ * the path label plus optional per-row affordances — inline PATH rename
+ * (the rename button switches the row to a path editor prefilled with the
+ * entry's current path), delete, and the row-scoped create “New” button.
+ * Each affordance renders only when its outcome-returning callback is
+ * provided, so a consumer that passes none sees a plain read-only row.
+ */
+export function ManagedEntryRow({
   entry,
   t,
   onRename,
@@ -598,41 +710,51 @@ function ManagedEntryRow({
 }: {
   entry: PickerManagedEntry;
   t: Translate;
-  onRename: (path: string, displayName: string | null) => void;
-  onRemove: (path: string) => void;
-  /** Row-scoped create (wi pi#49 R3): managed rows are directory rows, so
-   *  each gains a “New” affordance beside rename/remove. */
+  /** Inline PATH edit: success (or same-identity no-op) closes the editor;
+   *  a refusal keeps it open with the typed message under the input. */
+  onRename?: (path: string, nextPath: string) => ManageOutcome;
+  onRemove?: (path: string) => ManageOutcome;
+  /** Row-scoped create (wi pi#49 R3): opens the inline create form for THIS
+   *  row's directory. */
   onNew?: (path: string) => void;
 }) {
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(entry.displayName ?? "");
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  // The entry's path is re-read through a ref so the edit seam always
+  // commits against the CURRENT entry, never a stale closure.
+  const entryPathRef = useRef(entry.path);
+  entryPathRef.current = entry.path;
 
-  const commitRename = () => {
-    setRenaming(false);
-    const name = renameValue.trim();
-    if (name === (entry.displayName ?? "")) return;
-    onRename(entry.path, name === "" ? null : name);
-  };
+  const pathEdit = useMemo(() => createRowPathEdit({
+    entryPath: () => entryPathRef.current,
+    onCommit: (currentPath, nextPath) =>
+      onRename ? onRename(currentPath, nextPath) : { ok: true },
+    setEditing,
+    setValue: setEditValue,
+    setError: setEditError,
+  }), [onRename]);
 
-  if (renaming) {
+  if (editing) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px" }}>
-        <input
-          type="text"
-          value={renameValue}
-          autoFocus
-          placeholder={t("directoryPicker.entryName")}
-          onChange={(event) => setRenameValue(event.target.value)}
-          onBlur={commitRename}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") commitRename();
-            if (event.key === "Escape") setRenaming(false);
-          }}
-          style={{ minWidth: 0, flex: 1, height: 26, padding: "0 8px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11 }}
-        />
-        <button type="button" onClick={commitRename} title={t("directoryPicker.renameEntry")} style={{ padding: "3px 8px", border: 0, borderRadius: 5, background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>
-          {t("directoryPicker.renameEntry")}
-        </button>
+      <div className="directory-picker-row-path-edit" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 8px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="text"
+            value={editValue}
+            autoFocus
+            placeholder={t("directoryPicker.entryPath")}
+            onChange={(event) => pathEdit.change(event.target.value)}
+            onKeyDown={createPickerFieldKeyDown({ submit: () => pathEdit.commit(editValue), cancel: () => pathEdit.cancel() })}
+            style={{ minWidth: 0, flex: 1, height: 26, padding: "0 8px", border: "1px solid var(--accent)", borderRadius: 5, outline: "none", background: "var(--bg-panel)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11 }}
+          />
+          <button type="button" onClick={() => pathEdit.commit(editValue)} title={t("directoryPicker.renameEntry")} aria-label={t("directoryPicker.renameEntry")} style={{ padding: "3px 8px", border: 0, borderRadius: 5, background: "var(--accent)", color: "var(--accent-contrast)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>
+            {t("directoryPicker.renameEntry")}
+          </button>
+        </div>
+        {editError && (
+          <div style={{ color: "#dc2626", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" }}>{editError}</div>
+        )}
       </div>
     );
   }
@@ -656,36 +778,41 @@ function ManagedEntryRow({
           <PlusIcon />
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => { setRenameValue(entry.displayName ?? ""); setRenaming(true); }}
-        title={t("directoryPicker.renameEntry")}
-        aria-label={t("directoryPicker.renameEntry")}
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
-      >
-        <PencilIcon />
-      </button>
-      <button
-        type="button"
-        onClick={() => onRemove(entry.path)}
-        title={t("directoryPicker.removeEntry")}
-        aria-label={t("directoryPicker.removeEntry")}
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
-        onMouseEnter={(event) => { event.currentTarget.style.color = "#ef4444"; }}
-        onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
-      >
-        <TrashIcon />
-      </button>
+      {onRename && (
+        <button
+          type="button"
+          onClick={() => pathEdit.begin()}
+          title={t("directoryPicker.renameEntry")}
+          aria-label={t("directoryPicker.renameEntry")}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+        >
+          <PencilIcon />
+        </button>
+      )}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => onRemove(entry.path)}
+          title={t("directoryPicker.removeEntry")}
+          aria-label={t("directoryPicker.removeEntry")}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, padding: 0, border: 0, borderRadius: 5, background: "none", color: "var(--text-dim)", cursor: "pointer", flexShrink: 0 }}
+          onMouseEnter={(event) => { event.currentTarget.style.color = "#ef4444"; }}
+          onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
+        >
+          <TrashIcon />
+        </button>
+      )}
     </div>
   );
 }
 
 /**
  * The manage panel (props-only presentational export): the sidebar's
- * directory list with rename/remove plus the per-row “New” affordance
- * (wi pi#49 R3). Creation runs row-scoped: `onNew` opens the inline form
- * for that row's directory and `renderRowCreate` mounts it in place —
- * both supplied by the picker, which owns the flow state.
+ * directory list with the per-row inline PATH rename, delete and “New”
+ * affordances (wi pi#52 / pi#49 R3). The manage callbacks are
+ * outcome-returning (ManageOutcome): a refusal's message is surfaced by
+ * the row/dialog, never swallowed. An empty list renders the placeholder
+ * only — no rows, no controls.
  */
 export function PickerManagePanel({
   t,
@@ -697,8 +824,8 @@ export function PickerManagePanel({
 }: {
   t: Translate;
   entries: readonly PickerManagedEntry[];
-  onRename: (path: string, displayName: string | null) => void;
-  onRemove: (path: string) => void;
+  onRename?: (path: string, nextPath: string) => ManageOutcome;
+  onRemove?: (path: string) => ManageOutcome;
   onNew?: (path: string) => void;
   renderRowCreate?: (path: string) => ReactNode;
 }) {
@@ -738,8 +865,12 @@ interface Props {
    * dialog behaves exactly as before — browse, select, cancel.
    */
   entries?: readonly PickerManagedEntry[];
-  onRenameEntry?: (path: string, displayName: string | null) => void;
-  onRemoveEntry?: (path: string) => void;
+  /** Inline PATH rename (wi pi#52): outcome-returning — success closes the
+   *  row's editor, a refusal's message keeps it open under the input. */
+  onRenameEntryPath?: (path: string, nextPath: string) => ManageOutcome;
+  /** Outcome-returning delete (wi pi#52): a refusal's message surfaces in
+   *  the dialog's error area. */
+  onRemoveEntry?: (path: string) => ManageOutcome;
   /**
    * Optional pin callback (wi pi#47): when provided, each browsed-directory
    * row gains a pin (固定) button that adds that directory to the sidebar's
@@ -751,7 +882,7 @@ interface Props {
   onPinDirectory?: (path: string) => Promise<PinOutcome>;
 }
 
-export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false, error, entries, onRenameEntry, onRemoveEntry, onPinDirectory }: Props) {
+export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false, error, entries, onRenameEntryPath, onRemoveEntry, onPinDirectory }: Props) {
   const { t } = useI18n();
   const manage = entries !== undefined;
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
@@ -762,6 +893,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const [drives, setDrives] = useState<BrowseDirectoryEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Persisted show-hidden checkbox (localStorage, default unchecked). The
   // engine reads it at request time through the ref so a toggle refetches
@@ -779,7 +911,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   // Error lifecycle (review P2): one production-used seam owns clearing —
   // new requests reset stale errors, success clears browse errors, and a
   // pin failure can never be masked by a leftover browse error.
-  const pickerErrors = useMemo(() => createPickerErrorState({ setLoadError, setPinError }), []);
+  const pickerErrors = useMemo(() => createPickerErrorState({ setLoadError, setPinError, setManageError }), []);
 
   const handleResult = useCallback((result: BrowseResult) => {
     setCurrentPath(result.path);
@@ -884,6 +1016,30 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
     await createFlow.submit(createKind, createName);
   }, [createFlow, createKind, createName]);
 
+  // Manage-mode row actions (wi pi#52): every attempt resets the previous
+  // manage error first; a delete refusal's message surfaces in the dialog
+  // error area (a rename refusal is surfaced by the row's own editor).
+  const handleManageRename = useMemo(
+    () => onRenameEntryPath
+      ? (path: string, nextPath: string): ManageOutcome => {
+          pickerErrors.onManageStart();
+          return onRenameEntryPath(path, nextPath);
+        }
+      : undefined,
+    [onRenameEntryPath, pickerErrors],
+  );
+  const handleManageRemove = useMemo(
+    () => onRemoveEntry
+      ? (path: string): ManageOutcome => {
+          pickerErrors.onManageStart();
+          const outcome = onRemoveEntry(path);
+          if (!outcome.ok) pickerErrors.onManageError(outcome.error);
+          return outcome;
+        }
+      : undefined,
+    [onRemoveEntry, pickerErrors],
+  );
+
   // Per-row pin: only when the store owner provided the callback. A pin
   // never navigates, refetches or closes the picker; each new attempt
   // resets the previous pin error, and a failure surfaces the typed error
@@ -981,9 +1137,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       onClick={(event) => {
         if (event.target === event.currentTarget && !busy) onCancel();
       }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !busy) onCancel();
-      }}
+      onKeyDown={(event) => dialogEscapeDismisses(event, { busy, onCancel })}
       style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" }}
     >
       <div className="directory-picker-panel" style={{ width: 520, maxWidth: "calc(100vw - 16px)", height: "min(620px, calc(100dvh - 16px))", maxHeight: "calc(100dvh - 16px)", display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
@@ -1085,18 +1239,19 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
           ) : (
             <div style={{ padding: 8, color: "var(--text-dim)", fontSize: 11 }}>{t("directoryPicker.noSubdirectories")}</div>
           )}
-          {(loadError || error || pinError) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{pickerErrorMessage({ pinError, loadError, external: error })}</div>}
+          {(loadError || error || pinError || manageError) && <div style={{ padding: "8px", color: "#dc2626", fontSize: 11 }}>{pickerErrorMessage({ manageError, pinError, loadError, external: error })}</div>}
 
-          {/* Manage mode: the sidebar's directory list with rename/remove
-              plus the per-row “New” affordance (wi pi#49 R3). Absent
-              `entries` keeps the dialog exactly as the plain browse/select
-              consumer sees it. */}
+          {/* Manage mode (wi pi#52): the sidebar's directory list with the
+              outcome-returning per-row delete and inline PATH rename plus
+              the per-row “New” affordance (wi pi#49 R3). Absent `entries`
+              keeps the dialog exactly as the plain browse/select consumer
+              sees it. */}
           {manage && (
             <PickerManagePanel
               t={t}
               entries={entries}
-              onRename={onRenameEntry ?? (() => {})}
-              onRemove={onRemoveEntry ?? (() => {})}
+              onRename={handleManageRename}
+              onRemove={handleManageRemove}
               onNew={(path) => openRowCreate("manage", path)}
               renderRowCreate={(path) => renderRowCreatePanel("manage", path)}
             />

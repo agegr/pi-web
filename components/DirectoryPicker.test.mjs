@@ -14,12 +14,16 @@ const {
   PickerBrowseRow,
   PickerDriveRow,
   PickerManagePanel,
+  ManagedEntryRow,
   PickerRowCreatePanel,
   createRowPinHandler,
   createPickerErrorState,
+  createPickerFieldKeyDown,
+  dialogEscapeDismisses,
   pickerErrorMessage,
   createCreateFlow,
   createRowCreateFlow,
+  createRowPathEdit,
 } = await jiti.import("./DirectoryPicker.tsx");
 
 const source = await readFile(new URL("./DirectoryPicker.tsx", import.meta.url), "utf8");
@@ -219,10 +223,11 @@ test("the dialog wires the engine: persisted toggle, current-directory refetch, 
 });
 
 test("the error-lifecycle seam: stale errors never mask a fresh failure", () => {
-  const state = { load: null, pin: null };
+  const state = { load: null, pin: null, manage: null };
   const errors = createPickerErrorState({
     setLoadError: (message) => { state.load = message; },
     setPinError: (message) => { state.pin = message; },
+    setManageError: (message) => { state.manage = message; },
   });
 
   // Browse failure → successful recovery clears it.
@@ -231,12 +236,14 @@ test("the error-lifecycle seam: stale errors never mask a fresh failure", () => 
   errors.onBrowseSuccess();
   assert.equal(state.load, null, "a successful browse clears the browse error");
 
-  // A new browse request resets BOTH stale errors.
+  // A new browse request resets ALL stale errors.
   errors.onBrowseError("old browse error");
   errors.onPinError("old pin error");
+  errors.onManageError("old manage error");
   errors.onBrowseStart();
   assert.equal(state.load, null);
   assert.equal(state.pin, null);
+  assert.equal(state.manage, null);
 
   // A genuine pin failure stays visible even when a browse error exists —
   // and the render precedence picks it.
@@ -244,7 +251,7 @@ test("the error-lifecycle seam: stale errors never mask a fresh failure", () => 
   errors.onPinStart();
   errors.onPinError("pin failed");
   assert.equal(
-    pickerErrorMessage({ pinError: state.pin, loadError: state.load, external: null }),
+    pickerErrorMessage({ manageError: state.manage, pinError: state.pin, loadError: state.load, external: null }),
     "pin failed",
     "the pin failure outranks the stale browse error",
   );
@@ -253,10 +260,185 @@ test("the error-lifecycle seam: stale errors never mask a fresh failure", () => 
   errors.onPinStart();
   assert.equal(state.pin, null);
 
-  // With no pin error, the browse error renders; the external prop is last.
-  assert.equal(pickerErrorMessage({ pinError: null, loadError: "browse", external: "ext" }), "browse");
-  assert.equal(pickerErrorMessage({ pinError: null, loadError: null, external: "ext" }), "ext");
-  assert.equal(pickerErrorMessage({ pinError: null, loadError: null, external: null }), null);
+  // A manage failure (wi pi#52) outranks everything else, and a new manage
+  // attempt resets it first.
+  errors.onManageError("cannot remove the last entry");
+  assert.equal(
+    pickerErrorMessage({ manageError: state.manage, pinError: "pin", loadError: "load", external: "ext" }),
+    "cannot remove the last entry",
+    "the manage failure outranks pin, browse and external errors",
+  );
+  errors.onManageStart();
+  assert.equal(state.manage, null);
+
+  // With no pin/manage error, the browse error renders; the external prop is last.
+  assert.equal(pickerErrorMessage({ manageError: null, pinError: null, loadError: "browse", external: "ext" }), "browse");
+  assert.equal(pickerErrorMessage({ manageError: null, pinError: null, loadError: null, external: "ext" }), "ext");
+  assert.equal(pickerErrorMessage({ manageError: null, pinError: null, loadError: null, external: null }), null);
+
+  // B2 regression (review r1, wi pi#51): a stale manage error (the
+  // last-entry refusal) must NOT outlive a new pin attempt —
+  // delete-refusal → pin-failure shows the PIN error, and
+  // delete-refusal → pin-success shows nothing.
+  errors.onManageError("cannot remove the last entry");
+  assert.equal(state.manage, "cannot remove the last entry");
+  errors.onPinStart();
+  assert.equal(state.manage, null, "a new pin attempt clears the stale manage error");
+  assert.equal(state.pin, null);
+  errors.onPinError("pin failed");
+  assert.equal(
+    pickerErrorMessage({ manageError: state.manage, pinError: state.pin, loadError: state.load, external: null }),
+    "pin failed",
+    "after a last-entry refusal, the PIN failure is what renders",
+  );
+  errors.onPinStart();
+  assert.equal(
+    pickerErrorMessage({ manageError: state.manage, pinError: state.pin, loadError: state.load, external: null }),
+    null,
+    "a successful pin leaves no stale last-entry message behind",
+  );
+});
+
+test("field keydown seam: Escape cancels ONLY the field edit and never reaches the dialog; Enter submits (B1)", () => {
+  const calls = [];
+  let prevented = 0;
+  let stopped = 0;
+  const keydown = createPickerFieldKeyDown({
+    submit: () => calls.push("submit"),
+    cancel: () => calls.push("cancel"),
+  });
+  const event = (key) => ({
+    key,
+    preventDefault() { prevented += 1; },
+    stopPropagation() { stopped += 1; },
+  });
+
+  keydown(event("Escape"));
+  assert.deepEqual(calls, ["cancel"], "Escape cancels and never commits");
+  assert.equal(prevented, 1);
+  assert.equal(stopped, 1, "Escape stops propagation so the dialog-level handler never fires");
+
+  keydown(event("Enter"));
+  assert.deepEqual(calls, ["cancel", "submit"], "Enter submits the field edit");
+  assert.equal(stopped, 1, "Enter does not stop propagation");
+
+  keydown(event("a"));
+  assert.deepEqual(calls, ["cancel", "submit"], "other keys are inert");
+  assert.equal(prevented, 2);
+});
+
+test("dialog Escape seam: a field-consumed (defaultPrevented) Escape keeps the picker open; plain Escape dismisses; busy blocks (B1)", () => {
+  let dismissed = 0;
+  const onCancel = () => { dismissed += 1; };
+
+  dialogEscapeDismisses({ key: "Escape", defaultPrevented: true }, { busy: false, onCancel });
+  assert.equal(dismissed, 0, "the field editor's Escape does NOT dismiss the picker");
+
+  dialogEscapeDismisses({ key: "Escape", defaultPrevented: false }, { busy: false, onCancel });
+  assert.equal(dismissed, 1, "a plain Escape on the dialog dismisses it");
+
+  dialogEscapeDismisses({ key: "Escape", defaultPrevented: false }, { busy: true, onCancel });
+  assert.equal(dismissed, 1, "busy blocks dismissal");
+
+  dialogEscapeDismisses({ key: "Enter", defaultPrevented: false }, { busy: false, onCancel });
+  assert.equal(dismissed, 1, "only Escape dismisses");
+});
+
+// ---------------------------------------------------------------------------
+// wi pi#52: the manage rows' inline PATH editor and its lifecycle seam.
+// ---------------------------------------------------------------------------
+
+test("managed rows render the path plus rename/delete affordances only when their callbacks are present", () => {
+  const entry = { path: "/work/alpha", displayName: "Alpha" };
+  const withCallbacks = html(React.createElement(ManagedEntryRow, {
+    entry,
+    t,
+    onRename: () => ({ ok: true }),
+    onRemove: () => ({ ok: true }),
+  }));
+  // Labels/aria kept: the rename affordance still carries renameEntry, the
+  // delete affordance removeEntry.
+  assert.match(withCallbacks, /directoryPicker\.renameEntry/);
+  assert.match(withCallbacks, /directoryPicker\.removeEntry/);
+  assert.match(withCallbacks, /\/work\/alpha/);
+  assert.doesNotMatch(withCallbacks, /<input/, "the editor is closed until the rename button activates it");
+
+  // Without the callbacks the row is a plain read-only row: no controls.
+  const readOnly = html(React.createElement(ManagedEntryRow, { entry, t }));
+  assert.doesNotMatch(readOnly, /directoryPicker\.renameEntry/);
+  assert.doesNotMatch(readOnly, /directoryPicker\.removeEntry/);
+  assert.equal((readOnly.match(/<button/g) ?? []).length, 0);
+
+  // An empty list renders no rows at all — no controls to reach.
+  const emptyPanel = html(React.createElement(PickerManagePanel, {
+    t,
+    entries: [],
+    onRename: () => ({ ok: true }),
+    onRemove: () => ({ ok: true }),
+  }));
+  assert.match(emptyPanel, /directoryPicker\.noEntries/);
+  assert.doesNotMatch(emptyPanel, /directoryPicker\.renameEntry/);
+  assert.doesNotMatch(emptyPanel, /directoryPicker\.removeEntry/);
+  assert.equal((emptyPanel.match(/<button/g) ?? []).length, 0);
+});
+
+test("the row path-edit seam: begin prefills the path, commit closes on success and stays open on refusal, cancel never commits", () => {
+  const state = { editing: false, value: "", error: null };
+  const commits = [];
+  const edit = createRowPathEdit({
+    entryPath: () => "/work/alpha",
+    onCommit: (currentPath, nextPath) => {
+      commits.push({ currentPath, nextPath });
+      if (nextPath === "") return { ok: false, error: "enter a path" };
+      if (nextPath === "/dup") return { ok: false, error: "already listed" };
+      return { ok: true };
+    },
+    setEditing: (editing) => { state.editing = editing; },
+    setValue: (value) => { state.value = value; },
+    setError: (message) => { state.error = message; },
+  });
+
+  // begin prefills the editor with the entry's CURRENT path and clears errors.
+  state.error = "stale";
+  edit.begin();
+  assert.deepEqual(state, { editing: true, value: "/work/alpha", error: null });
+
+  // A refusal keeps the editor open with the typed message under it.
+  edit.change("/dup");
+  edit.commit(" /dup ");
+  assert.equal(state.editing, true, "the editor stays open on refusal");
+  assert.equal(state.error, "already listed");
+  assert.deepEqual(commits, [{ currentPath: "/work/alpha", nextPath: "/dup" }], "the commit trims and passes the current path");
+
+  // A successful commit closes the editor and clears the error (the input
+  // value is irrelevant once the editor is closed).
+  edit.commit("/work/beta");
+  assert.equal(state.editing, false);
+  assert.equal(state.error, null);
+  assert.deepEqual(commits[1], { currentPath: "/work/alpha", nextPath: "/work/beta" });
+
+  // Cancel closes the editor unchanged and never invokes the callback.
+  const commitsBefore = commits.length;
+  edit.begin();
+  edit.cancel();
+  assert.equal(state.editing, false);
+  assert.equal(state.error, null);
+  assert.equal(commits.length, commitsBefore);
+});
+
+test("the new manage refusal/placeholder strings are translated in all three locales", async () => {
+  const keys = [
+    "directoryPicker.cannotRemoveLastEntry",
+    "directoryPicker.renamePathRequired",
+    "directoryPicker.renamePathDuplicate",
+    "directoryPicker.entryPath",
+  ];
+  for (const file of ["../lib/i18n/messages/en.ts", "../lib/i18n/messages/zh-CN.ts", "../lib/i18n/messages/zh-TW.ts"]) {
+    const localeSource = await readFile(new URL(file, import.meta.url), "utf8");
+    for (const key of keys) {
+      assert.match(localeSource, new RegExp(`"${key}": "[^"\\\\]+"`), `${file} must carry ${key}`);
+    }
+  }
 });
 
 test("every validation issue code has a translated message in all three locales", async () => {

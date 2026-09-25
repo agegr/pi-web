@@ -22,10 +22,73 @@ test("the directory entry manages rename and remove through the custom-directori
 });
 
 test("the manage affordances open the picker dialog in manage mode (entries passed)", () => {
-  // The dialog receives the entries list and the rename/remove callbacks.
+  // The dialog receives the entries list and the outcome-returning
+  // rename/delete callbacks (wi pi#52).
   assert.match(source, /entries=\{/);
-  assert.match(source, /onRenameEntry=/);
+  assert.match(source, /onRenameEntryPath=/);
   assert.match(source, /onRemoveEntry=/);
+});
+
+test("the manage rows run through the guarded seams, not raw store calls (wi pi#52)", () => {
+  // The picker's delete composes createRowDeleteHandler (last-entry guard +
+  // removal + expansion-key discard) and rename composes
+  // createRowPathRenameHandler (the store's path-edit primitive).
+  assert.match(source, /createRowDeleteHandler\(\{/);
+  assert.match(source, /createRowPathRenameHandler\(\{/);
+  assert.match(source, /renameCustomDirectoryPath/);
+  assert.match(source, /discardExpandedGroupKey/);
+  // The refusal reasons surface in-dialog through the picker's own i18n keys.
+  assert.match(source, /directoryPicker\.cannotRemoveLastEntry/);
+  assert.match(source, /directoryPicker\.renamePathRequired/);
+  assert.match(source, /directoryPicker\.renamePathDuplicate/);
+  // The seams are wired ONLY into the add-directory manage picker, exactly
+  // like the pin callback: the plain customPath picker stays untouched.
+  assert.equal((source.match(/onRenameEntryPath=/g) ?? []).length, 1);
+  assert.equal((source.match(/onRemoveEntry=/g) ?? []).length, 1);
+  const customPathPickerStart = source.indexOf("{customPathOpen && (");
+  const addDirectoryPickerStart = source.indexOf("{addDirectoryOpen && (");
+  const managePickerEnd = source.indexOf("onCancel={() => setAddDirectoryOpen(false)}");
+  assert.ok(customPathPickerStart !== -1 && addDirectoryPickerStart !== -1);
+  assert.ok(
+    source.slice(customPathPickerStart, addDirectoryPickerStart).indexOf("onRemoveEntry") === -1
+      && source.slice(customPathPickerStart, addDirectoryPickerStart).indexOf("onRenameEntryPath") === -1,
+    "the plain customPath picker must not receive the manage callbacks",
+  );
+  for (const marker of ["onRenameEntryPath=", "onRemoveEntry="]) {
+    const at = source.indexOf(marker);
+    assert.ok(at > addDirectoryPickerStart && at < managePickerEnd, `${marker} sits inside the manage picker's props`);
+  }
+});
+
+test("a successful rename keeps the renamed group expanded under its new identity", () => {
+  // The re-expand rule: only when the OLD identity was the expanded group.
+  // A rename handler body that unconditionally expands would collapse the
+  // accordion onto the renamed group even when another group was open.
+  const renamePropAt = source.indexOf("onRenameEntryPath={");
+  const reExpandAt = source.indexOf("expandPinnedGroup(customDirectoryIdentity(nextPath.trim()))");
+  assert.ok(renamePropAt !== -1 && reExpandAt > renamePropAt, "the rename callback re-expands under the new identity");
+  const guardAt = source.indexOf("expandedGroupKeys.has(oldKey)");
+  assert.ok(guardAt > renamePropAt && guardAt < reExpandAt, "the re-expand is guarded on the old key being expanded");
+});
+
+test("the Add button moved into the top toolbar row, level with refresh and search (wi pi#52)", () => {
+  // Exactly ONE Add trigger remains, and it lives in the toolbar row after
+  // the refresh and search buttons — not as a standalone full-width button.
+  assert.equal((source.match(/setAddDirectoryOpen\(true\)/g) ?? []).length, 1);
+  const refreshAt = source.indexOf('title={t("sidebar.refresh")}');
+  const searchAt = source.indexOf('title={t("sidebar.toggleSessionSearch")}');
+  const addAt = source.indexOf('onClick={() => setAddDirectoryOpen(true)}');
+  assert.ok(refreshAt !== -1 && searchAt !== -1 && addAt !== -1);
+  assert.ok(refreshAt < searchAt && searchAt < addAt, "Add sits in the same row, after refresh and search");
+  // The Add button keeps its label and gains the toolbar's 32px icon-button
+  // styling; the old full-width standalone button is gone entirely.
+  const addButtonSlice = source.slice(addAt, addAt + 700);
+  assert.match(addButtonSlice, /sidebar\.addNew/);
+  assert.match(addButtonSlice, /h-\[32px\] w-\[32px\]/);
+  assert.doesNotMatch(source, /h-\[30px\] w-full/, "no standalone full-width Add button remains");
+  // No duplicate button is left behind: the label appears in the button
+  // title/aria only, not as a separate rendered text span.
+  assert.doesNotMatch(source, /\{t\("sidebar\.addNew"\)\}<\/span>/);
 });
 
 // ---------------------------------------------------------------------------
