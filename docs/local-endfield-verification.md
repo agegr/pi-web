@@ -7,9 +7,10 @@
 - 现有 Chrome 标签页刷新后仍选中「终末地」。实际聊天内容的正文、加粗、外部资料链接与列表标记分别读到 `rgb(216, 220, 224)`、`rgb(237, 240, 242)`、`rgb(255, 199, 44)`、`rgb(155, 164, 173)`。本地文件链接保留冷灰蓝 `#b9c9d0`。
 - 真实模型界面在配置加载完成后保存成功，接口回读的对象与保存前相同。复验后已恢复原始 `models.json` 文件，其 SHA-256 与切换前备份一致：`63883EE3BBCCB99BD390CBD5D3DC4F5AF3C56EA14B99CD3B1F577098A786D933`。
 - Maple Mono v7.9 的官方 `MapleMono-CN.zip` 和 `MapleMono-NF-CN.zip` 已下载并解压到 `D:\ALL\字体`，分别与官方 SHA-256 `cb1e79b2c23dff772ae351784ef2b84454a61b3920e9b20bd5db4bf207e4472d` 和 `af913b6322905348b3f50e4397fedc35b3a880db5effcce7969003051dcd3e94` 一致。两套字体的 Regular、Bold、Italic、BoldItalic 已安装到当前 Windows 用户字体目录。
-- 追查“中文没变化”时发现：旧构建虽声明 `Maple Mono CN`，新的隔离浏览器却实际用 Microsoft YaHei 绘制中文。先前测试在临时加载系统字体后立即运行，不能证明后续浏览器仍可用。现已将 Maple Mono CN 与 JetBrains Mono NL 的常规、粗体、斜体、粗斜体转换为 WOFF2，连同字体许可证放在 `public/fonts`，由 piweb 同源提供。`NF CN` 下载包仍保留在 `D:\ALL\字体`，网页正文采用 CN 版。
-- 按参考图启用 `cv01`、plain italic (`cv32` 至 `cv37`) 和 `zero`，关闭 `cv04`；代码区域清除这些 Maple 特性并继续使用 JetBrains Mono NL。全新 Chrome 实例通过 DevTools 字体诊断确认真实中文消息为 `Maple Mono CN (custom font)`、代码为 `JetBrains Mono NL (custom font)`，不依赖 Windows 用户字体注册。
-- `npm run lint`、`npm run build` 和 `e2e/themes.mjs` 通过；主题测试覆盖 1440、390、320px 的字体加载、主题恢复、对比度、键盘操作和标签尺寸。四个 Maple 字体 URL 均返回 `200 font/woff2`，`GET /api/models-config` 返回 200。其他主题仍使用原有字体规则。
-- 本地安装包与备份位于 `C:\Users\JUSTLIKEZYP\AppData\Local\PiWeb\backups\endfield-source-launch-20260925`。本次安装包 SHA-256：`D319FF486F4B4007F7D9813FBDE3908A9EB38147E901A206A2AF5AA502A8AB88`；包内包含八个 WOFF2 文件及字体许可证。
+- 应用户要求改回非侵入式字体方案：终末地主题直接引用当前 Windows 用户已安装的 `Maple Mono CN`，并以 `Maple Mono NF CN` 为候选；代码引用已安装的 `JetBrains Mono NL`。已移除主题自带的 `@font-face` 和 `public/fonts` 文件，不再将约 23 MB 字体资源打入安装包。
+- 真实 Windows 用户的字体集合包含上述三个字体系列，Maple 注册项的字体文件均存在。此前隔离测试进程属于另一个 Windows 用户，无法读取真实用户的字体注册项，曾将其回退误判为用户浏览器状态。真实用户下新启动的 Chrome 通过 DevTools 字体诊断确认：中文消息是 `Maple Mono CN`、代码是 `JetBrains Mono NL`，两者 `isCustomFont` 均为 `false`，即使用系统安装字体。
+- 按参考图继续启用 `cv01`、plain italic (`cv32` 至 `cv37`) 和 `zero`，关闭 `cv04`；代码区域清除这些 Maple 特性。主题切换和 1440、390、320px 布局检查保留。
+- `npm run lint`、`npx tsc --noEmit`、`npm run build` 和 `e2e/themes.mjs`（1440、390、320px）通过。`GET /api/models-config` 返回 200，原始 `models.json` SHA-256 仍为 `63883EE3BBCCB99BD390CBD5D3DC4F5AF3C56EA14B99CD3B1F577098A786D933`。
+- 本地安装包与备份位于 `C:\Users\JUSTLIKEZYP\AppData\Local\PiWeb\backups\endfield-source-launch-20260925`。本次非内嵌字体构建的安装包 SHA-256 为 `13645894B078C273CB547BE50B3E90272BB233F1BE88204BA535DB64E7650B21`；包内字体文件数为 0。
 
 本次还发现旧界面在配置加载前可以点击保存，可能写入空配置；已在界面和保存处理函数两层阻止，并用独立浏览器测试复验。

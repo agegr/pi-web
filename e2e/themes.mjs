@@ -55,15 +55,11 @@ try {
       assert.equal(await radio.isChecked(), true);
       assert.equal(await page.evaluate(() => localStorage.getItem("pi-theme")), theme);
       if (theme === "endfield") {
-        const fonts = await page.evaluate(async () => {
-          const loaded = await document.fonts.load('400 14px "Pi Web Maple Mono CN"', '终末地');
-          const codeLoaded = await document.fonts.load('400 14px "Pi Web JetBrains Mono NL"', 'const value = 42');
+        const fonts = await page.evaluate(() => {
           const code = document.createElement("code");
           code.textContent = "const value = 42";
           document.body.append(code);
           const result = {
-            loaded: loaded.length > 0,
-            codeLoaded: codeLoaded.length > 0,
             ui: getComputedStyle(document.body).fontFamily,
             features: getComputedStyle(document.body).fontFeatureSettings,
             code: getComputedStyle(code).fontFamily,
@@ -72,12 +68,10 @@ try {
           code.remove();
           return result;
         });
-        assert.equal(fonts.loaded, true, "Bundled Maple font must load");
-        assert.equal(fonts.codeLoaded, true, "Bundled JetBrains font must load");
-        assert.match(fonts.ui, /Pi Web Maple Mono CN/);
+        assert.match(fonts.ui, /Maple Mono CN/);
         assert.match(fonts.features, /"cv01"/);
         assert.match(fonts.features, /"zero"/);
-        assert.match(fonts.code, /Pi Web JetBrains Mono NL/);
+        assert.match(fonts.code, /JetBrains Mono NL/);
         assert.equal(fonts.codeFeatures, "normal");
       }
       const colors = await page.locator("html").evaluate((root) => {

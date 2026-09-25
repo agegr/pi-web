@@ -1,68 +1,4 @@
 /* Endfield: a quiet industrial workspace built on the original local palette. */
-@font-face {
-  font-family: "Pi Web Maple Mono CN";
-  src: url("/fonts/maple-mono-cn/MapleMono-CN-Regular.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web Maple Mono CN";
-  src: url("/fonts/maple-mono-cn/MapleMono-CN-Bold.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web Maple Mono CN";
-  src: url("/fonts/maple-mono-cn/MapleMono-CN-Italic.woff2") format("woff2");
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web Maple Mono CN";
-  src: url("/fonts/maple-mono-cn/MapleMono-CN-BoldItalic.woff2") format("woff2");
-  font-style: italic;
-  font-weight: 700;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web JetBrains Mono NL";
-  src: url("/fonts/jetbrains-mono-nl/JetBrainsMonoNL-Regular.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web JetBrains Mono NL";
-  src: url("/fonts/jetbrains-mono-nl/JetBrainsMonoNL-Bold.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web JetBrains Mono NL";
-  src: url("/fonts/jetbrains-mono-nl/JetBrainsMonoNL-Italic.woff2") format("woff2");
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Pi Web JetBrains Mono NL";
-  src: url("/fonts/jetbrains-mono-nl/JetBrainsMonoNL-BoldItalic.woff2") format("woff2");
-  font-style: italic;
-  font-weight: 700;
-  font-display: swap;
-}
-
 html[data-theme="endfield"] {
   color-scheme: dark;
   --bg: #141518;
@@ -81,8 +17,8 @@ html[data-theme="endfield"] {
   --tool-bg: #1a1c20;
   --bg-subtle: #ffffff0d;
   --session-selected-border: transparent;
-  --font-ui: "Pi Web Maple Mono CN", "Maple Mono CN", "Maple Mono NF CN", Consolas, monospace;
-  --font-mono: "Pi Web JetBrains Mono NL", "JetBrains Mono NL", Consolas, monospace;
+  --font-ui: "Maple Mono CN", "Maple Mono NF CN", Consolas, monospace;
+  --font-mono: "JetBrains Mono NL", Consolas, monospace;
 }
 
 /* Maple's optional glyphs match the selected choices in the font preview. */

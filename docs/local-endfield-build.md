@@ -2,7 +2,7 @@
 
 这份本地构建基于官方 0.9.3。终末地主题的实现位于 `app/endfield.css`、`lib/theme.ts`、`components/ThemeIcon.tsx` 和三份 `lib/i18n/messages` 语言包。Windows 模型保存修复位于 `lib/atomic-file-async.ts`、`lib/models-config-store.ts` 和 `app/api/models-config/route.ts`。两项改动都在源码中，不依赖修改 `.next` 文件。
 
-终末地主题的 Maple Mono CN 界面字体和 JetBrains Mono NL 代码字体位于 `public/fonts`，已随安装包一起提供，并附原字体许可证。浏览器不需要安装这两套字体；检查字体是否生效时，应读取实际渲染字体，不能只看 CSS 的 `font-family` 候选名称。
+终末地主题通过 CSS 使用本机已安装的 `Maple Mono CN` 界面字体和 `JetBrains Mono NL` 代码字体，不再随安装包附带字体文件。换机器运行时，需要先安装对应字体；检查字体是否生效，应读取实际渲染字体，不能只看 CSS 的 `font-family` 候选名称。
 
 `piweb` 命令由 `C:\Users\JUSTLIKEZYP\.local\bin\piweb.ps1` 启动本目录的生产构建。启动脚本核对 30141 端口上 Next.js 子进程和 Pi Web 父进程的路径，避免悄悄连接到全局 npm 安装版。源码目录必须保持在当前路径。
 
