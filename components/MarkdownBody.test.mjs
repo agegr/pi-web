@@ -174,3 +174,31 @@ test("uses a generic preview label when a markdown image has no alt text", () =>
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.doesNotMatch(html, /Preview image:/);
 });
+
+test("keeps CJK prose out of an autolinked URL", () => {
+  const html = renderMarkdown("开 http://localhost:4321，或直接开 library/x.png。");
+
+  assert.match(html, /<a (?=[^>]*href="http:\/\/localhost:4321")[^>]*>http:\/\/localhost:4321<\/a>/);
+  assert.match(html, /<\/a>，或直接开 library\/x\.png。/);
+  assert.doesNotMatch(html, /%EF%BC%8C/);
+});
+
+test("stops a bare autolink at trailing CJK punctuation", () => {
+  const html = renderMarkdown("见 https://example.com/docs。");
+
+  assert.match(html, /<a (?=[^>]*href="https:\/\/example\.com\/docs")[^>]*>https:\/\/example\.com\/docs<\/a>/);
+  assert.match(html, /<\/a>。/);
+});
+
+test("leaves explicit markdown links, CJK paths and query strings intact", () => {
+  const explicit = renderMarkdown("[文档](https://example.com/docs)，说明");
+  assert.match(explicit, /<a (?=[^>]*href="https:\/\/example\.com\/docs")[^>]*>文档<\/a>/);
+  assert.match(explicit, /<\/a>，说明/);
+
+  const cjkPath = renderMarkdown("https://zh.wikipedia.org/wiki/中文条目");
+  assert.match(cjkPath, /href="https:\/\/zh\.wikipedia\.org\/wiki\/%E4%B8%AD%E6%96%87%E6%9D%A1%E7%9B%AE"/);
+
+  const query = renderMarkdown("https://a.com/p?a=1&b=2，后面");
+  assert.match(query, /href="https:\/\/a\.com\/p\?a=1&amp;b=2"/);
+  assert.match(query, /<\/a>，后面/);
+});
