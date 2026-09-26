@@ -193,8 +193,7 @@ interface Props {
   searchBlock?: AssistantContentBlock;
   onFork?: (entryId: string) => void;
   forking?: boolean;
-  onNavigate?: (entryId: string) => Promise<boolean>;
-  onEditContent?: (message: UserMessage) => void;
+  onEditContent?: (message: UserMessage, entryId: string) => void;
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
@@ -272,9 +271,9 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onNavigate, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} />;
@@ -305,7 +304,6 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.searchBlock === next.searchBlock
     && prev.onFork === next.onFork
     && prev.forking === next.forking
-    && prev.onNavigate === next.onNavigate
     && prev.onEditContent === next.onEditContent
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
@@ -313,15 +311,14 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.sessionId === next.sessionId;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, onEditContent }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   entryId?: string;
   onFork?: (entryId: string) => void;
   forking?: boolean;
-  onNavigate?: (entryId: string) => Promise<boolean>;
-  onEditContent?: (message: UserMessage) => void;
+  onEditContent?: (message: UserMessage, entryId: string) => void;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -381,7 +378,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       })}
     </div>
   );
-  const canNavigate = !!entryId && !!onNavigate;
+  const canEdit = !!entryId && !!onEditContent;
 
   const copyContent = () => {
     copyText(copyTarget).then(() => {
@@ -483,7 +480,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
-      {(time || canFork || canNavigate || true) && (
+      {(time || canFork || canEdit || true) && (
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 6, marginTop: 3,
@@ -524,18 +521,16 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                {copied ? t("i18n.copied") : t("i18n.copy")}
             </button>
           </div>
-          {(canFork || canNavigate) && (
+          {(canFork || canEdit) && (
             <div style={{
               display: "flex", gap: 3,
               opacity: (hovered || forking) ? 1 : 0,
               pointerEvents: (hovered || forking) ? "auto" : "none",
               transition: "opacity 0.12s",
             }}>
-              {canNavigate && (
+              {canEdit && (
                 <button
-                  onClick={() => void onNavigate!(entryId!).then((navigated) => {
-                    if (navigated) onEditContent?.(editTarget);
-                  })}
+                  onClick={() => onEditContent!(editTarget, entryId!)}
                    title={t("i18n.editFromHereTitle")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
