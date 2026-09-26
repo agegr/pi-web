@@ -1,3 +1,4 @@
+import type { Content, Link, Parent, Root } from "mdast";
 import { defaultUrlTransform, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -361,14 +362,93 @@ function isLikelyMathExpression(value: string): boolean {
 // GFM's default single-tilde strikethrough silently mangled such ranges (#385).
 const remarkGfmOptions = { singleTilde: false } as const;
 
+// GFM autolink literals (`https://…`, `www.…`) stop only at whitespace, and the
+// trailing-punctuation trim knows only ASCII punctuation, so a URL glued to CJK
+// prose swallows that prose: `https://a.com，见这里` becomes one link whose href
+// is `https://a.com，见这里`, and clicking it goes nowhere.
+//
+// This is upstream behaviour rather than a bug in remark-gfm: it follows GitHub,
+// which also terminates autolinks only on ASCII punctuation (remarkjs/remark-gfm#83
+// was closed as not planned for exactly that reason, pointing at
+// github/cmark-gfm#377 — the open spec request to accept non-ASCII terminators).
+// Until that lands, split the literal here. CJK punctuation is the sentence
+// boundary in Chinese/Japanese, so the URL stays clickable and the prose stays
+// prose. Ideographs are deliberately NOT boundaries, so a genuine CJK path such
+// as `https://zh.wikipedia.org/wiki/中文条目` keeps working.
+const cjkPunctuationPattern =
+  /[\u3001\u3002\u3008-\u3011\u3014-\u301B\uFF01\uFF08\uFF09\uFF0C\uFF1A\uFF1B\uFF1F\u2018\u2019\u201C\u201D\u2013\u2014\u2026\u00B7\uFF5E\u301C]/;
+
+/**
+ * Split every GFM autolink literal at its first CJK punctuation mark, turning the
+ * trailing prose back into a plain text node.
+ *
+ * `source` must be the markdown the tree was parsed from. An autolink literal's
+ * raw source **is** its text, while a hand-written `[text](url)` link's raw source
+ * is `[text](url)` — comparing the two is what leaves explicit links untouched
+ * even when their text happens to equal their url.
+ */
+export function splitAutolinkLiteralsAtCjkPunctuation(tree: Root, source: string): void {
+  const walk = (node: Root | Parent): void => {
+    const children = node.children as Content[];
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index];
+      if (child.type === "link") splitAutolinkLiteral(children, index, child, source);
+      const current = children[index];
+      if ("children" in current && Array.isArray(current.children)) walk(current as Parent);
+    }
+  };
+  walk(tree);
+}
+
+function splitAutolinkLiteral(
+  siblings: Content[],
+  index: number,
+  node: Link,
+  source: string,
+): void {
+  if (node.title != null || node.children.length !== 1) return;
+  const textNode = node.children[0];
+  if (textNode.type !== "text") return;
+
+  const start = node.position?.start;
+  const end = node.position?.end;
+  if (start?.offset == null || end?.offset == null) return;
+  if (source.slice(start.offset, end.offset) !== textNode.value) return;
+
+  const text = textNode.value;
+  const cut = text.search(cjkPunctuationPattern);
+  // `cut === 0` means the literal itself starts with punctuation — not a URL.
+  if (cut <= 0 || !node.url.endsWith(text)) return;
+
+  const head = text.slice(0, cut);
+  const boundary = { line: start.line, column: start.column + cut, offset: start.offset + cut };
+  // The url carries a `http://` (www.) or `mailto:` prefix the text does not.
+  node.url = node.url.slice(0, node.url.length - text.length) + head;
+  textNode.value = head;
+  node.position = { start, end: boundary };
+  siblings.splice(index + 1, 0, {
+    type: "text",
+    value: text.slice(cut),
+    position: { start: boundary, end },
+  });
+}
+
+function remarkSplitAutolinkLiterals() {
+  return (tree: Root, file: { value?: unknown }): void => {
+    splitAutolinkLiteralsAtCjkPunctuation(tree, typeof file.value === "string" ? file.value : "");
+  };
+}
+
 export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
   [remarkGfm, remarkGfmOptions],
+  remarkSplitAutolinkLiterals,
   remarkMath,
 ];
 export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
   [remarkGfm, remarkGfmOptions],
+  remarkSplitAutolinkLiterals,
   remarkMath,
 ];
 
