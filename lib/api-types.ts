@@ -74,6 +74,30 @@ export interface ProjectTrustStatus {
   trusted: boolean;
 }
 
+export interface McpServerInfo {
+  name: string;
+  disabled: boolean;
+  source: "project" | "global";
+  overridden: boolean;
+  transport: "http" | "stdio" | "unknown";
+  detail: string;
+}
+
+export interface McpServersResponse {
+  servers: McpServerInfo[];
+  globalPath: string;
+  projectPath: string;
+  projectFileExists: boolean;
+}
+
+export interface McpActionResponse {
+  success: boolean;
+  changed?: boolean;
+  path?: string;
+  reloaded?: boolean;
+  busy?: boolean;
+}
+
 export interface AppUpdateResponse {
   currentVersion: string;
   latestVersion: string;

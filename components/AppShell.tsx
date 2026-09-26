@@ -14,6 +14,7 @@ import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
+import { McpPanel } from "./McpPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
@@ -327,7 +328,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "mcp" | "session" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -347,7 +348,7 @@ export function AppShell() {
   }, [rightPanelFullWidth]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
+    panel: "agents" | "branches" | "system" | "tools" | "mcp" | "session",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -355,14 +356,8 @@ export function AppShell() {
     if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
   }, [isMobile, isNarrowMobile]);
 
-  const handleSystemInfoToggle = useCallback((
-    panel: "system" | "tools",
-    keepMobileToolbarOpen = false,
-  ) => {
-    const opening = activeTopPanel !== panel;
-    toggleTopPanel(panel, keepMobileToolbarOpen);
-    if (!opening || systemInfoLoading) return;
-
+  const refreshSystemInfo = useCallback(() => {
+    if (systemInfoLoading) return;
     const load = systemInfoLoaderRef.current;
     if (!load) return;
     const loadId = ++systemInfoLoadIdRef.current;
@@ -374,7 +369,17 @@ export function AppShell() {
         setSystemInfoLoading(false);
       }
     });
-  }, [activeTopPanel, systemInfoLoading, toggleTopPanel]);
+  }, [systemInfoLoading]);
+
+  const handleSystemInfoToggle = useCallback((
+    panel: "system" | "tools" | "mcp",
+    keepMobileToolbarOpen = false,
+  ) => {
+    const opening = activeTopPanel !== panel;
+    toggleTopPanel(panel, keepMobileToolbarOpen);
+    if (!opening) return;
+    refreshSystemInfo();
+  }, [activeTopPanel, refreshSystemInfo, toggleTopPanel]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -1592,6 +1597,44 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("tools.label")}</span>}
         </button>
+        <button
+          type="button"
+          onClick={() => handleSystemInfoToggle("mcp", mobile)}
+          disabled={mobile && !showChat}
+          title={translate("mcp.title")}
+          aria-label={translate("mcp.title")}
+          aria-pressed={activeTopPanel === "mcp"}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%", padding: mobile ? 0 : "0 12px",
+            background: activeTopPanel === "mcp" ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderTop: activeTopPanel === "mcp" ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            cursor: mobile && !showChat ? "not-allowed" : "pointer",
+            color: activeTopPanel === "mcp" ? "var(--text)" : "var(--text-muted)",
+            opacity: mobile && !showChat ? 0.45 : 1,
+            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+          }}
+          onMouseEnter={(event) => {
+            if (mobile && !showChat) return;
+            event.currentTarget.style.color = "var(--text)";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = activeTopPanel === "mcp" ? "var(--text)" : "var(--text-muted)";
+          }}
+          data-mobile-toolbar-action={mobile ? "mcp" : undefined}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemTools?.some((tool) => tool.active && (tool.name === "mcp" || tool.name === "mcpScript" || tool.name.startsWith("mcp__"))) ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
+            <rect x="2" y="2" width="20" height="8" rx="2" />
+            <rect x="2" y="14" width="20" height="8" rx="2" />
+            <line x1="6" y1="6" x2="6.01" y2="6" />
+            <line x1="6" y1="18" x2="6.01" y2="18" />
+          </svg>
+          {!mobile && <span>{translate("mcp.label")}</span>}
+        </button>
+
       </div>
     );
   };
@@ -2088,6 +2131,16 @@ export function AppShell() {
                 <ToolDefinitionsPanel
                   loading={systemInfoLoading}
                   tools={systemTools}
+                  translate={translate}
+                />
+              )}
+              {activeTopPanel === "mcp" && (
+                <McpPanel
+                  cwd={selectedSession?.cwd ?? effectiveNewSessionCwd}
+                  sessionId={selectedSession?.id ?? null}
+                  sessionBusy={selectedSession ? runningSessionIds.has(selectedSession.id) : false}
+                  tools={systemTools}
+                  onRefreshTools={refreshSystemInfo}
                   translate={translate}
                 />
               )}
