@@ -1405,3 +1405,9 @@
     }
   }
 }
+
+/* Extension dialog options: use the option's 13px size and drop list margins. */
+.markdown-body.extension-option-markdown { font-size: inherit; line-height: 1.55; }
+.markdown-body.extension-option-markdown > :first-child { margin-top: 0; }
+.markdown-body.extension-option-markdown > :last-child { margin-bottom: 0; }
+.markdown-body.extension-option-markdown li { margin: 0; }
