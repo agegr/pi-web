@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import ReactMarkdown from "react-markdown";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, {
@@ -9,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
-const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
+const { normalizeDisplayMath, markdownPreviewRemarkPlugins, markdownPreviewRehypePlugins } = await jiti.import("../lib/markdown.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 function renderMarkdown(markdown, props = {}) {
@@ -78,6 +79,68 @@ test("renders LaTeX parenthesis delimiters as inline math", () => {
 
   assert.match(html, /class="katex"/);
   assert.match(html, /r_c/);
+});
+
+test("keeps prices and bold headings intact across a paragraph line break", () => {
+  const html = renderMarkdown("**3. Membership — $20/mo (+tax)**\nOne free hour monthly. Waives the $6 activation fee.\n→ https://example.com/pricing");
+
+  assert.match(html, /<strong>3\. Membership — \$20\/mo \(\+tax\)<\/strong>/);
+  assert.match(html, /One free hour monthly\. Waives the \$6 activation fee\./);
+  assert.match(html, /href="https:\/\/example\.com\/pricing"/);
+  assert.doesNotMatch(html, /class="katex|\*\*/);
+});
+
+test("keeps adjacent amounts, ranges and decimals as currency", () => {
+  for (const prices of ["$15+$15", "$20–$30", "$1,200.50 or $900.00", "**$20** and *$6*", "US$20 / CA$30"]) {
+    const html = renderMarkdown(prices);
+    assert.doesNotMatch(html, /class="katex/, prices);
+    assert.equal((html.match(/\$/g) ?? []).length, 2, prices);
+  }
+});
+
+test("does not let a price consume later math in the same paragraph", () => {
+  const html = renderMarkdown("Pay $20 for the $x + 1$ option, or $30 for $2x + 3$.");
+
+  assert.match(html, /Pay \$20 for the/);
+  assert.match(html, /or \$30 for/);
+  assert.equal((html.match(/class="katex"/g) ?? []).length, 2);
+  assert.match(html, /<annotation encoding="application\/x-tex">x \+ 1<\/annotation>/);
+  assert.match(html, /<annotation encoding="application\/x-tex">2x \+ 3<\/annotation>/);
+});
+
+test("retains single-dollar equations, numeric math, balanced padding and multiline math", () => {
+  for (const math of ["$x + y$", "$2 + 2 = 4$", "$20$", "$ x + y $", "$x $", "$ x$", "$x$2", "$x +\ny$", "$$x + y$$"]) {
+    const html = renderMarkdown(math);
+    assert.match(html, /class="katex"/, math);
+    assert.doesNotMatch(html, /katex-error/, math);
+  }
+});
+
+test("file previews and minimap Markdown use the same currency-safe math rules", () => {
+  const html = renderToStaticMarkup(React.createElement(ReactMarkdown, {
+    remarkPlugins: markdownPreviewRemarkPlugins,
+    rehypePlugins: markdownPreviewRehypePlugins,
+  }, "**Price: $20/month**\nPlus a $6 fee. Formula: $2 + 2 = 4$."));
+  assert.match(html, /<strong>Price: \$20\/month<\/strong>/);
+  assert.match(html, /Plus a \$6 fee/);
+  assert.equal((html.match(/class="katex"/g) ?? []).length, 1);
+});
+
+test("leaves escaped currency, code and link destinations intact", () => {
+  const html = renderMarkdown("Prices: \\$20 and \\$6. Code: `$20 + $6`. [Price](https://example.com/$20/$6)");
+  assert.doesNotMatch(html, /class="katex/);
+  assert.match(html, /Prices: \$20 and \$6\./);
+  assert.match(html, /<code[^>]*>\$20 \+ \$6<\/code>/);
+  assert.match(html, /href="https:\/\/example\.com\/\$20\/\$6"/);
+  const fenced = renderMarkdown("```text\n$20 + $6\n```");
+  assert.doesNotMatch(fenced, /class="katex/);
+});
+
+test("currency text still passes through HTML and URL sanitization", () => {
+  const html = renderMarkdown('$20 <img src="x" onerror="alert(1)"> $6 [click](javascript:alert(1))');
+  assert.doesNotMatch(html, /onerror|javascript:|class="katex/);
+  assert.match(html, /\$20/);
+  assert.match(html, /\$6/);
 });
 
 test("renders paired LaTeX bracket delimiters as display math", () => {
