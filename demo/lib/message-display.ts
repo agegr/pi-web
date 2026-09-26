@@ -49,6 +49,14 @@ export function isAssistantTruncated(
   return !options.isStreaming && message.stopReason === "length";
 }
 
+/** Text, an image, or a tool call is an answer. Thinking alone is not. */
+export function hasAssistantAnswer(message: AssistantMessage): boolean {
+  return (message.content ?? []).some((block) => {
+    if (block.type === "text") return block.text.trim().length > 0;
+    return block.type === "image" || block.type === "toolCall";
+  });
+}
+
 function isFinalAnswerBlock(block: AssistantContentBlock): boolean {
   return block.type === "text" || block.type === "image";
 }

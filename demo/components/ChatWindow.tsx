@@ -1,13 +1,12 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
-import { demoAssetPath } from "@/mock/base-path";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasAssistantAnswer, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
@@ -1026,7 +1025,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -1065,6 +1064,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
+                    onCompact={options.recoverTruncation ? handleCompact : undefined}
+                    isCompacting={options.recoverTruncation ? isCompacting : undefined}
+                    compactError={options.recoverTruncation ? compactError : undefined}
                   />
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
@@ -1177,6 +1179,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   rendered.push(renderMessage(finalAssistantIdx, {
                     messageOverride: finalAnswerMessage,
                     writtenFiles,
+                    recoverTruncation: endIdx === messages.length && !streamState.isStreaming && !hasAssistantAnswer(finalAnswerMessage),
                   }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
@@ -1353,7 +1356,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           <div className="mb-3 w-full" style={{ paddingLeft: 16, paddingRight: isMobile ? 16 : 52 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto", fontFamily: "var(--font-mono)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 7 : 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <Image src={demoAssetPath("/icons/apple-touch-icon.png")} width={32} height={32} alt="" priority style={{ flexShrink: 0 }} />
+                <Image src="/icons/apple-touch-icon.png" width={32} height={32} alt="" priority style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Web</span>
                 <NewSessionUpdateLink label={(version) => t("appUpdate.releaseNotes", { version })} />
               </div>
