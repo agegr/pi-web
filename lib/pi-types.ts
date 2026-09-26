@@ -137,6 +137,13 @@ export interface AgentSessionLike {
   };
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;
+  /**
+   * The prompt this session would send right now, rendered from its current options.
+   *
+   * Readable before the first run, unlike `agent.state.systemPrompt`, which replays the
+   * transcript and is empty until a run persists a system message.
+   */
+  readonly systemPrompt: string;
   readonly agent: {
     state?: {
       /** Replayed from the transcript's system messages since Pi 0.86; never assign it. */
