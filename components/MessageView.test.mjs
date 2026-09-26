@@ -215,21 +215,40 @@ test("renders a truncation notice for stopReason length", () => {
   });
 
   assert.match(html, /role="alert"/);
-  assert.match(html, /output limit/i);
-  assert.match(html, /follow-up/i);
+  assert.match(html, /used up by thinking/i);
+  assert.doesNotMatch(html, /follow-up/i);
 });
 
-test("renders a truncation notice for thinking-only messages with stopReason length", () => {
+test("keeps the follow-up hint when a truncated response already has text", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "text", text: "Partial answer" }],
+    stopReason: "length",
+  });
+
+  assert.match(html, /Partial answer/);
+  assert.match(html, /follow-up/i);
+  assert.doesNotMatch(html, /Compact context/);
+});
+
+test("offers compaction on an unanswered truncation and keeps its error with the reply", () => {
+  let compacted = 0;
   const html = renderMessage({
     role: "assistant",
     provider: "anthropic",
     model: "claude-test",
     content: [],
     stopReason: "length",
+  }, {
+    onCompact: () => { compacted += 1; },
+    compactError: "Summarization failed: generation hit the token cap",
   });
 
-  assert.match(html, /role="alert"/);
-  assert.match(html, /output limit/i);
+  assert.match(html, /Compact context/);
+  assert.match(html, /generation hit the token cap/);
+  assert.equal(compacted, 0);
 });
 
 test("renders partial assistant content before the provider error", () => {
