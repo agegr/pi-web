@@ -14,6 +14,13 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
+import {
+  addRunningTool,
+  endRunningTool,
+  phaseAfterMessage,
+  updateRunningTool,
+  type AgentPhase,
+} from "@/lib/agent-phase";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import {
   deleteSessionViewSnapshot,
@@ -126,11 +133,7 @@ type NoticeAction =
   | { type: "mark_oldest_exiting" }
   | { type: "remove"; id: string };
 
-export type AgentPhase =
-  | { kind: "waiting_model" }
-  | { kind: "running_command" }
-  | { kind: "running_tools"; tools: { id: string; name: string; progress?: string }[] }
-  | null;
+export type { AgentPhase } from "@/lib/agent-phase";
 
 export interface CompactResultInfo {
   reason: "manual" | "threshold" | "overflow" | "auto" | string;
@@ -1364,8 +1367,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (msg?.role === "assistant") {
             dispatch({ type: "snapshot", message: msg });
             if (msg.content.length > 0) setAgentPhase(null);
-          } else if (msg) {
-            setAgentPhase(null);
           }
         } else {
           const delta = event.assistantMessageEvent as ClientAssistantMessageEvent | undefined;
@@ -1395,13 +1396,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (!agentRunningRef.current) break;
         if (isSystemMessageEvent(event)) break;
         const completed = event.message as AgentMessage | undefined;
-        if (completed && completed.role === "user") {
+        const normalizedCompleted = completed ? normalizeToolCalls(completed) : undefined;
+        if (completed?.role === "user" && normalizedCompleted) {
           // Delivered steering/follow-up messages surface here as user
           // messages. The run's initial prompt also emits one, but handleSend
           // already appended it optimistically. Consume only the still-adjacent
           // optimistic bubble; later same-text queue deliveries must render.
-          const delivered = normalizeToolCalls(completed);
-          const deliveredKey = userMessageKey(delivered);
+          const deliveredKey = userMessageKey(normalizedCompleted);
           const optimisticKey = optimisticUserMessageKeyRef.current;
           optimisticUserMessageKeyRef.current = null;
           setMessages((prev) => {
@@ -1409,25 +1410,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             if (optimisticKey && last?.role === "user" && userMessageKey(last) === optimisticKey) {
               return optimisticKey === deliveredKey
                 ? prev
-                : [...prev.slice(0, -1), delivered];
+                : [...prev.slice(0, -1), normalizedCompleted];
             }
-            return [...prev, delivered];
+            return [...prev, normalizedCompleted];
           });
-        } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+        } else if (normalizedCompleted) {
+          setMessages((prev) => [...prev, normalizedCompleted]);
         }
         dispatch({ type: "end" });
-        setAgentPhase({ kind: "waiting_model" });
+        setAgentPhase((prev) => phaseAfterMessage(prev, normalizedCompleted));
         break;
       }
       case "tool_execution_start": {
         const id = event.toolCallId as string;
         const name = event.toolName as string;
-        setAgentPhase((prev) => {
-          const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
-          if (!tools.some((t) => t.id === id)) tools.push({ id, name });
-          return { kind: "running_tools", tools };
-        });
+        setAgentPhase((prev) => addRunningTool(prev, id, name));
         break;
       }
       case "tool_execution_update": {
@@ -1450,19 +1447,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           });
         }
         const progress = getToolExecutionProgress(event.partialResult);
-        setAgentPhase((prev) => {
-          const tools = prev?.kind === "running_tools" ? [...prev.tools] : [];
-          const existing = tools.find((tool) => tool.id === id);
-          const updated = {
-            id,
-            name: name || existing?.name || "tool",
-            progress: progress ?? existing?.progress,
-          };
-          return {
-            kind: "running_tools",
-            tools: [...tools.filter((tool) => tool.id !== id), updated],
-          };
-        });
+        setAgentPhase((prev) => updateRunningTool(prev, id, name, progress));
         break;
       }
       case "tool_execution_end": {
@@ -1473,12 +1458,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           next.delete(id);
           return next;
         });
-        setAgentPhase((prev) => {
-          if (prev?.kind !== "running_tools") return prev;
-          const tools = prev.tools.filter((t) => t.id !== id);
-          if (tools.length === 0) return { kind: "waiting_model" };
-          return { kind: "running_tools", tools };
-        });
+        setAgentPhase((prev) => endRunningTool(prev, id));
         break;
       }
       case "queue_update":
