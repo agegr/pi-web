@@ -9,6 +9,7 @@ const {
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
+  renameProviderEntry,
   savedModelIds,
   serializeHeaderRows,
   setCompatBool,
@@ -231,4 +232,66 @@ test("a blank id in a half-typed row is not a rename yet", () => {
 
 test("a provider added since the last save has no saved slots to compare", () => {
   assert.deepEqual(collectModelRenames(draft(["aaa"]), new Map(), new Map()), []);
+});
+
+const tracking = (config) => ({
+  savedProviders: new Set(Object.keys(config.providers)),
+  renames: new Map(),
+  slots: savedModelIds(config),
+});
+
+test("renaming a provider keeps its place and moves its rename tracking", () => {
+  const config = {
+    providers: {
+      first: { models: [{ id: "a" }] },
+      stepfun: { baseUrl: "https://x", models: [{ id: "aaa" }, { id: "ddd" }] },
+      last: {},
+    },
+  };
+  const state = tracking(config);
+  const renamed = renameProviderEntry(config, state, "stepfun", "house");
+
+  assert.deepEqual(Object.keys(renamed.providers), ["first", "house", "last"]);
+  assert.equal(renamed.providers.house, config.providers.stepfun);
+  assert.deepEqual([...state.renames], [["stepfun", "house"]]);
+  assert.deepEqual(state.slots.get("house"), ["aaa", "ddd"]);
+  assert.equal(state.slots.has("stepfun"), false);
+  // Renaming it back cancels the move instead of recording stepfun -> stepfun.
+  renameProviderEntry(renamed, state, "house", "stepfun");
+  assert.deepEqual([...state.renames], []);
+});
+
+test("renaming a provider onto another provider's id changes nothing", () => {
+  const config = { providers: { one: { models: [{ id: "a" }] }, two: { models: [{ id: "b" }] } } };
+  const state = tracking(config);
+  assert.equal(renameProviderEntry(config, state, "one", "two"), null);
+  assert.equal(renameProviderEntry(config, state, "gone", "three"), null);
+  assert.deepEqual([...state.renames], []);
+  assert.deepEqual([...state.slots.keys()], ["one", "two"]);
+});
+
+test("a provider added since the last save is renamed without a settings rewrite", () => {
+  const config = { providers: { "new-provider": {} } };
+  const state = { savedProviders: new Set(), renames: new Map(), slots: new Map() };
+  const renamed = renameProviderEntry(config, state, "new-provider", "house");
+  assert.deepEqual(Object.keys(renamed.providers), ["house"]);
+  assert.deepEqual([...state.renames], []);
+});
+
+test("Save applies a provider name typed without pressing Rename", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+  // The field edits the panel's draft, not state the Save button cannot see.
+  assert.doesNotMatch(providerDetail, /useState\(name\)/);
+  assert.match(providerDetail, /onChange=\{onEditingNameChange\}/);
+
+  const save = source.slice(
+    source.indexOf("const handleSave = useCallback"),
+    source.indexOf("const providers = Object.entries(config.providers"),
+  );
+  assert.match(save, /applyProviderRename\(config, providerNameDraft\.provider, pendingName\)/);
+  assert.match(save, /body: JSON\.stringify\(draft\)/);
+  assert.match(save, /collectModelRenames\(draft,/);
 });
