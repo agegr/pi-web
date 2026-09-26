@@ -3,7 +3,7 @@ import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
@@ -262,11 +262,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onAgentEnd?.();
   }, [completionNotificationsEnabled, onAgentEnd]);
 
-  // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
-  const handleEditContent = useCallback((message: UserMessage) => {
-    chatInputRef?.current?.replaceMessage(message);
-  }, [chatInputRef]);
-
   const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
   const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
     const position = initialScrollPositionRef.current;
@@ -288,7 +283,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     showScrollToBottom,
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
@@ -866,6 +861,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       ref={chatInputRef}
       onSend={handleSend}
       onAbort={handleAbort}
+      onCancelEdit={cancelEdit}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
@@ -1058,8 +1054,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
                     onFork={sessionBusy || isNew ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
-                    onNavigate={sessionBusy ? undefined : handleNavigate}
-                    onEditContent={handleEditContent}
+                    onEditContent={sessionBusy ? undefined : handleEditContent}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}

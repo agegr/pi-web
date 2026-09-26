@@ -198,6 +198,19 @@ test("first user messages expose both branch actions and edit before their own e
   assert.match(navigateSource, /await loadSession\(sid\)/);
 });
 
+test("history edits move the branch only when sent, so cancel or reload keeps it", () => {
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  assert.doesNotMatch(chatWindowSource, /onNavigate=/);
+  assert.match(source, /if \(session\?\.id && opts\.chatInputRef\?\.current\?\.replaceMessage\(message\)\) setEdit\(entryId\)/);
+  assert.match(chatInputSource, /onClick=\{\(\) => \{ clearInput\(\); onCancelEdit\(\); \}\}/);
+  assert.match(source, /const cancelEdit = useCallback\(\(\) => setEdit\(null\)/);
+  assert.match(sendSource, /setEdit\(null\);\s*if \(!\(await handleNavigateRef\.current\?\.\(entryId\)\)\) \{\s*setEdit\(entryId\);\s*restoreSubmission\(/);
+});
+
 test("an empty persisted session displays the model it will use on first send", () => {
   assert.match(
     source,

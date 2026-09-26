@@ -41,6 +41,8 @@ export interface AttachedImage {
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
+  /** Present while a history edit is pending; shows the edit banner. */
+  onCancelEdit?: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
@@ -88,7 +90,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
-  replaceMessage: (message: UserMessage) => void;
+  replaceMessage: (message: UserMessage) => boolean;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
@@ -549,7 +551,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, onCancelEdit, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -638,7 +640,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return false;
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
@@ -657,6 +659,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
+      return true;
     },
     prependText(text: string) {
       if (!text.trim()) return;
@@ -1729,6 +1732,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           >
             {compactError}
+          </div>
+        )}
+        {onCancelEdit && (
+          <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, fontSize: 12, color: "var(--text-muted)" }}>
+            <span>{t("i18n.editFromHere")}</span>
+            <button
+              type="button"
+              onClick={() => { clearInput(); onCancelEdit(); }}
+              style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: "2px 6px" }}
+            >
+              {t("i18n.cancel")}
+            </button>
           </div>
         )}
         {/* Image previews */}
