@@ -5,6 +5,8 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import type { Plugin } from "unified";
+import type { Extension } from "micromark-util-types";
 
 const markdownSanitizeSchema = {
   ...defaultSchema,
@@ -361,15 +363,46 @@ function isLikelyMathExpression(value: string): boolean {
 // GFM's default single-tilde strikethrough silently mangled such ranges (#385).
 const remarkGfmOptions = { singleTilde: false } as const;
 
+// Reject ambiguous single-dollar pairs during tokenization, before math can
+// swallow Markdown emphasis or links. A price's next dollar ("$20 ... $6")
+// cannot close math, nor can the space before a later formula ("$20 and $x$").
+// Keep the upstream tokenizer/resolver for real math, code, escapes and $$.
+const remarkCurrencySafeMath: Plugin = function () {
+  remarkMath.call(this);
+  const data = this.data() as { micromarkExtensions?: Extension[] };
+  const extension = data.micromarkExtensions?.at(-1);
+  const constructs = extension?.text?.[36];
+  for (const construct of Array.isArray(constructs) ? constructs : constructs ? [constructs] : []) {
+    if (construct.name !== "mathText") continue;
+    const tokenize = construct.tokenize;
+    construct.tokenize = function (effects, ok, nok) {
+      const start = this.now();
+      return tokenize.call(this, effects, (code) => {
+        const source = this.sliceSerialize({ start, end: this.now() });
+        if (source.startsWith("$") && !source.startsWith("$$")) {
+          const content = source.slice(1, -1);
+          const startsWithAmount = /^\s*[+-]?(?:\d|\.\d)/.test(content);
+          const closesBeforeNumber = code !== null && code >= 48 && code <= 57;
+          // Balanced padding ($ x + y $) remains supported, as does multiline
+          // math. A one-sided space is prose, not an inline-math boundary.
+          const mismatchedPadding = /^\s/.test(content) !== /\s$/.test(content);
+          if (startsWithAmount && (closesBeforeNumber || mismatchedPadding)) return nok(code);
+        }
+        return ok(code);
+      }, nok);
+    };
+  }
+};
+
 export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
   [remarkGfm, remarkGfmOptions],
-  remarkMath,
+  remarkCurrencySafeMath,
 ];
 export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
   [remarkGfm, remarkGfmOptions],
-  remarkMath,
+  remarkCurrencySafeMath,
 ];
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
