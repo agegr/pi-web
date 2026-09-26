@@ -537,6 +537,7 @@ export const enLocale: LocalePlugin = {
     "models.discoverySelectShown": "Select shown",
     "models.discoveryNoMatches": "No matching models.",
     "models.configUnreadable": "Could not read models.json, so saving is disabled to avoid overwriting it. Fix the file, then reopen this panel. {error}",
+    "models.providerNameTaken": "Another provider is already named \"{name}\". Choose a different name.",
     "models.discoveryAdded": "added",
     "models.discoveryShowing": "Showing first {shown} of {total}",
     "models.discoveryFetched": "{count} models fetched",

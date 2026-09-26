@@ -217,8 +217,8 @@ test("the section carries the usage heading font and no rule above it", () => {
 
 test("saving models.json resyncs the switches with the pre-save intent", () => {
   assert.match(modelsConfigSource, /enabledModels\.resync\(renames, modelRenames\)/);
-  assert.match(modelsConfigSource, /collectModelRenames\(config, savedModelIdsRef\.current, renamesRef\.current\)/);
-  assert.match(modelsConfigSource, /savedProvidersRef\.current\.has\(original\)/);
+  assert.match(modelsConfigSource, /collectModelRenames\(draft, savedModelIdsRef\.current, renamesRef\.current\)/);
+  assert.match(modelsConfigSource, /savedProviders: savedProvidersRef\.current,\s*renames: renamesRef\.current,/);
   // Providers that were fully enabled stay fully enabled across the save.
   assert.match(source, /provider\.enabledCount === provider\.models\.length\)\s*\n\s*\.map\(\(provider\) => provider\.id\)/);
 });
@@ -240,9 +240,9 @@ test("provider rows carry the scope badge", () => {
 
 test("the saved-model slots mirror every move the draft makes", () => {
   assert.match(modelsConfigSource, /savedModelIdsRef\.current = savedModelIds\(normalized\)/);
-  assert.match(modelsConfigSource, /savedModelIdsRef\.current = savedModelIds\(config\)/);
+  assert.match(modelsConfigSource, /savedModelIdsRef\.current = savedModelIds\(draft\)/);
   assert.match(modelsConfigSource, /trackAddedModels\(savedModelIdsRef\.current, providerName, 1\)/);
   assert.match(modelsConfigSource, /savedModelIdsRef\.current\.get\(providerName\)\?\.splice\(index, 1\)/);
   assert.match(modelsConfigSource, /savedModelIdsRef\.current\.delete\(name\)/);
-  assert.match(modelsConfigSource, /savedModelIdsRef\.current\.set\(newName, slots\)/);
+  assert.match(modelsConfigSource, /slots: savedModelIdsRef\.current,/);
 });
