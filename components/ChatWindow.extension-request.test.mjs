@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+const css = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const dialogSource = source.slice(source.indexOf("function ExtensionDialog"));
 const customSource = source.slice(source.indexOf("function ExtensionCustomPanel"));
 
@@ -31,14 +32,24 @@ test("adds collapse without replacing cancel", () => {
 test("renders extension confirmation and options as markdown", () => {
   assert.match(source, /import \{ MarkdownBody \} from "\.\/MarkdownBody"/);
   assert.match(dialogSource, /<MarkdownBody>\{request\.message\}<\/MarkdownBody>/);
-  assert.match(dialogSource, /role="button"[\s\S]*?data-extension-option[\s\S]*?<div inert>[\s\S]*?<MarkdownBody>\{option\}<\/MarkdownBody>/);
+  assert.match(dialogSource, /role="button"[\s\S]*?data-extension-option[\s\S]*?<div inert>[\s\S]*?<MarkdownBody className="extension-option-markdown">\{option\}<\/MarkdownBody>/);
   assert.match(dialogSource, /ref=\{index === 0 \? focusFirstOption : undefined\}/);
 });
 
-test("preserves title newlines like pi's TUI and keeps long titles from hiding the body", () => {
-  const header = dialogSource.slice(dialogSource.indexOf('role="dialog"'), dialogSource.indexOf("{request.method === \"confirm\""));
-  assert.match(header, /whiteSpace: "pre-wrap", overflowWrap: "anywhere" \}\}>\{request\.title\}/);
-  assert.match(header, /maxHeight: "50%", overflowY: "auto" \}\}>[\s\S]*?\{request\.title\}/);
+test("preserves multiline titles as a heading and bounded plain-text detail above the options", () => {
+  assert.match(dialogSource, /const \[heading, \.\.\.detailLines\] = request\.title\.split\(\/\\r\?\\n\/\);/);
+  assert.match(dialogSource, /const detail = detailLines\.join\("\\n"\)\.trim\(\);/);
+  assert.match(dialogSource, /maxWidth: "min\(640px, 100%\)"[\s\S]*?\{heading\}/);
+  assert.match(dialogSource, /role="dialog"\s+aria-label=\{heading\}\s+aria-describedby=\{detail \? detailId : undefined\}/);
+  assert.match(dialogSource, /width: "min\(640px, 100%\)"/);
+  assert.match(dialogSource, /maxHeight: "50%", overflowY: "auto"[\s\S]*?whiteSpace: "pre-wrap", overflowWrap: "anywhere" \}\}>\{heading\}/);
+  assert.match(dialogSource, /id=\{detailId\}[\s\S]*?maxHeight: "min\(168px, 30vh\)"[\s\S]*?whiteSpace: "pre-wrap"[\s\S]*?\{detail\}/);
+  assert.match(dialogSource, /\{detail && \([\s\S]*?\{detail\}[\s\S]*?\{request\.method === "select"/);
+  assert.match(dialogSource, /padding: "8px 10px"[\s\S]*?<MarkdownBody className="extension-option-markdown">\{option\}<\/MarkdownBody>/);
+  assert.match(css, /\.markdown-body\.extension-option-markdown \{ font-size: inherit; line-height: 1\.55; \}/);
+  assert.match(css, /\.markdown-body\.extension-option-markdown > :first-child \{ margin-top: 0; \}/);
+  assert.match(css, /\.markdown-body\.extension-option-markdown > :last-child \{ margin-bottom: 0; \}/);
+  assert.match(css, /\.markdown-body\.extension-option-markdown li \{ margin: 0; \}/);
 });
 
 test("resets collapse state when a new extension request arrives", () => {

@@ -10,6 +10,8 @@ export const extensionSource = `export default function (pi) {
         result = await ctx.ui.input("E2E after timeout");
       } else if (mode === "select") {
         result = await ctx.ui.select("E2E select", Array.from({ length: 30 }, (_, i) => "Option " + (i + 1)));
+      } else if (mode === "multiline") {
+        result = await ctx.ui.select("E2E multiline\\n\\n" + Array.from({ length: 40 }, (_, i) => "Preview line " + (i + 1)).join("\\n"), ["Alpha", "Beta", "Gamma"]);
       } else {
         result = await ctx.ui[mode]("E2E " + mode, "Details");
       }
@@ -57,6 +59,31 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await page.keyboard.press("Enter");
     await select.waitFor({ state: "hidden" });
     await finish("select", "Option 30");
+
+    const multiline = await start("multiline");
+    const detailId = await multiline.getAttribute("aria-describedby");
+    assert.ok(detailId);
+    assert.equal(await multiline.locator(`[id="${detailId}"]`).innerText(), Array.from({ length: 40 }, (_, i) => "Preview line " + (i + 1)).join("\n"));
+    assert.equal(await multiline.locator(`[id="${detailId}"]`).evaluate(element => getComputedStyle(element).whiteSpace), "pre-wrap");
+    assert.ok(await multiline.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return rect.width <= 640 && rect.left >= 0 && rect.right <= innerWidth;
+    }), "Dialog must fit within 640px and the viewport");
+    const visibleOptions = await multiline.locator("[data-extension-option]").evaluateAll(options => {
+      const body = options[0].parentElement.parentElement.getBoundingClientRect();
+      return options.map(option => {
+        const rect = option.getBoundingClientRect();
+        return rect.top >= body.top && rect.bottom <= body.bottom && rect.left >= body.left && rect.right <= body.right;
+      });
+    });
+    assert.deepEqual(visibleOptions, [true, true, true], "Options must be fully visible without scrolling");
+    await page.screenshot({ path: join(artifacts, `extension-multiline-${width}.png`) });
+    const beforeMultiline = commands.length;
+    await page.keyboard.press("Escape");
+    await multiline.waitFor({ state: "hidden" });
+    await finish("multiline", "undefined");
+    assert.equal(commands.slice(beforeMultiline).filter(command => command.type === "extension_ui_response").length, 1);
+    assert.equal(commands.slice(beforeMultiline).some(command => command.type === "abort"), false, "Dialog Esc must not abort the agent");
 
     for (const mode of ["select", "confirm", "input", "editor"]) {
       const dialog = await start(mode);

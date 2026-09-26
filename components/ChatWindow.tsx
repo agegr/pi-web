@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import Image from "next/image";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
@@ -1499,6 +1499,11 @@ function ExtensionDialog({
   const [now, setNow] = useState(() => Date.now());
   const focusFirstOption = useCallback((element: HTMLDivElement | null) => element?.focus(), []);
   const summary = getExtensionDialogSummary(request);
+  // select/input have no message field, so extensions put multi-line text in the title.
+  // Keep the first line as the heading and show the rest verbatim in a bounded detail block.
+  const [heading, ...detailLines] = request.title.split(/\r?\n/);
+  const detail = detailLines.join("\n").trim();
+  const detailId = useId();
   const remainingSeconds = request.expiresAt === undefined
     ? null
     : Math.max(0, Math.ceil((request.expiresAt - now) / 1000));
@@ -1553,7 +1558,7 @@ function ExtensionDialog({
             display: "flex",
             alignItems: "center",
             gap: 10,
-            maxWidth: "min(560px, 100%)",
+            maxWidth: "min(640px, 100%)",
             width: "100%",
             padding: "10px 12px",
             border: "1px solid var(--border)",
@@ -1569,7 +1574,7 @@ function ExtensionDialog({
             {t("chat.extensionPending")}
           </span>
           <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {request.title}
+            {heading}
           </span>
           {summary && (
             <span style={{ fontSize: 12, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "34%", flexShrink: 1 }}>
@@ -1584,10 +1589,11 @@ function ExtensionDialog({
       ) : (
       <div
         role="dialog"
-        aria-label={request.title}
+        aria-label={heading}
+        aria-describedby={detail ? detailId : undefined}
         style={{
           pointerEvents: "auto",
-          width: "min(560px, 100%)",
+          width: "min(640px, 100%)",
           maxHeight: "min(760px, 100%)",
           display: "flex",
           flexDirection: "column",
@@ -1600,9 +1606,7 @@ function ExtensionDialog({
       >
         <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)", maxHeight: "50%", overflowY: "auto" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Pi's TUI shows the title verbatim, newlines included; select/input have no
-                separate message field, so extensions put multi-line text here. */}
-            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{request.title}</div>
+            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{heading}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
               <span>{t("chat.extensionRequest")}</span>
               {countdown}
@@ -1639,6 +1643,27 @@ function ExtensionDialog({
             flex: "1 1 auto", minHeight: 0, overflowY: "auto",
           }}
         >
+          {detail && (
+            <div
+              id={detailId}
+              style={{
+                margin: "0 0 10px",
+                padding: "6px 11px",
+                maxHeight: "min(168px, 30vh)",
+                overflowY: "auto",
+                borderLeft: "3px solid color-mix(in srgb, var(--border) 75%, var(--text-muted))",
+                borderRadius: "0 6px 6px 0",
+                background: "var(--bg-subtle)",
+                color: "var(--text-muted)",
+                fontSize: 13,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {detail}
+            </div>
+          )}
           {request.method === "confirm" && (
             <MarkdownBody>{request.message}</MarkdownBody>
           )}
@@ -1674,7 +1699,7 @@ function ExtensionDialog({
                   }}
                   style={{
                     width: "100%",
-                    padding: "9px 10px",
+                    padding: "8px 10px",
                     borderRadius: 7,
                     border: "1px solid var(--border)",
                     background: "var(--bg-panel)",
@@ -1690,7 +1715,7 @@ function ExtensionDialog({
                   }}
                 >
                   <div inert>
-                    <MarkdownBody>{option}</MarkdownBody>
+                    <MarkdownBody className="extension-option-markdown">{option}</MarkdownBody>
                   </div>
                 </div>
               ))}
