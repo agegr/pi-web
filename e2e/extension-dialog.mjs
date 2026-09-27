@@ -78,6 +78,7 @@ export async function checkExtensionDialogs(page, artifacts, width) {
       await cancel.waitFor({ state: "visible" });
       assert.ok(await header.evaluate((element) => element.scrollHeight > element.clientHeight), "A long select title must scroll within its header");
       await header.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      assert.ok(await header.evaluate((element) => element.scrollTop + element.clientHeight >= element.scrollHeight), "The long select title must scroll to its end");
       assert.ok(await option.isVisible(), "Options must remain available while scrolling a long title");
       assert.ok(await cancel.isVisible(), "Dialog actions must remain available while scrolling a long title");
       await page.screenshot({ path: join(artifacts, `extension-long-title-${width}.png`) });

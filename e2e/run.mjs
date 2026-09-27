@@ -344,12 +344,14 @@ try {
       const readingOffset = (target) => target.evaluate((element) => (
         element.getBoundingClientRect().top - element.closest(".overflow-y-auto").getBoundingClientRect().top
       ));
-      const waitForReadingOffset = async (target, expected) => {
-        await page.waitForFunction(({ element, expected }) => {
+      const waitForReadingOffset = async (selector, expected) => {
+        await page.waitForFunction(({ selector, expected }) => {
+          const element = document.querySelector(selector);
+          if (!element) return false;
           const scroll = element.closest(".overflow-y-auto");
           return scroll && Math.abs(element.getBoundingClientRect().top
             - scroll.getBoundingClientRect().top - expected) < 5;
-        }, { element: await target.elementHandle(), expected });
+        }, { selector, expected });
       };
       const positionForReading = async (target) => {
         await target.evaluate((element) => {
@@ -370,10 +372,10 @@ try {
       const answerHeading = page.getByRole("heading", { name: "E2E reading position", exact: true });
       const answerOffset = await positionForReading(answerHeading);
       await selectSession(text(0), "e4920");
-      await waitForReadingOffset(olderMessage, olderOffset);
+      await waitForReadingOffset("[data-entry-id='e4920']:not([data-message-role])", olderOffset);
       await selectSession("Render **E2E markdown**", "user");
       assert.equal(await process.getAttribute("aria-expanded"), "false");
-      await waitForReadingOffset(answerHeading, answerOffset);
+      await waitForReadingOffset("[data-entry-id='answer'] h2", answerOffset);
 
       // Hold pagination until a different branch has loaded, exercising effect cancellation.
       let releaseHistory;
