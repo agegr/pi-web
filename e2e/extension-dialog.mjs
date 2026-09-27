@@ -12,6 +12,11 @@ export const extensionSource = `export default function (pi) {
         result = await ctx.ui.select("E2E select", Array.from({ length: 30 }, (_, i) => "Option " + (i + 1)));
       } else if (mode === "multiline") {
         result = await ctx.ui.select("E2E multiline\\n\\n" + Array.from({ length: 40 }, (_, i) => "Preview line " + (i + 1)).join("\\n"), ["Alpha", "Beta", "Gamma"]);
+      } else if (mode === "custom") {
+        result = await ctx.ui.custom((_tui, _theme, _kb, done) => ({
+          render: () => ["E2E custom panel"],
+          handleInput: (data) => { if (data === "\\x03") done(undefined); },
+        }));
       } else {
         result = await ctx.ui[mode]("E2E " + mode, "Details");
       }
@@ -43,8 +48,16 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await page.getByRole("button", { name: "Stop agent", exact: true }).waitFor({ state: "hidden" });
   };
 
+  const checkTouchTargets = async (overlay) => {
+    if (width > 640) return;
+    const heights = await overlay.locator("button, [data-extension-option]").evaluateAll(elements =>
+      elements.map(element => ({ label: element.getAttribute("aria-label") || element.textContent?.trim(), height: element.getBoundingClientRect().height, width: element.getBoundingClientRect().width })));
+    assert.ok(heights.length > 0 && heights.every(({ height, width }) => height >= 44 && width >= 44), `Phone touch targets must be at least 44px: ${JSON.stringify(heights)}`);
+  };
+
   try {
     const select = await start("select");
+    await checkTouchTargets(select);
     await page.waitForFunction(() => document.activeElement?.textContent === "Option 1");
     for (const [key, expected] of [["ArrowUp", "Option 30"], ["ArrowDown", "Option 1"], ["ArrowRight", "Option 2"], ["ArrowLeft", "Option 1"], ["End", "Option 30"], ["Home", "Option 1"], ["End", "Option 30"]]) {
       await page.keyboard.press(key);
@@ -59,6 +72,11 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await page.keyboard.press("Enter");
     await select.waitFor({ state: "hidden" });
     await finish("select", "Option 30");
+    if (width <= 640) {
+      const touchSelect = await start("select");
+      await touchSelect.getByText("Option 2", { exact: true }).tap();
+      await finish("select", "Option 2");
+    }
 
     const multiline = await start("multiline");
     const detailId = await multiline.getAttribute("aria-describedby");
@@ -76,7 +94,18 @@ export async function checkExtensionDialogs(page, artifacts, width) {
         return rect.top >= body.top && rect.bottom <= body.bottom && rect.left >= body.left && rect.right <= body.right;
       });
     });
-    assert.deepEqual(visibleOptions, [true, true, true], "Options must be fully visible without scrolling");
+    if (page.viewportSize().height >= 700) {
+      assert.deepEqual(visibleOptions, [true, true, true], "Options must be fully visible without scrolling on taller screens");
+    } else {
+      const last = multiline.locator("[data-extension-option]").last();
+      await last.scrollIntoViewIfNeeded();
+      assert.ok(await last.evaluate(element => {
+        const option = element.getBoundingClientRect();
+        const body = element.parentElement.parentElement.getBoundingClientRect();
+        return option.top >= body.top && option.bottom <= body.bottom && option.bottom <= innerHeight;
+      }), "Options must remain reachable by scrolling on short phones");
+    }
+    await checkTouchTargets(multiline);
     await page.screenshot({ path: join(artifacts, `extension-multiline-${width}.png`) });
     const beforeMultiline = commands.length;
     await page.keyboard.press("Escape");
@@ -87,11 +116,15 @@ export async function checkExtensionDialogs(page, artifacts, width) {
 
     for (const mode of ["select", "confirm", "input", "editor"]) {
       const dialog = await start(mode);
+      await checkTouchTargets(dialog);
       assert.ok(await page.locator(":focus").evaluate(element => element.closest('[role="dialog"]')));
       if (mode === "input" || mode === "editor") {
         await dialog.getByRole("textbox").fill("Preserved draft");
-        await dialog.getByRole("button", { name: "Collapse", exact: true }).click();
-        await page.getByRole("button", { name: new RegExp(`Awaiting response.*E2E ${mode}`) }).click();
+        if (width <= 640) await dialog.getByRole("button", { name: "Collapse", exact: true }).tap();
+        else await dialog.getByRole("button", { name: "Collapse", exact: true }).click();
+        const collapsed = page.getByRole("button", { name: new RegExp(`Awaiting response.*E2E ${mode}`) });
+        await checkTouchTargets(collapsed.locator(".."));
+        await collapsed.click();
         assert.equal(await dialog.getByRole("textbox").inputValue(), "Preserved draft");
       }
       if (mode === "input" || mode === "editor") await dialog.getByRole("button", { name: "Cancel", exact: true }).focus();
@@ -103,7 +136,24 @@ export async function checkExtensionDialogs(page, artifacts, width) {
       assert.equal(commands.slice(before).some(command => command.type === "abort"), false, "Dialog Esc must not abort the agent");
     }
 
+    if (width <= 640) {
+      const input = page.locator("textarea").last();
+      await input.fill("/e2e-dialog custom");
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      const custom = page.getByRole("dialog").filter({ hasText: "E2E custom panel" });
+      await custom.waitFor();
+      await checkTouchTargets(custom);
+      await custom.getByRole("button", { name: "Collapse", exact: true }).tap();
+      const collapsed = page.getByRole("button", { name: /Extension panel.*E2E custom panel/ });
+      await checkTouchTargets(collapsed.locator(".."));
+      await collapsed.click();
+      await custom.getByRole("button", { name: "Close", exact: true }).click();
+      await custom.waitFor({ state: "hidden" });
+      await finish("custom", "undefined");
+    }
+
     const timed = await start("timeout");
+    await checkTouchTargets(timed);
     const countdown = timed.getByText(/expires in \ds/);
     await countdown.waitFor();
     const initialCountdown = await countdown.innerText();

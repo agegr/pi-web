@@ -1531,6 +1531,7 @@ function ExtensionDialog({
 
   return (
     <div
+      data-extension-overlay
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
         event.preventDefault();
@@ -1841,6 +1842,7 @@ function ExtensionCustomPanel({
 
   return (
     <div
+      data-extension-overlay
       style={{
         position: "absolute",
         inset: 0,

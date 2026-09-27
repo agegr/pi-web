@@ -15,6 +15,7 @@ import { checkChatAppearance } from "./chat-appearance.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
+const dialogOnly = process.env.E2E_DIALOG_ONLY === "1";
 assert.ok(mode === "dev" || mode === "start", "E2E_SERVER_MODE must be dev or start");
 assert.ok(mode !== "dev" || !existsSync(join(root, ".next/dev/lock")), "Use a checkout without an active dev server");
 const artifacts = join(root, "test-results/e2e");
@@ -173,6 +174,7 @@ try {
     await delay(250);
   }
 
+  if (!dialogOnly) {
   const detail = await api(`/api/sessions/${LONG}?deferThinking=1&deferMedia=1`);
   assert.deepEqual(detail.context.entryIds, ids(4950, 5000));
   assert.equal(detail.context.messages.length, 50);
@@ -218,12 +220,15 @@ try {
     console.log("PASS: external session-file appends are visible on force/mount reads");
   }
 
-  browser = await chromium.launch();
-  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
-    context = await browser.newContext({ viewport, locale: "en-US" });
+  }
+
+  browser = await chromium.launch(process.env.E2E_CHROMIUM_PATH ? { executablePath: process.env.E2E_CHROMIUM_PATH } : {});
+  for (const viewport of dialogOnly ? [{ width: 390, height: 844 }, { width: 320, height: 568 }] : [{ width: 1280, height: 800 }, { width: 390, height: 844 }, { width: 320, height: 568 }]) {
+    const fullE2E = !dialogOnly && viewport.width !== 320;
+    context = await browser.newContext({ viewport, locale: "en-US", hasTouch: viewport.width <= 640, isMobile: viewport.width <= 640 });
     await context.tracing.start({ screenshots: true, snapshots: true });
     page = await context.newPage();
-    page.setDefaultTimeout(30_000);
+    page.setDefaultTimeout(fullE2E ? 30_000 : 90_000);
     const errors = [];
     const olderResponses = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -233,6 +238,7 @@ try {
       const url = new URL(response.url());
       if (url.pathname === `/api/sessions/${LONG}/context` && url.searchParams.has("before")) olderResponses.push(response);
     });
+    if (fullE2E) {
     const stateReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/sessions/${LONG}/state`);
     await page.goto(`${base}/?session=${LONG}`, { waitUntil: "domcontentloaded" });
     assert.equal((await stateReady).status(), 200);
@@ -399,14 +405,20 @@ try {
     await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
     await page.locator(".markdown-code-block pre").waitFor();
     await checkFilePanel(page, previewFile);
-    await checkExtensionDialogs(page, artifacts, viewport.width);
-    if (viewport.width > 600) {
+    } else {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
-      await page.locator(".markdown-code-block pre").waitFor();
-      await checkChatAppearance(page);
+      await page.locator("textarea").last().waitFor();
+    }
+    await checkExtensionDialogs(page, artifacts, viewport.width);
+    if (fullE2E) {
+      if (viewport.width > 600) {
+        await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
+        await page.locator(".markdown-code-block pre").waitFor();
+        await checkChatAppearance(page);
+      }
     }
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
-    console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
+    if (fullE2E) console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
     await context.tracing.stop();
     await context.close();
     context = undefined;

@@ -1411,3 +1411,11 @@
 .markdown-body.extension-option-markdown > :first-child { margin-top: 0; }
 .markdown-body.extension-option-markdown > :last-child { margin-bottom: 0; }
 .markdown-body.extension-option-markdown li { margin: 0; }
+
+@media (max-width: 640px) {
+  [data-extension-overlay] button,
+  [data-extension-overlay] [data-extension-option] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
