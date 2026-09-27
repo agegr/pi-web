@@ -1980,6 +1980,7 @@ function ExtensionCustomPanel({
             margin: 0,
             padding: 14,
             minHeight: 0,
+            maxHeight: "min(35vh, 260px)",
             overflow: "auto",
             background: "var(--bg-panel)",
             color: "var(--text)",
