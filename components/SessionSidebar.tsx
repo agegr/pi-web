@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
+import { getActiveProjects } from "@/lib/active-sessions";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -166,6 +167,7 @@ interface ValidatedProject {
 }
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const SIDEBAR_MODE_STORAGE_KEY = "pi-web:sidebar-mode";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
@@ -385,6 +387,16 @@ function PiWebTitle() {
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
+  const [sidebarMode, setSidebarMode] = useState<"projects" | "active">("projects");
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(SIDEBAR_MODE_STORAGE_KEY) === "active") setSidebarMode("active");
+    } catch { /* Storage may be unavailable. */ }
+  }, []);
+  const selectSidebarMode = (mode: "projects" | "active") => {
+    setSidebarMode(mode);
+    try { window.localStorage.setItem(SIDEBAR_MODE_STORAGE_KEY, mode); } catch { /* best-effort */ }
+  };
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
@@ -1088,6 +1100,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions), [filteredSessions]);
+  const activeProjects = useMemo(() => sidebarMode === "active"
+    ? getActiveProjects(allSessions, runningSessionIds, unreadSessionIds, selectedSessionId)
+    : [], [sidebarMode, allSessions, runningSessionIds, unreadSessionIds, selectedSessionId]);
 
   const virtualIndices = useMemo(() => getSessionListIndices(
     sessionFamilies.length,
@@ -1168,7 +1183,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </svg>
               {t("sidebar.new")}
             </button>
-            <button
+            {sidebarMode === "projects" && <button
               type="button"
               onClick={() => {
                 setSessionSearchOpen((open) => !open);
@@ -1183,10 +1198,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
               </svg>
-            </button>
+            </button>}
           </div>
         </div>
-
+        <div role="group" aria-label={t("sidebar.viewMode")} style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          {(["projects", "active"] as const).map((mode) => (
+            <button key={mode} type="button" aria-pressed={sidebarMode === mode}
+              onClick={() => selectSidebarMode(mode)}
+              style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 7,
+                border: "1px solid var(--border)", cursor: "pointer",
+                background: sidebarMode === mode ? "var(--bg-selected)" : "var(--bg-hover)",
+                color: sidebarMode === mode ? "var(--accent)" : "var(--text-muted)" }}>
+              {t(mode === "projects" ? "sidebar.projects" : "sidebar.active")}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: sidebarMode === "projects" ? "contents" : "none" }}>
         {/* CWD picker */}
         <div ref={dropdownRef} style={{ position: "relative" }}>
           <button
@@ -1763,6 +1790,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
           </button>
         )}
+        </div>
       </div>
 
       {/* Session list */}
@@ -1778,6 +1806,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           overflow: "hidden",
         }}
       >
+        <div style={{ display: sidebarMode === "projects" ? "contents" : "none" }}>
         <SessionSearch open={sessionSearchOpen} query={sessionSearchQuery} selectedSessionId={selectedSessionId} onSelectSession={handleSelectSessionFromList}>
         <div
           ref={listScrollRef}
@@ -1845,6 +1874,37 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         )}
         </div>
         </SessionSearch>
+        </div>
+        {sidebarMode === "active" && <div className="scrollbar-subtle" style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+          {loading && <div style={{ padding: 16, color: "var(--text-muted)" }}>{t("sidebar.loading")}</div>}
+          {error && <div style={{ padding: 16, color: "#f87171" }}>{error}</div>}
+          {!loading && !error && activeProjects.length === 0 &&
+            <div style={{ padding: 16, color: "var(--text-muted)" }}>{t("sidebar.noActiveSessions")}</div>}
+          {activeProjects.map((project) => (
+            <section key={project.key} aria-label={project.path}>
+              <div title={project.path} style={{ padding: "12px 12px 4px", fontSize: 11, color: "var(--text-muted)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.path.split(/[\\/]/).filter(Boolean).pop() ?? project.path}</div>
+              {project.families.map((family) => {
+                const members = [family.root, ...family.subagents];
+                const running = members.some((s) => runningSessionIds.has(s.id));
+                const unread = members.some((s) => unreadSessionIds.has(s.id));
+                return <button key={family.root.id} type="button"
+                  onClick={() => handleSelectSessionFromList(family.root)}
+                  aria-current={members.some((s) => s.id === selectedSessionId) ? "true" : undefined}
+                  style={{ width: "100%", minHeight: 54, padding: "8px 12px", display: "flex", alignItems: "center",
+                    gap: 8, border: "none", borderRadius: 0, textAlign: "left", cursor: "pointer",
+                    background: members.some((s) => s.id === selectedSessionId) ? "var(--bg-selected)" : "transparent",
+                    color: "var(--text)" }}>
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {family.root.name || family.root.firstMessage || family.root.id}
+                  </span>
+                  {running && <span style={{ color: "var(--accent)", flexShrink: 0 }}>{t("sidebar.running")}</span>}
+                  {unread && <span style={{ color: "var(--accent)", flexShrink: 0 }}>{t("sidebar.unread")}</span>}
+                </button>;
+              })}
+            </section>
+          ))}
+        </div>}
       </div>
 
       {explorerOpen && (selectedCwdProp || selectedCwd) && (
