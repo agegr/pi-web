@@ -385,7 +385,7 @@ function PiWebTitle() {
 }
 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [sidebarMode, setSidebarMode] = useState<"projects" | "active">("projects");
   useEffect(() => {
@@ -1100,9 +1100,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = useMemo(() => listSessionFamilies(filteredSessions), [filteredSessions]);
-  const activeProjects = useMemo(() => sidebarMode === "active"
-    ? getActiveProjects(allSessions, runningSessionIds, unreadSessionIds, selectedSessionId)
-    : [], [sidebarMode, allSessions, runningSessionIds, unreadSessionIds, selectedSessionId]);
+  const activeProjects = useMemo(() => getActiveProjects(allSessions, runningSessionIds, unreadSessionIds, selectedSessionId),
+    [allSessions, runningSessionIds, unreadSessionIds, selectedSessionId]);
+  const activeCount = activeProjects.reduce((count, project) => count + project.families.length, 0);
 
   const virtualIndices = useMemo(() => getSessionListIndices(
     sessionFamilies.length,
@@ -1201,17 +1201,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </button>}
           </div>
         </div>
-        <div role="group" aria-label={t("sidebar.viewMode")} style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-          {(["projects", "active"] as const).map((mode) => (
-            <button key={mode} type="button" aria-pressed={sidebarMode === mode}
+        <div role="group" aria-label={t("sidebar.viewMode")}
+          style={{ display: "flex", padding: 3, marginBottom: 10, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 8 }}>
+          {(["active", "projects"] as const).map((mode) => {
+            const selected = sidebarMode === mode;
+            return <button key={mode} type="button" aria-pressed={selected}
               onClick={() => selectSidebarMode(mode)}
-              style={{ flex: 1, minWidth: 0, minHeight: 44, borderRadius: 7,
-                border: "1px solid var(--border)", cursor: "pointer",
-                background: sidebarMode === mode ? "var(--bg-selected)" : "var(--bg-hover)",
-                color: sidebarMode === mode ? "var(--accent)" : "var(--text-muted)" }}>
-              {t(mode === "projects" ? "sidebar.projects" : "sidebar.active")}
-            </button>
-          ))}
+              style={{ flex: 1, minWidth: 0, minHeight: 44, border: 0, borderRadius: 5, cursor: "pointer",
+                background: selected ? "var(--bg-selected)" : "transparent",
+                color: selected ? "var(--text)" : "var(--text-muted)", fontSize: 11, fontWeight: selected ? 600 : 500,
+                boxShadow: selected ? "0 1px 2px rgba(0,0,0,0.12)" : "none" }}>
+              {t(mode === "projects" ? "sidebar.modeProject" : "sidebar.modeActive")}{" "}
+              <span style={{ color: selected ? "var(--text-muted)" : "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+                {mode === "projects" ? sessionFamilies.length : activeCount}
+              </span>
+            </button>;
+          })}
         </div>
         <div style={{ display: sidebarMode === "projects" ? "contents" : "none" }}>
         {/* CWD picker */}
@@ -1880,30 +1885,48 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           {error && <div style={{ padding: 16, color: "#f87171" }}>{error}</div>}
           {!loading && !error && activeProjects.length === 0 &&
             <div style={{ padding: 16, color: "var(--text-muted)" }}>{t("sidebar.noActiveSessions")}</div>}
-          {activeProjects.map((project) => (
-            <section key={project.key} aria-label={project.path}>
-              <div title={project.path} style={{ padding: "12px 12px 4px", fontSize: 11, color: "var(--text-muted)",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.path.split(/[\\/]/).filter(Boolean).pop() ?? project.path}</div>
+          {activeProjects.map((project) => {
+            const runningCount = project.families.filter((family) => [family.root, ...family.subagents].some((session) => runningSessionIds.has(session.id))).length;
+            const unreadCount = project.families.filter((family) => [family.root, ...family.subagents].some((session) => unreadSessionIds.has(session.id))).length;
+            return <section key={project.key} aria-label={project.path}>
+              <div title={project.path} style={{ position: "sticky", top: 0, zIndex: 2, display: "flex", alignItems: "center", gap: 7,
+                padding: "8px 11px 3px", fontSize: 10.5, letterSpacing: "0.035em", color: "var(--text-dim)", background: "var(--bg-panel)" }}>
+                <b style={{ fontWeight: 600, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {project.path.split(/[\\/]/).filter(Boolean).pop() ?? project.path}
+                </b>
+                <span style={{ marginLeft: "auto", display: "flex", gap: 7 }}>
+                  {runningCount > 0 && <span style={{ color: "var(--accent)" }} aria-label={`${t("sidebar.agentRunning")} (${runningCount})`}>◌ {runningCount}</span>}
+                  {unreadCount > 0 && <span style={{ color: "#d97706" }} aria-label={`${t("sidebar.newSessionActivity")} (${unreadCount})`}>● {unreadCount}</span>}
+                </span>
+              </div>
               {project.families.map((family) => {
                 const members = [family.root, ...family.subagents];
-                const running = members.some((s) => runningSessionIds.has(s.id));
-                const unread = members.some((s) => unreadSessionIds.has(s.id));
+                const running = members.some((session) => runningSessionIds.has(session.id));
+                const unread = members.some((session) => unreadSessionIds.has(session.id));
+                const selected = members.some((session) => session.id === selectedSessionId);
+                const firstMessage = skillExpansionToCommand(family.root.firstMessage) ?? family.root.firstMessage;
                 return <button key={family.root.id} type="button"
                   onClick={() => handleSelectSessionFromList(family.root)}
-                  aria-current={members.some((s) => s.id === selectedSessionId) ? "true" : undefined}
-                  style={{ width: "100%", minHeight: 54, padding: "8px 12px", display: "flex", alignItems: "center",
-                    gap: 8, border: "none", borderRadius: 0, textAlign: "left", cursor: "pointer",
-                    background: members.some((s) => s.id === selectedSessionId) ? "var(--bg-selected)" : "transparent",
-                    color: "var(--text)" }}>
-                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {family.root.name || family.root.firstMessage || family.root.id}
+                  aria-current={selected ? "true" : undefined}
+                  style={{ width: "100%", minHeight: 74, padding: "7px 8px 7px 14px", display: "flex", alignItems: "center",
+                    gap: 6, border: "none", borderLeft: `2px solid ${selected ? "var(--accent)" : "transparent"}`,
+                    borderRadius: 0, textAlign: "left", cursor: "pointer", background: selected ? "var(--bg-selected)" : "transparent", color: "var(--text)" }}>
+                  <span style={{ width: 14, flexShrink: 0, color: running ? "var(--accent)" : unread ? "#0891b2" : "var(--text-dim)" }}>
+                    {running ? <RunningSessionIndicator /> : unread ? <UnreadSessionIndicator /> : <span aria-hidden="true">○</span>}
                   </span>
-                  {running && <span style={{ color: "var(--accent)", flexShrink: 0 }}>{t("sidebar.running")}</span>}
-                  {unread && <span style={{ color: "var(--accent)", flexShrink: 0 }}>{t("sidebar.unread")}</span>}
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12,
+                      fontWeight: selected ? 600 : 500, lineHeight: 1.35 }}>
+                      {family.root.name || firstMessage.slice(0, 50) || family.root.id.slice(0, 12)}
+                    </span>
+                    <span style={{ display: "block", marginTop: 2, color: "var(--text-dim)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {t("sidebar.messagesCount", { count: family.root.messageCount })} · {formatRelativeTime(family.latestModified, locale)}
+                    </span>
+                  </span>
                 </button>;
               })}
-            </section>
-          ))}
+            </section>;
+          })}
         </div>}
       </div>
 
@@ -1951,6 +1974,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 alignItems: "center",
                 gap: 6,
                 flex: 1,
+                minWidth: 0,
                 padding: "6px 10px",
                 background: "none",
                 border: "none",
@@ -1971,6 +1995,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <polyline points="3 2 7 5 3 8" />
               </svg>
               {t("files.explorer")}
+              {sidebarMode === "active" && selectedProject && (
+                <span style={{ minWidth: 0, overflowWrap: "anywhere", color: "var(--text-dim)", fontWeight: 400 }}>
+                  · {selectedProject.root.split(/[\\/]/).filter(Boolean).pop()}
+                </span>
+              )}
             </button>
             {onOpenTerminal && (
               <ToolbarIconButton

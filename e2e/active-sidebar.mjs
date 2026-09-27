@@ -68,14 +68,20 @@ try {
       const openSidebar = async () => { if (mobile) await page.getByRole("button", { name: "Show sidebar" }).click(); };
       const activate = async (button) => mobile ? button.tap() : button.click();
       const waitForMode = (mode) => page.waitForFunction((expected) =>
-        document.querySelector('#session-sidebar button[aria-pressed="true"]')?.textContent?.trim() === expected, mode);
+        document.querySelector('#session-sidebar button[aria-pressed="true"]')?.textContent?.trim().startsWith(`${expected} `), mode);
       await openSidebar();
       const sidebar = page.locator("#session-sidebar");
-      const projectsButton = sidebar.getByRole("button", { name: "Projects", exact: true });
-      const activeButton = sidebar.getByRole("button", { name: "Active", exact: true });
+      const projectsButton = sidebar.getByRole("button", { name: /^Project\s+\d+$/ });
+      const activeButton = sidebar.getByRole("button", { name: /^Active\s+\d+$/ });
       await projectsButton.waitFor();
+      const modeButtons = sidebar.getByRole("group", { name: "Session view" }).getByRole("button");
+      assert.match(await modeButtons.nth(0).innerText(), /^Active\s+\d+$/, "Active leads the compact counted tabs");
+      assert.match(await modeButtons.nth(1).innerText(), /^Project\s+\d+$/, "Project follows Active");
       assert.equal(await projectsButton.getAttribute("aria-pressed"), "true", "Projects is the default");
       await sidebar.getByText("Active fixture active-a", { exact: true }).waitFor();
+      await page.waitForFunction(() => [...document.querySelectorAll('#session-sidebar button[aria-pressed]')]
+        .some((button) => button.textContent?.trim().replace(/\s+/g, " ") === "Project 91"));
+      assert.equal((await modeButtons.nth(0).innerText()).replace(/\s+/g, " "), "Active 2");
       assert.equal(await sidebar.getByText("Active fixture active-b", { exact: true }).count(), 0, "Projects keeps the current workspace filter");
       if (!mobile) {
         const list = sidebar.locator(".scrollbar-subtle").filter({ hasText: "Active fixture active-a" });
@@ -90,7 +96,7 @@ try {
         await waitForMode("Active");
         assert.equal(await original.evaluate((element) => element.getClientRects().length), 0, "Projects list must be hidden in Active");
         await activate(projectsButton);
-        await waitForMode("Projects");
+        await waitForMode("Project");
         assert.equal(await original.evaluate((element) => element.isConnected), true, "Projects list must remain mounted");
         assert.equal(await original.evaluate((element) => element.scrollTop), scrollTop, "Projects scroll position must survive mode switching");
       }
@@ -103,6 +109,14 @@ try {
       await sidebar.getByText("project-a", { exact: true }).waitFor();
       await sidebar.getByText("project-b", { exact: true }).waitFor();
       const row = sidebar.getByRole("button", { name: /Active fixture active-b/ });
+      assert.match(await row.innerText(), /1 msgs/);
+      assert.equal(await row.getByText("○", { exact: true }).count(), 1, "Active row has the local status indicator");
+      assert.equal(await sidebar.getByRole("region", { name: projects[1] }).getByText("project-b").evaluate((element) => getComputedStyle(element.parentElement).position), "sticky");
+      await sidebar.getByRole("button", { name: /Explorer.*project-a/i }).waitFor();
+      const refreshBox = await sidebar.getByRole("button", { name: "Refresh explorer" }).boundingBox();
+      const sidebarBox = await sidebar.boundingBox();
+      assert.ok(refreshBox && sidebarBox && refreshBox.x + refreshBox.width <= sidebarBox.x + sidebarBox.width,
+        `${width}px Explorer toolbar must remain inside the sidebar`);
       for (const control of [projectsButton, activeButton, row]) {
         const box = await control.boundingBox();
         assert.ok(box && box.width >= 44 && box.height >= 44, `${width}px target too small`);
@@ -123,7 +137,7 @@ try {
       assert.equal(await sidebar.getByText("Active fixture active-a", { exact: true }).count(), 0, "Projects follows the selected workspace");
       await page.reload();
       await openSidebar();
-      await waitForMode("Projects");
+      await waitForMode("Project");
       await activate(activeButton);
       await page.reload();
       await openSidebar();
