@@ -344,6 +344,13 @@ try {
       const readingOffset = (target) => target.evaluate((element) => (
         element.getBoundingClientRect().top - element.closest(".overflow-y-auto").getBoundingClientRect().top
       ));
+      const waitForReadingOffset = async (target, expected) => {
+        await page.waitForFunction(({ element, expected }) => {
+          const scroll = element.closest(".overflow-y-auto");
+          return scroll && Math.abs(element.getBoundingClientRect().top
+            - scroll.getBoundingClientRect().top - expected) < 5;
+        }, { element: await target.elementHandle(), expected });
+      };
       const positionForReading = async (target) => {
         await target.evaluate((element) => {
           const scroll = element.closest(".overflow-y-auto");
@@ -363,10 +370,10 @@ try {
       const answerHeading = page.getByRole("heading", { name: "E2E reading position", exact: true });
       const answerOffset = await positionForReading(answerHeading);
       await selectSession(text(0), "e4920");
-      assert.ok(Math.abs(await readingOffset(olderMessage) - olderOffset) < 5, "Returning to older history must restore its reading offset");
+      await waitForReadingOffset(olderMessage, olderOffset);
       await selectSession("Render **E2E markdown**", "user");
       assert.equal(await process.getAttribute("aria-expanded"), "false");
-      assert.ok(Math.abs(await readingOffset(answerHeading) - answerOffset) < 5, "Collapsing process details on remount must not displace the answer");
+      await waitForReadingOffset(answerHeading, answerOffset);
 
       // Hold pagination until a different branch has loaded, exercising effect cancellation.
       let releaseHistory;

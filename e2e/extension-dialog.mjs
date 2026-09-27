@@ -71,9 +71,9 @@ export async function checkExtensionDialogs(page, artifacts, width) {
 
     {
       const dialog = await start("long-title");
-      const header = dialog.locator(":scope > div").first();
+      const header = dialog.locator("xpath=./div[1]");
       const option = dialog.getByRole("button", { name: "Confirm", exact: true });
-      const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
+      const cancel = dialog.locator("button").filter({ hasText: /^Cancel$/ });
       await option.waitFor({ state: "visible" });
       await cancel.waitFor({ state: "visible" });
       assert.ok(await header.evaluate((element) => element.scrollHeight > element.clientHeight), "A long select title must scroll within its header");
