@@ -1201,19 +1201,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </button>}
           </div>
         </div>
-        <div role="group" aria-label={t("sidebar.viewMode")}
-          style={{ display: "flex", padding: 3, marginBottom: 10, background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 8 }}>
+        <div role="group" aria-label={t("sidebar.viewMode")} style={{ position: "relative", display: "flex", marginBottom: 10 }}>
+          <span aria-hidden="true" style={{ position: "absolute", inset: "5px 0", background: "var(--bg-hover)",
+            border: "1px solid var(--border)", borderRadius: 8, pointerEvents: "none" }} />
           {(["active", "projects"] as const).map((mode) => {
             const selected = sidebarMode === mode;
             return <button key={mode} type="button" aria-pressed={selected}
               onClick={() => selectSidebarMode(mode)}
-              style={{ flex: 1, minWidth: 0, minHeight: 44, border: 0, borderRadius: 5, cursor: "pointer",
-                background: selected ? "var(--bg-selected)" : "transparent",
+              style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 44, padding: "0 4px", border: 0,
+                background: "transparent", cursor: "pointer" }}>
+              <span style={{ height: 25, display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+                borderRadius: 5, background: selected ? "var(--bg-selected)" : "transparent",
                 color: selected ? "var(--text)" : "var(--text-muted)", fontSize: 11, fontWeight: selected ? 600 : 500,
                 boxShadow: selected ? "0 1px 2px rgba(0,0,0,0.12)" : "none" }}>
-              {t(mode === "projects" ? "sidebar.modeProject" : "sidebar.modeActive")}{" "}
-              <span style={{ color: selected ? "var(--text-muted)" : "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
-                {mode === "projects" ? sessionFamilies.length : activeCount}
+                {t(mode === "projects" ? "sidebar.modeProject" : "sidebar.modeActive")}{" "}
+                <span style={{ color: selected ? "var(--text-muted)" : "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>
+                  {mode === "projects" ? sessionFamilies.length : activeCount}
+                </span>
               </span>
             </button>;
           })}
