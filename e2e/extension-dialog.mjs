@@ -10,6 +10,13 @@ export const extensionSource = `export default function (pi) {
         result = await ctx.ui.input("E2E after timeout");
       } else if (mode === "select") {
         result = await ctx.ui.select("E2E select", Array.from({ length: 30 }, (_, i) => "Option " + (i + 1)));
+      } else if (mode === "long-title") {
+        result = await ctx.ui.select("E2E long-title\\n\\n" + Array.from({ length: 80 }, (_, i) => "Long title line " + (i + 1)).join("\\n"), ["Confirm", "Cancel"]);
+      } else if (mode === "custom-long") {
+        result = await ctx.ui.custom((_tui, _theme, _kb, done) => ({
+          render: () => ["E2E custom first line", ...Array.from({ length: 98 }, (_, i) => "E2E custom body line " + (i + 1)), "E2E custom last line"],
+          handleInput: (data) => { if (data === "\\x03") done("closed"); },
+        }));
       } else {
         result = await ctx.ui[mode]("E2E " + mode, "Details");
       }
@@ -32,7 +39,11 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     const input = page.locator("textarea").last();
     await input.fill(`/e2e-dialog ${mode}`);
     await page.getByRole("button", { name: "Send", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: `E2E ${mode}`, exact: true });
+    const dialog = mode === "long-title"
+      ? page.getByRole("dialog", { name: /^E2E long-title/ })
+      : mode === "custom-long"
+        ? page.getByRole("dialog").last()
+        : page.getByRole("dialog", { name: `E2E ${mode}`, exact: true });
     await dialog.waitFor();
     return dialog;
   };
@@ -57,6 +68,62 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await page.keyboard.press("Enter");
     await select.waitFor({ state: "hidden" });
     await finish("select", "Option 30");
+
+    {
+      const dialog = await start("long-title");
+      const header = dialog.locator(":scope > div").first();
+      const option = dialog.getByRole("button", { name: "Confirm", exact: true });
+      const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
+      await option.waitFor({ state: "visible" });
+      await cancel.waitFor({ state: "visible" });
+      assert.ok(await header.evaluate((element) => element.scrollHeight > element.clientHeight), "A long select title must scroll within its header");
+      await header.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      assert.ok(await option.isVisible(), "Options must remain available while scrolling a long title");
+      assert.ok(await cancel.isVisible(), "Dialog actions must remain available while scrolling a long title");
+      await page.screenshot({ path: join(artifacts, `extension-long-title-${width}.png`) });
+      await option.click();
+      await dialog.waitFor({ state: "hidden" });
+      await finish("long-title", "Confirm");
+    }
+
+    {
+      const dialog = await start("custom-long");
+      const output = dialog.locator("pre");
+      const { maxHeight, viewportHeight } = await output.evaluate((element) => ({
+        maxHeight: Number.parseFloat(getComputedStyle(element).maxHeight),
+        viewportHeight: window.innerHeight,
+      }));
+      const expectedMaxHeight = Math.min(viewportHeight * 0.35, 260);
+      assert.ok(Math.abs(maxHeight - expectedMaxHeight) <= 1, `Output max-height ${maxHeight}px must equal min(35vh, 260px)`);
+      assert.ok(await output.evaluate((element) => element.scrollHeight > element.clientHeight), "Long custom output must scroll inside the panel");
+      const isVisibleInOutput = (text) => output.evaluate((element, expectedText) => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        let textNode;
+        while ((textNode = walker.nextNode())) {
+          const start = textNode.textContent?.indexOf(expectedText) ?? -1;
+          if (start < 0) continue;
+          const range = document.createRange();
+          range.setStart(textNode, start);
+          range.setEnd(textNode, start + expectedText.length);
+          const bounds = range.getBoundingClientRect();
+          const viewport = element.getBoundingClientRect();
+          return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+        }
+        return false;
+      }, text);
+      assert.ok(await isVisibleInOutput("E2E custom first line"), "The first custom output line must be visible at the top");
+      await output.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      assert.ok(await output.evaluate((element) => element.scrollTop + element.clientHeight >= element.scrollHeight), "The output must scroll to its end");
+      assert.ok(await isVisibleInOutput("E2E custom last line"), "The last custom output line must be visible at the end");
+      await output.evaluate((element) => { element.scrollTop = 0; });
+      await page.screenshot({ path: join(artifacts, `extension-custom-long-${width}.png`) });
+      await dialog.getByRole("button", { name: "Collapse", exact: true }).click();
+      await page.getByRole("button", { name: /Awaiting response.*Extension panel/ }).click();
+      assert.ok(await output.evaluate((element) => element.scrollHeight > element.clientHeight), "Custom output remains scrollable after collapse and re-expand");
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await finish("custom-long", "closed");
+    }
 
     for (const mode of ["select", "confirm", "input", "editor"]) {
       const dialog = await start(mode);
