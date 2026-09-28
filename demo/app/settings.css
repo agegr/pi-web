@@ -380,62 +380,40 @@
   white-space: nowrap;
 }
 
-.agents-feature-setting {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  min-height: 68px;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
-}
-
-.agents-feature-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.agents-feature-copy > span {
-  color: var(--text-muted);
+/* Read-only rows for agent definitions the profile editor does not own. */
+.agents-catalog-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(120, 120, 120, 0.12);
+  color: var(--text-dim);
+  font-size: 10px;
   line-height: 1.4;
-}
-
-.agents-feature-copy > .agents-feature-reload-notice {
-  color: #d97706;
-}
-
-.agents-feature-actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.agents-concurrency-control {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
-  font-size: 11px;
   white-space: nowrap;
 }
 
-.agents-concurrency-control input {
-  width: 52px;
-  height: 28px;
-  padding: 0 6px;
+.agents-catalog-badge.is-warning {
+  background: rgba(239, 68, 68, 0.12);
+  color: rgba(239, 68, 68, 0.85);
+}
+
+.agents-catalog-value {
+  min-height: 34px;
+  padding: 8px 9px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  text-align: center;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.agents-catalog-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .config-sidebar-message {
@@ -1323,17 +1301,6 @@
     height: 190px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
-  }
-
-  .agents-feature-setting {
-    align-items: flex-start;
-    gap: 10px;
-    padding: 10px 14px;
-  }
-
-  .agents-feature-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
   }
 
   .config-detail {

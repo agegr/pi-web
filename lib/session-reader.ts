@@ -5,7 +5,7 @@ import {
 import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
-import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
+import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext, SubagentSessionStatus } from "./types";
 import { normalizeToolCalls } from "./normalize";
 import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
@@ -13,7 +13,10 @@ import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
-import { listSessionsIncremental, type ScannedSessionInfo } from "./session-list-scanner";
+import { listSessionsIncremental, NO_MESSAGES_PLACEHOLDER, type ScannedSessionInfo } from "./session-list-scanner";
+import { readAsyncRunStatuses, type PiSubagentRun, type PiSubagentRunStep } from "./pi-subagents-runs";
+import { mapPiSubagentRunState } from "./pi-subagents-snapshot";
+import { hasActiveSessionLivenessProvider } from "./session-liveness";
 
 export { getAgentDir };
 
@@ -185,6 +188,195 @@ export function mergeSessionLists(
 
 type ScannedSubagent = NonNullable<ReturnType<typeof readSubagentRun>>;
 
+// A pi-subagents child transcript keeps accumulating while its run is live. A
+// foreground run leaves no `status.json`, so this freshness window plus a live
+// parent session is the only signal that such a child is still running.
+const PI_SUBAGENT_LIVE_CHILD_WINDOW_MS = 2 * 60 * 1000;
+const PI_SUBAGENT_DESCRIPTION_MAX_CHARS = 120;
+
+interface PiSubagentChildLayout {
+  /** Basename of the parent session file, which is the containing directory's name. */
+  parentBase: string;
+  parentPath: string;
+  /** `async-<runId>` directory segment, when the child ran detached. */
+  runId?: string;
+}
+
+/**
+ * Recognize the pi-subagents child layout under `<projectDir>/<parentBase>/`:
+ * `<childUuid>/run-<N>/session.jsonl` and `<childUuid>/async-<runId>/session.jsonl`.
+ * Only that exact filename nests, so artifact transcripts are never mistaken
+ * for sessions.
+ */
+function piSubagentChildLayout(filePath: string): PiSubagentChildLayout | null {
+  const sessionsDir = resolvePath(defaultSessionsDir());
+  const relativePath = relative(sessionsDir, resolvePath(filePath));
+  if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+    return null;
+  }
+  const segments = relativePath.split(sep);
+  // <projectDir>/<parentBase>/<childDir>/.../session.jsonl — at least 4 segments.
+  if (segments.length < 4 || segments.at(-1) !== "session.jsonl") return null;
+  const [projectDir, parentBase] = segments;
+  const asyncSegment = segments.slice(2).find((segment) => segment.startsWith("async-"));
+  return {
+    parentBase,
+    parentPath: join(sessionsDir, projectDir, `${parentBase}.jsonl`),
+    ...(asyncSegment ? { runId: asyncSegment.slice("async-".length) } : {}),
+  };
+}
+
+/**
+ * Directory holding one top-level session's pi-subagents children:
+ * `<sessionsDir>/<project>/<parentBase>/`. Null for nested child transcripts or
+ * any path outside the default sessions directory.
+ */
+export function piSubagentChildRootDir(filePath: string): string | null {
+  const sessionsDir = resolvePath(defaultSessionsDir());
+  const candidate = resolvePathWithinDefaultSessions(filePath, sessionsDir);
+  if (!candidate) return null;
+  const segments = relative(sessionsDir, candidate).split(sep);
+  if (segments.length !== 2 || !segments[1].endsWith(".jsonl")) return null;
+  return join(sessionsDir, segments[0], segments[1].slice(0, -".jsonl".length));
+}
+
+/** True when the path is a nested child transcript rather than a top-level session. */
+export function isPiSubagentChildSessionPath(filePath: string): boolean {
+  return piSubagentChildLayout(filePath) !== null;
+}
+
+/** `subagent-<agent>-<uuid>-<n>` and `<agent>: <task>` are pi-subagents' names. */
+function profileFromSessionName(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const trimmed = name.trim();
+  const prefixed = /^subagent-(.*)-[0-9a-f]{8}-[0-9a-f-]{27,}-\d+$/i.exec(trimmed);
+  if (prefixed) return prefixed[1];
+  const label = /^([A-Za-z0-9._-]+)\s*:/.exec(trimmed);
+  return label ? label[1] : undefined;
+}
+
+// The marker lives inside a JSON-encoded `sections.preamble` string, so the
+// quotes around the name are backslash-escaped in the raw line.
+const ACTIVE_AGENT_MARKER = /<active_agent name=\\?"([^"\\]+)\\?"/;
+
+/** Last-resort profile source: the `<active_agent name="..."/>` prompt marker. */
+function profileFromActiveAgentMarker(filePath: string): string | undefined {
+  try {
+    const prefix = readBoundedLines(filePath, SESSION_RELATION_MAX_BYTES, 8).join("\n");
+    return ACTIVE_AGENT_MARKER.exec(prefix)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+function excerpt(text: string): string {
+  const single = text.replace(/\s+/g, " ").trim();
+  return single.length > PI_SUBAGENT_DESCRIPTION_MAX_CHARS
+    ? `${single.slice(0, PI_SUBAGENT_DESCRIPTION_MAX_CHARS - 1)}…`
+    : single;
+}
+
+interface PiSubagentRelationContext {
+  /** Child transcript path → the async run (and step) that produced it. */
+  runByChildPath: Map<string, { run: PiSubagentRun; step: PiSubagentRunStep; stepIndex: number }>;
+}
+
+const EMPTY_PI_SUBAGENT_CONTEXT: PiSubagentRelationContext = { runByChildPath: new Map() };
+
+function buildPiSubagentRelationContext(): PiSubagentRelationContext {
+  const runs = readAsyncRunStatuses();
+  const materialized = new Set(
+    runs.flatMap((run) => run.steps.flatMap((step) => step.runId ? [step.runId] : [])),
+  );
+  const runByChildPath = new Map<string, { run: PiSubagentRun; step: PiSubagentRunStep; stepIndex: number }>();
+  for (const run of runs) {
+    // A workflow's child run writes the same transcript as the workflow step that
+    // spawned it. The step owns the node id the panel joins on, so let the outer
+    // workflow win; the transcript is identical either way.
+    if (materialized.has(run.runId)) continue;
+    for (const [stepIndex, step] of run.steps.entries()) {
+      if (!step.sessionFile) continue;
+      runByChildPath.set(sessionPathKey(step.sessionFile), { run, step, stepIndex });
+    }
+  }
+  return { runByChildPath };
+}
+
+/**
+ * Parent session id for a pi-subagents child. Orphaned children (parent deleted
+ * or not scanned) must not be promoted to top-level rows with a misleading
+ * inherited name, so the relation keeps a dangling parent id — exactly like a
+ * legacy orphan whose `parentSessionId` no longer resolves.
+ */
+function resolvePiSubagentParent(
+  layout: PiSubagentChildLayout,
+  pathToId: Map<string, string>,
+): string {
+  const parentSessionId = pathToId.get(sessionPathKey(layout.parentPath));
+  if (parentSessionId) return parentSessionId;
+  // Session files are `<timestamp>_<uuid>.jsonl`, so the basename still carries
+  // the parent's id even when its file is gone.
+  const separator = layout.parentBase.lastIndexOf("_");
+  return separator === -1 ? layout.parentBase : layout.parentBase.slice(separator + 1);
+}
+
+/**
+ * Derive a `subagent` relation for a child transcript from the pi-subagents
+ * directory layout. Async runs join their `status.json` for live state;
+ * foreground children have no status file and read as completed unless their
+ * parent session is still live and the transcript was just written.
+ */
+function derivePiSubagentRelation(
+  scanned: ScannedSessionInfo,
+  pathToId: Map<string, string>,
+  context: PiSubagentRelationContext,
+): SessionInfo["relation"] | undefined {
+  const layout = piSubagentChildLayout(scanned.path);
+  if (!layout) return undefined;
+  const parentSessionId = resolvePiSubagentParent(layout, pathToId);
+
+  const matched = context.runByChildPath.get(sessionPathKey(scanned.path));
+  const profile = matched?.step.agent
+    ?? profileFromSessionName(scanned.name)
+    ?? profileFromActiveAgentMarker(scanned.path)
+    ?? "subagent";
+  // The scan's placeholder is not a description; let an absent first message
+  // fall through to the profile at the return below.
+  const firstMessage = scanned.firstMessage === NO_MESSAGES_PLACEHOLDER ? "" : scanned.firstMessage;
+  const description = matched?.step.sessionName
+    ?? matched?.step.description
+    ?? excerpt(firstMessage);
+
+  let status: SubagentSessionStatus = "completed";
+  if (matched) {
+    // A multi-step chain shares one status.json across several child
+    // transcripts; the run aggregate would badge every step identically, so
+    // each child takes its own step's state.
+    status = mapPiSubagentRunState(matched.step.status);
+  } else if (
+    Date.now() - scanned.modified.getTime() < PI_SUBAGENT_LIVE_CHILD_WINDOW_MS
+    && hasActiveSessionLivenessProvider({ sessionId: parentSessionId, sessionFile: layout.parentPath })
+  ) {
+    status = "running";
+  }
+
+  return {
+    kind: "subagent",
+    parentSessionId,
+    parentSessionPath: layout.parentPath,
+    profile,
+    description: description || profile,
+    status,
+    engine: "pi-subagents",
+    ...(matched ? { runId: matched.run.runId } : layout.runId ? { runId: layout.runId } : {}),
+    // The snapshot node id for this child's step: a workflow lane key, a
+    // materialized nested run id, or the scoped `step:<n>` fallback.
+    ...(matched
+      ? { stepRunId: matched.step.workflowKey ?? matched.step.runId ?? `step:${matched.stepIndex}` }
+      : {}),
+  };
+}
+
 function resolveScannedSessionRelation(
   scanned: ScannedSessionInfo,
   pathToId: Map<string, string>,
@@ -206,10 +398,22 @@ function resolveScannedSessionRelation(
 function mapScannedSession(
   scanned: ScannedSessionInfo,
   pathToId: Map<string, string>,
+  context: PiSubagentRelationContext,
 ): SessionInfo {
   cacheSessionPath(scanned.id, scanned.path);
   const { originSessionId, subagent } = resolveScannedSessionRelation(scanned, pathToId);
   const detailsPending = scanned.detailsPending === true;
+  const relation = subagent
+    ? {
+        kind: "subagent" as const,
+        parentSessionId: subagent.parentSessionId,
+        profile: subagent.profile,
+        description: subagent.description,
+        status: subagent.status,
+      }
+    : scanned.parentSessionPath
+      ? { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) }
+      : derivePiSubagentRelation(scanned, pathToId, context);
   return {
     path: scanned.path,
     id: scanned.id,
@@ -222,13 +426,9 @@ function mapScannedSession(
     // real "(no messages)" session until the details arrive.
     firstMessage: detailsPending && !scanned.firstMessage
       ? ""
-      : scanned.firstMessage || "(no messages)",
-    parentSessionId: originSessionId,
-    ...(subagent
-      ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
-      : scanned.parentSessionPath
-        ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
-        : {}),
+      : scanned.firstMessage || NO_MESSAGES_PLACEHOLDER,
+    parentSessionId: originSessionId ?? (relation?.kind === "subagent" ? relation.parentSessionId : undefined),
+    ...(relation ? { relation } : {}),
     transient: false,
     ...(detailsPending ? { detailsPending: true } : {}),
   };
@@ -237,7 +437,11 @@ function mapScannedSession(
 async function buildSessionList(scanned: ScannedSessionInfo[]): Promise<SessionInfo[]> {
   const pathToId = new Map<string, string>();
   for (const session of scanned) pathToId.set(sessionPathKey(session.path), session.id);
-  return attachSessionProjectInfo(scanned.map((session) => mapScannedSession(session, pathToId)));
+  // Run status files are only worth reading when at least one child transcript
+  // is present; the common no-pi-subagents catalogue skips the scan entirely.
+  const hasNestedChild = scanned.some((session) => piSubagentChildLayout(session.path) !== null);
+  const context = hasNestedChild ? buildPiSubagentRelationContext() : EMPTY_PI_SUBAGENT_CONTEXT;
+  return attachSessionProjectInfo(scanned.map((session) => mapScannedSession(session, pathToId, context)));
 }
 
 async function loadAllSessions(): Promise<SessionInfo[]> {
@@ -350,6 +554,19 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
 
   const suffix = `_${sessionId}.jsonl`;
   let match: string | undefined;
+  const consider = (candidate: string): boolean => {
+    try {
+      if (readSessionHeader(candidate)?.id !== sessionId) return false;
+    } catch {
+      return false;
+    }
+    // Do not choose between duplicate candidates; retain the existing
+    // catalogue fallback for its current resolution semantics.
+    if (match && match !== candidate) return true;
+    match = candidate;
+    return false;
+  };
+
   for (const projectDir of projectDirs) {
     if (!projectDir.isDirectory() && !projectDir.isSymbolicLink()) continue;
     const projectPath = resolvePathWithinDefaultSessions(
@@ -372,15 +589,34 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
         sessionsDir,
       );
       if (!candidate) continue;
-      try {
-        if (readSessionHeader(candidate)?.id !== sessionId) continue;
-      } catch {
-        continue;
-      }
-      // Do not choose between duplicate candidates; retain the existing
-      // catalogue fallback for its current resolution semantics.
-      if (match && match !== candidate) return null;
-      match = candidate;
+      if (consider(candidate)) return null;
+    }
+  }
+  if (match) return match;
+
+  // pi-subagents children nest as `<parentBase>/<childUuid>/run-<N>/session.jsonl`
+  // and never carry the id in their filename, so a cold-server deep link needs
+  // a recursive walk of each project directory to resolve without the full
+  // catalogue scan.
+  for (const projectDir of projectDirs) {
+    if (!projectDir.isDirectory() && !projectDir.isSymbolicLink()) continue;
+    const projectPath = resolvePathWithinDefaultSessions(
+      join(sessionsDir, projectDir.name),
+      sessionsDir,
+    );
+    if (!projectPath) continue;
+
+    let files: string[];
+    try {
+      files = await readdir(projectPath, { recursive: true });
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith("session.jsonl")) continue;
+      const candidate = resolvePathWithinDefaultSessions(join(projectPath, file), sessionsDir);
+      if (!candidate) continue;
+      if (consider(candidate)) return null;
     }
   }
 

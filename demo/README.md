@@ -45,7 +45,27 @@ differ from their originals:
 | `components/AppShell.tsx` | Open the README preview by default, base-path-safe `router.replace`, in-browser "Full history" |
 | `components/ChatWindow.tsx`, `FileIcons.tsx`, `ProviderIcon.tsx` | Prefix static assets with the Pages base path |
 | `components/FileViewer.tsx`, `FileExplorer.tsx`, `MarkdownBody.tsx` | Load images, media and downloads from the static snapshot |
-| `lib/subagent-extension.ts`, `lib/terminal-manager.ts` | Types only; the originals are server code |
+| `lib/terminal-manager.ts` | Types only; the original is server code |
+
+`lib/subagent-extension.ts` no longer exists on either side: Pi Web's built-in
+subagent engine was removed and the demo's `SubagentToolDetails` type now lives
+in `lib/api-types.ts`, mirroring the real app. The subagent tutorial session
+(`Skills, plugins and subagents`) was recorded by that removed built-in engine
+and only exercises the kept legacy rendering path; live delegation comes from
+the user-installed `pi-subagents` package.
+
+The Agents panel shows both halves: the editable profile files from
+`/api/subagents/profiles`, and the read-only agent catalog from
+`/api/subagents/catalog` (the pi-subagents built-ins plus package and user
+agents, with their aliases, model, thinking level, and shadowing). The mock
+answers that route from `mock/captured/subagent-catalog.json` with a subset of
+the real pi-subagents built-ins, so the demo shows the catalog without the
+package installed. The editor's tool checkboxes come from
+`GET /api/subagents/tools`, which the mock answers with the builtin tools plus
+the `subagent` extension tool. A catalog row's disable switch and Duplicate
+button work in the demo too: the mock answers `PUT /api/subagents/overrides` and
+`POST /api/subagents/eject` by editing the in-memory catalog and profile lists
+so the refetch shows the result.
 
 To pick up UI changes from the main project, copy the updated files over and
 re-apply the changes above (search for `demo` / `@/mock` in those files).

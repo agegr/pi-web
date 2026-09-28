@@ -102,8 +102,8 @@ The **Skills** button at the bottom of the sidebar lists every loaded skill with
       rounds: [
         {
           thinking: {
-            en: "A read-only search task: delegate to the built-in explore profile in the foreground, since I need the answer right away.",
-            zh: "这是只读的搜索任务：交给内置的 explore 子代理，前台运行，因为马上就需要结果。",
+            en: "A read-only search task: delegate to the explore profile in the foreground, since I need the answer right away.",
+            zh: "这是只读的搜索任务：交给 explore 子代理，前台运行，因为马上就需要结果。",
           },
           seconds: 5,
           tools: [{
@@ -134,14 +134,18 @@ The **Skills** button at the bottom of the sidebar lists every loaded skill with
 A few things to notice about how that ran:
 
 - **It's a real session.** Click the arrow on the **Agent** card above, the **Agents** button in the top bar, or the child row under this session in the sidebar to read its full transcript and tool calls.
-- **Profiles.** \`explore\` and \`plan\` are read-only; \`general-purpose\` can edit files. **Settings → Sub-agents** turns subagents on or off and lets you write your own profiles with their own prompt, tools and model.
+- **Historical transcript.** This tutorial session was recorded by Pi Web's old built-in subagent engine — which is why the card is named \`Agent\`. Pi Web no longer ships that engine, but it still renders these legacy runs.
+- **Live delegation** comes from the user-installed \`pi-subagents\` package, which adds the \`subagent\` tool to every session. Install it once with \`pi install npm:pi-subagents\`.
+- **Profiles.** \`explore\` and \`plan\` are read-only; \`general-purpose\` can edit files. \`pi-subagents\` reads the same profile files, and **Settings → Sub-agents** edits them — prompt, tools and model included.
 - **Foreground or background.** This one ran in the foreground because I needed the answer. Background runs let me keep working and report back when they're done.`,
             zh: `explore 子代理找到了：侧边栏在 \`components/SessionSidebar.tsx\` 中每 **2.5 秒** 轮询一次 \`GET /api/agent/running\`（间隔定义在第 169 行，请求大约在第 605 行），标签页隐藏时暂停，并在 \`sessionListVersion\` 变化时重新加载会话列表。
 
 关于这次运行，有几点值得注意：
 
 - **它是一个真实的会话**：点击上面 **Agent** 卡片上的箭头、顶部栏的 **Agents** 按钮，或侧边栏里本会话下方的子项，都能查看它完整的对话和工具调用。
-- **配置**：\`explore\` 和 \`plan\` 是只读的；\`general-purpose\` 可以修改文件。**设置 → 子代理** 可以开关子代理功能，也可以编写你自己的配置，指定提示词、工具和模型。
+- **历史记录**：这个教程会话由 Pi Web 旧的内置子代理引擎录制——所以卡片名是 \`Agent\`。Pi Web 已不再内置该引擎，但仍会渲染这些历史运行。
+- **实时委派**由用户自行安装的 \`pi-subagents\` 包提供，它会给每个会话加上 \`subagent\` 工具。安装一次即可：\`pi install npm:pi-subagents\`。
+- **配置**：\`explore\` 和 \`plan\` 是只读的；\`general-purpose\` 可以修改文件。\`pi-subagents\` 读取同一批配置文件，**设置 → 子代理** 可以编辑它们，包括提示词、工具和模型。
 - **前台或后台**：这次在前台运行，因为我需要马上拿到结果。后台运行时我可以继续干别的，子代理完成后会回来汇报。`,
           },
         },
@@ -178,6 +182,45 @@ export const extendSubagentSession: SessionScript = {
           tools: [{ name: "read", args: { path: "components/SessionSidebar.tsx" }, result: { readFile: "components/SessionSidebar.tsx", anchor: "const poll = async () =>", anchorLinesBefore: 10, limit: 58 } }],
         },
         { seconds: 18, text: REPORT },
+      ],
+    },
+  ],
+};
+
+export const extendPiSubagentSession: SessionScript = {
+  id: SESSION_IDS.piSubagent,
+  cwd: PROJECT_ROOT,
+  startedMinutesAgo: STARTED,
+  // Real pi-subagents layout: the child transcript lives one directory deeper
+  // than the parent file, under a directory named after the parent's basename.
+  nestedUnderParentId: SESSION_IDS.extend,
+  name: `subagent-scout-019d7b54-9b2a-7e79-c3d4-8c9d0e1f2a18-1`,
+  relation: {
+    kind: "subagent",
+    parentSessionId: SESSION_IDS.extend,
+    profile: "scout",
+    description: "scout: Trace the running-session poller",
+    status: "running",
+    engine: "pi-subagents",
+    runId: "019d7b54-9b2a-7e79-c3d4-8c9d0e1f2a18",
+    stepRunId: "step:0",
+  },
+  steps: [
+    { kind: "model", provider: "openai-codex", modelId: "gpt-5.6-luna" },
+    { kind: "thinking", level: "medium" },
+    { kind: "tools", tools: ["read", "grep", "find", "ls"] },
+    { kind: "user", gapMinutes: 0.05, text: TASK },
+    {
+      kind: "assistant",
+      rounds: [
+        {
+          seconds: 3,
+          tools: [{ name: "grep", args: { pattern: "RUNNING_SESSIONS_POLL_MS|/api/agent/running", path: "." }, result: GREP_OUTPUT }],
+        },
+        {
+          seconds: 5,
+          tools: [{ name: "read", args: { path: "components/SessionSidebar.tsx" }, result: { readFile: "components/SessionSidebar.tsx", anchor: "const poll = async () =>", anchorLinesBefore: 10, limit: 58 } }],
+        },
       ],
     },
   ],

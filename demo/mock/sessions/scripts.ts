@@ -4,7 +4,7 @@ import { filesSession } from "./content/files";
 import { modelsSession } from "./content/models";
 import { branchingForkSession, branchingSession } from "./content/branching";
 import { featureSession } from "./content/feature";
-import { extendSession, extendSubagentSession } from "./content/extend";
+import { extendSession, extendPiSubagentSession, extendSubagentSession } from "./content/extend";
 import { tipsSession } from "./content/tips";
 import { scratchSession } from "./content/scratch";
 
@@ -14,6 +14,7 @@ export const SESSION_SCRIPTS: SessionScript[] = [
   tipsSession,
   extendSession,
   extendSubagentSession,
+  extendPiSubagentSession,
   featureSession,
   branchingSession,
   branchingForkSession,

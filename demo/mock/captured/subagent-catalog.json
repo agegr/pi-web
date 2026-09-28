@@ -1,0 +1,87 @@
+{
+ "agents": [
+  {
+   "name": "codex-exec",
+   "description": "Read-only Codex CLI execution for a supplied handoff; requires local authentication",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/codex-exec.md",
+   "executable": false
+  },
+  {
+   "name": "delegate",
+   "description": "Lightweight subagent that inherits the parent model with no default reads",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/delegate.md",
+   "tools": ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
+   "disabled": true,
+   "disabledSource": { "scope": "user", "via": "bulk" }
+  },
+  {
+   "name": "evidence-auditor",
+   "description": "Independent audit of claims against their cited evidence",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/evidence-auditor.md",
+   "tools": ["read", "web_search", "fetch_content", "get_search_content", "source_check"],
+   "thinking": "high",
+   "disabled": true,
+   "disabledSource": { "scope": "user", "via": "override" }
+  },
+  {
+   "name": "oracle",
+   "description": "High-context decision-consistency oracle that protects inherited state and prevents drift",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/oracle.md",
+   "aliases": ["advisor"],
+   "tools": ["read", "grep", "find", "ls", "bash"],
+   "thinking": "high",
+   "prompt": "You are the decision-consistency oracle. Protect the inherited plan and state: when the parent's direction is coherent, confirm it and supply the missing rationale rather than inventing a new approach. If a decision would cause drift, name the exact conflict and the smallest correction that restores consistency. Return the decision, its justification, and any risk the caller must accept.",
+   "disabled": true,
+   "disabledSource": { "scope": "project", "via": "override" }
+  },
+  {
+   "name": "researcher",
+   "description": "Autonomous web researcher — searches, evaluates, and synthesizes a focused research brief",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/researcher.md",
+   "tools": ["read", "write", "web_search", "fetch_content", "get_search_content", "source_check"],
+   "thinking": "medium"
+  },
+  {
+   "name": "reviewer",
+   "description": "Versatile review specialist for code diffs, plans, proposed solutions, codebase health, and PR/issue validation",
+   "source": "user",
+   "filePath": "/Users/demo/.pi/agent/agents/reviewer.md",
+   "tools": ["read", "bash", "edit", "write", "grep", "find", "ls"],
+   "thinking": "max"
+  },
+  {
+   "name": "reviewer",
+   "description": "Versatile review specialist for code diffs, plans, proposed solutions, codebase health, and PR/issue validation",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/reviewer.md",
+   "tools": ["read", "grep", "find", "ls", "watchdog_diff", "contact_supervisor"],
+   "thinking": "high",
+   "overriddenBy": "user"
+  },
+  {
+   "name": "scout",
+   "description": "Fast codebase recon that returns compressed context for handoff",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/scout.md",
+   "tools": ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor"],
+   "thinking": "low",
+   "prompt": "Reconnoiter the codebase quickly and return compressed context for a handoff. Trace the relevant files and call sites, note the conventions and constraints a follow-up agent must respect, and flag anything that contradicts the stated task. Prefer a short, dense report over exhaustive detail: what matters, where it lives, and what to watch out for.",
+   "advertise": true
+  },
+  {
+   "name": "worker",
+   "description": "Implementation agent for normal tasks and approved oracle handoffs",
+   "source": "builtin",
+   "filePath": "/Users/demo/.pi/agent/npm/node_modules/pi-subagents/agents/worker.md",
+   "aliases": ["developer", "coder", "implementer", "develop"],
+   "tools": ["read", "grep", "find", "ls", "bash", "edit", "write", "contact_supervisor"],
+   "thinking": "high",
+   "prompt": "Implement the assigned task or approved oracle handoff with narrow, coherent edits. Read the supplied context and plan first, follow the existing patterns, and change only what the task requires. Verify the result with the appropriate checks, then report the files changed, the validation performed, and any remaining risk or open question."
+  }
+ ]
+}

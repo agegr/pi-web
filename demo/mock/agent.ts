@@ -28,7 +28,7 @@ import {
 import { readSessionToolSelectionFromEntries } from "./sessions/tool-selection";
 import { composeReply, type ReplyPlan } from "./replies";
 import { runShellCommand } from "./shell";
-import { settings } from "./settings-state";
+import { SUBAGENT_ASYNC_SNAPSHOT_WIDGET } from "./sessions/subagent-widget";
 
 // ---------------------------------------------------------------------------
 // Event streams
@@ -132,20 +132,22 @@ export async function agentState(session: MockSession) {
     systemPrompt: await systemPromptFor(session),
     thinkingLevel: live.thinkingLevel,
     extensionStatuses: [],
-    extensionWidgets: [],
+    // pi-subagents' live run widget, captured from a real session. It is empty
+    // for the sessions that never delegated. The Agents panel reads its
+    // `subagent-async` line to show current tool / turns / tools.
+    extensionWidgets: SUBAGENT_ASYNC_SNAPSHOT_WIDGET[session.id]
+      ? [{ key: "subagent-async", lines: [SUBAGENT_ASYNC_SNAPSHOT_WIDGET[session.id]], placement: "aboveEditor" as const }]
+      : [],
   };
 }
 
 export function toolsFor(session: MockSession) {
   const pinned = readSessionToolSelectionFromEntries(session.entries);
-  const defaults = new Set(["read", "bash", "edit", "write", "Agent", "get_subagent_result", "steer_subagent"]);
+  const defaults = new Set(["read", "bash", "edit", "write", "subagent"]);
   return toolsCatalog
-    .filter((tool) => settings.subagentsEnabled || !["Agent", "get_subagent_result", "steer_subagent"].includes(tool.name))
     .map((tool) => ({
       ...tool,
-      active: pinned
-        ? pinned.includes(tool.name) || (pinned.length > 0 && ["Agent", "get_subagent_result", "steer_subagent"].includes(tool.name))
-        : defaults.has(tool.name),
+      active: pinned ? pinned.includes(tool.name) : defaults.has(tool.name),
     }));
 }
 

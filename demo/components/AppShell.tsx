@@ -55,6 +55,7 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
+import type { PiSubagentSnapshotNode } from "@/lib/pi-subagents-snapshot";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -149,6 +150,14 @@ export function AppShell() {
   );
   const hasSubagentSessions = Boolean(activeSessionFamily?.subagents.length);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  // Live pi-subagents runs from the active session's `subagent-async` widget.
+  // ChatWindow only calls this when its own progress key changes, so no extra
+  // equality guard is needed here — one would have to cover label, activity,
+  // and timestamps or it would freeze the progress line mid-run.
+  const [subagentRuns, setSubagentRuns] = useState<PiSubagentSnapshotNode[]>([]);
+  const handleSubagentRunsChange = useCallback((runs: PiSubagentSnapshotNode[]) => {
+    setSubagentRuns(runs);
+  }, []);
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
       if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous;
@@ -2097,6 +2106,7 @@ export function AppShell() {
                   subagents={activeSessionFamily.subagents}
                   selectedSessionId={selectedSession.id}
                   runningSessionIds={runningSessionIds}
+                  liveRuns={subagentRuns}
                   onSelectSession={handleSelectSession}
                 />
               )}
@@ -2338,6 +2348,7 @@ export function AppShell() {
               initialScrollPosition={selectedSession ? sessionScrollPositionsRef.current.get(selectedSession.id) ?? null : null}
               onScrollPositionChange={handleSessionScrollPositionChange}
               sessionRunning={Boolean(selectedSession && runningSessionIds.has(selectedSession.id))}
+              onSubagentRunsChange={handleSubagentRunsChange}
               newSessionCwd={effectiveNewSessionCwd}
               newSessionDraftKey={newSessionDraftKey}
               onAgentEnd={handleAgentEnd}

@@ -17,7 +17,7 @@ import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thin
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import type { SubagentToolDetails } from "@/lib/subagent-extension";
+import type { SubagentToolDetails } from "@/lib/api-types";
 import type {
   AgentMessage,
   UserMessage,

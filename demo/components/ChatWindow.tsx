@@ -17,12 +17,13 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
-import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
+import { useAgentSession, type AgentPhase, type AgentStateResponse, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
+import { parseAsyncSnapshotWidgetLine, flattenPiSubagentSnapshot, hasLivePiSubagentRun, type PiSubagentSnapshotNode } from "@/lib/pi-subagents-snapshot";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import {
@@ -33,6 +34,8 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+
+const SUBAGENT_RUN_POLL_MS = 4_000;
 
 interface Props {
   session: SessionInfo | null;
@@ -54,6 +57,8 @@ interface Props {
   onSystemToolsChange?: (tools: ToolEntry[] | null) => void;
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
+  /** Live pi-subagents runs parsed from the `subagent-async` extension widget. */
+  onSubagentRunsChange?: (runs: PiSubagentSnapshotNode[]) => void;
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string, page?: number) => void;
@@ -242,7 +247,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, defaultExpanded = fa
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSubagentRunsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onOpenSession, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -282,6 +287,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
     notices, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
+    setExtensionWidgets,
     isAutoModelSelection,
     isAutoThinkingSelection,
     agentPhase,
@@ -703,6 +709,82 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onSessionStatsChange?.(sessionStatsRef.current);
   }, [statsKey, onSessionStatsChange]);
   useEffect(() => () => { onSessionStatsChange?.(null); }, [onSessionStatsChange]);
+
+  // pi-subagents publishes its live run status as one `subagent-async` widget
+  // line. Lift the parsed runs to AppShell so the Agents panel can show
+  // progress for the whole family, not just the selected session's tree.
+  const subagentRuns = useMemo(() => {
+    const widget = extensionWidgets.find((candidate) => candidate.key === "subagent-async");
+    if (!widget) return [];
+    const snapshot = parseAsyncSnapshotWidgetLine(widget.lines.join("\n"));
+    return snapshot ? flattenPiSubagentSnapshot(snapshot) : [];
+  }, [extensionWidgets]);
+  const subagentRunsKey = subagentRuns
+    .map((run) => `${run.id}|${run.state}|${run.label}|${run.startedAt ?? ""}|${run.endedAt ?? ""}|${run.activity?.currentTool ?? ""}|${run.activity?.toolCount ?? ""}|${run.activity?.turnCount ?? ""}`)
+    .join(";");
+  const subagentRunsRef = useRef(subagentRuns);
+  subagentRunsRef.current = subagentRuns;
+  useEffect(() => {
+    onSubagentRunsChange?.(subagentRunsRef.current);
+  }, [subagentRunsKey, onSubagentRunsChange]);
+  useEffect(() => () => { onSubagentRunsChange?.([]); }, [onSubagentRunsChange]);
+
+  // A detached pi-subagents run keeps publishing to the `subagent-async` widget
+  // long after the parent prompt settled, and the hook only refreshes widgets on
+  // mount, SSE settlement, or the busy-only reconcile poll. While the parsed
+  // snapshot still has a non-terminal run, re-read the wrapper state on a short
+  // timer and stop as soon as the widget reports everything terminal. The widget
+  // is the only live source here: a child session carries no widget of its own,
+  // so polling on its persisted relation status would never refresh anything.
+  const hasLiveSubagentRun = useMemo(() => {
+    const widget = extensionWidgets.find((candidate) => candidate.key === "subagent-async");
+    const snapshot = widget ? parseAsyncSnapshotWidgetLine(widget.lines.join("\n")) : null;
+    return hasLivePiSubagentRun(snapshot);
+  }, [extensionWidgets]);
+  useEffect(() => {
+    if (!hasLiveSubagentRun || agentRunning) return;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let controller: AbortController | null = null;
+    const poll = () => {
+      // Match the sidebar's convention: a background tab has no reason to keep
+      // re-reading wrapper state, and the visibilitychange nudge only fetches
+      // once the tab is visible again.
+      if (document.visibilityState !== "visible") return;
+      const sid = sessionIdRef.current ?? session?.id;
+      if (!sid) return;
+      controller?.abort();
+      const current = new AbortController();
+      controller = current;
+      void fetch(`/api/agent/${encodeURIComponent(sid)}`, { signal: current.signal })
+        .then((response) => response.json() as Promise<{ state?: AgentStateResponse }>)
+        .then((data) => {
+          if (controller !== current) return;
+          if (sessionIdRef.current !== sid && session?.id !== sid) return;
+          if (data.state?.extensionWidgets !== undefined) {
+            setExtensionWidgets(data.state.extensionWidgets ?? []);
+            return;
+          }
+          if (data.state === undefined && interval) {
+            // The wrapper is gone, so the widget can never refresh again; stop
+            // rather than poll a dead session every few seconds forever.
+            clearInterval(interval);
+            interval = undefined;
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (controller === current) controller = null;
+        });
+    };
+    interval = setInterval(poll, SUBAGENT_RUN_POLL_MS);
+    document.addEventListener("visibilitychange", poll);
+    return () => {
+      if (interval) clearInterval(interval);
+      controller?.abort();
+      controller = null;
+      document.removeEventListener("visibilitychange", poll);
+    };
+  }, [hasLiveSubagentRun, agentRunning, session?.id, setExtensionWidgets, sessionIdRef]);
 
   // Push context usage up to AppShell as well.
   const ctxKey = contextUsage

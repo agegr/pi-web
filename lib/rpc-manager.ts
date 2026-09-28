@@ -29,17 +29,11 @@ import type {
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import {
-  createSubagentExtension,
-  preferPiWebSubagentExtension,
-} from "./subagent-extension";
-import {
-  listSubagentProfiles,
+  CODING_TOOL_NAMES,
   readSubagentRun,
   readSubagentSessionResources,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
-import { createSubagentController } from "./subagent-runtime";
-import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
@@ -167,7 +161,6 @@ export interface RpcSessionStartOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
@@ -201,7 +194,7 @@ const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
   if (toolNames.length === 0) return [];
 
-  const codingToolNames = new Set(CODING_TOOL_NAMES);
+  const codingToolNames = new Set<string>(CODING_TOOL_NAMES);
   const selectedToolNames = resolveShellTools(toolNames, session.settingsManager.getDefaultTools());
   const extensionToolNames = session
     .getAllTools()
@@ -1684,35 +1677,32 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   if (!wrapper.isChatOnly()) wrapper.beginExtensionBinding();
 }
 
-const SUBAGENT_CONTROLLER = createSubagentController({
-  getSession: (sessionId) => getRegistry().get(sessionId),
-  registerSession: (inner, options) => {
-    const wrapper = new AgentSessionWrapper(inner, {
-      ...(options?.exactSystemPrompt !== undefined
-        ? { exactSystemPrompt: () => options.exactSystemPrompt! }
-        : {}),
-      chatOnly: options?.chatOnly,
-      suppressCompletionNotifications: true,
-    });
-    registerRpcWrapper(wrapper);
-  },
-  reopenSession: async (sessionId, sessionFile) =>
-    (await startRpcSession(sessionId, sessionFile, undefined)).session,
-  resolveSessionPath,
-  invalidateSessionList: invalidateSessionListCache,
-  isBuiltInSubagentsEnabled,
-});
-
-export function getSubagentRun(sessionId: string) {
-  return SUBAGENT_CONTROLLER.get(sessionId);
-}
-
-export function steerSubagent(sessionId: string, message: string) {
-  return SUBAGENT_CONTROLLER.steer(sessionId, message);
-}
-
-export function abortSubagent(sessionId: string) {
-  return SUBAGENT_CONTROLLER.abort(sessionId);
+/**
+ * Subagent delegation is provided by the user-installed `pi-subagents` package
+ * (a normal pi extension). Pi Web no longer ships its own subagent engine: the
+ * package's tools load with the session like any other installed package.
+ *
+ * The helper below only serves *legacy* sessions created by the removed
+ * built-in engine; their persisted run records keep rendering in the UI.
+ */
+export async function getSubagentRun(sessionId: string) {
+  const wrapper = getRegistry().get(sessionId);
+  if (wrapper?.isAlive()) {
+    const run = readSubagentRun(
+      wrapper.inner.sessionManager.getEntries() as unknown as SessionEntry[],
+      sessionId,
+      wrapper.sessionFile,
+    );
+    if (run) return wrapper.isRunning() ? { ...run, status: "running" as const } : run;
+  }
+  const sessionPath = await resolveSessionPath(sessionId);
+  if (!sessionPath) return null;
+  const manager = SessionManager.open(sessionPath);
+  return readSubagentRun(
+    manager.getEntries() as unknown as SessionEntry[],
+    sessionId,
+    sessionPath,
+  );
 }
 
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
@@ -2057,13 +2047,8 @@ export async function startRpcSession(
                 cwd: sessionCwd,
                 settings: settingsManager,
               }),
-              createSubagentExtension(
-                SUBAGENT_CONTROLLER.extensionRuntime,
-                () => listSubagentProfiles(sessionCwd),
-                isBuiltInSubagentsEnabled,
-              ),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            extensionsOverride: preferUserBashExtension,
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });

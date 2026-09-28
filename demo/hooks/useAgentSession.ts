@@ -81,7 +81,7 @@ interface LastAssistantTextResponse {
   text?: string;
 }
 
-type AgentStateResponse = {
+export type AgentStateResponse = {
   model?: { provider: string; id: string };
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
@@ -1216,6 +1216,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (busy) {
         sdkAgentActiveRef.current = Boolean(state.isStreaming);
         rpcPromptPendingRef.current = Boolean(state.isPromptRunning);
+        // Apply widgets while busy too: pi-subagents publishes live run progress
+        // through this channel, so early-returning here froze it until the
+        // prompt settled.
+        if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
         return;
       }
       if (!agentRunningRef.current) return;
@@ -2455,7 +2459,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
-    dispatch, setAgentRunning, setForkingEntryId,
+    dispatch, setAgentRunning, setForkingEntryId, setExtensionWidgets,
     bashRunning, pendingBash,
     // Subscriptions
     handleAgentEventRef,

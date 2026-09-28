@@ -171,8 +171,12 @@ test("subpanel footers share sizing while maintenance actions stay secondary", (
 
 test("skills, agents, and plugins share enabled and disabled controls", () => {
   const sources = Object.fromEntries(configSources);
-  for (const name of ["SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
+  // AgentsConfig has no enable switch: pi-subagents owns that via agentOverrides,
+  // so it keeps the shared status dot only.
+  for (const name of ["SkillsConfig", "PluginsConfig"]) {
     assert.match(sources[name], /<ConfigSwitch/);
+  }
+  for (const name of ["SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
     assert.match(sources[name], /<ConfigStatusDot/);
   }
 });

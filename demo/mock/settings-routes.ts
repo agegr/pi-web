@@ -5,7 +5,9 @@
  * a demo notice.
  */
 import skillsResponse from "./captured/skills.json";
+import subagentCatalogResponse from "./captured/subagent-catalog.json";
 import subagentProfilesResponse from "./captured/subagent-profiles.json";
+import toolsResponse from "./captured/tools.json";
 import type { MockRequest } from "./http";
 import { delay, error, json } from "./http";
 import { currentDemoLocale } from "./locale";
@@ -21,7 +23,35 @@ const enabledView: EnabledView = structuredClone(ENABLED_MODELS_RESPONSE);
 const authState = structuredClone(AUTH_PROVIDERS_RESPONSE);
 let modelsConfig = structuredClone(MODELS_CONFIG);
 const skillsState = structuredClone(skillsResponse);
-const profilesState = structuredClone(subagentProfilesResponse) as { profiles: Array<Record<string, unknown> & { name: string; scope: string; enabled?: boolean }> };
+const profilesState = structuredClone(subagentProfilesResponse) as { profiles: Array<Record<string, unknown> & { name: string; scope: string }> };
+// The catalog is mutable in the demo so the disable toggle's refetch shows its
+// effect; the mock answers /api/subagents/overrides by editing these rows.
+const catalogState = structuredClone(subagentCatalogResponse) as {
+  agents: Array<Record<string, unknown> & {
+    name: string;
+    source: string;
+    filePath: string;
+    disabled?: boolean;
+    disabledSource?: { scope: "user" | "project"; via: "override" | "bulk" };
+  }>;
+};
+
+/**
+ * Mirrors GET /api/subagents/tools: the builtin 8 plus the `subagent` tool the
+ * installed pi-subagents package registers. Descriptions reuse the captured
+ * tool metadata.
+ */
+function subagentTools(): Array<{ name: string; description?: string; source: "builtin" | "extension" }> {
+  const captured = toolsResponse as Array<{ name: string; description?: string }>;
+  const describe = (name: string) => captured.find((tool) => tool.name === name)?.description;
+  const builtin = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+  const extension = ["subagent"];
+  return [
+    ...builtin.map((name) => ({ name, ...(describe(name) ? { description: describe(name) } : {}), source: "builtin" as const })),
+    ...extension.map((name) => ({ name, ...(describe(name) ? { description: describe(name) } : {}), source: "extension" as const })),
+  ];
+}
+const SUBAGENT_TOOL_LIST = subagentTools();
 
 function isProviderLoggedIn(providerId: string): boolean {
   const oauth = authState.oauthProviders.find((provider) => provider.id === providerId);
@@ -251,33 +281,66 @@ async function pluginsRoute(request: MockRequest): Promise<Response> {
 }
 
 async function subagentsRoute(request: MockRequest): Promise<Response> {
-  const sub = request.segments[2];
-  if (sub === "settings") {
-    if (request.method === "PUT") {
-      const body = await request.json<{ enabled?: boolean; maxConcurrent?: number }>();
-      if (typeof body.enabled === "boolean") settings.subagentsEnabled = body.enabled;
-      if (typeof body.maxConcurrent === "number") settings.subagentMaxConcurrent = body.maxConcurrent;
-    }
-    return json({ enabled: settings.subagentsEnabled, maxConcurrent: settings.subagentMaxConcurrent });
+  if (request.segments[2] === "catalog") {
+    if (request.method === "GET") return json(catalogState);
+    return error("Method not allowed", 405);
   }
-  if (sub === "profiles") {
-    if (request.method === "GET") return json(profilesState);
-    const body = await request.json<{ scope?: string; name?: string; enabled?: boolean; profile?: Record<string, unknown> & { name: string } }>();
-    if (request.method === "PATCH") {
-      const profile = profilesState.profiles.find((candidate) => candidate.name === body.name && candidate.scope === body.scope);
-      if (!profile) return error("Agent profile not found", 404);
-      profile.enabled = Boolean(body.enabled);
-      return json({ profile });
+  if (request.segments[2] === "tools") {
+    if (request.method === "GET") return json({ tools: SUBAGENT_TOOL_LIST });
+    return error("Method not allowed", 405);
+  }
+  if (request.segments[2] === "overrides") {
+    if (request.method !== "PUT") return error("Method not allowed", 405);
+    const body = await request.json<{ name?: string; disabled?: boolean }>();
+    const row = catalogState.agents.find((agent) => agent.name === body.name);
+    if (row && typeof body.disabled === "boolean") {
+      if (body.disabled) {
+        row.disabled = true;
+        // The toggle only ever writes a user-scope named override.
+        row.disabledSource = { scope: "user", via: "override" };
+      } else {
+        delete row.disabled;
+        delete row.disabledSource;
+      }
     }
-    if (request.method === "PUT" && body.profile) {
-      const saved = { ...body.profile, scope: body.scope ?? "global", enabled: body.profile.enabled ?? true } as (typeof profilesState.profiles)[number];
-      profilesState.profiles = [...profilesState.profiles.filter((candidate) => !(candidate.name === saved.name && candidate.scope === saved.scope)), saved];
-      return json({ profile: saved });
-    }
-    if (request.method === "DELETE") {
-      profilesState.profiles = profilesState.profiles.filter((candidate) => !(candidate.name === body.name && candidate.scope === body.scope));
-      return json({ ok: true });
-    }
+    return json({ ok: true });
+  }
+  if (request.segments[2] === "eject") {
+    if (request.method !== "POST") return error("Method not allowed", 405);
+    const body = await request.json<{ scope?: string; sourcePath?: string; name?: string }>();
+    const source = catalogState.agents.find((agent) => agent.filePath === body.sourcePath);
+    const name = body.name ?? source?.name ?? "agent-copy";
+    const scope = body.scope ?? "global";
+    const profile = {
+      name,
+      displayName: name,
+      description: source?.description ?? "Ejected agent copy",
+      systemPrompt: "Ejected from a built-in agent.",
+      toolsInherited: true,
+      scope,
+      filePath: scope === "project"
+        ? `/Users/demo/project/.pi/agents/${name}.md`
+        : `/Users/demo/.pi/agent/agents/${name}.md`,
+    };
+    profilesState.profiles = [
+      ...profilesState.profiles.filter((candidate) => !(candidate.name === name && candidate.scope === scope)),
+      profile as (typeof profilesState.profiles)[number],
+    ];
+    return json({ profile });
+  }
+  if (request.segments[2] !== "profiles") return error("Not found", 404);
+  if (request.method === "GET") return json(profilesState);
+  const body = await request.json<{ scope?: string; name?: string; profile?: Record<string, unknown> & { name: string } }>();
+  if (request.method === "PUT" && body.profile) {
+    const incoming = body.profile;
+    const replaced = profilesState.profiles.find((candidate) => candidate.name === incoming.name && candidate.scope === (body.scope ?? "global"));
+    const saved = { ...body.profile, scope: body.scope ?? "global", ...(replaced?.filePath ? { filePath: replaced.filePath } : {}) } as (typeof profilesState.profiles)[number];
+    profilesState.profiles = [...profilesState.profiles.filter((candidate) => !(candidate.name === saved.name && candidate.scope === saved.scope)), saved];
+    return json({ profile: saved });
+  }
+  if (request.method === "DELETE") {
+    profilesState.profiles = profilesState.profiles.filter((candidate) => !(candidate.name === body.name && candidate.scope === body.scope));
+    return json({ ok: true });
   }
   return error("Not found", 404);
 }

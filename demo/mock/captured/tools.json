@@ -278,130 +278,770 @@
   "active": false
  },
  {
-  "name": "Agent",
-  "description": "Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n- explore: Quickly inspect a codebase without modifying it (Tools: read, grep, find, ls)\n- general-purpose: Handle a focused implementation or investigation task (Tools: read, bash, edit, write, grep, find, ls)\n- plan: Design an implementation plan without modifying files (Tools: read, grep, find, ls)",
+  "name": "subagent",
+  "description": "Delegate one child with {agent,task?}; otherwise choose exactly one of {workflowScript,args?}, {workflowScriptPath,args?} or {workflow,args}. agent/task exclude workflow inputs; task excludes action. agent may target management actions. action is management/control; validate accepts either script without launching. workflowScriptPath loads from request cwd before sandbox execution.\nScripts: JavaScript statement bodies with explicit return, top-level await, plain helpers/Promise chains; nested async function/arrow/method helpers are rejected. Await runs.run('key',{agent,task}) before .output; await runs.all([{key,agent,task},...]) for an ordered array, not a key map. Observe every stored run promise with direct await, Promise.race or Promise.all. Await/return runs.steer(key,message,options?) for a prior key, never raw run ids; queued/delivered/missed/failed receipts are not compliance proof.\nBefore advanced orchestration (runs.lanes, rolling fanout, mission state, handoffs), read {action:\"guide\",topic:\"workflows\"} or the pi-subagents skill. Raw-script sandboxes add deeply frozen args; all sandboxes provide runs, emit, console, JavaScript and enabled mission state, with no filesystem/shell/Pi tools/host globals. External CLI agents support native options only when their runner declares them; read guide tool-reference before passing model, structured output, acceptance/agentContract, tool budget, fast, fork context or skills/tools.\nModel override: first call {action:\"models\"}; copy exact provider/id, not agent names. Thinking uses model suffix, not watchdog-only thinking.\nNamed resources: {workflow:'review',args:{task:'...'}} or {workflow:'run-ci',args:{command:'npm test'}}. Raw scripts also accept bounded plain-data args; raw-script args persist as evidence, so never include secrets. worktree:true requires clean source; baseRef defaults to HEAD at allocation or a supported named ref, never full 40/64-character commit IDs or revision expressions.\n\nSAFETY-CRITICAL SUBAGENT GUIDANCE:\n\u2022 Direct parent execution is the default. Invoke subagents only when delegation is authorized by the operator's current request or applicable user/project instructions; task size, complexity, risk, tool-call count, or recipe fit do not independently authorize delegation.\n\u2022 First call {action:\"list\",capabilities:true}: executable, non-disabled agents only; external-cli requires runner.available === true. Passive PATH/PATHEXT/X_OK is not authentication/version/launch proof; preflight is authoritative.\n\u2022 Workflow, child launch, prompt runtime, extension load or child tooling failure is a lane infrastructure blocker. Stop; report exact failure, run/status and repo/cwd/worktree/branch/ref; verify clean worktree or capture partial diff before same-protocol retry or asking the owner. Never silently switch to interactive_shell, pi -ne, Codex/Claude/Cursor CLI or foreground/external mode: governed-workflow fallback requires explicit owner approval, not Pi core's generic pi -ne hint. Explicit foreground/CLI requests and work outside that protocol remain valid.\n\u2022 Omit action for execution. For an authorized delegated multi-step/parallel workflow: exactly one top-level subagent workflow call with async:true; children launch only inside it.\n\u2022 Async follows asyncByDefault (normally true); async:false only to block the parent, not for final reviews/gates. Consume results at dependency barriers. Native async completion wakes this session: return control, no sleep/poll or bg_wait merely for a wake. bg_wait is for provider/detached work without native notification needing a same-turn result.\n\u2022 Ordinary child subagents are not orchestrators; only configured fanout within depth/session limits. For an authorized delegated workflow, keep one writer per cwd/worktree and isolate concurrent writers. Use fresh-context read-only reviewers when independent review was requested, then parent synthesis/fixes. Oracle/advisor unknowns use supervisor dialogue; one-shot only when requested.\n\u2022 Bind durable output on runs.run/runs.all, not task filename prose; return actual outputReference/outputPathMapping/artifactPaths, evidence and residual risks.\n\u2022 children.list is workflow-only, not an exhaustive list of direct native children: resume only resumable rows. When an intended child's exact run id is known, inspect it with {action:\"status\",id}; if status identifies the candidate, attempt {action:\"resume\",id,message}. Resume authoritatively checks eligibility, may reject it, and otherwise detaches a follow-up/challenge with the stored agent/model/tool contract. Use a labeled same-role fallback only when no known candidate exists or resume rejects eligibility. Scripts await runs.run(newKey,{resume:runId,task}); continue from latest returned runId. Each distinct resume pass needs a new stable key; same-key reuse requires identical launch parameters.\n\u2022 Named resources own authority; raw workflowScript/workflowScriptPath cannot use runs.host. Granted commands/relative outputs use workflow cwd, never per-step cwd.\n\u2022 Inspect asyncId/asyncDir (status.json, events.jsonl, logs) with status/debug.run; control with interrupt/stop/resume/steer. Read {action:\"guide\",topic:\"tool-reference\"} for controls/evidence gates.\n\nWORKFLOW DETAILS:\n\u2022 runs.lanes([{key,stages:[{key,agent,task},{key,resume:'previous',task}]}]) runs first stages together, later stages sequentially per lane. Failures stay lane-local; only explicit structuredOutput.verdict === 'blocked' blocks a successful stage, never reviewer prose.\n\u2022 Workflow child controls default onto runs.run/runs.all items; child fields override them. worktree:true isolates each child and returns handoff artifacts. usageBudget is shared across the workflow; already-running children are not stopped.\n\u2022 Missions auto-attach unless mission:false; await state.get(key)/state.set(key,JSONValue) requires a mission. See guide topic missions. Omit acceptance for reviewer/read-only calls; acceptance.review.required requests independent writer review.\n\u2022 Management discovery: list/get/models/guide; create/update/delete/eject/disable/enable/reset/refine; mission.*, schedule.*, watchdog.*, inspector.*, project.*, lane.status/recordMerge/recordSupersession; worktree.discard and plan-only worktree.cleanup; doctor and grant-spawn-budget. Use guide topics agents, missions, observability, tool-reference, configuration, models, watchdog or extension-api for exact action fields. Schedules take script inputs, not direct children; recipes live in the missions guide.",
   "parameters": {
    "type": "object",
-   "required": [
-    "prompt",
-    "description"
-   ],
    "properties": {
-    "subagent_type": {
+    "agent": {
      "type": "string",
-     "description": "Configured agent profile. Available types: explore, general-purpose, plan. Default: general-purpose."
+     "description": "One-child agent or management target."
     },
-    "prompt": {
+    "task": {
      "type": "string",
-     "description": "The complete task for the subagent."
+     "description": "One-child task; requires agent."
     },
-    "resume": {
+    "extensionBindings": {
+     "type": "object",
+     "maxProperties": 16,
+     "additionalProperties": true,
+     "description": "Child-only bounded JSON; namespaces package.name/1."
+    },
+    "action": {
      "type": "string",
-     "description": "Existing subagent session ID to continue instead of creating a new session."
+     "minLength": 1,
+     "description": "Management/control only; omit for execution. validate accepts either script input. Discover actions with guide topic tool-reference."
     },
-    "input_files": {
-     "type": "array",
-     "items": {
-      "type": "string"
-     },
-     "description": "UTF-8 text files under the session cwd to include with the task.",
-     "maxItems": 8
-    },
-    "description": {
-     "type": "string",
-     "description": "Short activity label shown in the UI."
-    },
-    "run_in_background": {
+    "capabilities": {
      "type": "boolean",
-     "description": "Return immediately and notify this session when complete."
+     "description": "list: compact capability rows/details without system prompts."
     },
-    "model": {
+    "name": {
      "type": "string",
-     "description": "Optional provider/modelId override."
+     "description": "schedule.create name."
+    },
+    "id": {
+     "type": "string",
+     "description": "Run id/prefix for status/control."
+    },
+    "runId": {
+     "type": "string",
+     "description": "Target run ID; prefer id."
+    },
+    "dir": {
+     "type": "string",
+     "description": "Async directory for status/control."
+    },
+    "handoffPath": {
+     "type": "string",
+     "description": "Existing manifest for worktree/lane actions."
+    },
+    "repo": {
+     "type": "string",
+     "description": "worktree.cleanup repo; default cwd."
+    },
+    "planId": {
+     "type": "string",
+     "description": "Reserved; cleanup is plan-only."
+    },
+    "laneId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128,
+     "description": "Exact manifest run id for lane actions."
+    },
+    "merge": {
+     "type": "object",
+     "additionalProperties": true,
+     "description": "lane.recordMerge evidence; read guide tool-reference."
+    },
+    "supersession": {
+     "type": "object",
+     "additionalProperties": true,
+     "description": "lane.recordSupersession evidence; read guide tool-reference."
+    },
+    "index": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "Zero-based child/transcript index."
+    },
+    "childId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256,
+     "description": "Child-scoped stop identity."
+    },
+    "view": {
+     "type": "string",
+     "enum": [
+      "fleet",
+      "transcript"
+     ],
+     "description": "status view: fleet overview or transcript tail with id/dir and optional index."
+    },
+    "lines": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 500,
+     "description": "Transcript tail lines; default 80."
+    },
+    "topic": {
+     "type": "string"
+    },
+    "message": {
+     "type": "string",
+     "description": "resume/steer guidance or project.open prompt."
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "steer",
+      "follow_up",
+      "auto",
+      "plan",
+      "apply"
+     ],
+     "description": "steer delivery mode; worktree.cleanup supports plan only, no apply/removal."
+    },
+    "steeringRecovery": {
+     "type": "boolean",
+     "description": "steer: pause/revive after missed acknowledgment; default true in direct steer mode, forced false by extension RPC for exact ownership."
+    },
+    "additional": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "grant-spawn-budget: root interactive parent + native user confirmation only; total grants capped at original configured cap."
+    },
+    "scope": {
+     "type": "string",
+     "enum": [
+      "session",
+      "user",
+      "project"
+     ],
+     "description": "watchdog.configure scope; default session, persistent only if explicit."
+    },
+    "target": {
+     "type": "string",
+     "enum": [
+      "main",
+      "children",
+      "child"
+     ],
+     "description": "Watchdog target."
+    },
+    "focus": {
+     "type": "boolean",
+     "description": "Focus inspector.open/project.open pane."
     },
     "thinking": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "boolean"
+      }
+     ],
+     "description": "watchdog.configure only: off/minimal/low/medium/high/xhigh/max, inherit, false=off; true invalid. Dispatch ignores this; use model suffix."
+    },
+    "at": {
      "type": "string",
-     "description": "Optional thinking level override."
+     "description": "schedule.create: delay (+10m) or zoned ISO timestamp."
     },
-    "max_turns": {
-     "type": "number",
-     "description": "Optional positive agent turn limit."
+    "every": {
+     "type": "string",
+     "description": "schedule.create interval, e.g. 30m/6h/2d/2w."
     },
-    "inherit_context": {
-     "type": "boolean",
-     "description": "Include the parent session's active conversation context."
+    "sessionOnly": {
+     "type": "boolean"
+    },
+    "quiet": {
+     "type": "boolean"
+    },
+    "on": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "integer"
+      }
+     ],
+     "description": "Reserved calendar selector."
+    },
+    "timezone": {
+     "type": "string"
+    },
+    "overlap": {
+     "type": "string",
+     "enum": [
+      "skip"
+     ]
+    },
+    "catchUp": {
+     "type": "string",
+     "enum": [
+      "none",
+      "latest"
+     ],
+     "description": "Missed schedule occurrences; default latest."
+    },
+    "missionId": {
+     "type": "string"
+    },
+    "mission": {
+     "anyOf": [
+      {
+       "type": "object",
+       "additionalProperties": true
+      },
+      {
+       "type": "boolean"
+      }
+     ],
+     "description": "false disables; true invalid. Object: exactly one non-empty title or summary; objective/labels optional; goal only true, requires budget.tokens."
+    },
+    "missionUpdate": {
+     "type": "object",
+     "additionalProperties": true,
+     "description": "Mission patch; read guide missions."
+    },
+    "missionStatus": {
+     "type": "string"
+    },
+    "missionScope": {
+     "type": "string",
+     "description": "project (default) or global pointer index."
+    },
+    "runMode": {
+     "type": "string",
+     "description": "Attached run mode."
+    },
+    "runStatus": {
+     "type": "string",
+     "description": "Attached run status."
+    },
+    "summary": {
+     "type": "string",
+     "description": "Mission close summary."
+    },
+    "config": {
+     "anyOf": [
+      {
+       "type": "object",
+       "additionalProperties": true
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "description": "create/update agent config; object or JSON string."
+    },
+    "workflow": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Extension-owned workflow resource."
+    },
+    "args": {
+     "type": "object",
+     "maxProperties": 16,
+     "additionalProperties": true,
+     "description": "Bounded plain-JSON args for named, inline, or file-backed workflows; raw-script args are exposed deeply frozen and persisted, so do not include secrets."
+    },
+    "workflowScript": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Inline JavaScript statement body; raw/unknown provenance, no runs.host. Use explicit return and top-level await; see tool guidance/guide workflows."
+    },
+    "workflowScriptPath": {
+     "type": "string",
+     "minLength": 1,
+     "description": "Raw script file; host reads from request cwd before sandbox. Mutually exclusive with workflowScript and workflow."
+    },
+    "globalConcurrencyLimit": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "maxSubagentSpawnsPerRun": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "preflight": {
+     "type": "object",
+     "required": [
+      "version",
+      "lanes"
+     ],
+     "properties": {
+      "version": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 1
+      },
+      "coverage": {
+       "type": "string",
+       "enum": [
+        "complete",
+        "partial"
+       ]
+      },
+      "lanes": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "key"
+        ],
+        "properties": {
+         "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+         },
+         "mode": {
+          "type": "string",
+          "enum": [
+           "mutation",
+           "review",
+           "scout",
+           "gate"
+          ]
+         },
+         "decision": {
+          "type": "string",
+          "maxLength": 256
+         },
+         "claims": {
+          "type": "array",
+          "items": {
+           "type": "string",
+           "maxLength": 256
+          },
+          "maxItems": 16
+         },
+         "expectedOutput": {
+          "type": "string",
+          "maxLength": 256
+         },
+         "independence": {
+          "type": "string",
+          "maxLength": 256
+         }
+        },
+        "additionalProperties": false
+       },
+       "maxItems": 64
+      }
+     },
+     "additionalProperties": false,
+     "description": "Display-only lane hints; coverage mismatches warn, never change authority/execution."
+    },
+    "chatProgress": {
+     "type": "string",
+     "enum": [
+      "auto",
+      "off",
+      "live-card"
+     ],
+     "description": "auto: live card only for watched foreground in same Git repository. live-card requires same-repo async:false; async: omit or auto/off."
     },
     "isolation": {
      "type": "string",
-     "description": "Run the subagent in an isolated git worktree."
+     "enum": [
+      "none",
+      "worktree"
+     ],
+     "description": "Shared cwd or managed git worktrees."
+    },
+    "worktree": {
+     "type": "boolean",
+     "description": "Isolate each workflow child in a managed git worktree; child worktree:false overrides default."
+    },
+    "baseRef": {
+     "type": "string"
+    },
+    "lane": {
+     "type": "object",
+     "required": [
+      "version",
+      "key"
+     ],
+     "properties": {
+      "version": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 1
+      },
+      "key": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 128,
+       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+      },
+      "mode": {
+       "type": "string",
+       "enum": [
+        "mutation",
+        "review",
+        "scout",
+        "gate"
+       ]
+      },
+      "sourceRef": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 128
+      },
+      "claims": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+       },
+       "maxItems": 20
+      },
+      "outputPaths": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+       },
+       "maxItems": 10
+      }
+     },
+     "additionalProperties": false,
+     "description": "Display/triage only; sourceRef is opaque, never resolved by status."
+    },
+    "context": {
+     "type": "string",
+     "enum": [
+      "fresh",
+      "fork",
+      "profile"
+     ],
+     "description": "fresh/fork overrides every child; profile requires agent's declared defaultContext, ignoring config. Omitted: defaultSubagentContext wins over each agent defaultContext; implicit fork needs persisted parent + leaf, else fresh. forkContext may prune forks before spawn."
+    },
+    "async": {
+     "type": "boolean",
+     "description": "Background; default asyncByDefault. false only to block parent."
+    },
+    "timeoutMs": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "Timeout. Foreground and single async runs use config timeoutMs, else 30m; async composites have no default parent deadline. Alias maxRuntimeMs."
+    },
+    "maxRuntimeMs": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "Alias timeoutMs (same defaults)."
+    },
+    "checkpointBeforeDeadlineMs": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 2147483647,
+     "description": "Async single-agent runs only: the runner requests that the child checkpoint and stop this many ms before the run deadline (best-effort; the deadline kill still applies)."
+    },
+    "toolTimeoutMs": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "Per-tool deadline (ms); fast builtins default 5m."
+    },
+    "toolBudget": {
+     "type": "object",
+     "required": [
+      "hard"
+     ],
+     "properties": {
+      "soft": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "hard": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "block": {
+       "anyOf": [
+        {
+         "type": "array",
+         "minItems": 1,
+         "items": {
+          "type": "string",
+          "minLength": 1
+         }
+        },
+        {
+         "type": "string",
+         "enum": [
+          "*"
+         ]
+        }
+       ]
+      }
+     },
+     "additionalProperties": false,
+     "description": "soft nudges; after hard, block tools (default read/grep/find/ls, '*' for all) so child can finalize."
+    },
+    "usageBudget": {
+     "type": "object",
+     "properties": {
+      "tokens": {
+       "type": "object",
+       "required": [
+        "hard"
+       ],
+       "properties": {
+        "soft": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "hard": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        }
+       },
+       "additionalProperties": false
+      },
+      "costUsd": {
+       "type": "object",
+       "required": [
+        "hard"
+       ],
+       "properties": {
+        "soft": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "hard": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        }
+       },
+       "additionalProperties": false
+      }
+     },
+     "additionalProperties": false,
+     "description": "Root-only reported usage; hard prevents later launches. Running children are not stopped."
+    },
+    "agentScope": {
+     "type": "string",
+     "description": "user/project/both (default); project wins collisions."
+    },
+    "cwd": {
+     "type": "string",
+     "description": "Execution/project-pane directory."
+    },
+    "machine": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128,
+     "description": "Herdr saved machine id or label; runs an external CLI agent there. cwd then means the directory on that machine."
+    },
+    "artifacts": {
+     "type": "boolean",
+     "description": "Debug artifacts; default true."
+    },
+    "includeProgress": {
+     "type": "boolean",
+     "description": "Full result progress; default false."
+    },
+    "share": {
+     "type": "boolean",
+     "description": "Upload session to GitHub Gist; default false."
+    },
+    "sessionDir": {
+     "type": "string",
+     "description": "Session log directory; default temp, independent of share."
+    },
+    "control": {
+     "type": "object",
+     "properties": {
+      "enabled": {
+       "type": "boolean"
+      },
+      "needsAttentionAfterMs": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "activeNoticeAfterMs": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "activeNoticeAfterTurns": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "activeNoticeAfterTokens": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "failedToolAttemptsBeforeAttention": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "notifyOn": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "active_long_running",
+         "needs_attention"
+        ]
+       }
+      },
+      "notifyChannels": {
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "event",
+         "async",
+         "intercom"
+        ]
+       }
+      }
+     }
+    },
+    "output": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "boolean"
+      }
+     ],
+     "description": "Child output path or false; relative workflow paths use managed artifact routing. Bind durable output here, not task prose; return outputReference/outputPathMapping/artifactPaths."
+    },
+    "outputMode": {
+     "type": "string",
+     "enum": [
+      "inline",
+      "file-only"
+     ],
+     "description": "Default inline; file-only requires output path."
+    },
+    "skill": {
+     "anyOf": [
+      {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "description": "Skills: names/CSV/array; false disables, true uses default."
+    },
+    "model": {
+     "type": "string",
+     "description": "Child model provider/id; bare id only if unique. Suffix :off/minimal/low/medium/high/xhigh/max overrides agent thinking default."
+    },
+    "fast": {
+     "type": "boolean",
+     "description": "Native OpenAI-Codex priority tier; default false, may cost more/quota."
+    },
+    "outputSchema": {
+     "anyOf": [
+      {
+       "type": "object",
+       "additionalProperties": true
+      },
+      {
+       "type": "boolean"
+      }
+     ],
+     "description": "Structured output schema override; false disables an agent default."
+    },
+    "agentContract": {
+     "type": "object",
+     "required": [
+      "version"
+     ],
+     "properties": {
+      "version": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 1
+      }
+     },
+     "additionalProperties": false,
+     "description": "Compatibility behavior. Omit for the default behavior."
+    },
+    "acceptance": {
+     "anyOf": [
+      {
+       "type": "string",
+       "enum": [
+        "auto",
+        "attested",
+        "checked"
+       ]
+      },
+      {
+       "type": "string",
+       "enum": [
+        "reviewed"
+       ],
+       "deprecated": true
+      },
+      {
+       "type": "string",
+       "pattern": "^\\s*\\{"
+      },
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "object",
+       "additionalProperties": true
+      }
+     ],
+     "description": "Evidence policy; omit for read-only/review. false disables; true invalid. Prefer object; see guide tool-reference for levels, evidence and review.required."
+    },
+    "gate": {
+     "anyOf": [
+      {
+       "type": "string",
+       "minLength": 1
+      },
+      {
+       "type": "object",
+       "properties": {
+        "command": {
+         "type": "string",
+         "minLength": 1
+        },
+        "output": {
+         "type": "string",
+         "enum": [
+          "json"
+         ]
+        },
+        "schema": {
+         "type": "object"
+        },
+        "timeoutMs": {
+         "type": "integer",
+         "minimum": 1
+        }
+       },
+       "required": [
+        "command"
+       ],
+       "additionalProperties": false
+      }
+     ],
+     "description": "Host gate command run after the child finishes: a string, or { command, output: \"json\", schema?, timeoutMs? } whose passing stdout becomes structuredOutput (not with outputSchema). Cannot be combined with acceptance; an explicit acceptance of false is treated as omitted."
     }
    }
   },
   "promptGuidelines": [
-   "Use Agent for a focused task that benefits from an isolated context.",
-   "Use multiple background Agent calls in the same response for independent parallel work.",
-   "Do not duplicate work already delegated to a running subagent."
+   "Do not invoke subagents unless the operator requested delegation directly or through applicable instructions."
   ],
   "sourceInfo": {
-   "path": "<inline:pi-web-subagents>",
-   "source": "inline",
-   "scope": "temporary",
-   "origin": "top-level"
-  },
-  "active": true
- },
- {
-  "name": "get_subagent_result",
-  "description": "Check an inspectable subagent session and retrieve its latest result.",
-  "parameters": {
-   "type": "object",
-   "required": [
-    "agent_id"
-   ],
-   "properties": {
-    "agent_id": {
-     "type": "string",
-     "description": "Subagent session ID."
-    },
-    "wait": {
-     "type": "boolean",
-     "description": "Wait until the subagent finishes."
-    }
-   }
-  },
-  "sourceInfo": {
-   "path": "<inline:pi-web-subagents>",
-   "source": "inline",
-   "scope": "temporary",
-   "origin": "top-level"
-  },
-  "active": true
- },
- {
-  "name": "steer_subagent",
-  "description": "Send a steering message to a currently running subagent session.",
-  "parameters": {
-   "type": "object",
-   "required": [
-    "agent_id",
-    "message"
-   ],
-   "properties": {
-    "agent_id": {
-     "type": "string",
-     "description": "Subagent session ID."
-    },
-    "message": {
-     "type": "string",
-     "description": "Instruction to inject after the current tool execution."
-    }
-   }
-  },
-  "sourceInfo": {
-   "path": "<inline:pi-web-subagents>",
-   "source": "inline",
-   "scope": "temporary",
-   "origin": "top-level"
+   "path": "npm:pi-subagents",
+   "source": "npm:pi-subagents",
+   "scope": "user",
+   "origin": "package"
   },
   "active": true
  }

@@ -54,6 +54,8 @@ export interface SessionScript {
   relation?: SessionInfo["relation"];
   /** Session the fork was created from (display only). */
   parentSessionId?: string;
+  /** Parent whose directory this session nests under (pi-subagents child layout). */
+  nestedUnderParentId?: string;
   steps: Step[];
   /** Mark name of the entry that should be the active leaf (default: last). */
   leaf?: string;

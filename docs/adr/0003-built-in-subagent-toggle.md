@@ -1,5 +1,7 @@
 # Built-in sub-agent activation and extension precedence
 
+**Superseded by [0006](0006-delegate-subagents-to-pi-subagents.md).** Pi Web no longer ships a sub-agent engine, so there is no feature switch and no precedence rule against `pi-subagents`.
+
 Pi Web's integrated sub-agent implementation is an inline, hidden extension.
 It is disabled by default and controlled by the global
 `~/.pi/agent/agents/settings.json` setting `builtInEnabled`.

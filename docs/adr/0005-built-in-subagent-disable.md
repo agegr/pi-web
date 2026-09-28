@@ -1,5 +1,7 @@
 # 0005 — A built-in sub-agent is switched off in settings, not copied to a file
 
+**Superseded by [0006](0006-delegate-subagents-to-pi-subagents.md).** Pi Web no longer ships built-in profiles, so there is no `disabledBuiltIns` switch to describe.
+
 ## Status
 
 Accepted.

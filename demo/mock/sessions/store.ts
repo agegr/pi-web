@@ -11,7 +11,7 @@ import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { projectTreeForResponse, toSummaryTree } from "@/lib/project-tree";
 import { readSessionToolSelectionFromEntries } from "./tool-selection";
 import { currentDemoLocale, type DemoLocale } from "../locale";
-import { PROJECT_BRANCH, PROJECT_ROOT, SCRATCH_ROOT, WORKTREE_BRANCH, WORKTREE_ROOT, sessionFilePath } from "../paths";
+import { PROJECT_BRANCH, PROJECT_ROOT, SCRATCH_ROOT, WORKTREE_BRANCH, WORKTREE_ROOT, sessionDirFor, sessionFilePath } from "../paths";
 import { buildSession } from "./builder";
 import { SESSION_SCRIPTS } from "./scripts";
 
@@ -30,6 +30,8 @@ export interface MockSession {
   name?: string;
   relation?: SessionInfo["relation"];
   parentSessionId?: string;
+  /** Overrides the default flat `sessionFilePath()` layout when set. */
+  path?: string;
   entries: SessionEntry[];
   leafId: string | null;
   /** Created by /api/agent/new and not yet written to "disk". */
@@ -82,6 +84,17 @@ async function build(locale: DemoLocale): Promise<void> {
       transient: false,
       live: null,
     });
+  }
+  // Nested pi-subagents children sit under a directory named after the parent
+  // file's basename: <projectDir>/<parentBase>/<childUuid>/run-0/session.jsonl.
+  for (const script of SESSION_SCRIPTS) {
+    if (!script.nestedUnderParentId) continue;
+    const child = sessions.get(script.id);
+    const parent = sessions.get(script.nestedUnderParentId);
+    if (!child || !parent) continue;
+    const parentFileName = sessionFilePath(parent.cwd, parent.created, parent.id).split("/").pop() ?? "";
+    const parentBase = parentFileName.replace(/\.jsonl$/, "");
+    child.path = `${sessionDirFor(child.cwd)}/${parentBase}/${child.id}/run-0/session.jsonl`;
   }
   state.sessions = sessions;
   state.locale = locale;
@@ -179,7 +192,7 @@ export function sessionInfo(session: MockSession): SessionInfo {
   const firstMessage = firstUser?.type === "message" ? messageText((firstUser.message as { content: unknown }).content) || "(no messages)" : "(no messages)";
   const projectRoot = projectRootFor(session.cwd);
   return {
-    path: session.transient ? "" : sessionFilePath(session.cwd, session.created, session.id),
+    path: session.transient ? "" : (session.path ?? sessionFilePath(session.cwd, session.created, session.id)),
     id: session.id,
     cwd: session.cwd,
     ...(session.name ? { name: session.name } : {}),

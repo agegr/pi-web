@@ -1,5 +1,15 @@
 # Make Chat only a persisted resource policy
 
+> **Superseded in part by
+> [0006](0006-delegate-subagents-to-pi-subagents.md).** The sub-agent dispatch
+> and `input_files` resolution described below belonged to Pi Web's removed
+> built-in sub-agent engine. Pi Web no longer resolves a sub-agent profile for
+> execution; reopened legacy sessions still restore their persisted
+> `resourceSnapshot` (active tools plus the profile's skill and extension
+> loading switches), and the reserved control tools stay excluded from their own
+> tool list so a reopened run cannot nest another dispatch. Live delegation is
+> owned by the user-installed `pi-subagents` package.
+
 Pi Web treats an explicitly empty tool selection as **Chat only**, not merely as
 an AgentSession whose active tool array happens to be empty.
 

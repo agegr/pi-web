@@ -8,7 +8,6 @@ import {
   type SubagentProfile,
   type SubagentWritableScope,
 } from "@/lib/subagents";
-import { writeDisabledBuiltInSubagent } from "@/lib/subagent-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +19,6 @@ async function validateCwd(cwd: unknown): Promise<string> {
 
 function validateScope(scope: unknown): SubagentWritableScope {
   if (scope !== "global" && scope !== "project") throw new Error("scope must be global or project");
-  return scope;
-}
-
-/** A built-in has no file to save or delete, but its switch is persisted all the same. */
-function validateToggleScope(scope: unknown): SubagentWritableScope | "builtin" {
-  if (scope === "builtin") return scope;
-  if (scope !== "global" && scope !== "project") throw new Error("scope must be global, project, or builtin");
   return scope;
 }
 
@@ -53,45 +45,6 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "profile required" }, { status: 400 });
     }
     return NextResponse.json({ profile: saveSubagentProfile(cwd, scope, body.profile) });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
-  }
-}
-
-export async function PATCH(req: Request) {
-  try {
-    const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown; enabled?: unknown };
-    const cwd = await validateCwd(body.cwd);
-    const scope = validateToggleScope(body.scope);
-    if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
-    if (typeof body.enabled !== "boolean") return NextResponse.json({ error: "enabled required" }, { status: 400 });
-    const name = body.name;
-    const source = listSubagentProfileSources(cwd).find((profile) =>
-      profile.scope === scope && profile.name.toLowerCase() === name.toLowerCase()
-    );
-    if (!source) return NextResponse.json({ error: "Agent profile not found" }, { status: 404 });
-    if (scope === "builtin") {
-      writeDisabledBuiltInSubagent(source.name, !body.enabled);
-      return NextResponse.json({ profile: { ...source, enabled: body.enabled } });
-    }
-    const profile: Omit<SubagentProfile, "scope" | "filePath"> = {
-      name: source.name,
-      displayName: source.displayName,
-      description: source.description,
-      systemPrompt: source.systemPrompt,
-      tools: source.tools,
-      loadSkills: source.loadSkills,
-      loadExtensions: source.loadExtensions,
-      promptMode: source.promptMode,
-      model: source.model,
-      thinking: source.thinking,
-      maxTurns: source.maxTurns,
-      inheritContext: source.inheritContext,
-      runInBackground: source.runInBackground,
-      enabled: source.enabled,
-    };
-    return NextResponse.json({ profile: saveSubagentProfile(cwd, scope, { ...profile, enabled: body.enabled }) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });

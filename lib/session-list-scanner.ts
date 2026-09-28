@@ -33,6 +33,13 @@ interface Fingerprint {
 
 const SUMMARY_HEADER_MAX_BYTES = 64 * 1024;
 
+/**
+ * First-message text for a session with no user message yet. Shared with
+ * `session-reader`, which strips it again before deriving a description, so the
+ * two must never drift apart.
+ */
+export const NO_MESSAGES_PLACEHOLDER = "(no messages)";
+
 interface IndexEntry {
 	fp: Fingerprint;
 	info: ScannedSessionInfo;
@@ -236,11 +243,47 @@ export async function scanSessionFileInfo(
 			created: new Date(header.timestamp as string),
 			modified,
 			messageCount,
-			firstMessage: firstMessage || "(no messages)",
+			firstMessage: firstMessage || NO_MESSAGES_PLACEHOLDER,
 		};
 	} catch {
 		return null;
 	}
+}
+
+const NESTED_SESSION_FILENAME = "session.jsonl";
+// `<projectDir>/<parentBase>/<childUuid>/run-<N>/session.jsonl` and
+// `<projectDir>/<parentBase>/async-<runId>/session.jsonl` are the pi-subagents
+// child layouts. Depth 4 covers both without unbounded recursion.
+const NESTED_SESSION_MAX_DEPTH = 4;
+
+/**
+ * Collect pi-subagents child transcripts (`session.jsonl`) below one project
+ * directory. Only files with that exact name are picked up, so the package's
+ * `subagent-artifacts/*.jsonl` and other stray transcripts stay out of the
+ * session catalogue.
+ */
+async function collectNestedSessionFiles(dirPath: string, depth: number): Promise<string[]> {
+	if (depth > NESTED_SESSION_MAX_DEPTH) return [];
+	let entries: Dirent[];
+	try {
+		entries = await readdir(dirPath, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+
+	const files: string[] = [];
+	const subdirs: string[] = [];
+	for (const entry of entries) {
+		if (entry.isDirectory() || entry.isSymbolicLink()) {
+			subdirs.push(join(dirPath, entry.name));
+		} else if (entry.name === NESTED_SESSION_FILENAME) {
+			files.push(join(dirPath, entry.name));
+		}
+	}
+	for (const subdir of subdirs) {
+		files.push(...await collectNestedSessionFiles(subdir, depth + 1));
+	}
+	return files;
 }
 
 async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
@@ -257,15 +300,24 @@ async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
 	const files: string[] = [];
 	for (const dir of dirs) {
 		const dirPath = join(sessionsDir, dir.name);
+		let entries: Dirent[];
 		try {
-			for (const f of await readdir(dirPath)) {
-				if (f.endsWith(".jsonl")) files.push(join(dirPath, f));
-			}
+			entries = await readdir(dirPath, { withFileTypes: true });
 		} catch {
 			// unreadable project dir: same skip-as-absent semantics as the SDK
+			continue;
+		}
+		for (const entry of entries) {
+			if (entry.name.endsWith(".jsonl")) {
+				files.push(join(dirPath, entry.name));
+			} else if (entry.isDirectory() || entry.isSymbolicLink()) {
+				// Nested sessions need a directory walk; a project with none pays one
+				// readdir per top-level entry and nothing more.
+				files.push(...await collectNestedSessionFiles(join(dirPath, entry.name), 1));
+			}
 		}
 	}
-	return files;
+	return [...new Set(files)];
 }
 
 const MAX_CONCURRENT_SCANS = 10;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -256,6 +256,87 @@ test("deleting a session removes all persisted subagent descendants", async (t) 
   await assert.rejects(readFile(parentPath), { code: "ENOENT" });
   await assert.rejects(readFile(childPath), { code: "ENOENT" });
   await assert.rejects(readFile(grandchildPath), { code: "ENOENT" });
+});
+
+test("deleting a session removes its nested pi-subagents child directory", async (t) => {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-web-delete-nested-"));
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const projectDir = join(agentDir, "sessions", "--proj--");
+  const parentBase = "2026-01-01T00-00-00-000Z_nested-parent";
+  const parentId = "nested-parent";
+  const parentPath = join(projectDir, `${parentBase}.jsonl`);
+  const childDir = join(projectDir, parentBase, "child-uuid", "run-0");
+  const childPath = join(childDir, "session.jsonl");
+  const header = (id) => JSON.stringify({
+    type: "session",
+    version: 3,
+    id,
+    timestamp: "2026-01-01T00:00:00.000Z",
+    cwd: "/proj",
+  });
+  await mkdir(projectDir, { recursive: true });
+  await mkdir(childDir, { recursive: true });
+  await writeFile(parentPath, `${header(parentId)}\n`);
+  await writeFile(childPath, `${header("nested-child")}\n`);
+  cacheSessionPath(parentId, parentPath);
+  invalidateSessionListCache();
+  t.after(async () => {
+    invalidateSessionPathCache(parentId);
+    invalidateSessionListCache();
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${parentId}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id: parentId }) },
+  );
+
+  assert.equal(response.status, 200);
+  await assert.rejects(readFile(parentPath), { code: "ENOENT" });
+  await assert.rejects(readFile(childPath), { code: "ENOENT" }, "the nested child tree goes with its parent");
+});
+
+test("deleting a nested pi-subagents child prunes its empty run directories", async (t) => {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const agentDir = await mkdtemp(join(tmpdir(), "pi-web-delete-child-"));
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const projectDir = join(agentDir, "sessions", "--proj--");
+  const parentBase = "2026-01-01T00-00-00-000Z_prune-parent";
+  const childDir = join(projectDir, parentBase, "child-uuid", "run-0");
+  const childId = "nested-child-prune";
+  const childPath = join(childDir, "session.jsonl");
+  await mkdir(childDir, { recursive: true });
+  await writeFile(join(projectDir, `${parentBase}.jsonl`), `${JSON.stringify({
+    type: "session", version: 3, id: "prune-parent", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/proj",
+  })}\n`);
+  await writeFile(childPath, `${JSON.stringify({
+    type: "session", version: 3, id: childId, timestamp: "2026-01-01T00:00:00.000Z", cwd: "/proj",
+  })}\n`);
+  cacheSessionPath(childId, childPath);
+  invalidateSessionListCache();
+  t.after(async () => {
+    invalidateSessionPathCache(childId);
+    invalidateSessionListCache();
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${childId}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id: childId }) },
+  );
+
+  assert.equal(response.status, 200);
+  await assert.rejects(readFile(childPath), { code: "ENOENT" });
+  // The now-empty run/ and child-uuid/ dirs are pruned; the parent's own file stays.
+  await assert.rejects(readFile(join(childDir, "session.jsonl")), { code: "ENOENT" });
+  const { stat } = await import("node:fs/promises");
+  await assert.rejects(stat(childDir), { code: "ENOENT" }, "the empty run directory is removed");
+  assert.ok(await readFile(join(projectDir, `${parentBase}.jsonl`)), "the parent session is untouched");
 });
 
 test("live detail and state routes work without a persisted JSONL file", async (t) => {

@@ -68,6 +68,9 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /sessionIdRef\.current !== sid/);
   assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?sdkAgentActiveRef\.current = Boolean\(state\.isStreaming\)/);
   assert.match(reconcileSource, /rpcPromptPendingRef\.current = Boolean\(state\.isPromptRunning\)/);
+  // Live pi-subagents progress arrives through the widget channel, so the busy
+  // branch must still apply it instead of returning before the setState calls.
+  assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?setExtensionWidgets\(state\.extensionWidgets \?\? \[\]\)[\s\S]*?return;/);
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 

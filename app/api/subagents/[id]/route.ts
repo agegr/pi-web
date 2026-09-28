@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { abortSubagent, getSubagentRun, steerSubagent } from "@/lib/rpc-manager";
+import { getSubagentRun } from "@/lib/rpc-manager";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Legacy run status for sessions created by the removed built-in engine.
+ * Live delegation is owned by the user-installed `pi-subagents` package, so
+ * steering and aborting are no longer exposed here.
+ */
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -14,29 +19,5 @@ export async function GET(
     return NextResponse.json({ run });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
-  }
-}
-
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  try {
-    const body = await req.json() as { action?: unknown; message?: unknown };
-    if (body.action === "steer") {
-      if (typeof body.message !== "string" || !body.message.trim()) {
-        return NextResponse.json({ error: "message required" }, { status: 400 });
-      }
-      await steerSubagent(id, body.message);
-    } else if (body.action === "abort") {
-      await abortSubagent(id);
-    } else {
-      return NextResponse.json({ error: "action must be steer or abort" }, { status: 400 });
-    }
-    return NextResponse.json({ ok: true, run: await getSubagentRun(id) });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: message.includes("not running") ? 409 : 500 });
   }
 }

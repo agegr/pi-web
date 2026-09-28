@@ -339,6 +339,7 @@ export type SubagentSessionStatus =
   | "completed"
   | "failed"
   | "aborted"
+  | "stopped"
   | "interrupted";
 
 export interface SessionTreeNode {
@@ -368,9 +369,18 @@ export interface SessionInfo {
     | {
         kind: "subagent";
         parentSessionId: string;
+        /** Parent session file when the relation was inferred from disk layout. */
+        parentSessionPath?: string;
         profile: string;
         description: string;
         status: SubagentSessionStatus;
+        /** Producing engine; absent on legacy built-in-engine (`pi-web:subagent`) metadata. */
+        engine?: "pi-web" | "pi-subagents";
+        /** pi-subagents async run id, when an async `status.json` matched this transcript. */
+        runId?: string;
+        /** Snapshot node id of this child's step within that run; one run backs
+         *  every child of a chain, so this is what disambiguates the rows. */
+        stepRunId?: string;
       };
   /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
    *  Always set by the server; optional because the client builds transient

@@ -8,6 +8,7 @@ export const SESSION_IDS = {
   feature: "019d7c8b-3d77-7a46-9eaf-5f6a7b8c9d06",
   extend: "019d7b52-9c08-7d57-a0b1-6a7b8c9d0e07",
   extendSubagent: "019d7b53-4a19-7e68-b2c3-7b8c9d0e1f08",
+  piSubagent: "019d7b54-9b2a-7e79-c3d4-8c9d0e1f2a18",
   tips: "019d7a17-7b2a-7f79-c4d5-8c9d0e1f2a09",
   scratch: "019d79e0-5d3b-7a8a-d6e7-9d0e1f2a3b10",
 } as const;
