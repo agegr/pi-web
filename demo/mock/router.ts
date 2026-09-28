@@ -234,7 +234,7 @@ const ROUTES: Record<string, Handler> = {
   "project-trust": () => json({ requiresTrust: false, trusted: true }),
   "app-update": () => {
     const version = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
-    return json({ currentVersion: version, latestVersion: version, updateAvailable: false, releaseUrl: `https://github.com/agegr/pi-web/releases/tag/v${version}` });
+    return json({ currentVersion: version, latestVersion: version, updateAvailable: false, releaseUrl: `https://github.com/dreadster3/pi-web/releases/tag/v${version}` });
   },
   git: async (request) => {
     const cwd = request.query("cwd") ?? "";

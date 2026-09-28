@@ -103,7 +103,7 @@ flowchart LR
 > This page is a static demo — the replies are canned. To use Pi Web with your own agent, run:
 >
 > \`\`\`bash
-> npx @agegr/pi-web@latest
+> npx @dreadster3/pi-web@latest
 > \`\`\``,
             zh: `推荐一条五分钟的体验路线：
 
@@ -116,7 +116,7 @@ flowchart LR
 > 这是一个静态演示页面，回复都是预设的。想连接你自己的 agent 使用 Pi Web，运行：
 >
 > \`\`\`bash
-> npx @agegr/pi-web@latest
+> npx @dreadster3/pi-web@latest
 > \`\`\``,
           },
         },

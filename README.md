@@ -4,9 +4,9 @@
 
 Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). Pi Web uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
 
-**[Try the interactive demo →](https://agegr.github.io/pi-web/)** The real Pi Web UI runs entirely in your browser, with sample sessions, files and models. There is nothing to install; replies are pre-written and no model is called.
+**[Try the interactive demo →](https://dreadster3.github.io/pi-web/)** The real Pi Web UI runs entirely in your browser, with sample sessions, files and models. There is nothing to install; replies are pre-written and no model is called.
 
-![Pi Web displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
+![Pi Web displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/dreadster3/pi-web/main/docs/screenshot2.png)
 
 ## Features
 
@@ -22,7 +22,7 @@ Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi)
 Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --version`, then run:
 
 ```bash
-npx @agegr/pi-web@latest
+npx @dreadster3/pi-web@latest
 ```
 
 The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141). Pi Web listens only on `127.0.0.1` by default.
@@ -32,11 +32,11 @@ If no model provider is configured yet, open the **Models** panel to sign in or 
 To install the `pi-web` command globally:
 
 ```bash
-npm install -g @agegr/pi-web@latest
+npm install -g @dreadster3/pi-web@latest
 pi-web
 ```
 
-To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @agegr/pi-web`.
+To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @dreadster3/pi-web`.
 
 ## Configuration
 
@@ -80,7 +80,7 @@ On macOS or Linux:
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-web@latest
+npx @dreadster3/pi-web@latest
 ```
 
 On Windows PowerShell:
@@ -89,7 +89,7 @@ On Windows PowerShell:
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+npx @dreadster3/pi-web@latest
 ```
 
 ## Notes
@@ -130,7 +130,7 @@ Server-side Pi extensions with detached work can prevent automatic idle
 session eviction through the versioned global registry:
 
 ```js
-const liveness = globalThis[Symbol.for("@agegr/pi-web/session-liveness/v1")];
+const liveness = globalThis[Symbol.for("@dreadster3/pi-web/session-liveness/v1")];
 const release = liveness?.version === 1
   ? liveness.register({
       name: "my-extension",

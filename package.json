@@ -1,16 +1,19 @@
 {
-  "name": "@agegr/pi-web",
-  "version": "0.9.3",
+  "name": "@dreadster3/pi-web",
+  "version": "0.0.1",
   "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/agegr/pi-web#readme",
+  "homepage": "https://github.com/dreadster3/pi-web#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agegr/pi-web.git"
+    "url": "git+https://github.com/dreadster3/pi-web.git"
   },
   "bugs": {
-    "url": "https://github.com/agegr/pi-web/issues"
+    "url": "https://github.com/dreadster3/pi-web/issues"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.19.0"
   },
