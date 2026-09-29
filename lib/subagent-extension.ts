@@ -72,7 +72,7 @@ export interface SubagentExtensionRuntime {
   get(sessionId: string): Promise<SubagentRunInfo | null>;
   steer(sessionId: string, message: string): Promise<void>;
   notifyParent(run: SubagentRunInfo): Promise<void>;
-  markResultConsumed(sessionId: string): void;
+  markResultConsumed(run: Pick<SubagentRunInfo, "sessionId" | "completedAt">): void;
 }
 
 export type SubagentProfileProvider = () => readonly SubagentProfile[];
@@ -270,7 +270,7 @@ export function createSubagentExtension(
           }
           // The parent now holds this result, so the background completion notification must not
           // deliver the same text again and wake a duplicate turn.
-          if (run.runInBackground && TERMINAL_SUBAGENT_STATUSES.has(run.status)) runtime.markResultConsumed(run.sessionId);
+          if (run.runInBackground && TERMINAL_SUBAGENT_STATUSES.has(run.status)) runtime.markResultConsumed(run);
           return {
             content: [{ type: "text", text: subagentFinalText(run) }],
             details: subagentToolDetails(run),
