@@ -127,6 +127,17 @@ function takeResultConsumed(sessionId: string): boolean {
   return getConsumedSubagentResults().delete(sessionId);
 }
 
+/**
+ * A run lives in `getSubagentRuns()` from dispatch until its result entry is written, so a
+ * persisted `running` / `queued` status reaching `get()` without that entry (and without a running
+ * wrapper) was left by a process that stopped mid-run and will never be finished. Report it as
+ * `interrupted` so `get_subagent_result({ wait: true })` returns instead of polling forever, and
+ * `resume` can pick the session up again.
+ */
+function settleOrphanedRun(run: SubagentRunInfo): SubagentRunInfo {
+  return run.status === "running" || run.status === "queued" ? { ...run, status: "interrupted" } : run;
+}
+
 function parseSubagentModel(runtime: ModelRuntime, value: string | undefined) {
   if (!value?.trim()) return undefined;
   const requested = value.trim();
@@ -570,12 +581,13 @@ export function createSubagentController(
         wrapper.sessionFile,
       );
       if (run && wrapper.isRunning()) return { ...run, status: "running" };
-      if (run) return run;
+      if (run) return settleOrphanedRun(run);
     }
     const sessionPath = await dependencies.resolveSessionPath(sessionId);
     if (!sessionPath) return null;
     const manager = SessionManager.open(sessionPath);
-    return readSubagentRun(manager.getEntries() as unknown as SessionEntry[], sessionId, sessionPath);
+    const run = readSubagentRun(manager.getEntries() as unknown as SessionEntry[], sessionId, sessionPath);
+    return run && settleOrphanedRun(run);
   }
 
   async function steer(sessionId: string, message: string): Promise<void> {
