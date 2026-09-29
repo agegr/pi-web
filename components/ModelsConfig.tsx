@@ -12,8 +12,11 @@ import {
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
+  savedModelIds,
   serializeHeaderRows,
   setCompatBool,
+  trackAddedModels,
+  collectModelRenames,
   updateHeaderRow,
   type HeaderRow,
   type ModelCostDraft,
@@ -38,6 +41,14 @@ import {
   ConfigSidebarText,
   ConfigSplitView,
 } from "./SettingsUi";
+import {
+  EnabledModelsBanner,
+  EnabledModelsProviderSwitch,
+  EnabledModelsSection,
+  useEnabledModels,
+  type EnabledModelsController,
+} from "./EnabledModelsSection";
+import { providerBadgeLabel } from "./enabled-models-helpers";
 import { ProviderIcon } from "./ProviderIcon";
 import { ProviderUsageSummary } from "./ProviderUsageSummary";
 
@@ -292,10 +303,10 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels }: {
+function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddModels, enabledModels }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
-  onAddModels: (models: DiscoveredModel[]) => void;
+  onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
 }) {
   const { t } = useI18n();
   const [editingName, setEditingName] = useState(name);
@@ -392,6 +403,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
           <SectionTitle>{t("i18n.provider")}</SectionTitle>
         </ConfigDetailHeaderInfo>
         <ConfigDetailActions>
+          <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} />
           <ConfigButton variant="danger" size="small" onClick={onDelete}>{t("i18n.delete")}</ConfigButton>
         </ConfigDetailActions>
       </ConfigDetailHeader>
@@ -533,6 +545,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onAddMod
           </>
         )}
       </div>
+
     </div>
   );
 }
@@ -1284,7 +1297,9 @@ function ModelDetail({
 
 // ── OAuth detail ──────────────────────────────────────────────────────────────
 
-function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
+function OAuthDetail({ provider, onRefresh, enabledModels }: {
+  provider: OAuthProvider; onRefresh: () => void; enabledModels: EnabledModelsController;
+}) {
   const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" });
   const { t } = useI18n();
   const [inputValue, setInputValue] = useState("");
@@ -1544,13 +1559,17 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       </div>
 
       <ProviderUsageSummary providerId={provider.id} enabled={provider.loggedIn} />
+
+      {provider.loggedIn && <EnabledModelsSection providerId={provider.id} controller={enabledModels} />}
     </div>
   );
 }
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
-function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRefresh: () => void }) {
+function ApiKeyDetail({ provider, onRefresh, enabledModels }: {
+  provider: ApiKeyProvider; onRefresh: () => void; enabledModels: EnabledModelsController;
+}) {
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -1675,6 +1694,8 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
       {error && <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{error}</p>}
 
       <ProviderUsageSummary providerId={provider.id} enabled={provider.configured} />
+
+      {provider.configured && <EnabledModelsSection providerId={provider.id} controller={enabledModels} />}
     </div>
   );
 }
@@ -1822,17 +1843,34 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
+export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
+  onClose: () => void; embedded?: boolean; cwd?: string | null;
+}) {
   const { t } = useI18n();
+  // `enabledModels` lives in pi's settings, not models.json, so these switches
+  // apply immediately instead of waiting for this panel's Save button.
+  const enabledModels = useEnabledModels(cwd);
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Set when models.json could not be read. Saving stays disabled: the draft
+  // would not contain the file's providers, and a save replaces the whole file.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** Provider ids as models.json has them on disk, and where renames moved them. */
+  const savedProvidersRef = useRef<Set<string>>(new Set());
+  const renamesRef = useRef<Map<string, string>>(new Map());
+  /**
+   * Per provider, the model id saved at each slot, or null for a model added
+   * since. Mirroring the draft's array moves is what lets a save tell a rename
+   * from an unrelated edit without guessing.
+   */
+  const savedModelIdsRef = useRef<Map<string, (string | null)[]>>(new Map());
 
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
@@ -1846,10 +1884,16 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
   useEffect(() => {
     fetch("/api/models-config")
-      .then((r) => r.json())
-      .then((d: ModelsJson) => {
+      .then(async (r) => {
+        const d = await r.json() as ModelsJson & { error?: string };
+        if (!r.ok || d.error) throw new Error(d.error ?? `HTTP ${r.status}`);
+        return d;
+      })
+      .then((d) => {
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
+        savedProvidersRef.current = new Set(Object.keys(normalized.providers ?? {}));
+        savedModelIdsRef.current = savedModelIds(normalized);
         const keys = Object.keys(normalized.providers ?? {});
         setSelection((current) => current && customSelectionExists(normalized, current)
           ? current
@@ -1857,7 +1901,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
             ? { type: "provider", name: keys[0] }
             : null);
       })
-      .catch(() => setConfig({ providers: {} }))
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
     refreshAuthProviders();
   }, [refreshAuthProviders]);
@@ -1879,6 +1923,22 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   }, []);
 
   const renameProvider = useCallback((oldName: string, newName: string) => {
+    // Remember where each saved provider ended up, so the enabledModels entries
+    // can follow it on save instead of pointing at an id that no longer exists.
+    const renames = renamesRef.current;
+    let original = oldName;
+    for (const [from, to] of renames) {
+      if (to !== oldName) continue;
+      original = from;
+      break;
+    }
+    if (original === newName) renames.delete(original);
+    else if (savedProvidersRef.current.has(original)) renames.set(original, newName);
+    const slots = savedModelIdsRef.current.get(oldName);
+    if (slots) {
+      savedModelIdsRef.current.delete(oldName);
+      savedModelIdsRef.current.set(newName, slots);
+    }
     setConfig((prev) => {
       const entries = Object.entries(prev.providers ?? {});
       const idx = entries.findIndex(([k]) => k === oldName);
@@ -1895,6 +1955,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   }, []);
 
   const deleteProvider = useCallback((name: string) => {
+    savedModelIdsRef.current.delete(name);
     setConfig((prev) => {
       const providers = { ...(prev.providers ?? {}) };
       delete providers[name];
@@ -1908,6 +1969,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   }, []);
 
   const addModel = useCallback((providerName: string) => {
+    trackAddedModels(savedModelIdsRef.current, providerName, 1);
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? []), { id: "" }];
@@ -1922,6 +1984,12 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
 
   const addDiscoveredModels = useCallback((providerName: string, discovered: DiscoveredModel[]) => {
     setConfig((prev) => {
+      const known = new Set((prev.providers?.[providerName]?.models ?? []).map((model) => model.id));
+      trackAddedModels(
+        savedModelIdsRef.current,
+        providerName,
+        discovered.filter((model) => !known.has(model.id)).length,
+      );
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
       const existingIds = new Set(models.map((model) => model.id));
@@ -1944,6 +2012,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   }, []);
 
   const removeModel = useCallback((providerName: string, index: number) => {
+    savedModelIdsRef.current.get(providerName)?.splice(index, 1);
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
@@ -1954,6 +2023,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
   }, []);
 
   const handleSave = useCallback(async () => {
+    if (loadError) return;
     setSaving(true);
     setSaveError(null);
     setSavedOk(false);
@@ -1965,15 +2035,32 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
       });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
-      else { setSavedOk(true); setTimeout(() => setSavedOk(false), 2000); }
+      else {
+        setSavedOk(true);
+        setTimeout(() => setSavedOk(false), 2000);
+        // models.json just changed under the switches: providers may have been
+        // renamed, models added, deleted or renamed. Re-verify the stored
+        // patterns against the new catalog and re-read.
+        const renames = [...renamesRef.current].map(([from, to]) => ({ from, to }));
+        const modelRenames = collectModelRenames(config, savedModelIdsRef.current, renamesRef.current);
+        savedProvidersRef.current = new Set(Object.keys(config.providers ?? {}));
+        savedModelIdsRef.current = savedModelIds(config);
+        renamesRef.current.clear();
+        enabledModels.resync(renames, modelRenames);
+      }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, enabledModels, loadError]);
 
   const providers = Object.entries(config.providers ?? {});
+  // `12/40` next to a provider makes a narrowed selector visible at a glance.
+  const scopeBadge = (providerId: string) => {
+    const label = providerBadgeLabel(enabledModels.view, providerId);
+    return label ? <span className="models-sidebar-badge">{label}</span> : null;
+  };
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
   const activeApiKey = apiKeyProviders.filter((p) => p.configured);
 
@@ -1983,12 +2070,12 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
     if (selection.type === "oauth") {
       const p = oauthProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
+      return <OAuthDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} enabledModels={enabledModels} />;
     }
     if (selection.type === "apikey") {
       const p = apiKeyProviders.find((p) => p.id === selection.providerId);
       if (!p) return null;
-      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} />;
+      return <ApiKeyDetail key={p.id} provider={p} onRefresh={refreshAuthProviders} enabledModels={enabledModels} />;
     }
     if (selection.type === "provider") {
       const provider = config.providers?.[selection.name];
@@ -2002,6 +2089,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
           onAddModels={(models) => addDiscoveredModels(selection.name, models)}
+          enabledModels={enabledModels}
         />
       );
     }
@@ -2024,6 +2112,8 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
     <>
     <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.pi/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
 
+        <EnabledModelsBanner controller={enabledModels} />
+
         {/* Body */}
         <ConfigSplitView>
 
@@ -2041,6 +2131,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.name}</ConfigSidebarText>
+                    {scopeBadge(p.id)}
                   </ConfigSidebarItem>
                 );
               })}
@@ -2056,6 +2147,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.displayName}</ConfigSidebarText>
+                    {scopeBadge(p.id)}
                   </ConfigSidebarItem>
                 );
               })}
@@ -2088,6 +2180,7 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
                       <ConfigSidebarText className="is-grow">
                         {pName}
                       </ConfigSidebarText>
+                      {scopeBadge(pName)}
                     </ConfigSidebarItem>
 
                     {/* Model rows */}
@@ -2137,12 +2230,16 @@ export function ModelsConfig({ onClose, embedded = false }: { onClose: () => voi
         </ConfigSplitView>
 
         {/* Footer */}
-        <ConfigFooter status={saveError && <span style={{ color: "#f87171" }}>{saveError}</span>}>
+        <ConfigFooter status={(loadError || saveError) && (
+          <span style={{ color: "#f87171" }}>
+            {loadError ? t("models.configUnreadable", { error: loadError }) : saveError}
+          </span>
+        )}>
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
           <ConfigButton
             variant="primary"
             onClick={handleSave}
-            disabled={saving || savedOk}
+            disabled={saving || savedOk || loadError !== null}
             className={savedOk ? "is-success" : undefined}
           >
             {savedOk && (

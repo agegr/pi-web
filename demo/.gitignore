@@ -1,0 +1,6 @@
+/node_modules
+/.next/
+/out/
+/public/demo-files/
+next-env.d.ts
+*.tsbuildinfo

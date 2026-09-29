@@ -1,0 +1,102 @@
+{
+ "allEnabled": true,
+ "patterns": null,
+ "stalePatterns": [],
+ "enabledTotal": 11,
+ "availableTotal": 11,
+ "providers": [
+  {
+   "id": "claude-gateway",
+   "name": "Claude Gateway",
+   "kind": "custom",
+   "enabledCount": 3,
+   "models": [
+    {
+     "id": "claude-haiku-4-5",
+     "name": "Claude Haiku 4.5",
+     "ref": "claude-gateway/claude-haiku-4-5",
+     "enabled": true
+    },
+    {
+     "id": "claude-opus-5",
+     "name": "Claude Opus 5",
+     "ref": "claude-gateway/claude-opus-5",
+     "enabled": true
+    },
+    {
+     "id": "claude-sonnet-5",
+     "name": "Claude Sonnet 5",
+     "ref": "claude-gateway/claude-sonnet-5",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "id": "deepseek",
+   "name": "DeepSeek",
+   "kind": "builtin",
+   "enabledCount": 2,
+   "models": [
+    {
+     "id": "deepseek-v4-pro",
+     "name": "DeepSeek V4 Pro",
+     "ref": "deepseek/deepseek-v4-pro",
+     "enabled": true
+    },
+    {
+     "id": "deepseek-flash",
+     "name": "DeepSeek V4.1 Flash",
+     "ref": "deepseek/deepseek-flash",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "id": "openai-codex",
+   "name": "OpenAI Codex",
+   "kind": "builtin",
+   "enabledCount": 6,
+   "models": [
+    {
+     "id": "gpt-5.3-codex-spark",
+     "name": "GPT-5.3 Codex Spark",
+     "ref": "openai-codex/gpt-5.3-codex-spark",
+     "enabled": true
+    },
+    {
+     "id": "gpt-5.5",
+     "name": "GPT-5.5",
+     "ref": "openai-codex/gpt-5.5",
+     "enabled": true
+    },
+    {
+     "id": "gpt-5.6-luna",
+     "name": "GPT-5.6 Luna",
+     "ref": "openai-codex/gpt-5.6-luna",
+     "enabled": true
+    },
+    {
+     "id": "gpt-5.6-sol",
+     "name": "GPT-5.6 Sol",
+     "ref": "openai-codex/gpt-5.6-sol",
+     "enabled": true
+    },
+    {
+     "id": "gpt-5.6-terra",
+     "name": "GPT-5.6 Terra",
+     "ref": "openai-codex/gpt-5.6-terra",
+     "enabled": true
+    },
+    {
+     "id": "gpt-6-astra",
+     "name": "GPT-6 Astra",
+     "ref": "openai-codex/gpt-6-astra",
+     "enabled": true
+    }
+   ]
+  }
+ ],
+ "scope": "global",
+ "settingsPath": "~/.pi/agent/settings.json",
+ "editable": true
+}

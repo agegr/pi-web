@@ -29,3 +29,9 @@ test("the active viewer restores tab state and saves it with a revision", () => 
 test("closing the file panel pauses the active viewer watcher", () => {
   assert.match(fileContentBlock(), /watchEnabled=\{rightPanelOpen\}/);
 });
+
+test("markdown preview links forward a PDF page fragment to the viewer", () => {
+  const block = fileContentBlock();
+  assert.match(block, /onOpenFile=\{\(filePath, page\) => handleOpenFile\(/);
+  assert.match(block, /\{ sourceSessionId: activeFileTab\.sourceSessionId, page \}/);
+});

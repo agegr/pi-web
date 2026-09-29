@@ -63,9 +63,17 @@ test("shows a Skills-style path row with the same switch in editable and readonl
   assert.match(source, /function displayProfilePath\(profile: SubagentProfile, cwd: string\)/);
   assert.match(source, /profile\.scope === "project" \|\| profile\.scope === "workspace"/);
   assert.match(source, /`~\/\.pi\/agent\/agents\/\$\{draft\.name \|\| "\.\.\."\}\.md`/);
-  assert.match(source, /<ConfigSwitch checked=\{draft\.enabled\} disabled=\{disabled\}/);
+  assert.match(source, /<ConfigSwitch checked=\{draft\.enabled\} disabled=\{switchDisabled\}/);
   assert.doesNotMatch(source, /agents-readonly-status/);
   assert.doesNotMatch(source, /<Toggle label=\{t\("agents\.enabled"\)\}/);
+});
+
+test("keeps the enabled switch live for built-ins whose fields stay read-only", () => {
+  assert.match(source, /function isTogglableScope\(scope: SubagentScope\): boolean \{\s*return isWritableScope\(scope\) \|\| scope === "builtin";/);
+  assert.match(source, /const switchDisabled = creating\s*\? disabled\s*: !selected \|\| !isTogglableScope\(selected\.scope\) \|\| saving \|\| toggling;/);
+  assert.match(source, /if \(!selected \|\| !isTogglableScope\(selected\.scope\)\) return;/);
+  // Everything else on a built-in stays read-only: only the switch has somewhere to write.
+  assert.match(source, /setMode\(isWritableScope\(profile\.scope\) \? "edit" : "view"\)/);
 });
 
 test("persists existing profile toggles immediately without submitting unsaved fields", () => {

@@ -7,6 +7,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 const { getSessionListIndices } = await jiti.import("./SessionSidebar.tsx");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
 
 test("scrolling keeps the focused session and the viewport mounted without expanding the whole window", () => {
@@ -37,6 +38,21 @@ test("only Shift+click bypasses session deletion confirmation", () => {
     sessionItemSource,
     /const handleDeleteClick[\s\S]*?if \(e\.shiftKey\) \{\s*void performDelete\(\);\s*\} else \{\s*setConfirmDelete\(true\);/,
   );
+});
+
+test("persists and exposes a vertical session/explorer resize handle", () => {
+  assert.match(source, /axis: "vertical"/);
+  assert.match(source, /storageKey: "pi-web:sidebar-session-pane-height"/);
+  assert.match(source, /Math\.round\(\(paneHeight \+ explorerHeight\) \/ 2\)/);
+  assert.match(source, /ref=\{sessionPaneRef\}[\s\S]*?<SessionSearch/);
+  assert.match(source, /data-resize-handle="sidebar-sections"/);
+  assert.match(source, /sidebar-section-resize-handle/);
+  assert.match(globalStyles, /\.sidebar-section-resize-handle:focus-visible::after/);
+  assert.doesNotMatch(globalStyles, /\.sidebar-section-resize-handle:focus-visible \{[^}]*outline: 2px solid var\(--accent\)/);
+  assert.match(globalStyles, /\.sidebar-section-resize-handle::after[\s\S]*?background: transparent/);
+  assert.match(source, /borderTop: "1px solid var\(--border\)"/);
+  assert.match(source, /var\(--sidebar-session-pane-height, 320px\)/);
+  assert.match(source, /minHeight: explorerOpen \? EXPLORER_PANE_MIN_HEIGHT : 0/);
 });
 
 test("does not register row-level session deletion shortcuts", () => {
@@ -109,9 +125,13 @@ test("offers the downstream context-menu hook only on a normal session row", () 
 });
 
 test("lifecycle refreshes bypass the cache while cross-window polling reuses it", () => {
-  assert.match(source, /force \? "\/api\/sessions\?force=1" : "\/api\/sessions"/);
+  assert.match(source, /function sessionListUrl\(summary: boolean, force: boolean\)/);
+  assert.match(source, /if \(summary\) return "\/api\/sessions\?summary=1"/);
+  assert.match(source, /if \(force\) return "\/api\/sessions\?force=1"/);
   assert.match(source, /cache: "no-store"/);
-  assert.match(source, /loadSessions\(isFirst, !isFirst\)/);
+  // First paint uses the cheap summary listing, then hydrates after a delay.
+  assert.match(source, /loadSessions\(true, false, true\)/);
+  assert.match(source, /setTimeout\(\(\) => \{[\s\S]*?void loadSessions\(false, true\)/);
   assert.match(source, /data\.sessionListVersion !== sessionListVersionRef\.current[\s\S]*?await loadSessions\(\)/);
   assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef|title=\{t\("sidebar\.refresh"\)\}/);
   assert.match(source, /loadSessions\(false, true\);[\s\S]*?onBackgroundTaskDone/);
@@ -123,7 +143,7 @@ test("does not expose disk-backed actions for transient sessions", () => {
 });
 
 test("hides subagent rows and aggregates their state into the main session row", () => {
-  assert.match(source, /const sessionFamilies = listSessionFamilies\(filteredSessions\)/);
+  assert.match(source, /const sessionFamilies = useMemo\(\(\) => listSessionFamilies\(filteredSessions\)/);
   assert.match(source, /familySessions\.some\(\(session\) => session\.id === selectedSessionId\)/);
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);

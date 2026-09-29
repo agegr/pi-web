@@ -1,0 +1,401 @@
+{
+ "providers": [
+  {
+   "id": "anthropic",
+   "name": "Anthropic (Claude Pro/Max)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "github-copilot",
+   "name": "GitHub Copilot",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "kimi-coding",
+   "name": "Kimi Code (subscription)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "meta",
+   "name": "Meta (Muse subscription)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "openai-codex",
+   "name": "ChatGPT Plus/Pro",
+   "usesCallbackServer": false,
+   "loggedIn": true,
+   "supportsApiKey": false
+  },
+  {
+   "id": "openrouter",
+   "name": "OpenRouter OAuth",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "radius",
+   "name": "Radius",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "xai",
+   "name": "xAI (Grok/X subscription)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  }
+ ],
+ "oauthProviders": [
+  {
+   "id": "anthropic",
+   "name": "Anthropic (Claude Pro/Max)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "github-copilot",
+   "name": "GitHub Copilot",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "kimi-coding",
+   "name": "Kimi Code (subscription)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "meta",
+   "name": "Meta (Muse subscription)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "openai-codex",
+   "name": "ChatGPT Plus/Pro",
+   "usesCallbackServer": false,
+   "loggedIn": true,
+   "supportsApiKey": false
+  },
+  {
+   "id": "openrouter",
+   "name": "OpenRouter OAuth",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "radius",
+   "name": "Radius",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  },
+  {
+   "id": "xai",
+   "name": "xAI (Grok/X subscription)",
+   "usesCallbackServer": false,
+   "loggedIn": false,
+   "supportsApiKey": true
+  }
+ ],
+ "apiKeyProviders": [
+  {
+   "id": "amazon-bedrock",
+   "displayName": "Amazon Bedrock",
+   "configured": false,
+   "modelCount": 159,
+   "supportsOAuth": false
+  },
+  {
+   "id": "ant-ling",
+   "displayName": "Ant Ling",
+   "configured": false,
+   "modelCount": 3,
+   "supportsOAuth": false
+  },
+  {
+   "id": "anthropic",
+   "displayName": "Anthropic",
+   "configured": false,
+   "modelCount": 14,
+   "supportsOAuth": true
+  },
+  {
+   "id": "azure-openai-responses",
+   "displayName": "Azure OpenAI",
+   "configured": false,
+   "modelCount": 39,
+   "supportsOAuth": false
+  },
+  {
+   "id": "baseten",
+   "displayName": "Baseten",
+   "configured": false,
+   "modelCount": 21,
+   "supportsOAuth": false
+  },
+  {
+   "id": "cerebras",
+   "displayName": "Cerebras",
+   "configured": false,
+   "modelCount": 2,
+   "supportsOAuth": false
+  },
+  {
+   "id": "cloudflare-ai-gateway",
+   "displayName": "Cloudflare AI Gateway",
+   "configured": false,
+   "modelCount": 51,
+   "supportsOAuth": false
+  },
+  {
+   "id": "cloudflare-workers-ai",
+   "displayName": "Cloudflare Workers AI",
+   "configured": false,
+   "modelCount": 18,
+   "supportsOAuth": false
+  },
+  {
+   "id": "deepseek",
+   "displayName": "DeepSeek",
+   "configured": true,
+   "source": "stored",
+   "modelCount": 2,
+   "supportsOAuth": false
+  },
+  {
+   "id": "fireworks",
+   "displayName": "Fireworks",
+   "configured": false,
+   "modelCount": 33,
+   "supportsOAuth": false
+  },
+  {
+   "id": "github-copilot",
+   "displayName": "GitHub Copilot",
+   "configured": false,
+   "modelCount": 28,
+   "supportsOAuth": true
+  },
+  {
+   "id": "google",
+   "displayName": "Google",
+   "configured": false,
+   "modelCount": 22,
+   "supportsOAuth": false
+  },
+  {
+   "id": "google-vertex",
+   "displayName": "Google Vertex AI",
+   "configured": false,
+   "modelCount": 14,
+   "supportsOAuth": false
+  },
+  {
+   "id": "groq",
+   "displayName": "Groq",
+   "configured": false,
+   "modelCount": 7,
+   "supportsOAuth": false
+  },
+  {
+   "id": "huggingface",
+   "displayName": "Hugging Face",
+   "configured": false,
+   "modelCount": 76,
+   "supportsOAuth": false
+  },
+  {
+   "id": "kimi-coding",
+   "displayName": "Kimi For Coding",
+   "configured": false,
+   "modelCount": 4,
+   "supportsOAuth": true
+  },
+  {
+   "id": "meta",
+   "displayName": "Meta",
+   "configured": false,
+   "modelCount": 5,
+   "supportsOAuth": true
+  },
+  {
+   "id": "minimax",
+   "displayName": "MiniMax",
+   "configured": false,
+   "modelCount": 3,
+   "supportsOAuth": false
+  },
+  {
+   "id": "minimax-cn",
+   "displayName": "MiniMax CN",
+   "configured": false,
+   "modelCount": 3,
+   "supportsOAuth": false
+  },
+  {
+   "id": "mistral",
+   "displayName": "Mistral",
+   "configured": false,
+   "modelCount": 33,
+   "supportsOAuth": false
+  },
+  {
+   "id": "moonshotai",
+   "displayName": "Moonshot AI",
+   "configured": false,
+   "modelCount": 4,
+   "supportsOAuth": false
+  },
+  {
+   "id": "moonshotai-cn",
+   "displayName": "Moonshot AI CN",
+   "configured": false,
+   "modelCount": 4,
+   "supportsOAuth": false
+  },
+  {
+   "id": "nvidia",
+   "displayName": "NVIDIA",
+   "configured": false,
+   "modelCount": 19,
+   "supportsOAuth": false
+  },
+  {
+   "id": "openai",
+   "displayName": "OpenAI",
+   "configured": false,
+   "modelCount": 39,
+   "supportsOAuth": false
+  },
+  {
+   "id": "opencode",
+   "displayName": "OpenCode Zen",
+   "configured": false,
+   "modelCount": 70,
+   "supportsOAuth": false
+  },
+  {
+   "id": "opencode-go",
+   "displayName": "OpenCode Go",
+   "configured": false,
+   "modelCount": 28,
+   "supportsOAuth": false
+  },
+  {
+   "id": "openrouter",
+   "displayName": "OpenRouter",
+   "configured": false,
+   "modelCount": 380,
+   "supportsOAuth": true
+  },
+  {
+   "id": "qwen-token-plan",
+   "displayName": "Qwen Token Plan",
+   "configured": false,
+   "modelCount": 20,
+   "supportsOAuth": false
+  },
+  {
+   "id": "qwen-token-plan-cn",
+   "displayName": "Qwen Token Plan CN",
+   "configured": false,
+   "modelCount": 20,
+   "supportsOAuth": false
+  },
+  {
+   "id": "qwen-token-plan-individual",
+   "displayName": "Qwen Token Plan Individual",
+   "configured": false,
+   "modelCount": 9,
+   "supportsOAuth": false
+  },
+  {
+   "id": "radius",
+   "displayName": "Radius",
+   "configured": false,
+   "modelCount": 27,
+   "supportsOAuth": true
+  },
+  {
+   "id": "together",
+   "displayName": "Together",
+   "configured": false,
+   "modelCount": 22,
+   "supportsOAuth": false
+  },
+  {
+   "id": "vercel-ai-gateway",
+   "displayName": "Vercel AI Gateway",
+   "configured": false,
+   "modelCount": 237,
+   "supportsOAuth": false
+  },
+  {
+   "id": "xai",
+   "displayName": "xAI",
+   "configured": false,
+   "modelCount": 3,
+   "supportsOAuth": true
+  },
+  {
+   "id": "xiaomi",
+   "displayName": "Xiaomi",
+   "configured": false,
+   "modelCount": 3,
+   "supportsOAuth": false
+  },
+  {
+   "id": "xiaomi-token-plan-ams",
+   "displayName": "Xiaomi Token Plan AMS",
+   "configured": false,
+   "modelCount": 2,
+   "supportsOAuth": false
+  },
+  {
+   "id": "xiaomi-token-plan-cn",
+   "displayName": "Xiaomi Token Plan CN",
+   "configured": false,
+   "modelCount": 2,
+   "supportsOAuth": false
+  },
+  {
+   "id": "xiaomi-token-plan-sgp",
+   "displayName": "Xiaomi Token Plan SGP",
+   "configured": false,
+   "modelCount": 2,
+   "supportsOAuth": false
+  },
+  {
+   "id": "zai",
+   "displayName": "Z.AI",
+   "configured": false,
+   "modelCount": 7,
+   "supportsOAuth": false
+  },
+  {
+   "id": "zai-coding-cn",
+   "displayName": "Z.AI Coding CN",
+   "configured": false,
+   "modelCount": 4,
+   "supportsOAuth": false
+  }
+ ]
+}

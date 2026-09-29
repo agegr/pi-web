@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getAuthRetryAfterMs,
+  recordAuthFailure,
+  recordAuthSuccess,
+  retryAfterSeconds,
+} from "@/lib/auth-throttle";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import {
   createWebSessionToken,
@@ -15,6 +21,19 @@ export const dynamic = "force-dynamic";
 function isSecureRequest(request: Request): boolean {
   return new URL(request.url).protocol === "https:"
     || request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() === "https";
+}
+
+function tooManyAttempts(retryAfterMs: number): NextResponse {
+  return NextResponse.json(
+    { error: "Too many failed attempts", retryAfterMs },
+    {
+      status: 429,
+      headers: {
+        "Cache-Control": "no-store",
+        "Retry-After": String(retryAfterSeconds(retryAfterMs)),
+      },
+    },
+  );
 }
 
 function clearSessionCookie(response: NextResponse, request: Request): void {
@@ -58,11 +77,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Password authentication is disabled" }, { status: 404 });
   }
 
-  const body = await request.json().catch(() => null) as { password?: unknown } | null;
-  if (!body || typeof body.password !== "string" || !isValidWebPassword(body.password, password)) {
-    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+  const retryAfterMs = getAuthRetryAfterMs();
+  if (retryAfterMs > 0) {
+    return tooManyAttempts(retryAfterMs);
   }
 
+  const body = await request.json().catch(() => null) as { password?: unknown } | null;
+  if (!body || typeof body.password !== "string" || !isValidWebPassword(body.password, password)) {
+    const delayMs = recordAuthFailure();
+    console.warn(`[web-auth] Password authentication failed; next attempt blocked for ${delayMs}ms`);
+    return NextResponse.json(
+      { error: "Invalid password", retryAfterMs: delayMs },
+      { status: 401, headers: { "Retry-After": String(retryAfterSeconds(delayMs)) } },
+    );
+  }
+
+  recordAuthSuccess();
   const response = NextResponse.json({ ok: true });
   response.cookies.set({
     name: PI_WEB_SESSION_COOKIE,

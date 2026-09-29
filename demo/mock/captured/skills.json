@@ -1,0 +1,34 @@
+{
+ "skills": [
+  {
+   "name": "frontend-design",
+   "description": "Build polished, accessible UI with the project's design tokens. Use when creating or restyling React components.",
+   "filePath": "/Users/demo/.pi/agent/skills/frontend-design/SKILL.md",
+   "baseDir": "/Users/demo/.pi/agent/skills/frontend-design",
+   "sourceInfo": {
+    "path": "/Users/demo/.pi/agent/skills/frontend-design/SKILL.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "/Users/demo/.pi/agent"
+   },
+   "disableModelInvocation": false
+  },
+  {
+   "name": "release-notes",
+   "description": "Draft user-facing release notes from merged pull requests and commit history.",
+   "filePath": "/Users/demo/.pi/agent/skills/release-notes/SKILL.md",
+   "baseDir": "/Users/demo/.pi/agent/skills/release-notes",
+   "sourceInfo": {
+    "path": "/Users/demo/.pi/agent/skills/release-notes/SKILL.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "/Users/demo/.pi/agent"
+   },
+   "disableModelInvocation": true
+  }
+ ],
+ "diagnostics": [],
+ "projectResourcesLoaded": true
+}

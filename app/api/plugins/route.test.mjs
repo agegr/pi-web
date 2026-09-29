@@ -41,3 +41,23 @@ test("lists auto-discovered top-level extensions", async () => {
   }]);
   assert.equal(body.totals.extensions, 1);
 });
+
+test("reports the package description from package.json", async () => {
+  const packageDir = join(root, "pkg-with-description");
+  await mkdir(join(packageDir, "extensions"), { recursive: true });
+  await writeFile(join(packageDir, "package.json"), JSON.stringify({
+    name: "pkg-with-description",
+    version: "1.2.3",
+    description: "Adds descriptions to the Plugins panel.",
+  }));
+  await writeFile(join(packageDir, "extensions", "index.ts"), "export default () => {};\n");
+  await writeFile(join(agentDir, "settings.json"), JSON.stringify({ packages: [packageDir] }));
+
+  const response = await GET(new Request(`http://localhost/api/plugins?cwd=${encodeURIComponent(cwd)}`));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  const installed = body.packages.find((pkg) => pkg.source === packageDir);
+  assert.ok(installed, "configured package is listed");
+  assert.equal(installed.description, "Adds descriptions to the Plugins panel.");
+});

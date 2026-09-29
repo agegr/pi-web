@@ -1,0 +1,64 @@
+{
+ "profiles": [
+  {
+   "name": "explore",
+   "displayName": "Explore",
+   "description": "Quickly inspect a codebase without modifying it",
+   "systemPrompt": "Explore the codebase to answer the delegated question. Do not modify files. Report concrete findings with file paths and relevant symbols.",
+   "tools": [
+    "read",
+    "grep",
+    "find",
+    "ls"
+   ],
+   "loadSkills": false,
+   "loadExtensions": false,
+   "promptMode": "append",
+   "inheritContext": false,
+   "runInBackground": false,
+   "enabled": true,
+   "scope": "builtin"
+  },
+  {
+   "name": "general-purpose",
+   "displayName": "General purpose",
+   "description": "Handle a focused implementation or investigation task",
+   "systemPrompt": "Work autonomously on the delegated task. Keep the final answer concise and include important files, decisions, and remaining risks.",
+   "tools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls"
+   ],
+   "loadSkills": false,
+   "loadExtensions": false,
+   "promptMode": "append",
+   "inheritContext": false,
+   "runInBackground": false,
+   "enabled": true,
+   "scope": "builtin"
+  },
+  {
+   "name": "plan",
+   "displayName": "Plan",
+   "description": "Design an implementation plan without modifying files",
+   "systemPrompt": "Produce an implementation-ready plan for the delegated task. Inspect the repository as needed, do not modify files, and call out dependencies, risks, and verification steps.",
+   "tools": [
+    "read",
+    "grep",
+    "find",
+    "ls"
+   ],
+   "loadSkills": false,
+   "loadExtensions": false,
+   "promptMode": "append",
+   "inheritContext": false,
+   "runInBackground": false,
+   "enabled": true,
+   "scope": "builtin"
+  }
+ ]
+}

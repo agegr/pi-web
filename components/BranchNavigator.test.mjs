@@ -163,3 +163,13 @@ test("hasSessionBranches reports true for multiple root nodes (a branch from the
   const r2 = { entry: { type: "message", id: "r2", parentId: null, timestamp: "t", message: { role: "user", content: "b" } }, children: [] };
   assert.equal(hasSessionBranches([r1, r2]), true);
 });
+
+test("compressChain never labels a branch with a transcript system message", () => {
+  // Pi >= 0.86 roots new sessions at a system message holding the prompt.
+  const system = { type: "message", id: "sys", parentId: null, timestamp: "t", message: { role: "system", content: "", sections: { preamble: "You are an expert coding assistant." } } };
+  const chain = node(system, [node(msg("u1", "user", "原始问题"), [node(msg("a1", "assistant", "答"))])]);
+  const { labelEntry, node: rep, skipped } = compressChain(chain);
+  assert.equal(labelEntry.id, "u1");
+  assert.equal(rep.entry.id, "a1");
+  assert.equal(skipped, 2);
+});

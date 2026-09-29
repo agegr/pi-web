@@ -8,6 +8,7 @@ import {
   type SubagentProfile,
   type SubagentWritableScope,
 } from "@/lib/subagents";
+import { writeDisabledBuiltInSubagent } from "@/lib/subagent-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,13 @@ async function validateCwd(cwd: unknown): Promise<string> {
 
 function validateScope(scope: unknown): SubagentWritableScope {
   if (scope !== "global" && scope !== "project") throw new Error("scope must be global or project");
+  return scope;
+}
+
+/** A built-in has no file to save or delete, but its switch is persisted all the same. */
+function validateToggleScope(scope: unknown): SubagentWritableScope | "builtin" {
+  if (scope === "builtin") return scope;
+  if (scope !== "global" && scope !== "project") throw new Error("scope must be global, project, or builtin");
   return scope;
 }
 
@@ -55,7 +63,7 @@ export async function PATCH(req: Request) {
   try {
     const body = await req.json() as { cwd?: unknown; scope?: unknown; name?: unknown; enabled?: unknown };
     const cwd = await validateCwd(body.cwd);
-    const scope = validateScope(body.scope);
+    const scope = validateToggleScope(body.scope);
     if (typeof body.name !== "string") return NextResponse.json({ error: "name required" }, { status: 400 });
     if (typeof body.enabled !== "boolean") return NextResponse.json({ error: "enabled required" }, { status: 400 });
     const name = body.name;
@@ -63,6 +71,10 @@ export async function PATCH(req: Request) {
       profile.scope === scope && profile.name.toLowerCase() === name.toLowerCase()
     );
     if (!source) return NextResponse.json({ error: "Agent profile not found" }, { status: 404 });
+    if (scope === "builtin") {
+      writeDisabledBuiltInSubagent(source.name, !body.enabled);
+      return NextResponse.json({ profile: { ...source, enabled: body.enabled } });
+    }
     const profile: Omit<SubagentProfile, "scope" | "filePath"> = {
       name: source.name,
       displayName: source.displayName,

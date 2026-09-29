@@ -1,11 +1,13 @@
 // Cache session-list metadata without building the SDK's unused allMessagesText.
-// New and changed files still require a full scan; unchanged files only need stat.
+// Normal listings rescan only new/changed files; summary listings reuse whatever
+// the index already holds and fall back to header/stat metadata for the files
+// that changed, which a later normal listing hydrates.
 // ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
 // use content hashes if detecting those edits becomes necessary.
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
@@ -20,12 +22,16 @@ export interface ScannedSessionInfo {
 	messageCount: number;
 	firstMessage: string;
 	parentSessionPath?: string;
+	/** True when only header/stat metadata was available for this listing. */
+	detailsPending?: boolean;
 }
 
 interface Fingerprint {
 	size: number;
 	mtimeMs: number;
 }
+
+const SUMMARY_HEADER_MAX_BYTES = 64 * 1024;
 
 interface IndexEntry {
 	fp: Fingerprint;
@@ -54,6 +60,67 @@ function parseLine(line: string): RawEntry | null {
 	} catch {
 		return null;
 	}
+}
+
+/** Read only the first physical line needed to identify a session file. */
+function readSessionHeaderSummary(filePath: string): RawEntry | null {
+	const fd = openSync(filePath, "r");
+	try {
+		const buffer = Buffer.allocUnsafe(SUMMARY_HEADER_MAX_BYTES);
+		const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+		if (bytesRead <= 0) return null;
+		const source = buffer.subarray(0, bytesRead).toString("utf8");
+		for (const line of source.split("\n")) {
+			const entry = parseLine(line.replace(/\r$/, ""));
+			if (!entry) continue;
+			return entry.type === "session" ? entry : null;
+		}
+		return null;
+	} catch {
+		return null;
+	} finally {
+		closeSync(fd);
+	}
+}
+
+function hasMatchingFingerprint(
+	cached: IndexEntry | undefined,
+	fingerprint: Fingerprint,
+): cached is IndexEntry {
+	return Boolean(
+		cached
+		&& cached.fp.size === fingerprint.size
+		&& cached.fp.mtimeMs === fingerprint.mtimeMs,
+	);
+}
+
+/** Build a session row from the header alone, without parsing the transcript. */
+function deferredSessionInfo(
+	filePath: string,
+	fingerprint: Fingerprint,
+): ScannedSessionInfo | null {
+	const header = readSessionHeaderSummary(filePath);
+	if (
+		!header
+		|| typeof header.id !== "string"
+		|| typeof header.cwd !== "string"
+		|| typeof header.timestamp !== "string"
+	) return null;
+
+	const created = new Date(header.timestamp);
+	if (!Number.isFinite(created.getTime())) return null;
+
+	return {
+		path: filePath,
+		id: header.id,
+		cwd: header.cwd,
+		created,
+		modified: new Date(fingerprint.mtimeMs),
+		messageCount: 0,
+		firstMessage: "",
+		...(typeof header.parentSession === "string" ? { parentSessionPath: header.parentSession } : {}),
+		detailsPending: true,
+	};
 }
 
 function extractTextContent(message: RawEntry): string {
@@ -295,8 +362,11 @@ function queueIndexPersist(): void {
  * (size, mtimeMs) changed since the last pass. Output ordering matches the SDK
  * catalogue (modified descending).
  */
-export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
+export async function listSessionsIncremental(
+	options: { deferDetails?: boolean } = {},
+): Promise<ScannedSessionInfo[]> {
 	loadPersistedIndex();
+	const deferDetails = options.deferDetails ?? false;
 
 	const sessionsDir = join(getAgentDir(), "sessions");
 	const files = await enumerateSessionFiles(sessionsDir);
@@ -325,18 +395,28 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 
 	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
 	const results: (ScannedSessionInfo | null)[] = new Array(files.length).fill(null);
+	const mtimes: number[] = new Array(files.length).fill(Number.NEGATIVE_INFINITY);
 	for (const [resultIndex, { filePath, fp }] of fingerprints.entries()) {
 		if (!fp) {
 			index.delete(filePath);
 			continue;
 		}
+		mtimes[resultIndex] = fp.mtimeMs;
 		const cached = index.get(filePath);
-		if (
-			cached &&
-			cached.fp.size === fp.size &&
-			cached.fp.mtimeMs === fp.mtimeMs
-		) {
+		if (hasMatchingFingerprint(cached, fp)) {
+			// Complete details are already in memory and the index is persisted
+			// across restarts, so on the common warm path every unchanged file
+			// can paint its real count and first message immediately. Blanking
+			// them would cost a request to get back what we are already holding.
 			results[resultIndex] = cached.info;
+			continue;
+		}
+		if (deferDetails) {
+			// Header and stat only: a later normal listing fills in the transcript
+			// details, so a first paint does not wait on parsing every file.
+			const summary = deferredSessionInfo(filePath, fp);
+			if (summary) results[resultIndex] = summary;
+			else index.delete(filePath);
 			continue;
 		}
 		changed.push({ filePath, fp, resultIndex });
@@ -355,9 +435,18 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 	if (changed.length > 0 || stale.length > 0) queueIndexPersist();
 
 	// Preserve catalogue order for timestamp ties, independently of cache hits
-	// and the order in which concurrent file reads complete.
-	return results.filter((info) => info !== null)
-		.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+	// and the order in which concurrent file reads complete. Since pi 0.86 the
+	// SDK reads files newest-mtime first (then reverse filename) so resume can
+	// show results progressively, and its stable sort keeps that order for
+	// sessions with equal activity time.
+	return results
+		.flatMap((info, resultIndex) => (info ? [{ info, mtimeMs: mtimes[resultIndex] }] : []))
+		.sort((a, b) =>
+			b.info.modified.getTime() - a.info.modified.getTime()
+			|| b.mtimeMs - a.mtimeMs
+			|| basename(b.info.path).localeCompare(basename(a.info.path)),
+		)
+		.map(({ info }) => info);
 }
 
 /** Test seam: drop all in-memory index state. */

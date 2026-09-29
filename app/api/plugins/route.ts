@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, statSync } from "fs";
-import { basename, dirname, extname, join, relative } from "path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import {
   DefaultPackageManager,
   getAgentDir,
@@ -114,7 +114,9 @@ function getRelativePath(resource: ResolvedResource): string {
   const baseDir = resource.metadata.baseDir;
   if (!baseDir) return resource.path;
   const rel = relative(baseDir, resource.path);
-  return rel && !rel.startsWith("..") ? rel : resource.path;
+  // Normalize to forward slashes so API output is stable across platforms
+  // (Node's path.relative returns backslashes on Windows).
+  return rel && !rel.startsWith("..") ? rel.split(sep).join("/") : resource.path;
 }
 
 function toResourceInfo(resource: ResolvedResource, kind: PluginResourceKind): PluginResourceInfo {
@@ -144,7 +146,7 @@ function getConfiguredVersion(source: string): string | undefined {
   return undefined;
 }
 
-function readPackageMetadata(installedPath?: string): { packageName?: string; version?: string } {
+function readPackageMetadata(installedPath?: string): { packageName?: string; version?: string; description?: string } {
   if (!installedPath) return {};
   try {
     const stats = statSync(installedPath);
@@ -155,10 +157,12 @@ function readPackageMetadata(installedPath?: string): { packageName?: string; ve
     const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
       name?: unknown;
       version?: unknown;
+      description?: unknown;
     };
     return {
       packageName: typeof parsed.name === "string" ? parsed.name : undefined,
       version: typeof parsed.version === "string" ? parsed.version : undefined,
+      description: typeof parsed.description === "string" ? parsed.description : undefined,
     };
   } catch {
     return {};
@@ -278,6 +282,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
       packageName: packageMetadata.packageName,
       version: packageMetadata.version,
       configuredVersion: getConfiguredVersion(pkg.source),
+      description: packageMetadata.description,
       counts,
       resources,
       status: disabled ? "disabled" : resourceCount > 0 ? "loaded" : pkg.installedPath ? "installed" : "missing",

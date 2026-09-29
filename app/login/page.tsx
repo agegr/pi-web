@@ -3,10 +3,11 @@
 import Image from "next/image";
 import { useState, type FormEvent } from "react";
 import { I18nProvider, useI18n } from "@/hooks/useI18n";
+import { safeLoginDestination } from "@/lib/login-destination";
 
 function safeDestination(): string {
   const destination = new URLSearchParams(window.location.search).get("next");
-  return destination?.startsWith("/") && !destination.startsWith("//") ? destination : "/";
+  return safeLoginDestination(destination, window.location.origin);
 }
 
 function LoginForm() {
@@ -14,6 +15,13 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const failureMessage = async (response: Response): Promise<string> => {
+    if (response.status === 401) return t("auth.invalidPassword");
+    if (response.status !== 429) return t("auth.loginFailed");
+    const seconds = Number(response.headers.get("retry-after"));
+    return t("auth.tooManyAttempts", { seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 1 });
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -26,7 +34,7 @@ function LoginForm() {
         body: JSON.stringify({ password }),
       });
       if (!response.ok) {
-        setError(response.status === 401 ? t("auth.invalidPassword") : t("auth.loginFailed"));
+        setError(await failureMessage(response));
         return;
       }
       window.location.replace(safeDestination());
