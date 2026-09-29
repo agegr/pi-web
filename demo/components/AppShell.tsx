@@ -55,7 +55,10 @@ import {
   SIDEBAR_MIN_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
-import type { PiSubagentSnapshotNode } from "@/lib/pi-subagents-snapshot";
+import {
+  trackPiSubagentSessionRefetches,
+  type PiSubagentSnapshotNode,
+} from "@/lib/pi-subagents-snapshot";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -173,6 +176,20 @@ export function AppShell() {
   );
   const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // The sessions list is what the Agents panel builds its family from, so the
+  // live widget drives a refetch through refreshKey. The rule for which run
+  // changes deserve one — and why a run-start and its terminal transition each
+  // take exactly one — lives in trackPiSubagentSessionRefetches. The sets are
+  // refs because `subagentRuns` resets on unmount and the record must not.
+  const refreshedSubagentRunIdsRef = useRef<Set<string>>(new Set());
+  const terminalSubagentRunIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (trackPiSubagentSessionRefetches(
+      subagentRuns,
+      refreshedSubagentRunIdsRef.current,
+      terminalSubagentRunIdsRef.current,
+    )) setRefreshKey((k) => k + 1);
+  }, [subagentRuns]);
   const [sessionKey, setSessionKey] = useState(0);
   const sessionScrollPositionsRef = useRef(new Map<string, ChatScrollPosition>());
   const handleSessionScrollPositionChange = useCallback((sessionId: string, position: ChatScrollPosition) => {

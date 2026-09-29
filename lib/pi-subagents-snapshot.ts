@@ -167,6 +167,47 @@ export function isPiSubagentRunTerminal(state: PiSubagentRunState): boolean {
   return state !== "queued" && state !== "running";
 }
 
+/** Run nodes own subagent sessions; `step`/`host-step` children are placeholders. */
+function isPiSubagentRunNode(node: PiSubagentSnapshotNode): boolean {
+  return node.kind === "subagent" || node.kind === "workflow";
+}
+
+/**
+ * Whether the sessions list must be refetched for these live runs, recording
+ * each transition in the caller's sets so it is reported once.
+ *
+ * The Agents panel reads its family from the sidebar's list, so a run needs a
+ * refetch twice: once when its id first appears live (a session spawned
+ * mid-turn is not listed yet), and once more when that same run reaches a
+ * terminal state (the spawn-time fetch recorded `relation.status: "running"`,
+ * and nothing bumps the list version when a child transcript's meta flips).
+ *
+ * `startedIds` doubles as the record of runs this client watched live: one
+ * that first arrives already terminal was persisted that way and has no stale
+ * row to replace. Both sets must outlive the widget's unmount reset, or a
+ * remount would re-report an id already handled.
+ */
+export function trackPiSubagentSessionRefetches(
+  runs: readonly PiSubagentSnapshotNode[],
+  startedIds: Set<string>,
+  terminalIds: Set<string>,
+): boolean {
+  let refetch = false;
+  for (const run of runs) {
+    if (!isPiSubagentRunNode(run)) continue;
+    if (!isPiSubagentRunTerminal(run.state)) {
+      if (startedIds.has(run.id)) continue;
+      startedIds.add(run.id);
+      refetch = true;
+      continue;
+    }
+    if (!startedIds.has(run.id) || terminalIds.has(run.id)) continue;
+    terminalIds.add(run.id);
+    refetch = true;
+  }
+  return refetch;
+}
+
 /** True while any run or nested child in the snapshot is non-terminal. */
 export function hasLivePiSubagentRun(snapshot: PiSubagentSnapshot | null | undefined): boolean {
   if (!snapshot) return false;
