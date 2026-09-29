@@ -105,6 +105,8 @@ export interface SubagentRunInfo {
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeCleanupError?: string;
+  /** Set on a run started by `resume`, which reuses the session ID of an earlier run. Not persisted. */
+  resumed?: boolean;
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];

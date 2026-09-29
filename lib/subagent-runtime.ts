@@ -476,6 +476,7 @@ export function createSubagentController(
       completedAt: undefined,
       result: undefined,
       error: undefined,
+      resumed: true,
     };
     const manager = wrapper.inner.sessionManager;
     let resolveCompletion!: (run: SubagentRunInfo) => void;
