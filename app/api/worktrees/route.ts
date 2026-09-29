@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
-import { addWorktree, findCurrentWorktreePath, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
+import { addWorktree, findCurrentWorktreePath, listLocalBranches, listWorktrees, removeWorktree, resolveProject } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
 
@@ -14,7 +14,7 @@ async function checkCwdAllowed(cwd: string): Promise<NextResponse | null> {
   return null;
 }
 
-// GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, currentWorktreePath, worktrees }
+// GET /api/worktrees?cwd=  →  { projectRoot, projectKey, isGit, isTopLevel, currentWorktreePath, worktrees, branches }
 export async function GET(req: Request) {
   try {
     const cwd = new URL(req.url).searchParams.get("cwd");
@@ -27,14 +27,26 @@ export async function GET(req: Request) {
     const project = await resolveProject(cwd);
     let worktrees: Awaited<ReturnType<typeof listWorktrees>> = [];
     let currentWorktreePath: string | null = null;
+    let branches: string[] = [];
     let isGit = true;
+    // For a removed-worktree cwd (session of a deleted worktree), fall back to
+    // the inferred project root so the switcher still shows the project.
+    const gitCwd = existsSync(cwd) ? cwd : project.projectRoot;
     try {
-      // For a removed-worktree cwd (session of a deleted worktree), fall back
-      // to the inferred project root so the switcher still shows the project.
-      worktrees = await listWorktrees(existsSync(cwd) ? cwd : project.projectRoot);
+      worktrees = await listWorktrees(gitCwd);
       currentWorktreePath = findCurrentWorktreePath(worktrees, cwd);
     } catch {
       isGit = false;
+    }
+    // Local branches drive the switcher's quick-switch list. A branch name is
+    // not a path, so it is never run through path helpers; a repo without
+    // readable HEAD (unborn branch) still lists what it can.
+    if (isGit) {
+      try {
+        branches = await listLocalBranches(gitCwd);
+      } catch {
+        branches = [];
+      }
     }
     // Every listed path is a git-verified worktree of this project; allow the
     // file explorer to browse them even before they have any session (the
@@ -47,6 +59,7 @@ export async function GET(req: Request) {
       isTopLevel: project.isTopLevel,
       currentWorktreePath,
       worktrees,
+      branches,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

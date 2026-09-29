@@ -152,6 +152,9 @@ interface WorktreeState {
   /** Canonical path of the checkout containing forCwd, resolved server-side. */
   currentWorktreePath: string | null;
   worktrees: WorktreeEntry[];
+  /** Local branches of the repo, alphabetically. Drives the quick-switch list;
+   *  a branch is not a path, so it is only ever matched by name. */
+  branches: string[];
 }
 
 interface ProjectSelection {
@@ -248,6 +251,17 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
 }
 
 const DROPDOWN_ANIMATION_MS = 140;
+
+/** Section label for the LOCAL BRANCHES header inside the worktree dropdown; the
+ *  worktree rows above it deliberately render no header. */
+const wtSectionLabelStyle: CSSProperties = {
+  padding: "6px 10px 4px",
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+  color: "var(--text-dim)",
+};
 
 function AnimatedDropdown({ open, children, style }: { open: boolean; children: ReactNode; style: CSSProperties }) {
   const [mounted, setMounted] = useState(open);
@@ -409,7 +423,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [wtNewBranch, setWtNewBranch] = useState("");
   const [wtError, setWtError] = useState<string | null>(null);
   const [wtBusy, setWtBusy] = useState(false);
+  // Which branch row is waiting on `worktree add` (null while idle).
+  const [wtBusyBranch, setWtBusyBranch] = useState<string | null>(null);
   const [wtConfirmRemove, setWtConfirmRemove] = useState<string | null>(null);
+  // Branch row awaiting delete confirmation; `wtDeleteUnmerged` marks the
+  // second pass, when the server reported unmerged commits (force delete).
+  const [wtConfirmDeleteBranch, setWtConfirmDeleteBranch] = useState<string | null>(null);
+  const [wtDeleteUnmerged, setWtDeleteUnmerged] = useState(false);
   const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null);
   const wtDropdownRef = useRef<HTMLDivElement>(null);
   const wtNewInputRef = useRef<HTMLInputElement>(null);
@@ -792,7 +812,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setWorktreeLoadingCwd(selectedCwd);
     fetch(`/api/worktrees?cwd=${encodeURIComponent(selectedCwd)}`)
       .then((r) => r.json())
-      .then((d: { projectRoot?: string; projectKey?: string; isGit?: boolean; isTopLevel?: boolean; currentWorktreePath?: string | null; worktrees?: WorktreeEntry[]; error?: string }) => {
+      .then((d: { projectRoot?: string; projectKey?: string; isGit?: boolean; isTopLevel?: boolean; currentWorktreePath?: string | null; worktrees?: WorktreeEntry[]; branches?: string[]; error?: string }) => {
         if (cancelled) return;
         setWorktreeLoadingCwd(null);
         if (d.error || !d.projectRoot) {
@@ -807,6 +827,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           isTopLevel: d.isTopLevel ?? false,
           currentWorktreePath: d.currentWorktreePath ?? null,
           worktrees: d.worktrees ?? [],
+          branches: d.branches ?? [],
         });
       })
       .catch(() => {
@@ -911,16 +932,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
-  const handleCreateWorktree = useCallback(async () => {
-    const branch = wtNewBranch.trim();
-    if (!branch || wtBusy || !worktreeState) return;
+  // Switch to a branch by its worktree: an existing branch is checked out by
+  // the server's `worktree add` (no -b), so this one path covers both the
+  // branch list and the "New worktree" input.
+  const handleUseBranch = useCallback(async (branch: string) => {
+    const target = branch.trim();
+    if (!target || wtBusy || !worktreeState) return;
     setWtBusy(true);
+    setWtBusyBranch(target);
     setWtError(null);
     try {
       const res = await fetch("/api/worktrees", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: worktreeState.projectRoot, branch }),
+        body: JSON.stringify({ cwd: worktreeState.projectRoot, branch: target }),
       });
       const data = await res.json().catch(() => ({})) as { path?: string; error?: string };
       if (!res.ok || data.error || !data.path) {
@@ -930,6 +955,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       setWtNewOpen(false);
       setWtNewBranch("");
       setWtDropdownOpen(false);
+      setWtFilter("");
       // Optimistically register the new worktree so projectFor() resolves
       // it to the main repo before the refetch lands (keeps AppShell from
       // treating the new cwd as a different project).
@@ -937,7 +963,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         ...prev,
         forCwd: data.path!,
         currentWorktreePath: data.path!,
-        worktrees: [...prev.worktrees, { path: data.path!, branch, isMain: false }],
+        worktrees: [...prev.worktrees, { path: data.path!, branch: target, isMain: false }],
       } : prev);
       setSelectedCwd(data.path);
       setWtRefreshKey((k) => k + 1);
@@ -945,8 +971,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       setWtError(e instanceof Error ? e.message : String(e));
     } finally {
       setWtBusy(false);
+      setWtBusyBranch(null);
     }
-  }, [wtNewBranch, wtBusy, worktreeState]);
+  }, [wtBusy, worktreeState]);
+
+  const handleCreateWorktree = useCallback(
+    () => handleUseBranch(wtNewBranch),
+    [handleUseBranch, wtNewBranch],
+  );
 
   const handleRemoveWorktree = useCallback(async (path: string, force: boolean) => {
     if (!worktreeState || wtBusy) return;
@@ -978,6 +1010,37 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [worktreeState, wtBusy, currentWorktreePath]);
 
+  const handleDeleteBranch = useCallback(async (branch: string, force: boolean) => {
+    if (!worktreeState || wtBusy) return;
+    setWtBusy(true);
+    setWtError(null);
+    try {
+      const res = await fetch("/api/branches", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: worktreeState.projectRoot, branch, force }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string; unmerged?: boolean };
+      if (!res.ok) {
+        if (data.unmerged && !force) {
+          // Branch has unmerged commits — ask the user to confirm a force delete
+          setWtConfirmDeleteBranch(branch);
+          setWtDeleteUnmerged(true);
+          return;
+        }
+        setWtError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setWtConfirmDeleteBranch(null);
+      setWtDeleteUnmerged(false);
+      setWtRefreshKey((k) => k + 1);
+    } catch (e) {
+      setWtError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWtBusy(false);
+    }
+  }, [worktreeState, wtBusy]);
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -991,6 +1054,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setWtNewBranch("");
         setWtError(null);
         setWtConfirmRemove(null);
+        setWtConfirmDeleteBranch(null);
+        setWtDeleteUnmerged(false);
         setWtFilter("");
       }
     };
@@ -1410,11 +1475,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             project share the same list anyway. */}
         {!sessionSearchOpen && showWorktreeSwitcher && (() => {
           if (!worktreeState) return null;
-          const showWtFilter = worktreeState.worktrees.length >= 8;
+          const showWtFilter = worktreeState.worktrees.length + worktreeState.branches.length >= 8;
           const visibleWorktrees = showWtFilter && wtFilter.trim()
             ? worktreeState.worktrees.filter((w) =>
                 (w.branch ?? displayCwd(w.path, homeDir)).toLowerCase().includes(wtFilter.trim().toLowerCase()))
             : worktreeState.worktrees;
+          const visibleBranches = showWtFilter && wtFilter.trim()
+            ? worktreeState.branches.filter((branch) =>
+                branch.toLowerCase().includes(wtFilter.trim().toLowerCase()))
+            : worktreeState.branches;
           return (
             <div ref={wtDropdownRef} style={{ position: "relative", marginTop: 6 }}>
               <button
@@ -1598,6 +1667,111 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     })}
                     {showWtFilter && visibleWorktrees.length === 0 && wtFilter.trim() && (
                       <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>{t("sidebar.noMatchingWorktrees")}</div>
+                    )}
+                    {visibleBranches.length > 0 && (
+                      <>
+                        <div style={wtSectionLabelStyle}>{t("sidebar.localBranches")}</div>
+                        {visibleBranches.map((branch) => {
+                          // A branch checked out in another worktree is not the
+                          // current one; it simply has no checkmark.
+                          const worktreeForBranch = worktreeState.worktrees.find((w) => w.branch === branch);
+                          const isCurrentBranch = worktreeForBranch !== undefined
+                            && worktreeForBranch.path === currentWorktreePath;
+                          if (wtConfirmDeleteBranch === branch) {
+                            return (
+                              <div key={branch} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderBottom: "1px solid var(--border)", background: "rgba(239,68,68,0.06)" }}>
+                                <span style={{ flex: 1, fontSize: 11, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {wtDeleteUnmerged ? t("sidebar.confirmForceDeleteBranch") : t("sidebar.confirmDeleteBranch")}
+                                </span>
+                                <button
+                                  onClick={() => void handleDeleteBranch(branch, wtDeleteUnmerged)}
+                                  disabled={wtBusy}
+                                  style={{ padding: "3px 9px", background: "#ef4444", border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+                                >
+                                  {wtDeleteUnmerged ? t("sidebar.force") : t("sidebar.delete")}
+                                </button>
+                                <button
+                                  onClick={() => { setWtConfirmDeleteBranch(null); setWtDeleteUnmerged(false); }}
+                                  style={{ padding: "3px 9px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
+                                >
+                                  {t("sidebar.cancel")}
+                                </button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div
+                              key={branch}
+                              className="wt-row"
+                              style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}
+                            >
+                              <button
+                                onClick={() => (worktreeForBranch
+                                  ? (setSelectedCwd(worktreeForBranch.path), setWtDropdownOpen(false), setWtError(null), setWtFilter(""))
+                                  : void handleUseBranch(branch))}
+                                disabled={wtBusy}
+                                title={worktreeForBranch ? worktreeForBranch.path : t("sidebar.createWorktreeTitle")}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 7,
+                                  padding: "8px 10px",
+                                  background: "var(--bg)",
+                                  border: "none",
+                                  color: isCurrentBranch ? "var(--text)" : "var(--text-muted)",
+                                  cursor: wtBusy ? "not-allowed" : "pointer",
+                                  opacity: wtBusy ? 0.6 : 1,
+                                  textAlign: "left",
+                                  fontSize: 11,
+                                  fontFamily: "var(--font-mono)",
+                                }}
+                              >
+                                {isCurrentBranch ? (
+                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                    <polyline points="1.5 5 4 7.5 8.5 2.5" />
+                                  </svg>
+                                ) : (
+                                  <span style={{ width: 10, flexShrink: 0 }} />
+                                )}
+                                <PathLabel text={branch} style={{ flex: 1 }} />
+                                {wtBusyBranch === branch ? (
+                                  <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>{t("sidebar.creating")}</span>
+                                ) : !worktreeForBranch && (
+                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
+                                    <line x1="5" y1="1" x2="5" y2="9" />
+                                    <line x1="1" y1="5" x2="9" y2="5" />
+                                  </svg>
+                                )}
+                              </button>
+                              {!worktreeForBranch && !wtBusy && (
+                                <button
+                                  onClick={() => { setWtConfirmDeleteBranch(branch); setWtDeleteUnmerged(false); }}
+                                  title={t("sidebar.deleteBranchTitle", { branch })}
+                                  style={{
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    width: 34, height: 28, padding: 0, marginRight: 4,
+                                    background: "none", border: "none",
+                                    color: "var(--text-dim)", cursor: "pointer",
+                                    borderRadius: 5, flexShrink: 0,
+                                    transition: "color 0.12s, background 0.12s",
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; e.currentTarget.style.background = "none"; }}
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                    <path d="M10 11v6M14 11v6" />
+                                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
                     )}
                   </div>
 
