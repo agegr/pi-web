@@ -706,38 +706,42 @@ test("only the chat composer offers saving a default model or reasoning level", 
   const agentsConfigSource = readFileSync(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
   assert.match(chatInputSource, /<ModelSelector[\s\S]*?defaultValue=\{defaultModel\}[\s\S]*?onSetDefault=\{onSetDefaultModel\}/);
   // "auto" means "use the default", so it never gets a star of its own.
-  assert.match(chatInputSource, /saveDefault=\{onSetDefaultThinkingLevel && lvl !== "auto" && !isDefault/);
+  assert.match(chatInputSource, /star=\{onSetDefaultThinkingLevel && lvl !== "auto"/);
   // A subagent profile's model is not the default for new chats.
   assert.doesNotMatch(agentsConfigSource, /onSetDefault/);
 });
 
-test("selector rows float the save-as-default star and mark the default inline", async () => {
-  const { DefaultMarker, SelectorRow } = await jiti.import("./SelectorRow.tsx");
+test("selector rows keep the default star and the floating save button in one gutter", async () => {
+  const { SelectorRow } = await jiti.import("./SelectorRow.tsx");
+  const star = (isDefault) => ({ isDefault, saveLabel: "Save as default", defaultLabel: "Default", onSave: () => {} });
   const row = (props) => renderToStaticMarkup(React.createElement(SelectorRow, {
     active: false,
     onSelect: () => {},
     ...props,
   }, "Alpha"));
 
-  const savable = row({ saveDefault: { label: "Save as default", onSave: () => {} } });
+  const savable = row({ star: star(false) });
   assert.match(savable, /role="option"/);
   assert.match(savable, /aria-label="Save as default"/);
   // Hidden until hover or focus, but kept out of the row's text by the gutter.
   assert.match(savable, /opacity:0/);
   assert.match(savable, /tabindex="-1"/);
-  assert.match(savable, /padding:7px 36px 7px 10px/);
+  assert.match(savable, /padding:7px 36px 7px 12px/);
+  assert.doesNotMatch(savable, /aria-label="Default"/);
+
+  // The default row shows a static marker in the same spot and no button.
+  const saved = row({ star: star(true) });
+  assert.match(saved, /role="img" aria-label="Default"/);
+  assert.match(saved, /fill="currentColor"/);
+  assert.doesNotMatch(saved, /Save as default/);
 
   const plain = row({});
-  assert.doesNotMatch(plain, /Save as default/);
-  assert.match(plain, /padding:7px 12px 7px 10px/);
-  // Rows without an action still line up with starred ones in the same menu.
-  assert.match(row({ gutter: true }), /padding:7px 36px 7px 10px/);
+  assert.doesNotMatch(plain, /Save as default|aria-label="Default"/);
+  assert.match(plain, /padding:7px 12px/);
+  // Rows without a star still line up with starred ones in the same menu.
+  assert.match(row({ gutter: true }), /padding:7px 36px 7px 12px/);
 
   const active = row({ active: true });
   assert.match(active, /aria-selected="true"/);
-  assert.match(active, /border-left:2px solid var\(--accent\)/);
-
-  const marker = renderToStaticMarkup(React.createElement(DefaultMarker, { label: "Default" }));
-  assert.match(marker, /aria-label="Default"/);
-  assert.match(marker, /fill="currentColor"/);
+  assert.doesNotMatch(active, /border-left/);
 });

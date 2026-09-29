@@ -29,7 +29,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
-import { DefaultMarker, SelectorRow } from "./SelectorRow";
+import { SelectorRow } from "./SelectorRow";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
 
 export { filterModelOptions } from "./ModelSelector";
@@ -2487,7 +2487,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
                       const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
                       const showOriginal = mappedVal != null && mappedVal !== lvl;
-                      const isDefault = lvl !== "auto" && savedDefaultThinkingLevel === lvl;
                       return (
                         <SelectorRow
                           key={lvl}
@@ -2501,9 +2500,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             if (!isActive || isAutoThinkingSelection) onThinkingLevelChange(lvl);
                           }}
                           gutter={Boolean(onSetDefaultThinkingLevel)}
-                          saveDefault={onSetDefaultThinkingLevel && lvl !== "auto" && !isDefault
+                          star={onSetDefaultThinkingLevel && lvl !== "auto"
                             ? {
-                                label: t("chat.saveDefaultThinking"),
+                                isDefault: savedDefaultThinkingLevel === lvl,
+                                saveLabel: t("chat.saveDefaultThinking"),
+                                defaultLabel: t("chat.defaultThinking"),
                                 onSave: () => {
                                   setThinkingDropdownOpen(false);
                                   onSetDefaultThinkingLevel(lvl);
@@ -2511,12 +2512,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                               }
                             : undefined}
                         >
-                          <span style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-                            <span>
-                              {displayLabel}
-                              {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
-                            </span>
-                            {onSetDefaultThinkingLevel && isDefault && <DefaultMarker label={t("chat.defaultThinking")} />}
+                          <span style={{ flex: 1 }}>
+                            {displayLabel}
+                            {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
                           </span>
                           <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
                         </SelectorRow>

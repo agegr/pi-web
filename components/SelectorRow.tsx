@@ -11,40 +11,42 @@ function StarIcon({ filled, size }: { filled: boolean; size: number }) {
   );
 }
 
-/** Inline star after a row's label: this row is the default new sessions start with. */
-export function DefaultMarker({ label }: { label: string }) {
-  return (
-    <span role="img" aria-label={label} title={label} style={{ display: "inline-flex", flexShrink: 0, color: "var(--accent)", marginLeft: -2 }}>
-      <StarIcon filled size={10} />
-    </span>
-  );
+export interface SelectorRowStar {
+  /** This row is the default new sessions start with. */
+  isDefault: boolean;
+  /** Title and accessible name of the save button on the other rows. */
+  saveLabel: string;
+  /** Title and accessible name of the default row's marker. */
+  defaultLabel: string;
+  onSave: () => void;
 }
 
 /**
- * A selector menu row styled like a session-list row: the whole row selects,
- * the active row carries the accent bar, and the "save as default" action
- * floats over the row's right edge on hover or keyboard focus. Touch screens
- * have no hover, so there the action stays visible.
+ * A selector menu row styled like a session-list row: the whole row selects
+ * and highlights on hover. With `star`, the right gutter holds the default
+ * marker: a small static star on the default row, and on every other row a
+ * "save as default" button that floats in on hover or keyboard focus. Touch
+ * screens have no hover, so there the button stays visible.
  */
 export function SelectorRow({
   active,
   onSelect,
-  saveDefault,
-  gutter = Boolean(saveDefault),
+  star,
+  gutter = Boolean(star),
   children,
 }: {
   active: boolean;
   onSelect: () => void;
-  /** Omitted for rows that cannot be saved, including the current default. */
-  saveDefault?: { label: string; onSave: () => void };
-  /** Keep room for the floating action so it never covers the row's text; pass it to every row of a menu that has stars so they line up. */
+  star?: SelectorRowStar;
+  /** Keep room for the star so it never covers the row's text; pass it to every row of a menu that has stars so they line up. */
   gutter?: boolean;
   children: ReactNode;
 }) {
   const isMobile = useIsMobile();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const showAction = Boolean(saveDefault) && (hovered || focused || isMobile);
+  const canSave = Boolean(star && !star.isDefault);
+  const showSave = canSave && (hovered || focused || isMobile);
 
   return (
     <div
@@ -57,7 +59,6 @@ export function SelectorRow({
       style={{
         position: "relative",
         background: active ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
-        borderLeft: active ? "2px solid var(--accent)" : "2px solid transparent",
         transition: "background 0.1s",
       }}
     >
@@ -68,7 +69,7 @@ export function SelectorRow({
         onClick={onSelect}
         style={{
           display: "flex", alignItems: "center", gap: 8,
-          width: "100%", minWidth: 0, padding: gutter ? "7px 36px 7px 10px" : "7px 12px 7px 10px",
+          width: "100%", minWidth: 0, padding: gutter ? "7px 36px 7px 12px" : "7px 12px",
           border: "none", background: "none",
           color: active ? "var(--text)" : "var(--text-muted)",
           cursor: "pointer", fontSize: 12, fontWeight: active ? 600 : 400,
@@ -80,15 +81,30 @@ export function SelectorRow({
           : <span style={{ width: 10, flexShrink: 0 }} />}
         {children}
       </button>
-      {saveDefault && (
+      {star?.isDefault && (
+        <span
+          role="img"
+          aria-label={star.defaultLabel}
+          title={star.defaultLabel}
+          style={{
+            position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 24, height: 24,
+            color: "var(--text-dim)",
+          }}
+        >
+          <StarIcon filled size={10} />
+        </span>
+      )}
+      {star && canSave && (
         <button
           type="button"
-          title={saveDefault.label}
-          aria-label={saveDefault.label}
-          tabIndex={showAction ? 0 : -1}
+          title={star.saveLabel}
+          aria-label={star.saveLabel}
+          tabIndex={showSave ? 0 : -1}
           onClick={(event) => {
             event.stopPropagation();
-            saveDefault.onSave();
+            star.onSave();
           }}
           style={{
             position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)",
@@ -97,8 +113,8 @@ export function SelectorRow({
             background: "var(--bg-hover)", border: "1px solid var(--border)",
             borderRadius: 6, color: "var(--text-muted)",
             cursor: "pointer",
-            opacity: showAction ? 1 : 0,
-            pointerEvents: showAction ? "auto" : "none",
+            opacity: showSave ? 1 : 0,
+            pointerEvents: showSave ? "auto" : "none",
             transition: "opacity 0.1s, background 0.12s, color 0.12s, border-color 0.12s",
           }}
           onMouseEnter={(event) => {

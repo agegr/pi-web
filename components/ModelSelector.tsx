@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { DefaultMarker, SelectorRow } from "./SelectorRow";
+import { SelectorRow } from "./SelectorRow";
 
 export interface ModelSelectorOption {
   provider: string;
@@ -309,19 +309,19 @@ export function ModelSelector({
                     </div>
                   )}
                   {group.options.map((option) => {
-                    const isDefault = option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider;
                     return (
                       <SelectorRow
                         key={`${option.provider}:${option.modelId}`}
                         active={option.modelId === value?.modelId && option.provider === value?.provider}
                         onSelect={() => choose(option)}
-                        gutter={Boolean(onSetDefault)}
-                        saveDefault={onSetDefault && !isDefault
-                          ? { label: t("chat.saveDefaultModel"), onSave: () => saveDefault(option) }
-                          : undefined}
+                        star={onSetDefault ? {
+                          isDefault: option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider,
+                          saveLabel: t("chat.saveDefaultModel"),
+                          defaultLabel: t("chat.defaultModel"),
+                          onSave: () => saveDefault(option),
+                        } : undefined}
                       >
                         <OptionLabel label={option.name} />
-                        {onSetDefault && isDefault && <DefaultMarker label={t("chat.defaultModel")} />}
                       </SelectorRow>
                     );
                   })}
