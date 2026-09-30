@@ -1280,10 +1280,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       const nativeEvent = e.nativeEvent;
-      // 发送键偏好:"enter"(默认)保持上游行为——Enter/Alt+Enter/Ctrl+Enter 发送,Shift+Enter 换行;
-      // "ctrlEnter" 仅 Ctrl/Cmd+Enter 发送,Enter 与 Shift+Enter 均换行。
-      // 移动端始终要求 Ctrl/Cmd,防止虚拟键盘误触(保持上游行为)。
-      // typeof 兜底:上游单测在 VM 沙箱中执行本 handler,未提供该闭包变量。
       const sendMode = typeof enterSendMode === "string" ? enterSendMode : "enter";
       const ctrlEnter = e.key === "Enter" && !e.shiftKey && (e.ctrlKey || e.metaKey);
       const sendShortcut = isMobile || sendMode === "ctrlEnter"
