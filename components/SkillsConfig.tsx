@@ -7,6 +7,7 @@ import type {
   SkillInstallScope,
   SkillSearchResult,
   SkillsResponse,
+  SkillToggleResult,
   SkillUpdateResult,
 } from "@/lib/api-types";
 import {
@@ -27,6 +28,7 @@ import {
   ConfigListAction,
   ConfigPanelShell,
   ConfigSidebar,
+  ConfigSidebarBulkActions,
   ConfigSidebarGroupLabel,
   ConfigSidebarItem,
   ConfigSidebarList,
@@ -56,6 +58,26 @@ export function orderSkillsByDormancy<
     ...skills.filter((skill) => !skill.disableModelInvocation),
     ...skills.filter((skill) => skill.disableModelInvocation),
   ];
+}
+
+/**
+ * The skills "Enable all" / "Disable all" would switch: every listed skill,
+ * across all scope groups, that is not already in that state.
+ */
+export function skillsToSwitch<
+  T extends Pick<Skill, "disableModelInvocation">,
+>(skills: T[], enabled: boolean): T[] {
+  return skills.filter((skill) => skill.disableModelInvocation === enabled);
+}
+
+/** Applies a bulk toggle's results; a skill whose file reported an error keeps its state. */
+export function applySkillToggleResults<
+  T extends Pick<Skill, "filePath" | "disableModelInvocation">,
+>(skills: T[], results: SkillToggleResult[], disableModelInvocation: boolean): T[] {
+  const changed = new Set(results.filter((result) => !result.error).map((result) => result.filePath));
+  return skills.map((skill) =>
+    changed.has(skill.filePath) ? { ...skill, disableModelInvocation } : skill,
+  );
 }
 
 function updateKey(skill: Skill): string | null {
@@ -567,6 +589,7 @@ export function SkillsConfig({
   const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("skills", cwd));
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, SkillUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
@@ -701,6 +724,7 @@ export function SkillsConfig({
     const next = !skill.disableModelInvocation;
     setToggling((s) => new Set(s).add(skill.filePath));
     setSaveError(null);
+    setBulkError(null);
     try {
       const res = await fetch("/api/skills", {
         method: "PATCH",
@@ -733,7 +757,48 @@ export function SkillsConfig({
     }
   }, []);
 
+  // One PATCH for the whole list: each file is edited on its own and reported
+  // separately, so the skills the route refuses keep their state and are named
+  // below the buttons while the rest switch.
+  const setAllSkills = useCallback(async (enabled: boolean) => {
+    const targets = skillsToSwitch(skills, enabled);
+    if (targets.length === 0) return;
+    const filePaths = targets.map((skill) => skill.filePath);
+    const disableModelInvocation = !enabled;
+    setToggling((current) => new Set([...current, ...filePaths]));
+    setSaveError(null);
+    setBulkError(null);
+    try {
+      const res = await fetch("/api/skills", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePaths, disableModelInvocation }),
+      });
+      const d = (await res.json()) as { results?: SkillToggleResult[]; error?: string };
+      if (!res.ok || d.error || !d.results) throw new Error(d.error ?? `HTTP ${res.status}`);
+      const results = d.results;
+      setSkills((prev) => applySkillToggleResults(prev, results, disableModelInvocation));
+      const failures = results.filter((result) => result.error);
+      if (failures.length > 0) {
+        const names = new Map(targets.map((skill) => [skill.filePath, skill.name]));
+        setBulkError([
+          t("skills.bulkFailed", { count: failures.length, total: results.length }),
+          ...failures.map((failure) => `${names.get(failure.filePath) ?? failure.filePath}: ${failure.error}`),
+        ].join("\n"));
+      }
+    } catch (e) {
+      setBulkError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setToggling((current) => {
+        const next = new Set(current);
+        for (const filePath of filePaths) next.delete(filePath);
+        return next;
+      });
+    }
+  }, [skills, t]);
+
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null;
+  const bulkBusy = loading || toggling.size > 0 || updatingSkill !== null;
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.skills")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
@@ -748,6 +813,30 @@ export function SkillsConfig({
         <ConfigSplitView>
           {/* Left: skill list */}
           <ConfigSidebar>
+            {!error && skills.length > 0 && (
+              <ConfigSidebarBulkActions
+                status={bulkError && (
+                  <div role="alert" className="config-sidebar-bulk-error">{bulkError}</div>
+                )}
+              >
+                <ConfigButton
+                  size="small"
+                  disabled={bulkBusy || skillsToSwitch(skills, true).length === 0}
+                  title={t("skills.enableAllHint")}
+                  onClick={() => void setAllSkills(true)}
+                >
+                  {t("skills.enableAll")}
+                </ConfigButton>
+                <ConfigButton
+                  size="small"
+                  disabled={bulkBusy || skillsToSwitch(skills, false).length === 0}
+                  title={t("skills.disableAllHint")}
+                  onClick={() => void setAllSkills(false)}
+                >
+                  {t("skills.disableAll")}
+                </ConfigButton>
+              </ConfigSidebarBulkActions>
+            )}
             <ConfigSidebarList>
               {loading ? (
                 <div className="config-sidebar-message">

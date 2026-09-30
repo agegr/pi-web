@@ -90,7 +90,8 @@ app/api/
   sessions/[id]/auto-name/route.ts POST generate a session title
   terminal/route.ts               POST create a terminal session
   terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
-  cwd/browse/route.ts             GET browse allowed cwd directories
+  cwd/browse/route.ts             GET browse allowed cwd directories | POST create child directory
+  open-in-explorer/route.ts       GET availability | POST open a cwd in the OS file manager (loopback only)
   app-update/route.ts             GET current vs latest published pi-web version
   file-index/route.ts             GET file list for @-mentions
   git/status/route.ts             GET changed files for a cwd
@@ -105,11 +106,14 @@ lib/
   default-preferences.ts  write defaultModel/defaultThinkingLevel; detect project-level shadowing
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
+  linked-directory.ts  directory links that lead outside the allowed roots + the allow-link check
   default-cwd.ts       dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   file-paths.ts        client/server path encoding helpers
+  file-tree-visibility.ts  which entries the file tree lists: git check-ignore, name-list fallback
   enabled-models.ts    pure minimal-edit engine for the `enabledModels` pattern list
   enabled-models-runtime.ts  SDK adapter: per-pattern resolution, provider kinds, settings IO
   markdown.ts          shared markdown helpers
+  gfm-autolink-email-loader.cjs  bundler loader: remark-gfm's email regex without a lookbehind literal (#753)
   node-cli.ts          locate bundled npm-cli.js / npx-cli.js so npm/npx spawn without a shell (Windows npm.cmd)
   npx.ts               npx runner used by skill install
   plugin-updates.ts    npm view update checks for /api/plugins/check
@@ -159,6 +163,7 @@ hooks/
 - One `AgentSessionWrapper` per session id, keyed in `globalThis.__piSessions`
 - `globalThis` survives Next.js hot-reload; plain module-level Map does not
 - Idle timeout: 10 minutes by default (`PI_WEB_IDLE_TIMEOUT_MS`, `0` disables). Concurrent `startRpcSession()` calls share a single start Promise (`globalThis.__piStartLocks`)
+- Stop cannot cancel an SDK run that awaits a promise ignoring the abort signal (a third-party extension handler or tool): `inner.abort()` never returns and the session keeps reporting running. Stop (`abort`, and `abort_bash` likewise) therefore sets `forceShutdownOnIdle` and arms the idle timer, which shuts the wrapper down one idle timeout after the first Stop even though it is still running, so the session recovers without a server restart. Commands that arrive meanwhile — a reload's `get_tools`, Stop pressed again — keep that deadline instead of pushing it back, or a user retrying would keep the stuck run alive. With `PI_WEB_IDLE_TIMEOUT_MS=0` the timer still arms after Stop, at the 10-minute default (#656).
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` **mutates the wrapper's inner state in-place** — after fork, `inner.sessionId` is the *new* session's id. If the wrapper stays alive in the registry under the old id, the next request gets the already-forked state and subsequent forks produce a corrupt `parentSession` chain.
@@ -234,12 +239,16 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/cwd/validate` and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable. "Use default directory" is no exception: `/api/default-cwd` only creates `~/pi-cwd/YYYYMMDD`, and the sidebar selects it through `/api/cwd/validate` like any other directory.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
 - A UNC cwd (`\\host\share\dir`) must survive the `/api/files/[...path]` round-trip. `encodeFilePathForApi()` folds the `//` root into the first segment (`%2F%2Fhost`) because a literal `//` URL prefix is 308-normalized away before routing; `filePathFromApiSegments()` decodes it back. Never split UNC paths into segments and rejoin them — that silently turns `\\host\share` into the relative-looking `host/share` and every allow-check fails with 403.
+- What `type=list` leaves out is visibility, never access: hidden entries stay readable by path. `lib/file-tree-visibility.ts` matches a listing's entries against the ignore rules with one `git check-ignore --no-index --stdin`, then asks one `git ls-files` which of the matched names hold a tracked path, since ignoring never applies to what Git tracks — so a tracked `build/` is listed and an ignored directory with a force-added file shows just that file. Never let check-ignore consult the index itself: it scans the whole index once per name, which took seconds for a 1,000-entry folder in a 200k-file repository and then fell back at the 5s timeout. `.git` and `.DS_Store` are always hidden. The fixed name list (`node_modules`, `dist`, `build`, …) applies only where Git has no view: outside a work tree, when git fails or times out, and inside a directory that is itself ignored with nothing tracked below it (otherwise a scratch dir under a dotfiles repo that ignores `*` would list empty). Names go to check-ignore as `./name`, since it rejects pathspec magic such as a leading `:(` for the whole batch, and to ls-files under `--literal-pathspecs`, so `*.log` or `[id]` cannot match a tracked `app.log` or `i`. Both calls pass `-c core.fsmonitor=false`, because reading the index otherwise runs a hook configured by whatever repository the user just expanded.
+- A directory link (symlink or Windows junction) is authorized by where it resolves, so one inside a root that leads outside every root is listed but refused beneath it (#748). Never authorize the lexical path instead: a link committed to a cloned repo would then expose `~/.ssh` or `/` without the operator doing anything. The listing reports such a link's target as `outsideLinkTarget`; the explorer shows it with an "Allow browsing" button that posts `?type=allow-link` with that target. `checkLinkedDirectoryApproval()` (`lib/linked-directory.ts`) requires the link to sit in a directory that is inside the roots after resolving links and to still point where the operator was shown, then the route `allowFileRoot()`s the target until the server restarts — exactly the grant `/api/cwd/validate` gives any directory, so the endpoint widens nothing a caller could not already reach.
+- `isExistingPathWithinRoots()` refuses any path with a `..` segment. Authorization (lexical, and Node's JS `realpathSync` alike) collapses `..` before resolving links, while the filesystem applies it after, so `link/../x` names a file beside the link's target: `/api/file-index?cwd=<project>/link/..` listed the folder holding it. Query-string and body paths reach the check verbatim; in `/api/files/[...path]` URL parsing drops literal `..` segments, and an encoded slash inside one segment (`link%2F..%2Fx`) is refused by the route itself, because a file referenced by the session skips the existing-path check. A link whose target contains a root or the home folder (`/`, `~`, a parent of the project) is listed with `outsideLinkEncloses`, and the explorer asks for confirmation before allowing it.
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
 - `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
 - `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
+- "Enable all" / "Disable all" send one request with a list (`PATCH /api/skills` with `filePaths`, `POST /api/plugins` with `packages`) and get a result per item, so a refused row does not stop the rest. `SettingsManager` records load and write failures instead of throwing, and `flush()` still resolves; the bulk plugin path reads them back with `drainErrors()`, or an unreadable settings.json would report success. An entry already in the requested state is left alone, and enabling keeps an entry's own keys such as `autoload`. Disabling empties the four resource lists and nothing keeps the filters they replaced, so "Disable all" leaves an enabled filtered package on (the SDK reports every object entry as `filtered`) and names it, and the bulk route refuses one. `PATCH /api/skills` edits only `.md` files: the roots it allows also hold `auth.json`, settings and project files.
 
 ### Subagents
 - Sub-agent delegation is owned by the user-installed `pi-subagents` package, a normal pi extension that is not a Pi Web dependency. Its tools load with every session like any other installed package; Pi Web neither bundles it nor strips, suppresses, or manages it. Pi Web ships no sub-agent engine and provides no feature switch for this.
@@ -265,12 +274,21 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
 
+### Mobile software keyboard (`hooks/useViewportHeight.ts`)
+- While an editor has focus and the visual viewport is more than `KEYBOARD_MIN_HEIGHT_PX` (60px) shorter than `innerHeight / scale`, the hook writes `visualViewport.height` to `--app-viewport-height`. Compare against the zoom-corrected height: iOS auto-zoom and pinch zoom shrink the visual viewport on their own, and skipping zoomed pages left the composer behind the keyboard. Smaller shrinks are Safari toolbars.
+- WebKit settles the shrunken height only after the keyboard animation, often without another `resize` (bugs.webkit.org 265578), and an IME candidate bar resizes the keyboard with no viewport event at all. Every trigger therefore starts one non-restarting chain of re-reads (`SETTLE_DELAYS_MS`), and composition/input/keyup events on a focused editor count as triggers. Reading once per event kept the full-screen height; the page then scrolled to the caret and `scrollTo(0, 0)` fought the user's finger, which reads as a jittering composer.
+- The same check sets `<html data-keyboard-open>`. Under `(max-width: 640px), (pointer: coarse) and (max-height: 500px)` CSS then hides `.chat-input-controls` and `.extension-status-shelf` and drops the bottom safe-area padding the keyboard already covers. Phone landscape is included because it has the least height; tablets keep their controls. `MobilePwaLayout.test.mjs` asserts each targeted class exists on its component, so a rename cannot leave a rule silently dead.
+
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
 - Browser autoplay policy means sound must be unlocked from a user gesture; `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
 
 ### Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then patches recursive tree helpers in the generated HTML to iterative versions so very deep linear sessions do not overflow the browser call stack.
+
+### Old Safari (iOS 16.2)
+- `/` renders entirely on the client, so one script chunk the browser cannot *parse* is a blank page, not a broken feature (#753). Next 16 compiles for Safari 16.4+ by default; the `browserslist` in `package.json` lowers Safari and iOS to 16.2 so SWC turns class `static {}` blocks into private static fields. That reaches Next's own client runtime, but other node_modules keep the syntax they ship unless they are in `transpilePackages`; mermaid and `@mermaid-js/parser` are listed there because their lazy diagram chunks are full of static blocks. Keep the other browserslist entries at Next's defaults.
+- SWC cannot downlevel a RegExp **lookbehind** (`(?<=`, `(?<!`), which Safari parses only from 16.4. Do not write one in client code: `lib/markdown.ts` emulates its leading lookbehinds with `replaceNotPrecededBy()`. A lookbehind built at runtime (`new RegExp("(?<=…)")` inside `try`) only fails when it runs, which is how `lib/gfm-autolink-email-loader.cjs` fixes the email regex in `mdast-util-gfm-autolink-literal`; the loader is registered for both webpack and Turbopack in `next.config.ts` and fails the build if that regex changes upstream.
 
 ## Pi Session File Format
 

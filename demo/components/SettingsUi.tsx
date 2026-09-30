@@ -81,6 +81,19 @@ export function ConfigSidebarList({ children }: { children: ReactNode }) {
   return <div className="config-sidebar-list">{children}</div>;
 }
 
+/**
+ * "Enable all" / "Disable all" above a sidebar list, the counterpart of
+ * ConfigListAction below it. `status` reports the last bulk run.
+ */
+export function ConfigSidebarBulkActions({ children, status }: { children: ReactNode; status?: ReactNode }) {
+  return (
+    <div className="config-sidebar-bulk-actions">
+      <div className="config-sidebar-bulk-buttons">{children}</div>
+      {status}
+    </div>
+  );
+}
+
 export function ConfigSidebarGroupLabel({ children }: { children: ReactNode }) {
   return <div className="config-sidebar-group-label">{children}</div>;
 }

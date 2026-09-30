@@ -10,18 +10,9 @@ import {
   isWindowsAbsolutePath,
 } from "@/lib/file-access";
 import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
+import { isHiddenOutsideGit } from "@/lib/file-tree-visibility";
 
 const execFileAsync = promisify(execFile);
-
-// Same skip lists as /api/files — only used for the non-git readdir fallback.
-// Git-tracked repos rely on .gitignore instead (matches the TUI's fd behavior).
-const IGNORED_NAMES = new Set([
-  "node_modules", ".git", ".next", "dist", "build", "__pycache__",
-  ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
-  "target", "vendor", ".DS_Store",
-]);
-
-const IGNORED_SUFFIXES = [".pyc"];
 
 /** Cap on the plain (no-query) response used as the client-side index */
 const MAX_FILES = 5000;
@@ -90,7 +81,9 @@ function listWithWalk(cwd: string): FileListing {
       continue;
     }
     for (const d of dirents) {
-      if (IGNORED_NAMES.has(d.name) || IGNORED_SUFFIXES.some((s) => d.name.endsWith(s))) continue;
+      // The file tree's name list, only for this non-git fallback. Git repos
+      // rely on .gitignore instead (matches the TUI's fd behavior).
+      if (isHiddenOutsideGit(d.name)) continue;
       const childRel = rel ? `${rel}/${d.name}` : d.name;
       if (d.isDirectory()) {
         if (depth + 1 <= MAX_WALK_DEPTH) {

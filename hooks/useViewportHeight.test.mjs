@@ -49,3 +49,32 @@ test("keeps the dynamic viewport height when the visual viewport is not reduced"
     viewportScale: 1,
   }), false);
 });
+
+// iOS auto-zooms the page when a < 16px editable takes focus, and a user pinch
+// zooms it too. The composer must still follow the keyboard in those cases.
+test("detects the keyboard while the page is zoomed", () => {
+  assert.equal(shouldUseVisualViewportHeight({
+    hasFocusedEditable: true,
+    innerHeight: 844,
+    viewportHeight: 350,
+    viewportScale: 1.3,
+  }), true);
+});
+
+test("ignores the Safari toolbar shift while an editor is focused", () => {
+  assert.equal(shouldUseVisualViewportHeight({
+    hasFocusedEditable: true,
+    innerHeight: 844,
+    viewportHeight: 806,
+    viewportScale: 1,
+  }), false);
+});
+
+test("falls back to an unscaled comparison for a missing scale", () => {
+  assert.equal(shouldUseVisualViewportHeight({
+    hasFocusedEditable: true,
+    innerHeight: 844,
+    viewportHeight: 510,
+    viewportScale: 0,
+  }), true);
+});

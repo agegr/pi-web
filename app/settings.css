@@ -118,6 +118,42 @@
   overflow-y: auto;
 }
 
+/* Bulk switches above the list, mirroring .config-list-action below it. */
+.config-sidebar-bulk-actions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-sidebar-bulk-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.config-sidebar-bulk-buttons > .config-button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Three lines, then scroll: the phone layout gives the whole sidebar 190px. */
+.config-sidebar-bulk-error,
+.config-sidebar-bulk-note {
+  max-height: 4.2em;
+  overflow-y: auto;
+  color: #ef4444;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.config-sidebar-bulk-note {
+  color: var(--text-muted);
+}
+
 .config-sidebar-group {
   margin-bottom: 6px;
 }
@@ -1186,6 +1222,51 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.settings-send-mode-options {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.settings-send-mode-option {
+  position: relative;
+  display: flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.settings-send-mode-option:has(input:checked) {
+  background: var(--bg-selected);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.settings-send-mode-option:not(:has(input:checked)):hover {
+  background: var(--bg-hover);
+}
+
+.settings-send-mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-send-mode-label {
+  white-space: nowrap;
 }
 
 .settings-chat-reset {

@@ -20,6 +20,7 @@ test("provides one template for config layout and controls", () => {
     "ConfigPanelShell",
     "ConfigSplitView",
     "ConfigSidebar",
+    "ConfigSidebarBulkActions",
     "ConfigSidebarGroupLabel",
     "ConfigSidebarItem",
     "ConfigSidebarText",
@@ -179,4 +180,21 @@ test("skills, agents, and plugins share enabled and disabled controls", () => {
   for (const name of ["SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
     assert.match(sources[name], /<ConfigStatusDot/);
   }
+});
+
+test("skills and plugins put their bulk switches above the sidebar list", () => {
+  const sources = Object.fromEntries(configSources);
+  for (const name of ["SkillsConfig", "PluginsConfig"]) {
+    const sidebar = sources[name].match(/<ConfigSidebar>[\s\S]*?<\/ConfigSidebar>/)?.[0] ?? "";
+    assert.match(sidebar, /<ConfigSidebarBulkActions[\s\S]*?<\/ConfigSidebarBulkActions>\s*\)\}\s*<ConfigSidebarList>/, name);
+    const bulk = sidebar.match(/<ConfigSidebarBulkActions[\s\S]*?<\/ConfigSidebarBulkActions>/)[0];
+    // Light secondary buttons, like the Models panel's Enable all / Disable all.
+    assert.equal(bulk.match(/<ConfigButton\s+size="small"/g)?.length, 2, name);
+    assert.doesNotMatch(bulk, /variant=/, name);
+    assert.match(bulk, /role="alert" className="config-sidebar-bulk-error"/, name);
+  }
+  assert.match(templateSource, /className="config-sidebar-bulk-actions"/);
+  assert.match(cssSource, /\.config-sidebar-bulk-actions \{[\s\S]*?flex-shrink: 0[\s\S]*?border-bottom: 1px solid var\(--border\)/);
+  assert.match(cssSource, /\.config-sidebar-bulk-buttons > \.config-button \{[\s\S]*?flex: 1 1 0/);
+  assert.match(cssSource, /\.config-sidebar-bulk-error,\s*\.config-sidebar-bulk-note \{[\s\S]*?white-space: pre-wrap/);
 });

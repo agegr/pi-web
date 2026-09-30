@@ -307,6 +307,15 @@ export async function removeWorktree(cwd: string, worktreePath: string, force = 
   invalidateProjectCache();
 }
 
+/**
+ * Git refuses to remove a dirty worktree, or one containing initialized
+ * submodules, without --force. A locked worktree needs a double force and is
+ * deliberately not matched: offering a single force there would just fail.
+ */
+export function worktreeRemovalRequiresForce(message: string): boolean {
+  return /contains modified or untracked files|is dirty|containing submodules/i.test(message);
+}
+
 /** Delete a local branch. A branch checked out in any worktree cannot be
  *  deleted at all; unmerged commits need force (git's -d → -D retry). */
 export async function deleteBranch(cwd: string, branch: string, force = false): Promise<void> {
