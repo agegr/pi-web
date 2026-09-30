@@ -1210,6 +1210,56 @@
   font-size: 11px;
 }
 
+/* 发送键偏好:分段控件,排版与【外观】主题选择器一致 */
+.settings-send-mode-options {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  max-width: 260px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.settings-send-mode-option {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.settings-send-mode-option:has(input:checked) {
+  background: var(--bg-selected);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.settings-send-mode-option:not(:has(input:checked)):hover {
+  background: var(--bg-hover);
+}
+
+.settings-send-mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-send-mode-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .settings-chat-reset {
   width: 28px;
   height: 28px;
