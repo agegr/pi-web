@@ -40,7 +40,15 @@ export async function POST(req: Request) {
     const configuredBaseUrl = typeof body.provider.baseUrl === "string" ? body.provider.baseUrl.trim() : "";
     const configuredApi = typeof body.provider.api === "string" && body.provider.api ? body.provider.api : "";
 
-    const auth = await resolveModelDiscoveryAuth(providerName, body.provider);
+    let auth: Awaited<ReturnType<typeof resolveModelDiscoveryAuth>>;
+    try {
+      auth = await resolveModelDiscoveryAuth(providerName, body.provider);
+    } catch (error) {
+      // Without a configured Base URL, pi's catalog was the only other source of
+      // one; for a custom provider it fails with an error about the placeholder model.
+      if (!configuredBaseUrl) return NextResponse.json({ error: "Base URL is required" }, { status: 400 });
+      throw error;
+    }
     if (typeof body.provider.apiKey === "string" && body.provider.apiKey.trim() && !auth.apiKey) {
       return NextResponse.json({ error: `No API key found for "${providerName}"` }, { status: 400 });
     }

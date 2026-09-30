@@ -306,5 +306,5 @@ test("model discovery is not gated on a configured base URL", () => {
   assert.match(providerDetail, /if \(discoveryState\.phase === "loading"\) return;/);
   assert.match(providerDetail, /disabled=\{discoveryState\.phase === "loading"\}/);
   assert.doesNotMatch(providerDetail, /!provider\.baseUrl\?\.trim\(\)/);
-  assert.match(providerDetail, /Leave empty to use the endpoint pi ships for this provider/);
+  assert.match(providerDetail, /Leave empty for a built-in provider to use the endpoint pi ships/);
 });

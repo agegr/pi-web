@@ -422,7 +422,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
           placeholder="https://api.example.com/v1" mono />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Leave empty to use the endpoint pi ships for this provider
+          Leave empty for a built-in provider to use the endpoint pi ships
         </span>
       </Field>
 
