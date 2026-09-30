@@ -19,6 +19,10 @@ import { demoOnlyMessage } from "./unavailable";
 type EnabledView = typeof ENABLED_MODELS_RESPONSE;
 type EnabledProvider = EnabledView["providers"][number];
 
+// Matches lib/default-preferences.ts (root-only module); the mock validates the
+// same set so 400s behave like the real route.
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
 const enabledView: EnabledView = structuredClone(ENABLED_MODELS_RESPONSE);
 const authState = structuredClone(AUTH_PROVIDERS_RESPONSE);
 let modelsConfig = structuredClone(MODELS_CONFIG);
@@ -123,11 +127,11 @@ async function modelsRoute(request: MockRequest): Promise<Response> {
   if (sub === "default") {
     if (request.method !== "PUT") return error("Not found", 404);
     const body = await request.json<{ provider?: string; modelId?: string; thinkingLevel?: string }>();
-    if (typeof body.provider === "string" && typeof body.modelId === "string") {
+    if (typeof body.provider === "string" && body.provider && typeof body.modelId === "string" && body.modelId) {
       defaultsState.model = { provider: body.provider, modelId: body.modelId };
       return json({ ok: true, defaultModel: defaultsState.model });
     }
-    if (typeof body.thinkingLevel === "string") {
+    if (typeof body.thinkingLevel === "string" && THINKING_LEVELS.has(body.thinkingLevel)) {
       defaultsState.thinkingLevel = body.thinkingLevel;
       return json({ ok: true, defaultThinkingLevel: body.thinkingLevel });
     }
