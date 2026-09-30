@@ -31,9 +31,7 @@ export function setEnterSendMode(next: EnterSendMode): void {
   mode = next;
   try {
     window.localStorage.setItem(ENTER_SEND_MODE_STORAGE_KEY, next);
-  } catch {
-    // ignore
-  }
+  } catch {}
   listeners.forEach((listener) => listener());
 }
 
