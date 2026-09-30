@@ -190,6 +190,10 @@ class PlainTextTheme extends Theme {
 const PLAIN_TEXT_THEME = new PlainTextTheme();
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 
+// pi activates `direct` and `model-only` tools when they are registered. `codemode` and
+// `deferred` tools stay undeclared until something activates them, and `hidden` is withdrawn.
+const ACTIVE_ON_REGISTRATION_EXPOSURES = new Set(["direct", "model-only"]);
+
 function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
   if (toolNames.length === 0) return [];
 
@@ -197,8 +201,8 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
   const selectedToolNames = resolveShellTools(toolNames, session.settingsManager.getDefaultTools());
   const extensionToolNames = session
     .getAllTools()
-    .map((t) => t.name)
-    .filter((name) => !codingToolNames.has(name));
+    .filter((t) => !codingToolNames.has(t.name) && ACTIVE_ON_REGISTRATION_EXPOSURES.has(t.exposure ?? "direct"))
+    .map((t) => t.name);
 
   return [...new Set([...selectedToolNames, ...extensionToolNames])];
 }
@@ -496,9 +500,9 @@ export class AgentSessionWrapper {
       .join("\n") + "\n";
     writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
 
-    // Pi normally delays the first flush until an assistant message exists.
-    // A leading shell command has no assistant message, so mark this SDK
-    // manager as flushed after writing its own generated entries.
+    // Pi delays the first flush until a user or assistant message exists.
+    // A leading shell command is neither, so mark this SDK manager as
+    // flushed after writing its own generated entries.
     (manager as unknown as { flushed: boolean }).flushed = true;
     cacheSessionPath(this.inner.sessionId, sessionFile);
   }
@@ -624,9 +628,9 @@ export class AgentSessionWrapper {
               source: "rpc",
               // Match pi's RPC contract: acknowledge only after synchronous prompt
               // validation and extension preflight have accepted the submission.
-              preflightResult: (success) => {
-                if (success) acceptPreflight();
-              },
+              // Every disposition (handled, queued, started) is an acceptance; a
+              // rejected prompt never calls this and rejects `prompt` instead.
+              preflightResult: () => acceptPreflight(),
             });
           } catch (error) {
             finishPrompt();
@@ -904,7 +908,8 @@ export class AgentSessionWrapper {
       }
 
       case "get_tools": {
-        const all: ToolInfo[] = this.inner.getAllTools();
+        // A hidden tool is withdrawn: pi ignores it when setting the active tools.
+        const all: ToolInfo[] = this.inner.getAllTools().filter((t) => t.exposure !== "hidden");
         const active = new Set<string>(this.inner.getActiveToolNames());
         return all.map((t) => ({
           ...t,
