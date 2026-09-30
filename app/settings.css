@@ -1406,6 +1406,31 @@
   }
 }
 
+/* Only the title area moves extension dialogs; the body keeps normal input and scrolling. */
+.extension-dialog-handle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 9px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.extension-drag-grip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.extension-dialog-surface[data-dragging] .extension-dialog-handle { cursor: grabbing; }
+.extension-drag-grip {
+  width: 9px;
+  height: 18px;
+  margin-top: 4px;
+  flex-shrink: 0;
+  opacity: 0.65;
+  background: radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.6px) 0 0 / 6px 6px;
+}
+
 /* Extension dialog options: use the option's 13px size and drop list margins. */
 .markdown-body.extension-option-markdown { font-size: inherit; line-height: 1.55; }
 .markdown-body.extension-option-markdown > :first-child { margin-top: 0; }
@@ -1413,6 +1438,12 @@
 .markdown-body.extension-option-markdown li { margin: 0; }
 
 @media (max-width: 640px) {
+  .extension-dialog-handle {
+    cursor: auto;
+    touch-action: auto;
+    user-select: text;
+  }
+  .extension-drag-grip { display: none; }
   [data-extension-overlay] button,
   [data-extension-overlay] [data-extension-option] {
     min-width: 44px;

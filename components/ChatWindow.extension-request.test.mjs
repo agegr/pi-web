@@ -52,6 +52,20 @@ test("preserves multiline titles as a heading and bounded plain-text detail abov
   assert.match(css, /\.markdown-body\.extension-option-markdown li \{ margin: 0; \}/);
 });
 
+test("both extension dialog variants share bounded title-bar dragging", () => {
+  assert.match(source, /import \{ useDraggableDialog \} from "@\/hooks\/useDraggableDialog"/);
+  for (const body of [dialogSource.slice(0, dialogSource.indexOf("function ExtensionCustomPanel")), customSource]) {
+    assert.match(body, /useDraggableDialog\(collapsed\)/);
+    assert.match(body, /ref=\{drag\.containerRef\}/);
+    assert.match(body, /ref=\{drag\.dialogRef\}/);
+    assert.match(body, /className="extension-dialog-handle"[\s\S]*?\{\.\.\.drag\.handleProps\}/);
+    assert.match(body, /className="extension-drag-grip"[\s\S]*?\{\.\.\.drag\.gripProps\}/);
+    assert.doesNotMatch(body, /drag\.handleProps\.role/);
+    assert.match(body, /chat\.extensionMoveHint/);
+  }
+  assert.match(css, /@media \(max-width: 640px\) \{\s+\.extension-dialog-handle \{\s+cursor: auto;\s+touch-action: auto;/);
+});
+
 test("resets collapse state when a new extension request arrives", () => {
   assert.match(source, /<ExtensionDialog key=\{extensionDialog.id\}/);
   assert.match(source, /<ExtensionCustomPanel key=\{extensionCustomUi.id\}/);

@@ -19,6 +19,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDraggableDialog } from "@/hooks/useDraggableDialog";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
@@ -1497,6 +1498,7 @@ function ExtensionDialog({
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const drag = useDraggableDialog(collapsed);
   const focusFirstOption = useCallback((element: HTMLDivElement | null) => element?.focus(), []);
   const summary = getExtensionDialogSummary(request);
   // select/input have no message field, so extensions put multi-line text in the title.
@@ -1532,6 +1534,7 @@ function ExtensionDialog({
   return (
     <div
       data-extension-overlay
+      ref={drag.containerRef}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
         event.preventDefault();
@@ -1589,6 +1592,8 @@ function ExtensionDialog({
         </button>
       ) : (
       <div
+        ref={drag.dialogRef}
+        className="extension-dialog-surface"
         role="dialog"
         aria-label={heading}
         aria-describedby={detail ? detailId : undefined}
@@ -1606,11 +1611,23 @@ function ExtensionDialog({
         }}
       >
         <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)", maxHeight: "50%", overflowY: "auto" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{heading}</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-              <span>{t("chat.extensionRequest")}</span>
-              {countdown}
+          <div
+            className="extension-dialog-handle"
+            {...drag.handleProps}
+            title={drag.enabled ? t("chat.extensionMoveHint") : undefined}
+          >
+            <span
+              className="extension-drag-grip"
+              {...drag.gripProps}
+              aria-label={drag.enabled ? t("chat.extensionMove") : undefined}
+              aria-hidden={drag.enabled ? undefined : true}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{heading}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                <span>{t("chat.extensionRequest")}</span>
+                {countdown}
+              </div>
             </div>
           </div>
           <button
@@ -1833,6 +1850,7 @@ function ExtensionCustomPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
+  const drag = useDraggableDialog(collapsed);
   const displayLines = normalizeCustomPanelLines(request.lines);
   const summary = displayLines.find((line) => line.trim())?.trim();
 
@@ -1843,6 +1861,7 @@ function ExtensionCustomPanel({
   return (
     <div
       data-extension-overlay
+      ref={drag.containerRef}
       style={{
         position: "absolute",
         inset: 0,
@@ -1894,6 +1913,8 @@ function ExtensionCustomPanel({
       ) : (
       <div
         role="dialog"
+        ref={drag.dialogRef}
+        className="extension-dialog-surface"
         onClick={(event) => {
           if (!(event.target as HTMLElement).closest("button")) inputRef.current?.focus();
         }}
@@ -1961,7 +1982,19 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-           <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
+          <div
+            className="extension-dialog-handle"
+            {...drag.handleProps}
+            title={drag.enabled ? t("chat.extensionMoveHint") : undefined}
+          >
+            <span
+              className="extension-drag-grip"
+              {...drag.gripProps}
+              aria-label={drag.enabled ? t("chat.extensionMove") : undefined}
+              aria-hidden={drag.enabled ? undefined : true}
+            />
+            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
               type="button"

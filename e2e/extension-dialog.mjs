@@ -25,6 +25,91 @@ export const extensionSource = `export default function (pi) {
   });
 }`;
 
+async function checkDialogDragging(page, dialog, artifacts, width) {
+  const handle = dialog.locator(".extension-dialog-handle");
+  const grip = dialog.locator(".extension-drag-grip");
+  const before = await dialog.boundingBox();
+  const container = await dialog.evaluate(element => {
+    const rect = element.closest("[data-extension-overlay]").getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  assert.ok(Math.abs(before.x - (container.x + (container.width - before.width) / 2)) < 1
+    && Math.abs(before.y - (container.y + (container.height - before.height) / 2)) < 1, "A new request must start centered after the previous request moved");
+  assert.equal(await handle.getAttribute("role"), null, "The title must remain readable rather than becoming a button");
+  const assertContained = async () => {
+    const d = await dialog.boundingBox();
+    const c = await dialog.evaluate(element => {
+      const rect = element.closest("[data-extension-overlay]").getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
+    assert.ok(d.x >= c.x + 19 && d.y >= c.y + 19, "Dialog must retain the overlay padding");
+    assert.ok(d.x + d.width <= c.x + c.width - 19 && d.y + d.height <= c.y + c.height - 19, "Dialog must not escape the chat area or cover the composer");
+  };
+  const drag = async (dx, dy) => {
+    const h = await handle.boundingBox();
+    await page.mouse.move(h.x + 18, h.y + 10);
+    await page.mouse.down();
+    await page.mouse.move(h.x + 18 + dx, h.y + 10 + dy, { steps: 8 });
+    await page.mouse.up();
+  };
+  const focused = await page.locator(":focus").elementHandle();
+  await drag(80, 35);
+  if (width <= 640) {
+    assert.deepEqual(await dialog.boundingBox(), before, "Phone dialogs must not move");
+    assert.equal(await grip.getAttribute("role"), null);
+    assert.equal(await dialog.evaluate(element => element.style.transform), "");
+    await assertContained();
+    await dialog.locator("[data-extension-option], input, textarea").first().focus();
+    return;
+  }
+  assert.ok(await focused.evaluate(element => document.activeElement === element), "Pointer dragging must not steal input or option focus");
+  await focused.dispose();
+  const moved = await dialog.boundingBox();
+  await page.screenshot({ path: join(artifacts, `extension-drag-${width}-${await dialog.getAttribute("aria-label") || "custom"}.png`) });
+  assert.ok(moved.x > before.x + 1 || moved.y > before.y + 1, "Dragging the title must move the dialog when there is room");
+  await assertContained();
+  await dialog.getByRole("button", { name: "Collapse", exact: true }).click();
+  await page.getByRole("button", { name: /^(Awaiting response|Extension panel)/ }).click();
+  assert.deepEqual(await dialog.boundingBox(), moved, "Collapse and expand must preserve dialog position");
+  await drag(2000, 2000); await assertContained();
+  await drag(-2000, -2000); await assertContained();
+  await handle.dblclick();
+  assert.deepEqual(await dialog.boundingBox(), before, "Double-click must restore the centered position");
+  await grip.focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
+  assert.ok((await dialog.boundingBox()).x > before.x || (await dialog.boundingBox()).y > before.y, "The focused title must support keyboard movement");
+  await page.keyboard.press("Home");
+  assert.deepEqual(await dialog.boundingBox(), before);
+  const composer = page.locator(".chat-content textarea").last();
+  await composer.fill("E2E composer remains editable while the dialog is open");
+  assert.equal(await composer.inputValue(), "E2E composer remains editable while the dialog is open");
+  await composer.fill("");
+  await drag(80, 35);
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: Math.max(700, viewport.width - 280), height: viewport.height - 80 });
+  await page.waitForTimeout(100);
+  await assertContained();
+  await page.setViewportSize(viewport);
+  await page.waitForTimeout(100);
+  await handle.dblclick();
+  const textbox = dialog.getByRole("textbox");
+  if (await textbox.count()) {
+    const rect = await textbox.boundingBox();
+    if (rect.width > 40 && rect.height > 10) {
+      const position = await dialog.boundingBox();
+      await page.mouse.move(rect.x + 8, rect.y + 8);
+      await page.mouse.down();
+      await page.mouse.move(rect.x + 45, rect.y + 8);
+      await page.mouse.up();
+      assert.deepEqual(await dialog.boundingBox(), position, "Dragging input text must not move the dialog");
+    }
+  }
+  await drag(80, 35);
+  await dialog.locator("[data-extension-option], input, textarea").first().focus();
+  assert.equal(await page.evaluate(() => document.body.style.userSelect), "");
+}
+
 export async function checkExtensionDialogs(page, artifacts, width) {
   const commands = [];
   const onRequest = (request) => {
@@ -59,6 +144,9 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     const select = await start("select");
     await checkTouchTargets(select);
     await page.waitForFunction(() => document.activeElement?.textContent === "Option 1");
+    const beforeDrag = commands.length;
+    await checkDialogDragging(page, select, artifacts, width);
+    assert.equal(commands.slice(beforeDrag).some(command => ["extension_ui_response", "extension_ui_input", "abort"].includes(command.type)), false, "Moving a dialog must not answer, type, or abort");
     for (const [key, expected] of [["ArrowUp", "Option 30"], ["ArrowDown", "Option 1"], ["ArrowRight", "Option 2"], ["ArrowLeft", "Option 1"], ["End", "Option 30"], ["Home", "Option 1"], ["End", "Option 30"]]) {
       await page.keyboard.press(key);
       assert.equal(await page.locator(":focus").textContent(), expected);
@@ -120,6 +208,7 @@ export async function checkExtensionDialogs(page, artifacts, width) {
       assert.ok(await page.locator(":focus").evaluate(element => element.closest('[role="dialog"]')));
       if (mode === "input" || mode === "editor") {
         await dialog.getByRole("textbox").fill("Preserved draft");
+        await checkDialogDragging(page, dialog, artifacts, width);
         if (width <= 640) await dialog.getByRole("button", { name: "Collapse", exact: true }).tap();
         else await dialog.getByRole("button", { name: "Collapse", exact: true }).click();
         const collapsed = page.getByRole("button", { name: new RegExp(`Awaiting response.*E2E ${mode}`) });
@@ -129,21 +218,33 @@ export async function checkExtensionDialogs(page, artifacts, width) {
       }
       if (mode === "input" || mode === "editor") await dialog.getByRole("button", { name: "Cancel", exact: true }).focus();
       const before = commands.length;
+      const bodyStyle = await page.evaluate(() => ({ cursor: document.body.style.cursor, userSelect: document.body.style.userSelect }));
+      if (mode === "input" && width > 640) {
+        const h = await dialog.locator(".extension-dialog-handle").boundingBox();
+        await page.mouse.move(h.x + 18, h.y + 10);
+        await page.mouse.down();
+      }
       await page.keyboard.press("Escape");
       await dialog.waitFor({ state: "hidden" });
+      if (mode === "input" && width > 640) await page.mouse.up();
+      assert.deepEqual(await page.evaluate(() => ({ cursor: document.body.style.cursor, userSelect: document.body.style.userSelect })), bodyStyle, "Closing a dialog during a drag must restore page input styles");
       await finish(mode, mode === "confirm" ? "false" : "undefined");
       assert.equal(commands.slice(before).filter(command => command.type === "extension_ui_response").length, 1);
       assert.equal(commands.slice(before).some(command => command.type === "abort"), false, "Dialog Esc must not abort the agent");
     }
 
-    if (width <= 640) {
+    {
       const input = page.locator("textarea").last();
       await input.fill("/e2e-dialog custom");
       await page.getByRole("button", { name: "Send", exact: true }).click();
       const custom = page.getByRole("dialog").filter({ hasText: "E2E custom panel" });
       await custom.waitFor();
       await checkTouchTargets(custom);
-      await custom.getByRole("button", { name: "Collapse", exact: true }).tap();
+      const beforeCustomDrag = commands.length;
+      await checkDialogDragging(page, custom, artifacts, width);
+      assert.equal(commands.slice(beforeCustomDrag).some(command => command.type === "extension_ui_input"), false, "Moving a custom panel must not send terminal input");
+      if (width <= 640) await custom.getByRole("button", { name: "Collapse", exact: true }).tap();
+      else await custom.getByRole("button", { name: "Collapse", exact: true }).click();
       const collapsed = page.getByRole("button", { name: /Extension panel.*E2E custom panel/ });
       await checkTouchTargets(collapsed.locator(".."));
       await collapsed.click();
@@ -156,6 +257,7 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await checkTouchTargets(timed);
     const countdown = timed.getByText(/expires in \ds/);
     await countdown.waitFor();
+    assert.match(await timed.ariaSnapshot(), /expires in \ds/, "The countdown must remain available to assistive technology");
     const initialCountdown = await countdown.innerText();
     await page.waitForFunction(initial => {
       const text = document.querySelector('[role="dialog"]')?.textContent;
@@ -171,7 +273,7 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await afterTimeout.getByRole("textbox").fill("Still answerable");
     await page.keyboard.press("Enter");
     await finish("timeout", "Still answerable");
-    console.log(`PASS: ${width}px extension keyboard navigation, cancel, draft preservation, and server expiry`);
+    console.log(`PASS: ${width}px extension dragging, bounds, keyboard navigation, cancel, draft preservation, and server expiry`);
   } finally {
     page.off("request", onRequest);
   }

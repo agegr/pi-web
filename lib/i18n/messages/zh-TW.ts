@@ -327,6 +327,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.extensionExpiresIn": "{seconds} 秒後過期",
     "chat.extensionPending": "待回答",
     "chat.extensionCollapse": "收起",
+    "chat.extensionMove": "移動或置中彈窗",
+    "chat.extensionMoveHint": "拖動標題移動，按兩下恢復置中；聚焦拖曳柄後，方向鍵移動，Home、Enter 或空白鍵恢復置中。",
     "chat.extensionExpand": "展開",
     "chat.cancel": "取消",
     "chat.confirm": "確認",

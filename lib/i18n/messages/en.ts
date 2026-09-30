@@ -327,6 +327,8 @@ export const enLocale: LocalePlugin = {
     "chat.extensionExpiresIn": "expires in {seconds}s",
     "chat.extensionPending": "Awaiting response",
     "chat.extensionCollapse": "Collapse",
+    "chat.extensionMove": "Move or center dialog",
+    "chat.extensionMoveHint": "Drag the title to move; double-click to center. Focus the grip to move with arrow keys, or center with Home, Enter or Space.",
     "chat.extensionExpand": "Expand",
     "chat.cancel": "Cancel",
     "chat.confirm": "Confirm",
