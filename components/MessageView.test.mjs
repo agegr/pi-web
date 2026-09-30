@@ -215,21 +215,40 @@ test("renders a truncation notice for stopReason length", () => {
   });
 
   assert.match(html, /role="alert"/);
-  assert.match(html, /output limit/i);
-  assert.match(html, /follow-up/i);
+  assert.match(html, /output limit was reached before an answer/i);
+  assert.doesNotMatch(html, /follow-up/i);
 });
 
-test("renders a truncation notice for thinking-only messages with stopReason length", () => {
+test("keeps the follow-up hint when a truncated response already has text", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "text", text: "Partial answer" }],
+    stopReason: "length",
+  });
+
+  assert.match(html, /Partial answer/);
+  assert.match(html, /follow-up/i);
+  assert.doesNotMatch(html, /Compact context/);
+});
+
+test("offers compaction on an unanswered truncation and keeps its error with the reply", () => {
+  let compacted = 0;
   const html = renderMessage({
     role: "assistant",
     provider: "anthropic",
     model: "claude-test",
     content: [],
     stopReason: "length",
+  }, {
+    onCompact: () => { compacted += 1; },
+    compactError: "Summarization failed: generation hit the token cap",
   });
 
-  assert.match(html, /role="alert"/);
-  assert.match(html, /output limit/i);
+  assert.match(html, /Compact context/);
+  assert.match(html, /generation hit the token cap/);
+  assert.equal(compacted, 0);
 });
 
 test("renders partial assistant content before the provider error", () => {
@@ -377,4 +396,20 @@ test("shows tool-result images while the tool details stay collapsed", () => {
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
   assert.doesNotMatch(html, /captured-1280x720/);
   assert.doesNotMatch(html, /"tabId"/);
+});
+
+test("uses the unanswered truncation notice for an empty length reply", () => {
+  // A nearly full context can clamp the output so far that nothing, not even
+  // thinking, comes back; the notice must not blame thinking alone.
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [],
+    stopReason: "length",
+  });
+
+  assert.match(html, /output limit was reached before an answer/i);
+  assert.match(html, /nearly full context/i);
+  assert.doesNotMatch(html, /follow-up/i);
 });

@@ -10,6 +10,7 @@ import {
 import { gt, maxSatisfying, rcompare, valid, validRange } from "semver";
 import type { PluginScope, PluginUpdateResult } from "@/lib/api-types";
 import { nodeCliInvocation } from "./node-cli";
+import { parseNpmSource } from "./npm-source";
 import { getProjectTrustStatus } from "./project-trust";
 
 const execFileAsync = promisify(execFile);
@@ -32,25 +33,8 @@ type CheckOptions = {
   runCommand?: CommandRunner;
 };
 
-type ParsedNpmSource = {
-  name: string;
-  spec: string;
-  version?: string;
-};
-
 function toPluginScope(scope: ConfiguredPackage["scope"]): PluginScope {
   return scope === "project" ? "project" : "global";
-}
-
-function parseNpmSource(source: string): ParsedNpmSource | undefined {
-  if (!source.startsWith("npm:")) return undefined;
-  const spec = source.slice(4).trim();
-  const match = spec.match(/^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/);
-  return {
-    name: match?.[1] ?? spec,
-    spec,
-    version: match?.[2],
-  };
 }
 
 function hasGitRef(source: string): boolean {
