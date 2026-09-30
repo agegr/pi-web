@@ -291,3 +291,40 @@ test("shows a read-only prompt section for catalog rows that carry one", () => {
   assert.match(source, /<textarea[\s\S]*?className="agents-system-prompt"[\s\S]*?value=\{agent\.prompt\}[\s\S]*?readOnly[\s\S]*?disabled[\s\S]*?\/>/);
   assert.match(source, /resize: "none"/);
 });
+
+test("refreshes the panel on activation and polls quietly while it is visible", () => {
+  assert.match(source, /import \{ useAgentsRefresh \} from "@\/hooks\/useAgentsRefresh"/);
+  assert.match(source, /useAgentsRefresh\(\{/);
+  // The section host keeps the panel mounted while another section is shown, so
+  // the panel reports its own visibility instead of trusting a mount.
+  assert.match(source, /active = true,/);
+  assert.match(source, /busy: saving \|\| loading/);
+  assert.match(source, /refresh: \(signal\) => loadProfiles\(undefined, \{ signal, quiet: true \}\)/);
+  // A quiet refresh must not flip the panel into its loading state.
+  assert.match(source, /if \(!quiet\) \{\s*setLoading\(true\);\s*setError\(null\);/);
+  assert.match(source, /const quiet = options\?\.quiet === true/);
+});
+
+test("keeps an open draft out of the quiet refresh's way", () => {
+  // Dirty detection compares against the loaded draft, not the reloaded file:
+  // an external edit must not latch the panel dirty and stop refreshing it.
+  assert.match(source, /const pristineDraftRef = useRef<EditableProfile \| null>\(null\)/);
+  assert.match(source, /const applyDraft = \(next: EditableProfile\) => \{/);
+  assert.match(source, /pristineDraftRef\.current = next;/);
+  assert.match(source, /const draftDirty = mode === "create"\s*\|\| \(mode === "edit" && JSON\.stringify\(draft\) !== JSON\.stringify\(pristineDraftRef\.current\)\)/);
+  // A quiet load only re-reads the draft when the editor is not open for edits.
+  assert.match(source, /if \(currentMode === "view"\) applyDraft\(editableProfile\(current\)\)/);
+  assert.match(source, /if \(!currentKey\) return;/);
+  // Raw-entry inputs and the create form keep the setDraft state setter.
+  assert.match(source, /setDraft\(\(current\) => \(\{\s*\.\.\.current, \[key\]: value \}\)\)/);
+});
+
+test("a torn-down poll neither reports an error nor clears the loading state", () => {
+  // A quiet poll's failure is the same story: the next tick retries, so neither
+  // an abort nor a quiet load may raise the banner.
+  assert.match(source, /if \(quiet \|\| options\?\.signal\?\.aborted\) return;/);
+  assert.match(source, /if \(!quiet && !options\?\.signal\?\.aborted\) setLoading\(false\)/);
+  assert.match(source, /cache: "no-store", signal: options\?\.signal/);
+  // A quiet load that succeeds is the recovery from an earlier quiet failure.
+  assert.match(source, /if \(quiet\) setError\(null\);/);
+});

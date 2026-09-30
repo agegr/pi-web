@@ -147,3 +147,10 @@ test("keeps password authentication to one login field and one settings action",
   assert.match(loginSource, /className="web-login-composer"[\s\S]*?type="password"[\s\S]*?<button type="submit"/);
   assert.match(globalCssSource, /\.web-login-composer \{[\s\S]*?display: flex;[\s\S]*?border-radius: 14px/);
 });
+
+test("hands the agents section its own visibility so a mounted panel can refresh", () => {
+  // A visited section stays mounted behind `hidden`, so AgentsConfig cannot
+  // trust a mount to mean "visible"; the host reports the active section.
+  assert.match(panelSource, /sectionHost\("agents", <AgentsConfig embedded key=\{cwd\} cwd=\{cwd\} onClose=\{onClose\} active=\{section === "agents"\} \/>\)/);
+  assert.doesNotMatch(panelSource, /sectionHost\("agents", [^)]*active=\{section !== "general"\}/);
+});

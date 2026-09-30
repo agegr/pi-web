@@ -4,12 +4,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useAgentsRefresh } from "@/hooks/useAgentsRefresh";
 import type { SubagentCatalogResponse, SubagentProfilesResponse, SubagentToolsResponse } from "@/lib/api-types";
 import type { ModelsData } from "@/lib/models-cache";
 import { isSubagentProfileOverridden } from "@/lib/subagent-profile-precedence";
@@ -407,10 +409,13 @@ export function AgentsConfig({
   cwd,
   onClose,
   embedded = false,
+  active = true,
 }: {
   cwd: string;
   onClose: () => void;
   embedded?: boolean;
+  /** The settings section host keeps this panel mounted while another section is shown. */
+  active?: boolean;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -438,6 +443,21 @@ export function AgentsConfig({
     () => profiles.find((profile) => profileKey(profile) === selectedKey) ?? null,
     [profiles, selectedKey],
   );
+  /**
+   * The draft exactly as it was loaded. An open draft is unsaved work, so a
+   * background refresh must not overwrite it, and while it differs from its file
+   * the panel is not a safe place to apply new lists to either. Compare against
+   * this baseline rather than the reloaded profile: a file changing on disk is
+   * exactly the case where the user's unsaved edits must still survive, and
+   * comparing to the new content would latch the panel "dirty" forever.
+   */
+  const pristineDraftRef = useRef<EditableProfile | null>(null);
+  const applyDraft = (next: EditableProfile) => {
+    pristineDraftRef.current = next;
+    setDraft(next);
+  };
+  const draftDirty = mode === "create"
+    || (mode === "edit" && JSON.stringify(draft) !== JSON.stringify(pristineDraftRef.current));
   const uneditable = useMemo(() => catalogOnlyAgents(catalog, profiles), [catalog, profiles]);
   const selectedCatalog = useMemo(
     () => uneditable.find((agent) => catalogKey(agent) === selectedCatalogKey) ?? null,
@@ -453,12 +473,28 @@ export function AgentsConfig({
   const rawTools = useMemo(() => draft.tools?.filter((tool) => !knownToolNames.has(tool)) ?? [], [draft.tools, knownToolNames]);
   const rawExcludeTools = useMemo(() => draft.excludeTools?.filter((tool) => !knownToolNames.has(tool)) ?? [], [draft.excludeTools, knownToolNames]);
 
-  const loadProfiles = useCallback(async (preferredKey?: string) => {
-    setLoading(true);
-    setError(null);
+  // The refresh hook and the quiet load read these through a ref, so the load
+  // callback stays stable and the mount effect cannot refetch on every keystroke.
+  const selectionRef = useRef({ selectedKey, mode, draftDirty });
+  selectionRef.current = { selectedKey, mode, draftDirty };
+
+  /**
+   * Load the profiles, catalog and tool list. A quiet load is a background
+   * refresh: it keeps the list state fresh without moving the selection, and it
+   * only re-reads the open draft in view mode, where there is nothing to lose.
+   */
+  const loadProfiles = useCallback(async (
+    preferredKey?: string,
+    options?: { signal?: AbortSignal; quiet?: boolean },
+  ) => {
+    const quiet = options?.quiet === true;
+    if (!quiet) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [profilesResponse, catalogResponse, toolsResponse] = await Promise.all([
-        fetch(`/api/subagents/profiles?cwd=${encodeURIComponent(cwd)}`, { cache: "no-store" }),
+        fetch(`/api/subagents/profiles?cwd=${encodeURIComponent(cwd)}`, { cache: "no-store", signal: options?.signal }),
         // The catalog and tool list are read-only enrichment; a failure leaves the editor alone.
         fetch(`/api/subagents/catalog?cwd=${encodeURIComponent(cwd)}`, { cache: "no-store" }).catch(() => null),
         fetch(`/api/subagents/tools?cwd=${encodeURIComponent(cwd)}`, { cache: "no-store" }).catch(() => null),
@@ -467,8 +503,24 @@ export function AgentsConfig({
       if (!profilesResponse.ok || data.error) throw new Error(data.error ?? `HTTP ${profilesResponse.status}`);
       const next = data.profiles ?? [];
       setProfiles(next);
+      // A background refresh that succeeds is the recovery: whatever failure the
+      // last quiet poll showed is stale by now, so clear it here instead of
+      // waiting for the next load the user triggers.
+      if (quiet) setError(null);
       setCatalog(await readCatalog(catalogResponse));
       setToolOptions(await readTools(toolsResponse));
+      const { selectedKey: currentKey, mode: currentMode } = selectionRef.current;
+      if (quiet) {
+        // Create mode and catalog rows have no profile file to re-target.
+        if (!currentKey) return;
+        const current = next.find((profile) => profileKey(profile) === currentKey);
+        if (current) {
+          // The editor is not open for edits, so the file it shows may follow.
+          if (currentMode === "view") applyDraft(editableProfile(current));
+          return;
+        }
+        // The selected file is gone, so fall through and reselect like a fresh load.
+      }
       const rememberedKey = preferredKey ?? getLastSettingsSelection("agents", cwd);
       const chosen = next.find((profile) => profileKey(profile) === rememberedKey)
         ?? next.find((profile) => profile.scope === "project")
@@ -478,20 +530,32 @@ export function AgentsConfig({
       setSelectedKey(chosen ? profileKey(chosen) : null);
       setSelectedCatalogKey(null);
       if (chosen) {
-        setDraft(editableProfile(chosen));
+        applyDraft(editableProfile(chosen));
         setMode(isWritableScope(chosen.scope) ? "edit" : "view");
         if (isWritableScope(chosen.scope)) setTargetScope(chosen.scope);
       }
     } catch (cause) {
+      // A quiet poll never surfaces a failure — the next tick can retry — and an
+      // abort is a torn-down panel, not a load failure either. Only a load the
+      // user is waiting on may set the banner.
+      if (quiet || options?.signal?.aborted) return;
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setLoading(false);
+      if (!quiet && !options?.signal?.aborted) setLoading(false);
     }
   }, [cwd]);
 
   useEffect(() => {
     void loadProfiles();
   }, [loadProfiles]);
+
+  useAgentsRefresh({
+    active,
+    draftDirty,
+    // A save/override/eject and the load it triggers both suspend polling.
+    busy: saving || loading,
+    refresh: (signal) => loadProfiles(undefined, { signal, quiet: true }),
+  });
 
   useEffect(() => {
     if (selectedKey) setLastSettingsSelection("agents", selectedKey, cwd);
@@ -530,7 +594,7 @@ export function AgentsConfig({
     resetRawEntries();
     setSelectedKey(profileKey(profile));
     setSelectedCatalogKey(null);
-    setDraft(editableProfile(profile));
+    applyDraft(editableProfile(profile));
     setMode(isWritableScope(profile.scope) ? "edit" : "view");
     if (isWritableScope(profile.scope)) setTargetScope(profile.scope);
     setError(null);
@@ -551,7 +615,7 @@ export function AgentsConfig({
     while (profiles.some((profile) => profile.name === name)) name = `custom-agent-${suffix++}`;
     setSelectedKey(null);
     setSelectedCatalogKey(null);
-    setDraft({ ...EMPTY_PROFILE, name, displayName: name });
+    applyDraft({ ...EMPTY_PROFILE, name, displayName: name });
     setMode("create");
     setTargetScope("global");
     setError(null);
@@ -563,7 +627,7 @@ export function AgentsConfig({
     const name = duplicateProfileName(selected.name, profiles);
     setSelectedKey(null);
     setSelectedCatalogKey(null);
-    setDraft({
+    applyDraft({
       ...editableProfile(selected),
       name,
       displayName: t("agents.copyName", { name: selected.displayName ?? selected.name }),
