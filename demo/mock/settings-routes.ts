@@ -19,9 +19,19 @@ import { demoOnlyMessage } from "./unavailable";
 type EnabledView = typeof ENABLED_MODELS_RESPONSE;
 type EnabledProvider = EnabledView["providers"][number];
 
+// Matches lib/default-preferences.ts (root-only module); the mock validates the
+// same set so 400s behave like the real route.
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
 const enabledView: EnabledView = structuredClone(ENABLED_MODELS_RESPONSE);
 const authState = structuredClone(AUTH_PROVIDERS_RESPONSE);
 let modelsConfig = structuredClone(MODELS_CONFIG);
+// Defaults the star in the model / reasoning menus writes, mirroring PUT
+// /api/models/default in memory so the refetch keeps the marker.
+const defaultsState = {
+  model: MODELS_RESPONSE.defaultModel as { provider: string; modelId: string } | null,
+  thinkingLevel: MODELS_RESPONSE.defaultThinkingLevel as string | null,
+};
 const skillsState = structuredClone(skillsResponse);
 const profilesState = structuredClone(subagentProfilesResponse) as { profiles: Array<Record<string, unknown> & { name: string; scope: string }> };
 // The catalog is mutable in the demo so the disable toggle's refetch shows its
@@ -88,6 +98,8 @@ export function visibleModels() {
   const modelList = MODELS_RESPONSE.modelList.filter((model) => enabled.has(`${model.provider}/${model.id}`));
   return {
     ...MODELS_RESPONSE,
+    defaultModel: defaultsState.model,
+    savedDefaultThinkingLevel: defaultsState.thinkingLevel,
     modelList,
     models: Object.fromEntries(Object.entries(MODELS_RESPONSE.models).filter(([key]) => enabled.has(key.replace(":", "/")))),
   };
@@ -111,6 +123,19 @@ async function modelsRoute(request: MockRequest): Promise<Response> {
   if (sub === "refresh") {
     await delay(1200);
     return json({ completed: true, changed: false });
+  }
+  if (sub === "default") {
+    if (request.method !== "PUT") return error("Not found", 404);
+    const body = await request.json<{ provider?: string; modelId?: string; thinkingLevel?: string }>();
+    if (typeof body.provider === "string" && body.provider && typeof body.modelId === "string" && body.modelId) {
+      defaultsState.model = { provider: body.provider, modelId: body.modelId };
+      return json({ ok: true, defaultModel: defaultsState.model });
+    }
+    if (typeof body.thinkingLevel === "string" && THINKING_LEVELS.has(body.thinkingLevel)) {
+      defaultsState.thinkingLevel = body.thinkingLevel;
+      return json({ ok: true, defaultThinkingLevel: body.thinkingLevel });
+    }
+    return error("Expected provider and modelId, or a valid thinkingLevel", 400);
   }
   if (sub === "enabled") {
     if (request.method === "GET") return json(recomputeEnabledView());

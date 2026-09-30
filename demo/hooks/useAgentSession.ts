@@ -285,6 +285,7 @@ type ModelsResponse = {
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
   defaultThinkingLevel?: string | null;
+  savedDefaultThinkingLevel?: string | null;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
   thinkingLevelPins?: Record<string, string>;
@@ -328,6 +329,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
   const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
+  const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [currentThinkingOverride, setCurrentThinkingOverride] = useState<ConcreteThinkingLevel | null>(null);
   const [liveThinkingLevel, setLiveThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
@@ -1851,6 +1853,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       : null);
     thinkingLevelPinsRef.current = d.thinkingLevelPins ?? {};
     defaultThinkingLevelRef.current = asConcreteThinkingLevel(d.defaultThinkingLevel);
+    setSavedDefaultThinkingLevel(asConcreteThinkingLevel(d.savedDefaultThinkingLevel));
     if (isNew && !sessionIdRef.current) {
       // The first listed model is not necessarily the runtime's automatic choice.
       // An `enabledModels` pattern may pin a thinking level (`anthropic/*:high`).
@@ -1863,6 +1866,49 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [isNew, newSessionCwd, session?.cwd]);
+
+  // Picking a model or reasoning level is session-scoped, as in the TUI. The
+  // selectors' star is the explicit Ctrl+S equivalent: it saves the global
+  // default new sessions start with and also selects it for this chat.
+  const saveDefaultPreferences = useCallback(async (
+    edit: { provider: string; modelId: string } | { thinkingLevel: ConcreteThinkingLevel },
+  ) => {
+    const cwd = newSessionCwd ?? session?.cwd;
+    const res = await fetch("/api/models/default", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(cwd ? { cwd } : {}), ...edit }),
+    });
+    if (res.ok) return;
+    let detail = "";
+    try {
+      const body: unknown = await res.json();
+      if (body && typeof body === "object" && "error" in body && typeof body.error === "string") detail = body.error;
+    } catch {
+      // Non-JSON error responses fall back to the HTTP status.
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }, [newSessionCwd, session?.cwd]);
+
+  const reloadModelsQuietly = useCallback(() => {
+    // The star already updated the marker; a failed refresh keeps the old list.
+    loadModels().catch(() => {});
+  }, [loadModels]);
+
+  const handleSetDefaultModel = useCallback(async (provider: string, modelId: string) => {
+    try {
+      await saveDefaultPreferences({ provider, modelId });
+    } catch (e) {
+      addNotice({ type: "error", message: `Failed to save default model: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+    addNotice({ type: "success", message: `Default model: ${provider}/${modelId}` });
+    setNewSessionDefaultModel({ provider, modelId });
+    if (displayModel?.provider !== provider || displayModel?.modelId !== modelId) {
+      await handleModelChange(provider, modelId);
+    }
+    reloadModelsQuietly();
+  }, [addNotice, displayModel, handleModelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
@@ -2089,6 +2135,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCurrentThinkingOverride(null);
     }
   }, [isNew]);
+
+  const handleSetDefaultThinkingLevel = useCallback(async (level: ConcreteThinkingLevel) => {
+    try {
+      await saveDefaultPreferences({ thinkingLevel: level });
+    } catch (e) {
+      addNotice({ type: "error", message: `Failed to save default reasoning level: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+    addNotice({ type: "success", message: `Default reasoning level: ${level}` });
+    setSavedDefaultThinkingLevel(level);
+    if (displayThinkingLevel !== level) await handleThinkingLevelChange(level);
+    reloadModelsQuietly();
+  }, [addNotice, displayThinkingLevel, handleThinkingLevelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
     const toolNames = getToolNamesForPreset(preset);
@@ -2444,6 +2503,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
+    defaultModel: newSessionDefaultModel,
+    savedDefaultThinkingLevel,
     agentPhase,
     isNew,
     promptAnchorActive,
@@ -2457,7 +2518,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleBuiltinSlashCommand,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId, setExtensionWidgets,
     bashRunning, pendingBash,

@@ -4,6 +4,8 @@ export interface ModelsData {
   defaultModel: { provider: string; modelId: string } | null;
   /** Resolved thinking level a new session starts with when the user has not picked one. */
   defaultThinkingLevel: string | null;
+  /** `defaultThinkingLevel` as saved in settings, which the reasoning selector's star marks. */
+  savedDefaultThinkingLevel: string | null;
   thinkingLevels: Record<string, string[]>;
   thinkingLevelMaps: Record<string, Record<string, string | null>>;
   /** `provider/modelId` → thinking level pinned by an `enabledModels` `:level` suffix. */
