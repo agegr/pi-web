@@ -215,21 +215,40 @@ test("renders a truncation notice for stopReason length", () => {
   });
 
   assert.match(html, /role="alert"/);
-  assert.match(html, /output limit/i);
-  assert.match(html, /follow-up/i);
+  assert.match(html, /output limit was reached before an answer/i);
+  assert.doesNotMatch(html, /follow-up/i);
 });
 
-test("renders a truncation notice for thinking-only messages with stopReason length", () => {
+test("keeps the follow-up hint when a truncated response already has text", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "text", text: "Partial answer" }],
+    stopReason: "length",
+  });
+
+  assert.match(html, /Partial answer/);
+  assert.match(html, /follow-up/i);
+  assert.doesNotMatch(html, /Compact context/);
+});
+
+test("offers compaction on an unanswered truncation and keeps its error with the reply", () => {
+  let compacted = 0;
   const html = renderMessage({
     role: "assistant",
     provider: "anthropic",
     model: "claude-test",
     content: [],
     stopReason: "length",
+  }, {
+    onCompact: () => { compacted += 1; },
+    compactError: "Summarization failed: generation hit the token cap",
   });
 
-  assert.match(html, /role="alert"/);
-  assert.match(html, /output limit/i);
+  assert.match(html, /Compact context/);
+  assert.match(html, /generation hit the token cap/);
+  assert.equal(compacted, 0);
 });
 
 test("renders partial assistant content before the provider error", () => {
@@ -278,6 +297,46 @@ test("does not collapse incomplete skill-looking user text", () => {
 
   assert.match(html, /ordinary user text/);
   assert.doesNotMatch(html, /aria-expanded/);
+});
+
+test("shows every line of pasted plain text in a user message (#680)", () => {
+  const lines = [
+    "第1题（看门狗）",
+    "嵌入式系统中，看门狗（WatchDog）的基本工作原理是（ ）",
+    "A. 监控系统温度，过热时自动降频",
+    "B. 计数器自动计数，程序定期将其重置；若程序跑飞计数器溢出，则系统复位重启",
+  ];
+  const expected = `<p>${lines.join("<br/>")}</p>`;
+
+  for (const lineEnding of ["\n", "\r\n", "\r"]) {
+    const html = renderMessage({ role: "user", content: lines.join(lineEnding) });
+    assert.ok(html.includes(expected), JSON.stringify(lineEnding));
+    assert.doesNotMatch(html, /\r/);
+  }
+
+  const listHtml = renderMessage({
+    role: "user",
+    content: [{ type: "text", text: "1. 看门狗的原理是（ ）\nA. 监控温度\nB. 计数器" }],
+  });
+  assert.match(listHtml, /<li>看门狗的原理是（ ）<br\/>A\. 监控温度<br\/>B\. 计数器<\/li>/);
+});
+
+test("keeps assistant soft line breaks as Markdown paragraphs", () => {
+  const html = renderMessage({ role: "assistant", content: [{ type: "text", text: "one\ntwo" }] });
+
+  assert.match(html, /<p>one\ntwo<\/p>/);
+  assert.doesNotMatch(html, /<br/);
+});
+
+test("renders lone carriage returns in compact command arguments as line breaks", () => {
+  const html = renderMessage({
+    role: "user",
+    content: COMPLETE_SKILL_EXPANSION.replace("src/main.ts", "src/main.ts\rsrc/app.ts"),
+  });
+
+  assert.match(html, /\/skill:review/);
+  assert.match(html, /src\/main\.ts\nsrc\/app\.ts/);
+  assert.doesNotMatch(html, /\r/);
 });
 
 test("keeps attached images when restoring a compact command for editing", () => {
@@ -377,4 +436,20 @@ test("shows tool-result images while the tool details stay collapsed", () => {
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
   assert.doesNotMatch(html, /captured-1280x720/);
   assert.doesNotMatch(html, /"tabId"/);
+});
+
+test("uses the unanswered truncation notice for an empty length reply", () => {
+  // A nearly full context can clamp the output so far that nothing, not even
+  // thinking, comes back; the notice must not blame thinking alone.
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [],
+    stopReason: "length",
+  });
+
+  assert.match(html, /output limit was reached before an answer/i);
+  assert.match(html, /nearly full context/i);
+  assert.doesNotMatch(html, /follow-up/i);
 });

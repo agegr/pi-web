@@ -21,6 +21,8 @@ test("provides one template for config layout and controls", () => {
     "ConfigSplitView",
     "ConfigSidebar",
     "ConfigSidebarGroupLabel",
+    "ConfigSidebarGroupSwitch",
+    "ConfigSidebarGroupStatus",
     "ConfigSidebarItem",
     "ConfigSidebarText",
     "ConfigDetail",
@@ -179,4 +181,20 @@ test("skills, agents, and plugins share enabled and disabled controls", () => {
   for (const name of ["SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
     assert.match(sources[name], /<ConfigStatusDot/);
   }
+});
+
+test("skills and plugins switch whole groups from the group heading, not from a bar", () => {
+  const sources = Object.fromEntries(configSources);
+  for (const name of ["SkillsConfig", "PluginsConfig"]) {
+    const sidebar = sources[name].match(/<ConfigSidebar>[\s\S]*?<\/ConfigSidebar>/)?.[0] ?? "";
+    // The switch sits in the heading row, so the list keeps all of its height.
+    assert.match(sidebar, /<ConfigSidebarGroupLabel\s+aside=\{\s*<ConfigSidebarGroupSwitch/, name);
+    assert.match(sidebar, /<ConfigSidebarGroupStatus /, name);
+    assert.doesNotMatch(sidebar, /<ConfigButton/, name);
+  }
+  assert.doesNotMatch(templateSource, /ConfigSidebarBulkActions/);
+  assert.doesNotMatch(cssSource, /config-sidebar-bulk/);
+  assert.match(cssSource, /\.config-sidebar-group-label \{[\s\S]*?display: flex/);
+  assert.match(cssSource, /\.config-switch\.is-small \{[\s\S]*?width: 24px[\s\S]*?height: 14px/);
+  assert.match(cssSource, /\.config-sidebar-group-status \{[\s\S]*?max-height: 4\.2em[\s\S]*?white-space: pre-wrap/);
 });

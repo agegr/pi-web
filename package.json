@@ -17,6 +17,13 @@
   "engines": {
     "node": ">=22.19.0"
   },
+  "browserslist": [
+    "chrome 111",
+    "edge 111",
+    "firefox 111",
+    "safari 16.2",
+    "ios_saf 16.2"
+  ],
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
@@ -44,10 +51,10 @@
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.87.1",
-    "@earendil-works/pi-ai": "0.87.1",
-    "@earendil-works/pi-coding-agent": "0.87.1",
-    "@earendil-works/pi-tui": "0.87.1",
+    "@earendil-works/pi-agent-core": "0.99.1",
+    "@earendil-works/pi-ai": "0.99.1",
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@earendil-works/pi-tui": "0.99.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "js-yaml": "^5.2.3",
@@ -63,6 +70,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@types/js-yaml": "^4.0.9",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^25",
     "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19",

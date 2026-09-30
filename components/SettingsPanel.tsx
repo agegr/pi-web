@@ -14,6 +14,7 @@ import {
   CHAT_CONTENT_FONT_SIZE_MIN,
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
+import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -66,6 +67,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
+  const enterSendMode = useEnterSendMode();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -264,6 +266,33 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               label={t("settings.quoteSelection")}
               onChange={onQuoteSelectionChange}
             />
+          </div>
+          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.enterSendMode")}>
+            <span>{t("settings.enterSendMode")}</span>
+            <div className="settings-send-mode-options">
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="enter-send-mode"
+                  value="enter"
+                  checked={enterSendMode === "enter"}
+                  onChange={() => setEnterSendMode("enter")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.enterSendModeEnter")}</span>
+              </label>
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="enter-send-mode"
+                  value="ctrlEnter"
+                  checked={enterSendMode === "ctrlEnter"}
+                  onChange={() => setEnterSendMode("ctrlEnter")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.enterSendModeCtrlEnter")}</span>
+              </label>
+            </div>
           </div>
         </div>
       </section>

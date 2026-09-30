@@ -4,7 +4,7 @@ import { createContext, useContext, useMemo, type ComponentProps, type MouseEven
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
-import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 
@@ -16,6 +16,8 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
+  /** Render every line ending as a line break, for text the user typed. */
+  keepLineBreaks?: boolean;
 }
 
 function MarkdownImage({
@@ -42,7 +44,7 @@ function MarkdownImage({
   );
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -120,7 +122,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
       <ReactMarkdown
-        remarkPlugins={markdownRemarkPlugins}
+        remarkPlugins={keepLineBreaks ? markdownUserRemarkPlugins : markdownRemarkPlugins}
         rehypePlugins={markdownRehypePlugins}
         urlTransform={onOpenFile ? markdownUrlTransform : undefined}
         components={components}

@@ -81,8 +81,61 @@ export function ConfigSidebarList({ children }: { children: ReactNode }) {
   return <div className="config-sidebar-list">{children}</div>;
 }
 
-export function ConfigSidebarGroupLabel({ children }: { children: ReactNode }) {
-  return <div className="config-sidebar-group-label">{children}</div>;
+/** A sidebar group heading; `aside` sits at its right edge. */
+export function ConfigSidebarGroupLabel({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="config-sidebar-group-label">
+      <span className="config-sidebar-group-label-text">{children}</span>
+      {aside}
+    </div>
+  );
+}
+
+/**
+ * Switches every row of a sidebar group at once, for a group heading's
+ * `aside`. Like the provider switch in the Models panel it is on only while
+ * every row is, so a partial group reads as off beside its count and one click
+ * completes it; on, a click switches the whole group off.
+ */
+export function ConfigSidebarGroupSwitch({
+  enabled,
+  total,
+  label,
+  disabled = false,
+  loading = false,
+  onChange,
+}: {
+  enabled: number;
+  total: number;
+  label: string;
+  disabled?: boolean;
+  loading?: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <span className="config-sidebar-group-switch">
+      <span className="config-sidebar-group-count">{enabled}/{total}</span>
+      <ConfigSwitch
+        size="small"
+        checked={total > 0 && enabled === total}
+        disabled={disabled}
+        loading={loading}
+        label={label}
+        onChange={onChange}
+      />
+    </span>
+  );
+}
+
+/** What the last group switch left undone, under that group's heading. */
+export function ConfigSidebarGroupStatus({ error, note }: { error?: string | null; note?: string | null }) {
+  if (!error && !note) return null;
+  return (
+    <div className="config-sidebar-group-status">
+      {note && <div role="status" className="config-sidebar-group-note">{note}</div>}
+      {error && <div role="alert" className="config-sidebar-group-error">{error}</div>}
+    </div>
+  );
 }
 
 export function ConfigSidebarItem({
@@ -209,7 +262,21 @@ export function ConfigButton({
   );
 }
 
-export function ConfigSwitch({ checked, disabled = false, loading = false, label, onChange }: { checked: boolean; disabled?: boolean; loading?: boolean; label: string; onChange: (checked: boolean) => void }) {
+export function ConfigSwitch({
+  checked,
+  disabled = false,
+  loading = false,
+  size = "default",
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  loading?: boolean;
+  size?: "default" | "small";
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
   const inactive = disabled || loading;
   return (
     <button
@@ -220,7 +287,7 @@ export function ConfigSwitch({ checked, disabled = false, loading = false, label
       aria-label={label}
       title={label}
       disabled={inactive}
-      className={`config-switch${loading ? " is-loading" : ""}`}
+      className={`config-switch${size === "small" ? " is-small" : ""}${loading ? " is-loading" : ""}`}
       onClick={() => onChange(!checked)}
     >
       <span className="config-switch-knob" aria-hidden="true" />

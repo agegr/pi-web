@@ -26,6 +26,7 @@ import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
@@ -43,6 +44,8 @@ export interface AttachedImage {
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
+  /** Present while a history edit is pending; shows the edit banner. */
+  onCancelEdit?: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
@@ -98,7 +101,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
-  replaceMessage: (message: UserMessage) => void;
+  replaceMessage: (message: UserMessage) => boolean;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
@@ -559,7 +562,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, onCancelEdit, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -576,6 +579,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
   const isMobile = useIsMobile();
+  const enterSendMode = useEnterSendMode();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
@@ -650,7 +654,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return false;
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
@@ -669,6 +673,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
+      return true;
     },
     prependText(text: string) {
       if (!text.trim()) return;
@@ -1278,14 +1283,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       const nativeEvent = e.nativeEvent;
-      const sendShortcut = e.key === "Enter" && !e.shiftKey && (!isMobile || e.ctrlKey || e.metaKey);
+      const enterKey = e.key === "Enter" && !e.shiftKey;
+      const sendShortcut = isMobile || enterSendMode === "ctrlEnter"
+        ? enterKey && (e.ctrlKey || e.metaKey)
+        : enterKey;
+      // Popup menus and the IME guard take plain Enter in either send mode on a
+      // desktop keyboard. Mobile keyboards insert a line break on Enter, so they
+      // keep using the send shortcut there.
+      const acceptShortcut = isMobile ? sendShortcut : enterKey;
       const recentlyComposed = Date.now() - lastCompositionEndAtRef.current < COMPOSITION_END_ENTER_GRACE_MS;
       const isComposing =
         isComposingRef.current ||
         nativeEvent.isComposing ||
         nativeEvent.keyCode === 229;
 
-      if (sendShortcut && (isComposing || recentlyComposed)) {
+      if (acceptShortcut && (isComposing || recentlyComposed)) {
         if (recentlyComposed) e.preventDefault();
         return;
       }
@@ -1306,7 +1318,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           setHistoryMenuOpen(false);
           return;
         }
-        if ((e.key === "Tab" || sendShortcut) && inputHistory[historyActiveIndex]) {
+        if ((e.key === "Tab" || acceptShortcut) && inputHistory[historyActiveIndex]) {
           e.preventDefault();
           applyHistoryInput(inputHistory[historyActiveIndex]);
           return;
@@ -1345,11 +1357,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           applySlashCommand(selectedCommand);
           return;
         }
-        if (sendShortcut && selectedCommand) {
+        if (acceptShortcut && selectedCommand) {
           e.preventDefault();
           const canSubmitNow = !isStreaming
             || (selectedCommand.source === "builtin" && selectedCommand.availableWhileStreaming === true);
-          if (canSubmitNow && isExactSlashCommand(value, selectedCommand)) {
+          if (sendShortcut && canSubmitNow && isExactSlashCommand(value, selectedCommand)) {
             setSlashMenuOpen(false);
             void handleSend();
           } else {
@@ -1377,7 +1389,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           setAtMenuOpen(false);
           return;
         }
-        if ((e.key === "Tab" || sendShortcut) && atMatches[atActiveIndex]) {
+        if ((e.key === "Tab" || acceptShortcut) && atMatches[atActiveIndex]) {
           e.preventDefault();
           applyAtCompletion(atMatches[atActiveIndex]);
           return;
@@ -1409,7 +1421,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {
@@ -1593,7 +1605,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useEffect(() => {
     if (!isStreaming) return;
-    setThinkingDropdownOpen(false);
     setToolDropdownOpen(false);
   }, [isStreaming]);
 
@@ -1607,6 +1618,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     <fieldset
       disabled={builtinCommandPending}
       aria-busy={builtinCommandPending}
+      className={compact ? undefined : "chat-input-shell"}
       style={{
         flexShrink: 0,
         minWidth: 0,
@@ -1760,6 +1772,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           >
             {compactError}
+          </div>
+        )}
+        {onCancelEdit && (
+          <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, fontSize: 12, color: "var(--text-muted)" }}>
+            <span>{t("i18n.editFromHere")}</span>
+            <button
+              type="button"
+              onClick={() => { clearInput(); onCancelEdit(); }}
+              style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: "2px 6px" }}
+            >
+              {t("i18n.cancel")}
+            </button>
           </div>
         )}
         {/* Image previews */}
@@ -2151,7 +2175,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 ? "rgba(234,179,8,0.4)"
                 : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
               borderRadius: compact ? 0 : 14,
-              padding: compact ? 0 : "10px 10px 10px 14px",
+              padding: compact ? 0 : isMobile ? "6px 6px 6px 12px" : "10px 10px 10px 14px",
               boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
@@ -2263,11 +2287,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               onClick={handleSend}
               disabled={!value.trim() && !attachedImages.length}
+              title={t("chat.send")}
+              aria-label={t("chat.send")}
               style={{
                 flexShrink: 0,
                 alignSelf: "flex-end",
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                // Mobile: icon-only so the placeholder and draft keep the width.
+                ...(isMobile ? { width: 36, height: 36, padding: 0 } : { padding: "7px 14px" }),
                 background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
@@ -2284,7 +2311,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              {t("chat.send")}
+              {!isMobile && t("chat.send")}
             </button>
           )}
           </div>
@@ -2298,8 +2325,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        {!compact && <div style={{
-          marginTop: 8,
+        {!compact && <div className="chat-input-controls" style={{
+          marginTop: isMobile ? 4 : 8,
           display: isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
           alignItems: "center",
@@ -2430,8 +2457,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
-                  disabled={isStreaming}
+                  onClick={() => setThinkingDropdownOpen((v) => !v)}
                   title={isStreaming
                     ? t("chat.currentReasoning", { level: thinkingDisplayLabel })
                     : t("chat.changeReasoning", { level: thinkingDisplayLabel })}
@@ -2445,13 +2471,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    cursor: "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}
@@ -2609,11 +2633,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {!isStreaming && onCompact && (
+            {(!isStreaming || isCompacting) && onCompact && (
               <div>
                 <button
                   onClick={isCompacting ? onAbortCompaction : onCompact}
-                  disabled={isStreaming && !isCompacting}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
@@ -2623,12 +2646,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                    cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
-                    fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
+                    cursor: "pointer",
+                    fontSize: 12,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming && !isCompacting) return;
                     e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
                   }}

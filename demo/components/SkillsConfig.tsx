@@ -7,6 +7,7 @@ import type {
   SkillInstallScope,
   SkillSearchResult,
   SkillsResponse,
+  SkillToggleResult,
   SkillUpdateResult,
 } from "@/lib/api-types";
 import {
@@ -28,6 +29,8 @@ import {
   ConfigPanelShell,
   ConfigSidebar,
   ConfigSidebarGroupLabel,
+  ConfigSidebarGroupStatus,
+  ConfigSidebarGroupSwitch,
   ConfigSidebarItem,
   ConfigSidebarList,
   ConfigSidebarText,
@@ -56,6 +59,26 @@ export function orderSkillsByDormancy<
     ...skills.filter((skill) => !skill.disableModelInvocation),
     ...skills.filter((skill) => skill.disableModelInvocation),
   ];
+}
+
+/**
+ * The skills a group switch would change: those of the group not already in
+ * the requested state.
+ */
+export function skillsToSwitch<
+  T extends Pick<Skill, "disableModelInvocation">,
+>(skills: T[], enabled: boolean): T[] {
+  return skills.filter((skill) => skill.disableModelInvocation === enabled);
+}
+
+/** Applies a bulk toggle's results; a skill whose file reported an error keeps its state. */
+export function applySkillToggleResults<
+  T extends Pick<Skill, "filePath" | "disableModelInvocation">,
+>(skills: T[], results: SkillToggleResult[], disableModelInvocation: boolean): T[] {
+  const changed = new Set(results.filter((result) => !result.error).map((result) => result.filePath));
+  return skills.map((skill) =>
+    changed.has(skill.filePath) ? { ...skill, disableModelInvocation } : skill,
+  );
 }
 
 function updateKey(skill: Skill): string | null {
@@ -567,6 +590,9 @@ export function SkillsConfig({
   const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("skills", cwd));
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The group switch that is running, and what the last one left undone.
+  const [bulkGroup, setBulkGroup] = useState<string | null>(null);
+  const [groupStatus, setGroupStatus] = useState<{ group: string; error: string } | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, SkillUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
@@ -701,6 +727,7 @@ export function SkillsConfig({
     const next = !skill.disableModelInvocation;
     setToggling((s) => new Set(s).add(skill.filePath));
     setSaveError(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/skills", {
         method: "PATCH",
@@ -733,7 +760,53 @@ export function SkillsConfig({
     }
   }, []);
 
+  // One PATCH for the whole group: each file is edited on its own and
+  // reported separately, so the skills the route refuses keep their state and
+  // are named under the group heading while the rest switch.
+  const setGroupSkills = useCallback(async (group: string, groupSkills: Skill[], enabled: boolean) => {
+    const targets = skillsToSwitch(groupSkills, enabled);
+    if (targets.length === 0) return;
+    const filePaths = targets.map((skill) => skill.filePath);
+    const disableModelInvocation = !enabled;
+    setToggling((current) => new Set([...current, ...filePaths]));
+    setBulkGroup(group);
+    setSaveError(null);
+    setGroupStatus(null);
+    try {
+      const res = await fetch("/api/skills", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePaths, disableModelInvocation }),
+      });
+      const d = (await res.json()) as { results?: SkillToggleResult[]; error?: string };
+      if (!res.ok || d.error || !d.results) throw new Error(d.error ?? `HTTP ${res.status}`);
+      const results = d.results;
+      setSkills((prev) => applySkillToggleResults(prev, results, disableModelInvocation));
+      const failures = results.filter((result) => result.error);
+      if (failures.length > 0) {
+        const names = new Map(targets.map((skill) => [skill.filePath, skill.name]));
+        setGroupStatus({
+          group,
+          error: [
+            t("skills.bulkFailed", { count: failures.length, total: results.length }),
+            ...failures.map((failure) => `${names.get(failure.filePath) ?? failure.filePath}: ${failure.error}`),
+          ].join("\n"),
+        });
+      }
+    } catch (e) {
+      setGroupStatus({ group, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBulkGroup(null);
+      setToggling((current) => {
+        const next = new Set(current);
+        for (const filePath of filePaths) next.delete(filePath);
+        return next;
+      });
+    }
+  }, [t]);
+
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null;
+  const bulkBusy = loading || toggling.size > 0 || updatingSkill !== null;
 
   return (
     <ConfigPanelShell embedded={embedded} title={t("common.skills")} subtitle={shortenPath(cwd)} closeLabel={t("i18n.close")} onClose={onClose}>
@@ -836,11 +909,25 @@ export function SkillsConfig({
                   };
                   return groups.map(
                     ({ label: grpLabel, skills: grpSkills }) => {
+                      const visible = grpSkills.filter((skill) => !skill.disableModelInvocation).length;
+                      const allVisible = visible === grpSkills.length;
                       return (
                         <div key={grpLabel} className="config-sidebar-group">
-                          <ConfigSidebarGroupLabel>
+                          <ConfigSidebarGroupLabel
+                            aside={
+                              <ConfigSidebarGroupSwitch
+                                enabled={visible}
+                                total={grpSkills.length}
+                                disabled={bulkBusy}
+                                loading={bulkGroup === grpLabel}
+                                label={t(allVisible ? "skills.groupSwitchOn" : "skills.groupSwitchOff", { group: grpLabel })}
+                                onChange={(enabled) => void setGroupSkills(grpLabel, grpSkills, enabled)}
+                              />
+                            }
+                          >
                             {grpLabel}
                           </ConfigSidebarGroupLabel>
+                          {groupStatus?.group === grpLabel && <ConfigSidebarGroupStatus error={groupStatus.error} />}
                           {orderSkillsByDormancy(grpSkills).map(renderSkillRow)}
                         </div>
                       );

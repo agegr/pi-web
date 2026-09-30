@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { PluginPackageInfo, PluginStandaloneExtensionInfo, PluginUpdateResult, PluginsResponse } from "@/lib/api-types";
+import type {
+  PluginPackageInfo,
+  PluginStandaloneExtensionInfo,
+  PluginUpdateResult,
+  PluginsBulkResponse,
+  PluginsResponse,
+} from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
   getLastSettingsSelection,
@@ -23,6 +29,8 @@ import {
   ConfigPanelShell,
   ConfigSidebar,
   ConfigSidebarGroupLabel,
+  ConfigSidebarGroupStatus,
+  ConfigSidebarGroupSwitch,
   ConfigSidebarItem,
   ConfigSidebarList,
   ConfigSidebarText,
@@ -46,6 +54,27 @@ function normalizePluginSourceInput(value: string): string {
 
 function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
   return `${pkg.scope}\0${pkg.source}`;
+}
+
+/**
+ * The packages a scope's group switch would change: those not already in the
+ * requested state. Standalone extensions have no switch here, so they are
+ * never included. Switching a group off also leaves out a filtered package:
+ * disabling empties its resource lists and nothing keeps the filters, so that
+ * stays a decision for its own switch.
+ */
+export function packagesToSwitch<T extends Pick<PluginPackageInfo, "disabled" | "filtered">>(
+  packages: T[],
+  enabled: boolean,
+): T[] {
+  return packages.filter((pkg) => pkg.disabled === enabled && (enabled || !pkg.filtered));
+}
+
+/** Enabled filtered packages, which switching their group off leaves on. */
+export function filteredPackagesKeptOn<T extends Pick<PluginPackageInfo, "disabled" | "filtered">>(
+  packages: T[],
+): T[] {
+  return packages.filter((pkg) => !pkg.disabled && pkg.filtered);
 }
 
 function extensionKey(extension: PluginStandaloneExtensionInfo): string {
@@ -440,7 +469,7 @@ function PackageDetail({
 }) {
   const { t } = useI18n();
   const key = packageKey(pkg);
-  const busy = busyKey?.endsWith(key) ?? false;
+  const busy = (busyKey?.endsWith(key) || busyKey?.startsWith("bulk:")) ?? false;
   const reloadBusy = busyKey === "reload";
   const enabled = !pkg.disabled;
   const canCheckForUpdates = pkg.canCheckForUpdates;
@@ -683,6 +712,8 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // What the last group switch left undone, shown under that scope's heading.
+  const [groupStatus, setGroupStatus] = useState<{ scope: PluginScope; error?: string; note?: string } | null>(null);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, PluginUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
   const [checkingAll, setCheckingAll] = useState(false);
@@ -704,6 +735,7 @@ export function PluginsConfig({
   const loadPlugins = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setGroupStatus(null);
     try {
       const res = await fetch(`/api/plugins?cwd=${encodeURIComponent(cwd)}`);
       const next = (await res.json()) as PluginsResponse & { error?: string };
@@ -811,6 +843,7 @@ export function PluginsConfig({
     setBusyKey(`${action}:${key}`);
     setActionError(null);
     setActionMessage(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/plugins", {
         method: "POST",
@@ -856,6 +889,60 @@ export function PluginsConfig({
     }
   }, [cwd]);
 
+  // Behaves like the package switch, for every package of one scope: the
+  // confirmation appears in the package detail and the session is reloaded by
+  // hand. Packages the route refuses keep their state and are named under the
+  // scope's heading, and so are the filtered packages switching off leaves on.
+  const setGroupPackages = useCallback(async (
+    scope: PluginScope,
+    groupPackages: PluginPackageInfo[],
+    enabled: boolean,
+  ) => {
+    const targets = packagesToSwitch(groupPackages, enabled);
+    const keptOn = enabled ? 0 : filteredPackagesKeptOn(groupPackages).length;
+    const note = keptOn > 0 ? t("plugins.bulkKeptFiltered", { count: keptOn }) : undefined;
+    setActionError(null);
+    setActionMessage(null);
+    setGroupStatus(note ? { scope, note } : null);
+    if (targets.length === 0) return;
+    const action = enabled ? "enable" : "disable";
+    setBusyKey(`bulk:${scope}`);
+    try {
+      const res = await fetch("/api/plugins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          cwd,
+          packages: targets.map(({ source }) => ({ source, scope })),
+        }),
+      });
+      const next = (await res.json()) as Partial<PluginsBulkResponse> & { error?: string };
+      if (!res.ok || next.error || !next.results) throw new Error(next.error ?? `HTTP ${res.status}`);
+      const { results, ...plugins } = next as PluginsBulkResponse;
+      setData(plugins);
+      const failures = results.filter((result) => result.error);
+      if (failures.length < results.length) {
+        const message = enabled ? t("plugins.bulkEnabled") : t("plugins.bulkDisabled");
+        setActionMessage(sessionId ? `${message} ${t("agents.reloadRequired")}` : message);
+      }
+      if (failures.length > 0) {
+        setGroupStatus({
+          scope,
+          note,
+          error: [
+            t("plugins.bulkFailed", { count: failures.length, total: results.length }),
+            ...failures.map((failure) => `${failure.source}: ${failure.error}`),
+          ].join("\n"),
+        });
+      }
+    } catch (err) {
+      setGroupStatus({ scope, note, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusyKey(null);
+    }
+  }, [cwd, sessionId, t]);
+
   const installPlugin = useCallback(async () => {
     const source = normalizePluginSourceInput(installSource).trim();
     if (!source) return;
@@ -864,6 +951,7 @@ export function PluginsConfig({
     setBusyKey(`install:${key}`);
     setActionError(null);
     setActionMessage(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/plugins", {
         method: "POST",
@@ -890,6 +978,7 @@ export function PluginsConfig({
     setBusyKey("reload");
     setActionError(null);
     setActionMessage(null);
+    setGroupStatus(null);
     try {
       await sendAgentCommand(sessionId, { type: "reload" });
       onReloaded?.();
@@ -961,40 +1050,58 @@ export function PluginsConfig({
                       })}
                     </div>
                   )}
-                  {groupedPackages.map((group) => (
-                    <div key={group.scope} className="config-sidebar-group">
-                      <ConfigSidebarGroupLabel>
-                        {group.scope}
-                      </ConfigSidebarGroupLabel>
-                      {group.packages.map((pkg) => {
-                        const key = packageKey(pkg);
-                        const isSelected = !addMode && selected === key;
-                        return (
-                          <ConfigSidebarItem
-                            key={key}
-                            active={isSelected}
-                            title={pkg.description ?? pkg.source}
-                            onClick={() => {
-                              setSelected(key);
-                              setAddMode(false);
-                              setActionError(null);
-                              setActionMessage(null);
-                            }}
-                          >
-                            <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
-                            <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
-                              {pkg.source}
-                            </ConfigSidebarText>
-                            {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
-                              <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
-                                ↑
-                              </span>
-                            )}
-                          </ConfigSidebarItem>
-                        );
-                      })}
-                    </div>
-                  ))}
+                  {groupedPackages.map((group) => {
+                    const enabledCount = group.packages.filter((pkg) => !pkg.disabled).length;
+                    const allEnabled = enabledCount === group.packages.length;
+                    return (
+                      <div key={group.scope} className="config-sidebar-group">
+                        <ConfigSidebarGroupLabel
+                          aside={
+                            <ConfigSidebarGroupSwitch
+                              enabled={enabledCount}
+                              total={group.packages.length}
+                              disabled={footerBusy}
+                              loading={busyKey === `bulk:${group.scope}`}
+                              label={t(allEnabled ? "plugins.groupSwitchOn" : "plugins.groupSwitchOff", { group: group.scope })}
+                              onChange={(enabled) => void setGroupPackages(group.scope, group.packages, enabled)}
+                            />
+                          }
+                        >
+                          {group.scope}
+                        </ConfigSidebarGroupLabel>
+                        {groupStatus?.scope === group.scope && (
+                          <ConfigSidebarGroupStatus error={groupStatus.error} note={groupStatus.note} />
+                        )}
+                        {group.packages.map((pkg) => {
+                          const key = packageKey(pkg);
+                          const isSelected = !addMode && selected === key;
+                          return (
+                            <ConfigSidebarItem
+                              key={key}
+                              active={isSelected}
+                              title={pkg.description ?? pkg.source}
+                              onClick={() => {
+                                setSelected(key);
+                                setAddMode(false);
+                                setActionError(null);
+                                setActionMessage(null);
+                              }}
+                            >
+                              <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
+                              <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
+                                {pkg.source}
+                              </ConfigSidebarText>
+                              {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
+                                <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
+                                  ↑
+                                </span>
+                              )}
+                            </ConfigSidebarItem>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </>
               )}
             </ConfigSidebarList>

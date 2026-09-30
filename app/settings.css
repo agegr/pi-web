@@ -123,6 +123,9 @@
 }
 
 .config-sidebar-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 8px 3px;
   color: var(--text-dim);
   font-family: inherit;
@@ -131,6 +134,49 @@
   line-height: 1.4;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.config-sidebar-group-label-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sits in the heading row, so the sidebar gains no height for it. */
+.config-sidebar-group-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-sidebar-group-count {
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+
+/* Three lines, then scroll: the phone layout gives the whole sidebar 190px. */
+.config-sidebar-group-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 4.2em;
+  padding: 0 8px 4px;
+  overflow-y: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.config-sidebar-group-note {
+  color: var(--text-muted);
+}
+
+.config-sidebar-group-error {
+  color: #ef4444;
 }
 
 .config-sidebar-item {
@@ -854,6 +900,21 @@
   background: var(--bg);
 }
 
+.config-switch.is-small {
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+}
+
+.config-switch.is-small .config-switch-knob {
+  width: 8px;
+  height: 8px;
+}
+
+.config-switch.is-small[aria-checked="true"] .config-switch-knob {
+  transform: translateX(10px);
+}
+
 .config-switch:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -1186,6 +1247,51 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.settings-send-mode-options {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.settings-send-mode-option {
+  position: relative;
+  display: flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.settings-send-mode-option:has(input:checked) {
+  background: var(--bg-selected);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.settings-send-mode-option:not(:has(input:checked)):hover {
+  background: var(--bg-hover);
+}
+
+.settings-send-mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-send-mode-label {
+  white-space: nowrap;
 }
 
 .settings-chat-reset {

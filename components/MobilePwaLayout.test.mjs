@@ -9,6 +9,7 @@ const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url)
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const viewportHookSource = await readFile(new URL("../hooks/useViewportHeight.ts", import.meta.url), "utf8");
+const extensionStatusBarSource = await readFile(new URL("./ExtensionStatusBar.tsx", import.meta.url), "utf8");
 
 test("configures iOS standalone mode to use the full screen", () => {
   assert.match(layoutSource, /statusBarStyle: "black-translucent"/);
@@ -55,4 +56,22 @@ test("keeps modal dialogs clear of the iOS status bar in standalone mode", () =>
   assert.match(settingsCssSource, /padding-top: max\(59px, env\(safe-area-inset-top\)\);[\s\S]*?padding-right: max\(8px, env\(safe-area-inset-right\)\);[\s\S]*?padding-bottom: max\(24px, env\(safe-area-inset-bottom\)\);[\s\S]*?padding-left: max\(8px, env\(safe-area-inset-left\)\);/);
   assert.match(settingsCssSource, /@media \(display-mode: standalone\) and \(orientation: landscape\) \{[\s\S]*?padding-top: max\(8px, env\(safe-area-inset-top\)\);[\s\S]*?padding-right: max\(59px, env\(safe-area-inset-right\)\);[\s\S]*?padding-bottom: max\(8px, env\(safe-area-inset-bottom\)\);[\s\S]*?padding-left: max\(59px, env\(safe-area-inset-left\)\);/);
   assert.match(settingsCssSource, /\.settings-dialog-surface,[\s\S]*?\.config-panel-root\.is-modal > \.config-panel-surface \{[\s\S]*?max-width: 100%;[\s\S]*?max-height: 100%;/);
+});
+
+test("collapses secondary composer chrome while the mobile keyboard is open", () => {
+  assert.match(viewportHookSource, /root\.dataset\.keyboardOpen = "true"/);
+  assert.match(viewportHookSource, /delete root\.dataset\.keyboardOpen/);
+  // Every selector the keyboard rules target must exist on the element it
+  // means; a renamed class would otherwise leave the rule silently dead.
+  assert.match(chatInputSource, /className="chat-input-controls"/);
+  assert.match(chatInputSource, /className=\{compact \? undefined : "chat-input-shell"\}/);
+  assert.match(extensionStatusBarSource, /className=\{`extension-status-shelf/);
+  assert.match(chatWindowSource, /className="chat-content /);
+  // Phone landscape exceeds the 640px breakpoint but has the least height.
+  assert.match(cssSource, /@media \(max-width: 640px\), \(pointer: coarse\) and \(max-height: 500px\) \{\s*html\[data-keyboard-open\] \.chat-input-controls,\s*html\[data-keyboard-open\] \.extension-status-shelf \{\s*display: none !important;/);
+  assert.match(cssSource, /html\[data-keyboard-open\] \.chat-content \{\s*padding-bottom: 0 !important;/);
+  assert.match(cssSource, /html\[data-keyboard-open\] \.chat-input-shell \{\s*padding-bottom: 6px !important;/);
+  // Mobile send is icon-only but keeps an accessible name.
+  assert.match(chatInputSource, /aria-label=\{t\("chat\.send"\)\}/);
+  assert.match(chatInputSource, /\{!isMobile && t\("chat\.send"\)\}/);
 });

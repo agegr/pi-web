@@ -119,7 +119,7 @@ function readEntryId(line: string): string | undefined {
 /**
  * Newest entry id recorded on disk, read from a bounded tail so large sessions
  * stay cheap. Undefined when the file is absent (a wrapper that has not flushed
- * its first assistant turn yet) or unreadable.
+ * its first message yet) or unreadable.
  *
  * Used only on ?force=1 session reads (mount / page refresh). An id the
  * in-memory wrapper never saw means another pi process appended to the file.
