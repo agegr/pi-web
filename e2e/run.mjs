@@ -257,6 +257,13 @@ try {
           await branches.click();
         }
         await leaf.click();
+        if (viewport.width <= 600) {
+          const more = page.locator('[data-mobile-toolbar-more="true"]');
+          await more.click();
+          if (await more.getAttribute("aria-expanded") === "true") await more.click();
+        } else {
+          await page.getByRole("button", { name: "Branches", exact: true }).click();
+        }
       };
       // Changing the leaf delivers an answer to the same mounted turn, without
       // starting an agent or depending on model credentials or SSE timing.
