@@ -20,7 +20,7 @@ import {
   getSessionViewSnapshot,
   setSessionViewSnapshot,
 } from "@/lib/session-view-cache";
-import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -184,6 +184,10 @@ function asConcreteThinkingLevel(value?: string | null): ConcreteThinkingLevel |
   return value as ConcreteThinkingLevel;
 }
 
+// Session id -> user entry being edited. ChatWindow remounts per session, so a
+// pending edit lives here as long as that session's in-memory draft does.
+const pendingHistoryEdits = new Map<string, string>();
+
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -285,6 +289,7 @@ type ModelsResponse = {
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
   defaultThinkingLevel?: string | null;
+  savedDefaultThinkingLevel?: string | null;
   thinkingLevels?: Record<string, string[]>;
   thinkingLevelMaps?: Record<string, Record<string, string | null>>;
   thinkingLevelPins?: Record<string, string>;
@@ -328,6 +333,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
   const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
+  const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [currentThinkingOverride, setCurrentThinkingOverride] = useState<ConcreteThinkingLevel | null>(null);
   const [liveThinkingLevel, setLiveThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
@@ -379,6 +385,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
+  const handleNavigateRef = useRef<((entryId: string) => Promise<boolean>) | undefined>(undefined);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
   const newSessionPromotedRef = useRef(false);
@@ -506,6 +513,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       restoreDraftSubmission(destinationDraftKey, text, draftImages);
     }
   }, [newSessionDraftKey, opts.chatInputRef, resolveComposerDraftKey]);
+
+  // Editing a past message only prefills the composer; the branch moves when it is sent,
+  // so cancelling or reloading never hides the rest of the conversation.
+  const [editEntryId, setEditEntryId] = useState(() => {
+    const sid = session?.id;
+    if (sid && !getDraft(sid)) pendingHistoryEdits.delete(sid);
+    return (sid && pendingHistoryEdits.get(sid)) || null;
+  });
+  const setEdit = useCallback((entryId: string | null) => {
+    if (!session?.id) return;
+    if (entryId) pendingHistoryEdits.set(session.id, entryId);
+    else pendingHistoryEdits.delete(session.id);
+    setEditEntryId(entryId);
+  }, [session?.id]);
+  const handleEditContent = useCallback((message: UserMessage, entryId: string) => {
+    if (session?.id && opts.chatInputRef?.current?.replaceMessage(message)) setEdit(entryId);
+  }, [opts.chatInputRef, session?.id, setEdit]);
+  const cancelEdit = useCallback(() => setEdit(null), [setEdit]);
 
   const sessionStats = useMemo(() => {
     if (sessionStatsOverride) {
@@ -1527,6 +1552,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       restoreSubmission(message, images, composerDraftKey);
       return;
     }
+    if (editEntryId) {
+      // Navigate and prompt are two RPCs: a prompt rejected after navigating
+      // keeps the new leaf until the server can apply both atomically.
+      const entryId = editEntryId;
+      setEdit(null);
+      if (!(await handleNavigateRef.current?.(entryId))) {
+        setEdit(entryId);
+        restoreSubmission(message, images, composerDraftKey);
+        return;
+      }
+    }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
@@ -1637,7 +1673,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
@@ -1723,6 +1759,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return false;
     }
   }, [loadSession]);
+  handleNavigateRef.current = handleNavigate;
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
@@ -1847,6 +1884,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       : null);
     thinkingLevelPinsRef.current = d.thinkingLevelPins ?? {};
     defaultThinkingLevelRef.current = asConcreteThinkingLevel(d.defaultThinkingLevel);
+    setSavedDefaultThinkingLevel(asConcreteThinkingLevel(d.savedDefaultThinkingLevel));
     if (isNew && !sessionIdRef.current) {
       // The first listed model is not necessarily the runtime's automatic choice.
       // An `enabledModels` pattern may pin a thinking level (`anthropic/*:high`).
@@ -1859,6 +1897,49 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [isNew, newSessionCwd, session?.cwd]);
+
+  // Picking a model or reasoning level is session-scoped, as in the TUI. The
+  // selectors' star is the explicit Ctrl+S equivalent: it saves the global
+  // default new sessions start with and also selects it for this chat.
+  const saveDefaultPreferences = useCallback(async (
+    edit: { provider: string; modelId: string } | { thinkingLevel: ConcreteThinkingLevel },
+  ) => {
+    const cwd = newSessionCwd ?? session?.cwd;
+    const res = await fetch("/api/models/default", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(cwd ? { cwd } : {}), ...edit }),
+    });
+    if (res.ok) return;
+    let detail = "";
+    try {
+      const body: unknown = await res.json();
+      if (body && typeof body === "object" && "error" in body && typeof body.error === "string") detail = body.error;
+    } catch {
+      // Non-JSON error responses fall back to the HTTP status.
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }, [newSessionCwd, session?.cwd]);
+
+  const reloadModelsQuietly = useCallback(() => {
+    // The star already updated the marker; a failed refresh keeps the old list.
+    loadModels().catch(() => {});
+  }, [loadModels]);
+
+  const handleSetDefaultModel = useCallback(async (provider: string, modelId: string) => {
+    try {
+      await saveDefaultPreferences({ provider, modelId });
+    } catch (e) {
+      addNotice({ type: "error", message: `Failed to save default model: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+    addNotice({ type: "success", message: `Default model: ${provider}/${modelId}` });
+    setNewSessionDefaultModel({ provider, modelId });
+    if (displayModel?.provider !== provider || displayModel?.modelId !== modelId) {
+      await handleModelChange(provider, modelId);
+    }
+    reloadModelsQuietly();
+  }, [addNotice, displayModel, handleModelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
@@ -1989,6 +2070,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   ) => {
     const sid = sessionIdRef.current;
     const restore = () => restoreSubmission(message, images, composerDraftKey);
+    // A pending history edit must branch when sent, never join the current run.
+    if (editEntryId) {
+      restore();
+      return;
+    }
     if (!sid) {
       restore();
       addNotice({ type: "error", message: "No active session for the queued message" });
@@ -2013,7 +2099,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [addNotice, composerDraftKey, restoreSubmission]);
+  }, [addNotice, composerDraftKey, editEntryId, restoreSubmission]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     await sendStreamingPrompt(message, "steer", images);
@@ -2085,6 +2171,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setCurrentThinkingOverride(null);
     }
   }, [isNew]);
+
+  const handleSetDefaultThinkingLevel = useCallback(async (level: ConcreteThinkingLevel) => {
+    try {
+      await saveDefaultPreferences({ thinkingLevel: level });
+    } catch (e) {
+      addNotice({ type: "error", message: `Failed to save default reasoning level: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+    addNotice({ type: "success", message: `Default reasoning level: ${level}` });
+    setSavedDefaultThinkingLevel(level);
+    if (displayThinkingLevel !== level) await handleThinkingLevelChange(level);
+    reloadModelsQuietly();
+  }, [addNotice, displayThinkingLevel, handleThinkingLevelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
     const toolNames = getToolNamesForPreset(preset);
@@ -2440,6 +2539,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     notices: noticeState.visible, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
+    defaultModel: newSessionDefaultModel,
+    savedDefaultThinkingLevel,
     agentPhase,
     isNew,
     promptAnchorActive,
@@ -2452,8 +2553,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
+    handleEditContent,
+    // Present only while a history edit is pending.
+    cancelEdit: editEntryId ? cancelEdit : undefined,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

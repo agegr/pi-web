@@ -5,6 +5,7 @@ import test from "node:test";
 const jitiSource = async (url) => (await readFile(url, "utf8")).replace(/\r\n/g, "\n");
 const source = await jitiSource(new URL("./useAgentSession.ts", import.meta.url));
 const chatWindowSource = await jitiSource(new URL("../components/ChatWindow.tsx", import.meta.url));
+const phaseLabelSource = await jitiSource(new URL("../lib/chat-phase-label.ts", import.meta.url));
 const chatInputSource = await jitiSource(new URL("../components/ChatInput.tsx", import.meta.url));
 const appShellSource = await jitiSource(new URL("../components/AppShell.tsx", import.meta.url));
 
@@ -198,6 +199,19 @@ test("first user messages expose both branch actions and edit before their own e
   assert.match(navigateSource, /await loadSession\(sid\)/);
 });
 
+test("history edits move the branch only when sent, so cancel or reload keeps it", () => {
+  const sendSource = source.slice(
+    source.indexOf("  const handleSend = useCallback"),
+    source.indexOf("  const executeBash = useCallback"),
+  );
+
+  assert.doesNotMatch(chatWindowSource, /onNavigate=/);
+  assert.match(source, /if \(session\?\.id && opts\.chatInputRef\?\.current\?\.replaceMessage\(message\)\) setEdit\(entryId\)/);
+  assert.match(chatInputSource, /onClick=\{\(\) => \{ clearInput\(\); onCancelEdit\(\); \}\}/);
+  assert.match(source, /const cancelEdit = useCallback\(\(\) => setEdit\(null\)/);
+  assert.match(sendSource, /setEdit\(null\);\s*if \(!\(await handleNavigateRef\.current\?\.\(entryId\)\)\) \{\s*setEdit\(entryId\);\s*restoreSubmission\(/);
+});
+
 test("an empty persisted session displays the model it will use on first send", () => {
   assert.match(
     source,
@@ -336,8 +350,11 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
   assert.match(ensureSource, /eventConnectionRef\.current!\.maintain\(sid\)/);
   assert.match(chatWindowSource, /const hasStreamingContent = Boolean\(streamState\.streamingMessage\?\.content\.length\)/);
   assert.match(chatWindowSource, /streamState\.isStreaming && hasStreamingContent && streamState\.streamingMessage/);
-  assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && agentPhase/);
-  assert.match(chatWindowSource, /return null;/);
+  assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && \(agentPhase \|\| isCompacting\)/);
+  // Compaction is what the user needs to know while a turn is being compacted, so it is
+  // forwarded to the label instead of letting the stream phase read as a hang.
+  assert.match(chatWindowSource, /phaseLabel\(agentPhase, t, isCompacting\)/);
+  assert.match(phaseLabelSource, /return null;/);
 });
 
 test("uses one absolute agent-readiness deadline instead of a five-second transport deadline", () => {
@@ -456,8 +473,8 @@ test("shows the latest streamed tool execution progress in the running phase", (
 
   assert.match(updateSource, /getToolExecutionProgress\(event\.partialResult\)/);
   assert.match(updateSource, /tools: \[\.\.\.tools\.filter\([\s\S]*?, updated\]/);
-  assert.match(chatWindowSource, /if \(latest\?\.progress\)/);
-  assert.match(chatWindowSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
+  assert.match(phaseLabelSource, /if \(latest\?\.progress\)/);
+  assert.match(phaseLabelSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
 });
 
 test("reconnects active shell output to its streaming tool call", () => {
@@ -673,4 +690,21 @@ test("auto-compact slash command toggles session auto-compaction", () => {
   // State mirrors the wrapper so the toggle reflects server-side changes too.
   assert.match(source, /setAutoCompactionEnabled\(state\?\.autoCompactionEnabled \?\? true\)/);
   assert.match(source, /setAutoCompactionEnabled\(liveState\.autoCompactionEnabled \?\? true\)/);
+});
+
+test("keeps the compaction control reachable while a turn is auto-compacting", () => {
+  // Auto-compaction starts mid-turn, so `isStreaming` (sessionBusy) is already true. Hiding
+  // the control behind `!isStreaming` left only the generic stop button, which aborts the
+  // whole prompt instead of the compaction.
+  const controlBlock = chatInputSource.slice(
+    chatInputSource.indexOf("onClick={isCompacting ? onAbortCompaction : onCompact}") - 200,
+    chatInputSource.indexOf('aria-label={isCompacting ? t("chat.stopCompaction")'),
+  );
+
+  assert.match(controlBlock, /\{\(!isStreaming \|\| isCompacting\) && onCompact && \(/);
+  assert.doesNotMatch(controlBlock, /\{!isStreaming && onCompact && \(/);
+  // The "streaming but not compacting" state is now unreachable, so its disabled styling
+  // must be gone rather than left as dead branches.
+  assert.doesNotMatch(controlBlock, /isStreaming && !isCompacting/);
+  assert.match(controlBlock, /cursor: "pointer"/);
 });

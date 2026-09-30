@@ -22,12 +22,14 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
+import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
+import { SelectorRow } from "./SelectorRow";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
 
 export { filterModelOptions } from "./ModelSelector";
@@ -41,6 +43,8 @@ export interface AttachedImage {
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
+  /** Present while a history edit is pending; shows the edit banner. */
+  onCancelEdit?: () => void;
   onSteer?: (message: string, images?: AttachedImage[]) => void;
   onFollowUp?: (message: string, images?: AttachedImage[]) => void;
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void;
@@ -56,6 +60,10 @@ interface Props {
   modelScopeWarnings?: string[];
   onModelChange?: (provider: string, modelId: string) => void;
   modelSwitching?: boolean;
+  /** The model new sessions start with, starred in the model selector. */
+  defaultModel?: { provider: string; modelId: string } | null;
+  /** Saves a model as the default for new sessions and selects it here. */
+  onSetDefaultModel?: (provider: string, modelId: string) => void;
   onCompact?: () => void;
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
@@ -69,6 +77,10 @@ interface Props {
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   availableThinkingLevels?: string[] | null;
   thinkingLevelMap?: Record<string, string | null> | null;
+  /** `defaultThinkingLevel` saved in settings, starred in the reasoning menu. */
+  savedDefaultThinkingLevel?: string | null;
+  /** Saves a reasoning level as the default for new sessions and selects it here. */
+  onSetDefaultThinkingLevel?: (level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   queuedMessages?: QueuedMessages | null;
   inputHistory?: string[];
@@ -88,7 +100,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
-  replaceMessage: (message: UserMessage) => void;
+  replaceMessage: (message: UserMessage) => boolean;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
@@ -549,9 +561,11 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, onCancelEdit, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
+  savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
@@ -638,7 +652,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     replaceMessage(message: UserMessage) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
-      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return;
+      if (!canRestoreUserMessage(current, attachedImagesRef.current.length, pendingImageCountRef.current)) return false;
 
       const restoredText = getUserMessageText(message);
       const restoredImages = draftImagesToAttachedImages(getUserMessageDraftImages(message));
@@ -657,6 +671,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
+      return true;
     },
     prependText(text: string) {
       if (!text.trim()) return;
@@ -918,6 +933,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     observer.observe(ta);
     return () => observer.disconnect();
   }, [resizeTextarea]);
+
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // Shift+Enter on desktop, Enter on mobile keyboards: every newline the
+    // textarea inserts arrives here, while IME confirmations and sends do not.
+    const continueList = (event: InputEvent) => {
+      if (event.inputType !== "insertLineBreak" || event.isComposing) return;
+      const edit = getMarkdownListContinuation(ta.value, ta.selectionStart, ta.selectionEnd);
+      if (!edit) return;
+      event.preventDefault();
+      ta.setSelectionRange(edit.start, edit.end);
+      // insertText keeps the edit on the native undo stack and fires the input
+      // event that updates the controlled value.
+      document.execCommand(edit.text ? "insertText" : "delete", false, edit.text);
+    };
+    ta.addEventListener("beforeinput", continueList);
+    return () => ta.removeEventListener("beforeinput", continueList);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1731,6 +1765,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {compactError}
           </div>
         )}
+        {onCancelEdit && (
+          <div role="status" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, fontSize: 12, color: "var(--text-muted)" }}>
+            <span>{t("i18n.editFromHere")}</span>
+            <button
+              type="button"
+              onClick={() => { clearInput(); onCancelEdit(); }}
+              style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: "2px 6px" }}
+            >
+              {t("i18n.cancel")}
+            </button>
+          </div>
+        )}
         {/* Image previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -2314,6 +2360,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 disabled={isStreaming}
                 busy={modelSwitching}
                 isAutoSelection={isAutoModelSelection}
+                defaultValue={defaultModel}
+                onSetDefault={onSetDefaultModel}
               />
             )}
           </div>
@@ -2455,9 +2503,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
                       const showOriginal = mappedVal != null && mappedVal !== lvl;
                       return (
-                        <button
+                        <SelectorRow
                           key={lvl}
-                          onClick={() => {
+                          active={isActive}
+                          onSelect={() => {
                             setThinkingDropdownOpen(false);
                             if (lvl === "auto") {
                               if (!isAutoThinkingSelection) onThinkingLevelChange("auto");
@@ -2465,28 +2514,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             }
                             if (!isActive || isAutoThinkingSelection) onThinkingLevelChange(lvl);
                           }}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            width: "100%", padding: "7px 12px",
-                            background: isActive ? "var(--bg-selected)" : "none",
-                            border: "none",
-                            color: isActive ? "var(--text)" : "var(--text-muted)",
-                            cursor: "pointer", fontSize: 12, textAlign: "left",
-                            fontWeight: isActive ? 600 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                          onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "none"; }}
+                          gutter={Boolean(onSetDefaultThinkingLevel)}
+                          star={onSetDefaultThinkingLevel && lvl !== "auto"
+                            ? {
+                                isDefault: savedDefaultThinkingLevel === lvl,
+                                saveLabel: t("chat.saveDefaultThinking"),
+                                defaultLabel: t("chat.defaultThinking"),
+                                onSave: () => {
+                                  setThinkingDropdownOpen(false);
+                                  onSetDefaultThinkingLevel(lvl);
+                                },
+                              }
+                            : undefined}
                         >
-                          {isActive
-                            ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="1.5 5 4 7.5 8.5 2.5" /></svg>
-                            : <span style={{ width: 10, flexShrink: 0 }} />}
                           <span style={{ flex: 1 }}>
                             {displayLabel}
                             {showOriginal && <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginLeft: 5 }}>({lvl})</span>}
                           </span>
                           <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{desc}</span>
-                        </button>
+                        </SelectorRow>
                       );
                     })}
                   </div>
@@ -2578,11 +2624,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {!isStreaming && onCompact && (
+            {(!isStreaming || isCompacting) && onCompact && (
               <div>
                 <button
                   onClick={isCompacting ? onAbortCompaction : onCompact}
-                  disabled={isStreaming && !isCompacting}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
@@ -2592,12 +2637,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     border: "none",
                     borderRadius: 9,
                     color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                    cursor: (isStreaming && !isCompacting) ? "not-allowed" : "pointer",
-                    fontSize: 12, opacity: (isStreaming && !isCompacting) ? 0.5 : 1,
+                    cursor: "pointer",
+                    fontSize: 12,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming && !isCompacting) return;
                     e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
                   }}

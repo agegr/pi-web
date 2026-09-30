@@ -60,11 +60,12 @@ app/api/
   auth/logout/[provider]/route.ts POST OAuth logout
   auth/providers/route.ts         GET OAuth and API-key provider lists
   cwd/validate/route.ts           POST validate/select a cwd
-  default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
+  default-cwd/route.ts            POST create ~/pi-cwd/YYYYMMDD (local date)
   files/[...path]/route.ts        GET file contents for viewer
   home/route.ts                   GET user home directory
   models/route.ts                 GET { models, modelList, defaultModel }
   models/enabled/route.ts         GET/PUT enabledModels switches for the Models panel
+  models/default/route.ts         PUT save the default model / reasoning level for new sessions
   models/refresh/route.ts         POST fetch provider catalogs from pi.dev on demand
   models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
   models-config/catalog/route.ts  GET models.dev pricing presets
@@ -85,6 +86,7 @@ app/api/
   terminal/route.ts               POST create a terminal session
   terminal/[id]/route.ts          GET stream | POST input/resize | DELETE kill
   cwd/browse/route.ts             GET browse allowed cwd directories
+  open-in-explorer/route.ts       GET availability | POST open a cwd in the OS file manager (loopback only)
   app-update/route.ts             GET current vs latest published pi-web version
   file-index/route.ts             GET file list for @-mentions
   git/status/route.ts             GET changed files for a cwd
@@ -96,8 +98,10 @@ app/api/
 
 lib/
   agent-client.ts      typed fetch helper for /api/agent commands
+  default-preferences.ts  write defaultModel/defaultThinkingLevel; detect project-level shadowing
   draft-store.ts       local draft persistence helpers
   file-access.ts       allowed file roots for /api/files and worktrees
+  default-cwd.ts       dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   file-paths.ts        client/server path encoding helpers
   enabled-models.ts    pure minimal-edit engine for the `enabledModels` pattern list
   enabled-models-runtime.ts  SDK adapter: per-pattern resolution, provider kinds, settings IO
@@ -174,7 +178,9 @@ Tool names are passed at session creation (`POST /api/agent/new` -> `toolNames[]
 The last preset explicitly selected by the user is stored in browser `localStorage` and initializes fresh-session composers only. Existing sessions never trust that preference; they use their live `get_tools` state or pi's default when no wrapper exists.
 
 ### Model defaults for new sessions
-`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions. Explicit browser model/thinking selections are applied atomically during AgentSession construction, then `lib/startup-preferences.ts` persists their effective values without replaying `set_model`/`set_thinking_level`; implicit `enabledModels` fallbacks and thinking pins are not persisted.
+`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions. Explicit browser model/thinking selections are applied atomically during AgentSession construction and are **session-scoped**: startup never writes `settings.json`, and neither does a mid-session `set_model` / `set_thinking_level`. That matches pi since 0.84.3, where `/model` and `/thinking` only persist on Ctrl+S; before that pi-web wrote every new-session pick back, so a one-off model silently became the TUI's default too (#871).
+
+The explicit "save as default" is the star on each row of the model selector and the reasoning menu, the Web counterpart of Ctrl+S: `PUT /api/models/default` writes `defaultProvider`/`defaultModel` or `defaultThinkingLevel` (`lib/default-preferences.ts`), and the hook then also selects that row for the current chat, as Ctrl+S does. The route only accepts a model the selector can offer (in the resolved `enabledModels` scope), so a saved default always takes effect. A project `.pi/settings.json` value for a written key wins over the global one, so the route refuses with `409 { reason: "project-scope", settingsPath }` instead of reporting a save the user would never see. The model star marks the resolved `defaultModel`; the reasoning star marks `savedDefaultThinkingLevel`, the raw setting, because the resolved `defaultThinkingLevel` also folds in `:level` pins and per-model levels that the global write does not change. Both menus render `SelectorRow` (`components/SelectorRow.tsx`), which highlights the whole row like a session-list row and keeps one right-hand gutter for the star: the default row shows a small static filled star there, and every other row's save button floats into the same spot on hover or keyboard focus (always visible on touch screens, which have no hover). `ModelSelector` only shows stars when given `onSetDefault`; the subagent profile form reuses it without one.
 
 ### Remote provider catalogs
 pi's built-in model lists are generated when the SDK is built and pi-web pins one SDK version, so a model a provider ships after that release is invisible until pi-web publishes a new version (#914). The SDK carries the other half: each built-in provider is wrapped in a pi.dev catalog overlay that `ModelRuntime.refresh()` fetches and persists to `~/.pi/agent/models-store.json`, and restoring that overlay needs no network. Both of pi-web's refresh paths ask for the offline half only (`createAgentSessionServices()` and `lib/provider-usage.ts` pass `allowNetwork: false`), which is why running the pi CLI once used to be the fix — the CLI refreshed with the network on and pi-web read what it left behind.
@@ -219,8 +225,8 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - git prints POSIX-style absolute paths even on Windows, so every path read out of git goes through `toNativePath()` (`lib/paths.ts`) before it is compared or returned. Compare paths with `samePath()`, never `===` — raw equality made `isTopLevel` permanently false on Windows and hid the worktree switcher entirely. Branch names are not paths and must keep their forward slashes. Browser code cannot apply Node path rules, so `/api/worktrees` resolves `currentWorktreePath` server-side; the sidebar must use that identity for highlighting and removal fallback.
 
 ### File access allow-list
-- `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
-- `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
+- `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, and roots explicitly added with `allowFileRoot()`.
+- `/api/cwd/validate` and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable. "Use default directory" is no exception: `/api/default-cwd` only creates `~/pi-cwd/YYYYMMDD`, and the sidebar selects it through `/api/cwd/validate` like any other directory.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
 - A UNC cwd (`\\host\share\dir`) must survive the `/api/files/[...path]` round-trip. `encodeFilePathForApi()` folds the `//` root into the first segment (`%2F%2Fhost`) because a literal `//` URL prefix is 308-normalized away before routing; `filePathFromApiSegments()` decodes it back. Never split UNC paths into segments and rejoin them — that silently turns `\\host\share` into the relative-looking `host/share` and every allow-check fails with 403.
 
