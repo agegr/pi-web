@@ -1210,7 +1210,6 @@
   font-size: 11px;
 }
 
-/* 发送键偏好:分段控件,排版与【外观】主题选择器一致 */
 .settings-send-mode-options {
   display: flex;
   gap: 3px;

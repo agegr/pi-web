@@ -32,7 +32,7 @@ export function setEnterSendMode(next: EnterSendMode): void {
   try {
     window.localStorage.setItem(ENTER_SEND_MODE_STORAGE_KEY, next);
   } catch {
-    // Best-effort browser preference persistence.
+    // ignore
   }
   listeners.forEach((listener) => listener());
 }
