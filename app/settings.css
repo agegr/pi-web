@@ -1256,6 +1256,7 @@
 
 .settings-send-mode-label {
   min-width: 0;
+  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 
