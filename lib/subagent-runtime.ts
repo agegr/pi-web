@@ -245,7 +245,11 @@ export function createSubagentController(
 
       const extensionToolNames = profile.loadExtensions
         ? profile.extensionTools?.length
-          ? selectSubagentExtensionTools(services.resourceLoader.getExtensions().extensions, profile.extensionTools)
+          ? selectSubagentExtensionTools(
+            services.resourceLoader.getExtensions().extensions,
+            profile.extensionTools,
+            profile.disallowedExtensionTools,
+          )
           : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
       const activeTools = resolveShellTools(

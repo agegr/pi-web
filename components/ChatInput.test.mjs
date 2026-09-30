@@ -700,3 +700,48 @@ test("renders image warnings for known text-only defaults without an explicit mo
     clearDraft(draftKey);
   }
 });
+
+test("only the chat composer offers saving a default model or reasoning level", () => {
+  const chatInputSource = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const agentsConfigSource = readFileSync(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
+  assert.match(chatInputSource, /<ModelSelector[\s\S]*?defaultValue=\{defaultModel\}[\s\S]*?onSetDefault=\{onSetDefaultModel\}/);
+  // "auto" means "use the default", so it never gets a star of its own.
+  assert.match(chatInputSource, /star=\{onSetDefaultThinkingLevel && lvl !== "auto"/);
+  // A subagent profile's model is not the default for new chats.
+  assert.doesNotMatch(agentsConfigSource, /onSetDefault/);
+});
+
+test("selector rows keep the default star and the floating save button in one gutter", async () => {
+  const { SelectorRow } = await jiti.import("./SelectorRow.tsx");
+  const star = (isDefault) => ({ isDefault, saveLabel: "Save as default", defaultLabel: "Default", onSave: () => {} });
+  const row = (props) => renderToStaticMarkup(React.createElement(SelectorRow, {
+    active: false,
+    onSelect: () => {},
+    ...props,
+  }, "Alpha"));
+
+  const savable = row({ star: star(false) });
+  assert.match(savable, /role="option"/);
+  assert.match(savable, /aria-label="Save as default"/);
+  // Hidden until hover or focus, but kept out of the row's text by the gutter.
+  assert.match(savable, /opacity:0/);
+  assert.match(savable, /tabindex="-1"/);
+  assert.match(savable, /padding:7px 36px 7px 12px/);
+  assert.doesNotMatch(savable, /aria-label="Default"/);
+
+  // The default row shows a static marker in the same spot and no button.
+  const saved = row({ star: star(true) });
+  assert.match(saved, /role="img" aria-label="Default"/);
+  assert.match(saved, /fill="currentColor"/);
+  assert.doesNotMatch(saved, /Save as default/);
+
+  const plain = row({});
+  assert.doesNotMatch(plain, /Save as default|aria-label="Default"/);
+  assert.match(plain, /padding:7px 12px/);
+  // Rows without a star still line up with starred ones in the same menu.
+  assert.match(row({ gutter: true }), /padding:7px 36px 7px 12px/);
+
+  const active = row({ active: true });
+  assert.match(active, /aria-selected="true"/);
+  assert.doesNotMatch(active, /border-left/);
+});
