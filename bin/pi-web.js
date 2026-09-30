@@ -38,9 +38,17 @@ if (launchOptions.help) {
   process.exit(0);
 }
 
+const pkgDir = path.join(__dirname, "..");
+
+if (launchOptions.version) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { version } = require(path.join(pkgDir, "package.json"));
+  fs.writeSync(process.stdout.fd, `${version}\n`);
+  process.exit(0);
+}
+
 const { port, hostname, openBrowser } = launchOptions;
 
-const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which

@@ -9,6 +9,7 @@ const CLI_OPTIONS = {
   port: { type: "string", short: "p" },
   hostname: { type: "string", short: "H" },
   "no-open": { type: "boolean" },
+  version: { type: "boolean", short: "v" },
   help: { type: "boolean", short: "h" },
 };
 
@@ -38,6 +39,7 @@ Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
   -H, --hostname <host>      Bind hostname (default: 127.0.0.1, or PI_WEB_HOSTNAME)
       --no-open              Do not open a browser automatically
+  -v, --version              Print the pi-web version and exit
   -h, --help                 Show this help message and exit
 
 Environment:
@@ -70,6 +72,10 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
 
   if (values.help) {
     return { help: true };
+  }
+
+  if (values.version) {
+    return { version: true };
   }
 
   if (positionals.length > 0) {
