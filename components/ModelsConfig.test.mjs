@@ -232,3 +232,17 @@ test("a blank id in a half-typed row is not a rename yet", () => {
 test("a provider added since the last save has no saved slots to compare", () => {
   assert.deepEqual(collectModelRenames(draft(["aaa"]), new Map(), new Map()), []);
 });
+
+test("model discovery is not gated on a configured base URL", () => {
+  const providerDetail = source.slice(
+    source.indexOf("function ProviderDetail"),
+    source.indexOf("// ── ThinkingLevelMap editor"),
+  );
+
+  // pi resolves the endpoint for a provider that only lists models, so an empty
+  // Base URL must still let the user fetch the upstream list.
+  assert.match(providerDetail, /if \(discoveryState\.phase === "loading"\) return;/);
+  assert.match(providerDetail, /disabled=\{discoveryState\.phase === "loading"\}/);
+  assert.doesNotMatch(providerDetail, /!provider\.baseUrl\?\.trim\(\)/);
+  assert.match(providerDetail, /Leave empty to use the endpoint pi ships for this provider/);
+});
