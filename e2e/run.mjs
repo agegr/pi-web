@@ -30,6 +30,7 @@ const timestamp = "2026-08-23T00:00:00.000Z";
 const LONG = "e2e-long-session";
 const BRANCH = "e2e-branch-session";
 const RICH = "e2e-rich-session";
+const SETTLE = "e2e-process-settlement-session";
 const COMPACTED = "e2e-compacted-session";
 const APPEND = "e2e-external-append-session";
 const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
@@ -99,6 +100,14 @@ try {
   ];
   Object.assign(richEntries.at(-1).message, { provider: "test", model: "E2E Model" });
   writeSession(RICH, richEntries);
+  writeSession(SETTLE, [
+    message("settle-user", null, "user", "E2E settlement prompt"),
+    message("settle-call", "settle-user", "assistant", [{ type: "toolCall", id: "settle-tool", name: "bash", arguments: { command: "echo settlement" } }]),
+    message("settle-result", "settle-call", "toolResult", [{ type: "text", text: "E2E settlement tool output" }], { toolCallId: "settle-tool", toolName: "bash", isError: false }),
+    message("settle-answer", "settle-result", "assistant", "E2E settlement answer"),
+    message("settle-answer-update", "settle-result", "assistant", "E2E updated settlement answer"),
+    message("settle-pending", "settle-result", "assistant", [{ type: "thinking", thinking: "E2E waiting for the final answer" }]),
+  ]);
   // The default page is 50 *visible* messages (user / assistant / compaction).
   // toolResults ride along free after #810, so 48 tool-call assistants + the
   // final answer + the divider fill that window; the user prompt is the 51st
@@ -166,7 +175,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, SETTLE, COMPACTED, APPEND].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -233,6 +242,42 @@ try {
       const url = new URL(response.url());
       if (url.pathname === `/api/sessions/${LONG}/context` && url.searchParams.has("before")) olderResponses.push(response);
     });
+    const settlementAgentRoute = `**/api/agent/${SETTLE}`;
+    await page.route(settlementAgentRoute, (route) => route.fulfill({ json: {} }));
+    try {
+      await page.goto(`${base}/?session=${SETTLE}`, { waitUntil: "domcontentloaded" });
+      const details = page.getByRole("button", { name: /^Process details/ });
+      await details.waitFor();
+      assert.equal(await details.getAttribute("aria-expanded"), "true", "A turn without a final answer must expose its process");
+      const selectLeaf = async (label) => {
+        const leaf = page.getByText(label, { exact: true }).first();
+        if (!await leaf.isVisible()) {
+          const branches = page.getByRole("button", { name: "Branches", exact: true });
+          if (!await branches.isVisible()) await page.getByRole("button", { name: "More controls", exact: true }).first().click();
+          await branches.click();
+        }
+        await leaf.click();
+      };
+      // Changing the leaf delivers an answer to the same mounted turn, without
+      // starting an agent or depending on model credentials or SSE timing.
+      await selectLeaf("E2E settlement answer");
+      await page.locator("[data-message-role='assistant']").getByText("E2E settlement answer", { exact: true }).waitFor();
+      assert.equal(await details.getAttribute("aria-expanded"), "false", "A newly available final answer must collapse the process");
+      assert.equal(await page.getByText("echo settlement", { exact: true }).count(), 0);
+      await details.click();
+      await page.getByText("echo settlement", { exact: true }).waitFor();
+      await selectLeaf("E2E updated settlement answer");
+      await page.locator("[data-message-role='assistant']").getByText("E2E updated settlement answer", { exact: true }).waitFor();
+      assert.equal(await details.getAttribute("aria-expanded"), "true", "An answered turn must preserve the user's manual expansion");
+      await details.click();
+      await selectLeaf("[assistant]");
+      await page.getByText("E2E waiting for the final answer", { exact: true }).waitFor();
+      assert.equal(await details.getAttribute("aria-expanded"), "true", "Returning to an unanswered turn must expose its process");
+    } finally {
+      await page.unroute(settlementAgentRoute);
+    }
+    console.log(`PASS: ${viewport.width}px process settlement, manual expansion, and unanswered turns`);
+
     const stateReady = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/sessions/${LONG}/state`);
     await page.goto(`${base}/?session=${LONG}`, { waitUntil: "domcontentloaded" });
     assert.equal((await stateReady).status(), 200);
@@ -294,7 +339,7 @@ try {
     const thinking = page.getByRole("button", { name: /^Thinking/ });
     assert.equal(await processDetails.count(), 1);
     assert.equal(await thinking.count(), 0, "All thinking stays inside process details");
-    const finalMessage = page.locator("[data-entry-id='answer']");
+    const finalMessage = page.locator("[data-entry-id='answer'][data-message-role='assistant']").last();
     assert.equal(await finalMessage.getByRole("button", { name: /^Thinking/ }).count(), 0);
     assert.equal(await finalMessage.getByText("test/E2E Model", { exact: true }).count(), 1);
     assert.equal(thinkingRequests.length, 0);

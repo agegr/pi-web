@@ -1180,7 +1180,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     >
                       {visibleProcessViews}
                       {processViews.length > 0 && (
-                        <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
+                        <ProcessDetailsGroup key={finalAnswerMessage ? "answered" : "unanswered"} messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
                           {processViews}
                         </ProcessDetailsGroup>
                       )}
