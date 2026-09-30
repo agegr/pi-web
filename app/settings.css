@@ -1212,9 +1212,8 @@
 
 .settings-send-mode-options {
   display: flex;
+  flex-shrink: 0;
   gap: 3px;
-  width: 100%;
-  max-width: 260px;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1223,13 +1222,11 @@
 .settings-send-mode-option {
   position: relative;
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-width: 0;
   min-height: 26px;
-  padding: 0 6px;
+  padding: 0 10px;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -1255,9 +1252,7 @@
 }
 
 .settings-send-mode-label {
-  min-width: 0;
-  white-space: pre-line;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .settings-chat-reset {

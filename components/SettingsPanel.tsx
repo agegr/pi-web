@@ -267,10 +267,10 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               onChange={onQuoteSelectionChange}
             />
           </div>
-          <div className="settings-chat-option" role="radiogroup" aria-label={t("settings.enterSendMode")}>
+          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.enterSendMode")}>
             <span>{t("settings.enterSendMode")}</span>
             <div className="settings-send-mode-options">
-              <label className="settings-send-mode-option" aria-checked={enterSendMode === "enter"}>
+              <label className="settings-send-mode-option">
                 <input
                   type="radio"
                   name="enter-send-mode"
@@ -281,7 +281,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                 />
                 <span className="settings-send-mode-label">{t("settings.enterSendModeEnter")}</span>
               </label>
-              <label className="settings-send-mode-option" aria-checked={enterSendMode === "ctrlEnter"}>
+              <label className="settings-send-mode-option">
                 <input
                   type="radio"
                   name="enter-send-mode"
