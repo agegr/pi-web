@@ -694,11 +694,13 @@ export class AgentSessionWrapper {
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
           // An exact prompt is projected onto each run by the inline extension. Every other
-          // session reads the session getter rather than `agent.state.systemPrompt`, which
-          // replays the transcript and therefore stays empty until the first run persists a
-          // system message; the getter renders the prompt from the current options, so a
-          // session that has not sent anything yet still reports what it would send.
-          systemPrompt: this.exactSystemPrompt?.() ?? this.inner.systemPrompt ?? "",
+          // session reports `agent.state.systemPrompt`, which replays the transcript: that is
+          // what the model actually saw, including sections a `before_agent_start` handler
+          // changed for the run. It stays empty until the first run persists a system message,
+          // so a session that has not sent anything yet falls back to the session getter, which
+          // renders the prompt from the current options. The getter alone would drop those
+          // per-run changes again once the run ends.
+          systemPrompt: this.exactSystemPrompt?.() ?? (this.inner.agent.state?.systemPrompt || this.inner.systemPrompt || ""),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
