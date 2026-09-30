@@ -926,18 +926,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setCustomPathError(null);
     setDropdownOpen(false);
   }, []);
-  const handleDefaultCwd = useCallback(async () => {
-    try {
-      const res = await fetch("/api/default-cwd", { method: "POST" });
-      const data = await res.json() as { cwd?: string; error?: string };
-      // Select it like any other directory, so validation, project identity and
-      // the file allow-list all go through /api/cwd/validate. It is not a path
-      // the user typed, so the custom-path picker does not remember it.
-      if (data.cwd) await commitCustomPath(data.cwd, { remember: false });
-    } catch {
-      // ignore
-    }
-  }, [commitCustomPath]);
 
   // Switch to a branch by its worktree: an existing branch is checked out by
   // the server's `worktree add` (no -b), so this one path covers both the
@@ -981,6 +969,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       setWtBusyBranch(null);
     }
   }, [wtBusy, worktreeState]);
+
+  const handleDefaultCwd = useCallback(async () => {
+    try {
+      const res = await fetch("/api/default-cwd", { method: "POST" });
+      const data = await res.json() as { cwd?: string; error?: string };
+      // Select it like any other directory, so validation, project identity and
+      // the file allow-list all go through /api/cwd/validate. It is not a path
+      // the user typed, so the custom-path picker does not remember it.
+      if (data.cwd) await commitCustomPath(data.cwd, { remember: false });
+    } catch {
+      // ignore
+    }
+  }, [commitCustomPath]);
 
   const handleCreateWorktree = useCallback(
     () => handleUseBranch(wtNewBranch),
