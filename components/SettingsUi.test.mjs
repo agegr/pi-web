@@ -20,8 +20,9 @@ test("provides one template for config layout and controls", () => {
     "ConfigPanelShell",
     "ConfigSplitView",
     "ConfigSidebar",
-    "ConfigSidebarBulkActions",
     "ConfigSidebarGroupLabel",
+    "ConfigSidebarGroupSwitch",
+    "ConfigSidebarGroupStatus",
     "ConfigSidebarItem",
     "ConfigSidebarText",
     "ConfigDetail",
@@ -182,19 +183,18 @@ test("skills, agents, and plugins share enabled and disabled controls", () => {
   }
 });
 
-test("skills and plugins put their bulk switches above the sidebar list", () => {
+test("skills and plugins switch whole groups from the group heading, not from a bar", () => {
   const sources = Object.fromEntries(configSources);
   for (const name of ["SkillsConfig", "PluginsConfig"]) {
     const sidebar = sources[name].match(/<ConfigSidebar>[\s\S]*?<\/ConfigSidebar>/)?.[0] ?? "";
-    assert.match(sidebar, /<ConfigSidebarBulkActions[\s\S]*?<\/ConfigSidebarBulkActions>\s*\)\}\s*<ConfigSidebarList>/, name);
-    const bulk = sidebar.match(/<ConfigSidebarBulkActions[\s\S]*?<\/ConfigSidebarBulkActions>/)[0];
-    // Light secondary buttons, like the Models panel's Enable all / Disable all.
-    assert.equal(bulk.match(/<ConfigButton\s+size="small"/g)?.length, 2, name);
-    assert.doesNotMatch(bulk, /variant=/, name);
-    assert.match(bulk, /role="alert" className="config-sidebar-bulk-error"/, name);
+    // The switch sits in the heading row, so the list keeps all of its height.
+    assert.match(sidebar, /<ConfigSidebarGroupLabel\s+aside=\{\s*<ConfigSidebarGroupSwitch/, name);
+    assert.match(sidebar, /<ConfigSidebarGroupStatus /, name);
+    assert.doesNotMatch(sidebar, /<ConfigButton/, name);
   }
-  assert.match(templateSource, /className="config-sidebar-bulk-actions"/);
-  assert.match(cssSource, /\.config-sidebar-bulk-actions \{[\s\S]*?flex-shrink: 0[\s\S]*?border-bottom: 1px solid var\(--border\)/);
-  assert.match(cssSource, /\.config-sidebar-bulk-buttons > \.config-button \{[\s\S]*?flex: 1 1 0/);
-  assert.match(cssSource, /\.config-sidebar-bulk-error,\s*\.config-sidebar-bulk-note \{[\s\S]*?white-space: pre-wrap/);
+  assert.doesNotMatch(templateSource, /ConfigSidebarBulkActions/);
+  assert.doesNotMatch(cssSource, /config-sidebar-bulk/);
+  assert.match(cssSource, /\.config-sidebar-group-label \{[\s\S]*?display: flex/);
+  assert.match(cssSource, /\.config-switch\.is-small \{[\s\S]*?width: 24px[\s\S]*?height: 14px/);
+  assert.match(cssSource, /\.config-sidebar-group-status \{[\s\S]*?max-height: 4\.2em[\s\S]*?white-space: pre-wrap/);
 });

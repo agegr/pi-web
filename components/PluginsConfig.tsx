@@ -28,8 +28,9 @@ import {
   ConfigListAction,
   ConfigPanelShell,
   ConfigSidebar,
-  ConfigSidebarBulkActions,
   ConfigSidebarGroupLabel,
+  ConfigSidebarGroupStatus,
+  ConfigSidebarGroupSwitch,
   ConfigSidebarItem,
   ConfigSidebarList,
   ConfigSidebarText,
@@ -56,11 +57,11 @@ function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
 }
 
 /**
- * The packages "Enable all" / "Disable all" would switch: every configured
- * package, global and project, not already in that state. Standalone
- * extensions have no switch here, so they are never included. "Disable all"
- * also leaves out a filtered package: disabling empties its resource lists and
- * nothing keeps the filters, so that stays a decision for its own switch.
+ * The packages a scope's group switch would change: those not already in the
+ * requested state. Standalone extensions have no switch here, so they are
+ * never included. Switching a group off also leaves out a filtered package:
+ * disabling empties its resource lists and nothing keeps the filters, so that
+ * stays a decision for its own switch.
  */
 export function packagesToSwitch<T extends Pick<PluginPackageInfo, "disabled" | "filtered">>(
   packages: T[],
@@ -69,7 +70,7 @@ export function packagesToSwitch<T extends Pick<PluginPackageInfo, "disabled" | 
   return packages.filter((pkg) => pkg.disabled === enabled && (enabled || !pkg.filtered));
 }
 
-/** Enabled filtered packages, which "Disable all" leaves on. */
+/** Enabled filtered packages, which switching their group off leaves on. */
 export function filteredPackagesKeptOn<T extends Pick<PluginPackageInfo, "disabled" | "filtered">>(
   packages: T[],
 ): T[] {
@@ -711,8 +712,8 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [bulkError, setBulkError] = useState<string | null>(null);
-  const [bulkNote, setBulkNote] = useState<string | null>(null);
+  // What the last group switch left undone, shown under that scope's heading.
+  const [groupStatus, setGroupStatus] = useState<{ scope: PluginScope; error?: string; note?: string } | null>(null);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, PluginUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
   const [checkingAll, setCheckingAll] = useState(false);
@@ -734,8 +735,7 @@ export function PluginsConfig({
   const loadPlugins = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setBulkError(null);
-    setBulkNote(null);
+    setGroupStatus(null);
     try {
       const res = await fetch(`/api/plugins?cwd=${encodeURIComponent(cwd)}`);
       const next = (await res.json()) as PluginsResponse & { error?: string };
@@ -843,7 +843,7 @@ export function PluginsConfig({
     setBusyKey(`${action}:${key}`);
     setActionError(null);
     setActionMessage(null);
-    setBulkError(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/plugins", {
         method: "POST",
@@ -889,20 +889,24 @@ export function PluginsConfig({
     }
   }, [cwd]);
 
-  // Behaves like the package switch, for every listed package at once: the
+  // Behaves like the package switch, for every package of one scope: the
   // confirmation appears in the package detail and the session is reloaded by
-  // hand. Packages the route refuses keep their state and are named below the
-  // buttons.
-  const setAllPackages = useCallback(async (enabled: boolean) => {
-    const targets = packagesToSwitch(packages, enabled);
-    if (targets.length === 0) return;
-    const keptOn = enabled ? 0 : filteredPackagesKeptOn(packages).length;
-    const action = enabled ? "enable" : "disable";
-    setBusyKey(`bulk:${action}`);
+  // hand. Packages the route refuses keep their state and are named under the
+  // scope's heading, and so are the filtered packages switching off leaves on.
+  const setGroupPackages = useCallback(async (
+    scope: PluginScope,
+    groupPackages: PluginPackageInfo[],
+    enabled: boolean,
+  ) => {
+    const targets = packagesToSwitch(groupPackages, enabled);
+    const keptOn = enabled ? 0 : filteredPackagesKeptOn(groupPackages).length;
+    const note = keptOn > 0 ? t("plugins.bulkKeptFiltered", { count: keptOn }) : undefined;
     setActionError(null);
     setActionMessage(null);
-    setBulkError(null);
-    setBulkNote(null);
+    setGroupStatus(note ? { scope, note } : null);
+    if (targets.length === 0) return;
+    const action = enabled ? "enable" : "disable";
+    setBusyKey(`bulk:${scope}`);
     try {
       const res = await fetch("/api/plugins", {
         method: "POST",
@@ -910,7 +914,7 @@ export function PluginsConfig({
         body: JSON.stringify({
           action,
           cwd,
-          packages: targets.map(({ source, scope }) => ({ source, scope })),
+          packages: targets.map(({ source }) => ({ source, scope })),
         }),
       });
       const next = (await res.json()) as Partial<PluginsBulkResponse> & { error?: string };
@@ -918,23 +922,26 @@ export function PluginsConfig({
       const { results, ...plugins } = next as PluginsBulkResponse;
       setData(plugins);
       const failures = results.filter((result) => result.error);
-      if (keptOn > 0) setBulkNote(t("plugins.bulkKeptFiltered", { count: keptOn }));
       if (failures.length < results.length) {
         const message = enabled ? t("plugins.bulkEnabled") : t("plugins.bulkDisabled");
         setActionMessage(sessionId ? `${message} ${t("agents.reloadRequired")}` : message);
       }
       if (failures.length > 0) {
-        setBulkError([
-          t("plugins.bulkFailed", { count: failures.length, total: results.length }),
-          ...failures.map((failure) => `${failure.source} (${failure.scope}): ${failure.error}`),
-        ].join("\n"));
+        setGroupStatus({
+          scope,
+          note,
+          error: [
+            t("plugins.bulkFailed", { count: failures.length, total: results.length }),
+            ...failures.map((failure) => `${failure.source}: ${failure.error}`),
+          ].join("\n"),
+        });
       }
     } catch (err) {
-      setBulkError(err instanceof Error ? err.message : String(err));
+      setGroupStatus({ scope, note, error: err instanceof Error ? err.message : String(err) });
     } finally {
       setBusyKey(null);
     }
-  }, [cwd, packages, sessionId, t]);
+  }, [cwd, sessionId, t]);
 
   const installPlugin = useCallback(async () => {
     const source = normalizePluginSourceInput(installSource).trim();
@@ -944,7 +951,7 @@ export function PluginsConfig({
     setBusyKey(`install:${key}`);
     setActionError(null);
     setActionMessage(null);
-    setBulkError(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/plugins", {
         method: "POST",
@@ -971,7 +978,7 @@ export function PluginsConfig({
     setBusyKey("reload");
     setActionError(null);
     setActionMessage(null);
-    setBulkError(null);
+    setGroupStatus(null);
     try {
       await sendAgentCommand(sessionId, { type: "reload" });
       onReloaded?.();
@@ -1002,33 +1009,6 @@ export function PluginsConfig({
 
         <ConfigSplitView>
           <ConfigSidebar>
-            {!error && packages.length > 0 && (
-              <ConfigSidebarBulkActions
-                status={(bulkError || bulkNote) && (
-                  <>
-                    {bulkNote && <div role="status" className="config-sidebar-bulk-note">{bulkNote}</div>}
-                    {bulkError && <div role="alert" className="config-sidebar-bulk-error">{bulkError}</div>}
-                  </>
-                )}
-              >
-                <ConfigButton
-                  size="small"
-                  disabled={footerBusy || packagesToSwitch(packages, true).length === 0}
-                  title={t("plugins.enableAllHint")}
-                  onClick={() => void setAllPackages(true)}
-                >
-                  {t("plugins.enableAll")}
-                </ConfigButton>
-                <ConfigButton
-                  size="small"
-                  disabled={footerBusy || packagesToSwitch(packages, false).length === 0}
-                  title={t("plugins.disableAllHint")}
-                  onClick={() => void setAllPackages(false)}
-                >
-                  {t("plugins.disableAll")}
-                </ConfigButton>
-              </ConfigSidebarBulkActions>
-            )}
             <ConfigSidebarList>
               {loading ? (
                 <div className="config-sidebar-message">
@@ -1070,40 +1050,58 @@ export function PluginsConfig({
                       })}
                     </div>
                   )}
-                  {groupedPackages.map((group) => (
-                    <div key={group.scope} className="config-sidebar-group">
-                      <ConfigSidebarGroupLabel>
-                        {group.scope}
-                      </ConfigSidebarGroupLabel>
-                      {group.packages.map((pkg) => {
-                        const key = packageKey(pkg);
-                        const isSelected = !addMode && selected === key;
-                        return (
-                          <ConfigSidebarItem
-                            key={key}
-                            active={isSelected}
-                            title={pkg.description ?? pkg.source}
-                            onClick={() => {
-                              setSelected(key);
-                              setAddMode(false);
-                              setActionError(null);
-                              setActionMessage(null);
-                            }}
-                          >
-                            <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
-                            <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
-                              {pkg.source}
-                            </ConfigSidebarText>
-                            {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
-                              <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
-                                ↑
-                              </span>
-                            )}
-                          </ConfigSidebarItem>
-                        );
-                      })}
-                    </div>
-                  ))}
+                  {groupedPackages.map((group) => {
+                    const enabledCount = group.packages.filter((pkg) => !pkg.disabled).length;
+                    const allEnabled = enabledCount === group.packages.length;
+                    return (
+                      <div key={group.scope} className="config-sidebar-group">
+                        <ConfigSidebarGroupLabel
+                          aside={
+                            <ConfigSidebarGroupSwitch
+                              enabled={enabledCount}
+                              total={group.packages.length}
+                              disabled={footerBusy}
+                              loading={busyKey === `bulk:${group.scope}`}
+                              label={t(allEnabled ? "plugins.groupSwitchOn" : "plugins.groupSwitchOff", { group: group.scope })}
+                              onChange={(enabled) => void setGroupPackages(group.scope, group.packages, enabled)}
+                            />
+                          }
+                        >
+                          {group.scope}
+                        </ConfigSidebarGroupLabel>
+                        {groupStatus?.scope === group.scope && (
+                          <ConfigSidebarGroupStatus error={groupStatus.error} note={groupStatus.note} />
+                        )}
+                        {group.packages.map((pkg) => {
+                          const key = packageKey(pkg);
+                          const isSelected = !addMode && selected === key;
+                          return (
+                            <ConfigSidebarItem
+                              key={key}
+                              active={isSelected}
+                              title={pkg.description ?? pkg.source}
+                              onClick={() => {
+                                setSelected(key);
+                                setAddMode(false);
+                                setActionError(null);
+                                setActionMessage(null);
+                              }}
+                            >
+                              <ConfigStatusDot active={!pkg.disabled} color={statusColor(pkg.status)} />
+                              <ConfigSidebarText className={`is-grow${pkg.disabled ? " is-muted" : ""}`}>
+                                {pkg.source}
+                              </ConfigSidebarText>
+                              {updateStatuses[packageKey(pkg)]?.state === "update-available" && (
+                                <span title={t("i18n.updateAvailable")} className="skill-update-indicator">
+                                  ↑
+                                </span>
+                              )}
+                            </ConfigSidebarItem>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </>
               )}
             </ConfigSidebarList>

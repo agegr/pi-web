@@ -16,7 +16,7 @@ const skills = [
   { name: "c", filePath: "/skills/c/SKILL.md", disableModelInvocation: true },
 ];
 
-test("bulk buttons only target the skills that would change", () => {
+test("a group switch only targets the skills that would change", () => {
   assert.deepEqual(skillsToSwitch(skills, true).map((skill) => skill.name), ["b", "c"]);
   assert.deepEqual(skillsToSwitch(skills, false).map((skill) => skill.name), ["a"]);
   const allVisible = skills.map((skill) => ({ ...skill, disableModelInvocation: false }));
@@ -37,11 +37,13 @@ test("a bulk result switches the skills that succeeded and keeps the failures as
   assert.equal(next[0], skills[0], "untouched skills keep their identity");
 });
 
-test("the panel sends one batch request and blocks the buttons while switches are busy", () => {
+test("a group switch sends one batch request for its group and waits for other switches", () => {
+  assert.match(source, /const targets = skillsToSwitch\(groupSkills, enabled\);/);
   assert.match(source, /body: JSON\.stringify\(\{ filePaths, disableModelInvocation \}\)/);
   assert.match(source, /const bulkBusy = loading \|\| toggling\.size > 0 \|\| updatingSkill !== null;/);
-  assert.match(source, /disabled=\{bulkBusy \|\| skillsToSwitch\(skills, true\)\.length === 0\}/);
-  assert.match(source, /disabled=\{bulkBusy \|\| skillsToSwitch\(skills, false\)\.length === 0\}/);
+  assert.match(source, /disabled=\{bulkBusy\}\s+loading=\{bulkGroup === grpLabel\}/);
   // Every targeted switch shows the loading state while the batch runs.
   assert.match(source, /setToggling\(\(current\) => new Set\(\[\.\.\.current, \.\.\.filePaths\]\)\)/);
+  // Refused skills are named under the heading of the group that ran.
+  assert.match(source, /\{groupStatus\?\.group === grpLabel && <ConfigSidebarGroupStatus error=\{groupStatus\.error\} \/>\}/);
 });

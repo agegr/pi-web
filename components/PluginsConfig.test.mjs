@@ -16,27 +16,28 @@ const packages = [
   { source: "npm:project-on", scope: "project", disabled: false, filtered: false },
 ];
 
-test("bulk buttons target every scope's packages that would change", () => {
+test("a group switch targets the packages that would change", () => {
   assert.deepEqual(packagesToSwitch(packages, true).map((pkg) => pkg.source), ["npm:global-off"]);
   assert.deepEqual(packagesToSwitch(packages, false).map((pkg) => pkg.source), ["npm:global-on", "npm:project-on"]);
   assert.deepEqual(packagesToSwitch(packages.filter((pkg) => !pkg.disabled), true), []);
 });
 
-test("Disable all leaves an enabled filtered package on and says so", () => {
+test("switching a group off leaves an enabled filtered package on and says so", () => {
   // Disabling empties its resource lists, and nothing would bring the filters back.
   const withFiltered = [...packages, { source: "npm:filtered-on", scope: "global", disabled: false, filtered: true }];
   assert.deepEqual(packagesToSwitch(withFiltered, false).map((pkg) => pkg.source), ["npm:global-on", "npm:project-on"]);
   assert.deepEqual(filteredPackagesKeptOn(withFiltered).map((pkg) => pkg.source), ["npm:filtered-on"]);
-  assert.match(source, /if \(keptOn > 0\) setBulkNote\(t\("plugins\.bulkKeptFiltered", \{ count: keptOn \}\)\);/);
+  assert.match(source, /const note = keptOn > 0 \? t\("plugins\.bulkKeptFiltered", \{ count: keptOn \}\) : undefined;/);
+  // Even when only filtered packages are on and nothing is sent, the note shows.
+  assert.match(source, /setGroupStatus\(note \? \{ scope, note \} : null\);\s+if \(targets\.length === 0\) return;/);
 });
 
-test("the panel sends one request naming each package and its scope", () => {
-  assert.match(source, /packages: targets\.map\(\(\{ source, scope \}\) => \(\{ source, scope \}\)\)/);
-  assert.match(source, /setBusyKey\(`bulk:\$\{action\}`\)/);
+test("a group switch sends one request for its scope's packages", () => {
+  assert.match(source, /packages: targets\.map\(\(\{ source \}\) => \(\{ source, scope \}\)\)/);
+  assert.match(source, /setBusyKey\(`bulk:\$\{scope\}`\)/);
   // The open package's controls wait for the bulk run like for their own action.
   assert.match(source, /const busy = \(busyKey\?\.endsWith\(key\) \|\| busyKey\?\.startsWith\("bulk:"\)\) \?\? false;/);
-  assert.match(source, /disabled=\{footerBusy \|\| packagesToSwitch\(packages, true\)\.length === 0\}/);
-  assert.match(source, /disabled=\{footerBusy \|\| packagesToSwitch\(packages, false\)\.length === 0\}/);
+  assert.match(source, /disabled=\{footerBusy\}\s+loading=\{busyKey === `bulk:\$\{group\.scope\}`\}/);
 });
 
 test("a bulk run confirms like the package switch and asks for a reload in an open session", () => {

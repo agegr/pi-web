@@ -28,8 +28,9 @@ import {
   ConfigListAction,
   ConfigPanelShell,
   ConfigSidebar,
-  ConfigSidebarBulkActions,
   ConfigSidebarGroupLabel,
+  ConfigSidebarGroupStatus,
+  ConfigSidebarGroupSwitch,
   ConfigSidebarItem,
   ConfigSidebarList,
   ConfigSidebarText,
@@ -61,8 +62,8 @@ export function orderSkillsByDormancy<
 }
 
 /**
- * The skills "Enable all" / "Disable all" would switch: every listed skill,
- * across all scope groups, that is not already in that state.
+ * The skills a group switch would change: those of the group not already in
+ * the requested state.
  */
 export function skillsToSwitch<
   T extends Pick<Skill, "disableModelInvocation">,
@@ -589,7 +590,9 @@ export function SkillsConfig({
   const [selected, setSelected] = useState<string | null>(() => getLastSettingsSelection("skills", cwd));
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [bulkError, setBulkError] = useState<string | null>(null);
+  // The group switch that is running, and what the last one left undone.
+  const [bulkGroup, setBulkGroup] = useState<string | null>(null);
+  const [groupStatus, setGroupStatus] = useState<{ group: string; error: string } | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, SkillUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
@@ -724,7 +727,7 @@ export function SkillsConfig({
     const next = !skill.disableModelInvocation;
     setToggling((s) => new Set(s).add(skill.filePath));
     setSaveError(null);
-    setBulkError(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/skills", {
         method: "PATCH",
@@ -757,17 +760,18 @@ export function SkillsConfig({
     }
   }, []);
 
-  // One PATCH for the whole list: each file is edited on its own and reported
-  // separately, so the skills the route refuses keep their state and are named
-  // below the buttons while the rest switch.
-  const setAllSkills = useCallback(async (enabled: boolean) => {
-    const targets = skillsToSwitch(skills, enabled);
+  // One PATCH for the whole group: each file is edited on its own and
+  // reported separately, so the skills the route refuses keep their state and
+  // are named under the group heading while the rest switch.
+  const setGroupSkills = useCallback(async (group: string, groupSkills: Skill[], enabled: boolean) => {
+    const targets = skillsToSwitch(groupSkills, enabled);
     if (targets.length === 0) return;
     const filePaths = targets.map((skill) => skill.filePath);
     const disableModelInvocation = !enabled;
     setToggling((current) => new Set([...current, ...filePaths]));
+    setBulkGroup(group);
     setSaveError(null);
-    setBulkError(null);
+    setGroupStatus(null);
     try {
       const res = await fetch("/api/skills", {
         method: "PATCH",
@@ -781,21 +785,25 @@ export function SkillsConfig({
       const failures = results.filter((result) => result.error);
       if (failures.length > 0) {
         const names = new Map(targets.map((skill) => [skill.filePath, skill.name]));
-        setBulkError([
-          t("skills.bulkFailed", { count: failures.length, total: results.length }),
-          ...failures.map((failure) => `${names.get(failure.filePath) ?? failure.filePath}: ${failure.error}`),
-        ].join("\n"));
+        setGroupStatus({
+          group,
+          error: [
+            t("skills.bulkFailed", { count: failures.length, total: results.length }),
+            ...failures.map((failure) => `${names.get(failure.filePath) ?? failure.filePath}: ${failure.error}`),
+          ].join("\n"),
+        });
       }
     } catch (e) {
-      setBulkError(e instanceof Error ? e.message : String(e));
+      setGroupStatus({ group, error: e instanceof Error ? e.message : String(e) });
     } finally {
+      setBulkGroup(null);
       setToggling((current) => {
         const next = new Set(current);
         for (const filePath of filePaths) next.delete(filePath);
         return next;
       });
     }
-  }, [skills, t]);
+  }, [t]);
 
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null;
   const bulkBusy = loading || toggling.size > 0 || updatingSkill !== null;
@@ -813,30 +821,6 @@ export function SkillsConfig({
         <ConfigSplitView>
           {/* Left: skill list */}
           <ConfigSidebar>
-            {!error && skills.length > 0 && (
-              <ConfigSidebarBulkActions
-                status={bulkError && (
-                  <div role="alert" className="config-sidebar-bulk-error">{bulkError}</div>
-                )}
-              >
-                <ConfigButton
-                  size="small"
-                  disabled={bulkBusy || skillsToSwitch(skills, true).length === 0}
-                  title={t("skills.enableAllHint")}
-                  onClick={() => void setAllSkills(true)}
-                >
-                  {t("skills.enableAll")}
-                </ConfigButton>
-                <ConfigButton
-                  size="small"
-                  disabled={bulkBusy || skillsToSwitch(skills, false).length === 0}
-                  title={t("skills.disableAllHint")}
-                  onClick={() => void setAllSkills(false)}
-                >
-                  {t("skills.disableAll")}
-                </ConfigButton>
-              </ConfigSidebarBulkActions>
-            )}
             <ConfigSidebarList>
               {loading ? (
                 <div className="config-sidebar-message">
@@ -925,11 +909,25 @@ export function SkillsConfig({
                   };
                   return groups.map(
                     ({ label: grpLabel, skills: grpSkills }) => {
+                      const visible = grpSkills.filter((skill) => !skill.disableModelInvocation).length;
+                      const allVisible = visible === grpSkills.length;
                       return (
                         <div key={grpLabel} className="config-sidebar-group">
-                          <ConfigSidebarGroupLabel>
+                          <ConfigSidebarGroupLabel
+                            aside={
+                              <ConfigSidebarGroupSwitch
+                                enabled={visible}
+                                total={grpSkills.length}
+                                disabled={bulkBusy}
+                                loading={bulkGroup === grpLabel}
+                                label={t(allVisible ? "skills.groupSwitchOn" : "skills.groupSwitchOff", { group: grpLabel })}
+                                onChange={(enabled) => void setGroupSkills(grpLabel, grpSkills, enabled)}
+                              />
+                            }
+                          >
                             {grpLabel}
                           </ConfigSidebarGroupLabel>
+                          {groupStatus?.group === grpLabel && <ConfigSidebarGroupStatus error={groupStatus.error} />}
                           {orderSkillsByDormancy(grpSkills).map(renderSkillRow)}
                         </div>
                       );
