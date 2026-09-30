@@ -14,7 +14,7 @@ buildNpmPackage rec {
 
   inherit src;
 
-  npmDepsHash = "sha256-mC/oqF64y86ppThFI7IOpVw8GmuAWrDfNOOIuV7A+hk=";
+  npmDepsHash = "sha256-xyQdLD4P5NK2zbatKktC5T9h5fCcSwHoQaG2IKHihW0=";
   npmDepsFetcherVersion = 2;
 
   nodejs = nodejs_24;
