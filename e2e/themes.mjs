@@ -6,8 +6,8 @@ import { chromium } from "playwright";
 
 const base = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
 const artifacts = fileURLToPath(new URL("../test-results/themes/", import.meta.url));
-const themes = ["light", "dark", "mist", "rose", "pine", "auto"];
-const labels = ["Light", "Dark", "Mist", "Rose", "Pine", "System"];
+const themes = ["light", "dark", "mist", "rose", "pine", "latte", "mocha", "auto"];
+const labels = ["Light", "Dark", "Mist", "Rose", "Pine", "Latte", "Mocha", "System"];
 await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch();
 
@@ -42,8 +42,8 @@ try {
     };
     const expectTheme = async (theme) => {
       await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
-      assert.equal(await page.locator("html").evaluate((root) => root.classList.contains("dark")), theme === "dark" || theme === "pine");
-      assert.equal(await page.locator("html").evaluate((root) => getComputedStyle(root).colorScheme), theme === "dark" || theme === "pine" ? "dark" : "light");
+      assert.equal(await page.locator("html").evaluate((root) => root.classList.contains("dark")), theme === "dark" || theme === "pine" || theme === "mocha");
+      assert.equal(await page.locator("html").evaluate((root) => getComputedStyle(root).colorScheme), theme === "dark" || theme === "pine" || theme === "mocha" ? "dark" : "light");
     };
     await openSettings();
     for (const [index, theme] of themes.entries()) {
@@ -109,7 +109,7 @@ try {
       assert.equal(await themeButton.getAttribute("aria-expanded"), "true");
       assert.deepEqual(await menu.getByRole("menuitemradio").allTextContents(), labels);
       assert.equal(await menu.getByRole("menuitemradio", { checked: true }).count(), 1);
-      assert.equal(await menu.locator("svg").count(), 6);
+      assert.equal(await menu.locator("svg").count(), 8);
       const bounds = await menu.boundingBox();
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, "Menu must fit the viewport");
       await menu.getByRole("menuitemradio", { name: labels[index], exact: true }).click();
@@ -128,7 +128,7 @@ try {
     await page.keyboard.press("End");
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
-    await expectTheme("pine");
+    await expectTheme("mocha");
     await openThemeMenu();
     await page.screenshot({ path: `${artifacts}/menu-${width}.png`, animations: "disabled" });
     await page.evaluate(() => {

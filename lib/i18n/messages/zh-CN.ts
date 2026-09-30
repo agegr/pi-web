@@ -27,6 +27,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.themeMist": "雾青",
     "settings.themeRose": "蔷薇",
     "settings.themePine": "松夜",
+    "settings.themeLatte": "拿铁",
+    "settings.themeMocha": "摩卡",
     "settings.themeSystem": "跟随系统",
     "settings.thinkingDisplay": "思考过程显示",
     "settings.thinkingDisplayDescription": "选择消息加载时模型思考块是否默认展开。",

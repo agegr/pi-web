@@ -28,5 +28,11 @@ export function ThemeIcon({ preference, size = 17 }: { preference: ThemePreferen
   if (preference === "pine") {
     return <svg {...common}><path d="M12 3c-.9 2.5-2.3 4.2-4.5 6h3c-1 2.1-2.6 3.7-5 5.3h4c-.7 2-1.9 3.8-3.7 5.4h12.4c-1.8-1.6-3-3.4-3.7-5.4h4c-2.4-1.6-4-3.2-5-5.3h3c-2.2-1.8-3.6-3.5-4.5-6Z" /><path d="M12 20v2" /></svg>;
   }
+  if (preference === "latte") {
+    return <svg {...common}><path d="M5 9h11v5a4.5 4.5 0 0 1-4.5 4.5h-2A4.5 4.5 0 0 1 5 14Z" /><path d="M16 10.5h1.6a2.3 2.3 0 0 1 0 4.6H16" /><path d="M4 21h13" /></svg>;
+  }
+  if (preference === "mocha") {
+    return <svg {...common}><path d="M5 9h11v5a4.5 4.5 0 0 1-4.5 4.5h-2A4.5 4.5 0 0 1 5 14Z" /><path d="M16 10.5h1.6a2.3 2.3 0 0 1 0 4.6H16" /><path d="M8.5 6c-.8-.7-.8-1.6.1-2.5M12.5 6c-.8-.7-.8-1.6.1-2.5" /></svg>;
+  }
   return <svg {...common}><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>;
 }

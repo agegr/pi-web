@@ -53,8 +53,8 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
   assert.match(modelsSource, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onClose\(\);/);
 });
 
-test("offers five palettes and system theme selection with native radios", () => {
-  for (const preference of ["light", "dark", "mist", "rose", "pine", "auto"]) {
+test("offers seven palettes and system theme selection with native radios", () => {
+  for (const preference of ["light", "dark", "mist", "rose", "pine", "latte", "mocha", "auto"]) {
     assert.match(themeOptionsSource, new RegExp(`id: "${preference}"`));
   }
   assert.match(panelSource, /THEME_OPTIONS\.map/);
