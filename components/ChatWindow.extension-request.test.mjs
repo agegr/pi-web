@@ -18,7 +18,7 @@ test("confines extension overlays to the content region above the composer", () 
   assert.match(customSource, /position: "absolute"[\s\S]*?inset: 0/);
   assert.match(customSource, /pointerEvents: "none"/);
   assert.doesNotMatch(source, /z-\[100\]|zIndex: 100/);
-  assert.match(customSource, /maxHeight: "min\(760px, 100%\)"/);
+  assert.match(customSource, /maxHeight: full \? "100%" : "min\(760px, 100%\)"/);
 });
 
 test("adds collapse without replacing cancel", () => {
@@ -66,4 +66,35 @@ test("shows how many extension requests wait behind the one on screen", () => {
   assert.match(collapsedButton, /<ExtensionWaitingCount count=\{waitingCount\} \/>\s+\{countdown\}/);
   assert.match(customCollapsed, /<ExtensionWaitingCount count=\{waitingCount\} \/>\s+<span[^>]*>\s+\{t\("chat\.extensionExpand"\)\}/);
   assert.match(customExpanded, /chat\.extensionPanel"\)\}<\/div>\s+<div[^>]*>\s+<ExtensionWaitingCount count=\{waitingCount\} \/>/);
+});
+
+test("widens dialogs and panels on demand without changing the defaults (#947)", () => {
+  // The size ladder keeps "sm" as the historical dialog; "full" fills the content
+  // region (the overlay keeps its own 20px padding there).
+  assert.match(
+    source,
+    /EXTENSION_DIALOG_SIZE_STYLES: Record<ExtensionDialogSize, [\s\S]*?sm: \{ width: "min\(560px, 100%\)", maxHeight: "min\(760px, 100%\)" \}[\s\S]*?full: \{ width: "100%", maxHeight: "100%" \}/,
+  );
+  // The panel keeps its historical size in its normal branch.
+  assert.match(customSource, /width: full \? "100%" : "min\(920px, 100%\)"/);
+  assert.match(customSource, /maxHeight: full \? "100%" : "min\(760px, 100%\)"/);
+
+  // Both overlays get a maximize/restore button next to the collapse chevron.
+  const dialogHeader = dialogSource.slice(dialogSource.indexOf('role="dialog"'), dialogSource.indexOf("{request.method === \"confirm\""));
+  const customHeader = customSource.slice(customSource.indexOf('role="dialog"'));
+  for (const header of [dialogHeader, customHeader]) {
+    assert.match(header, /onClick=\{toggleFull\}/);
+    assert.match(header, /t\("chat\.extensionMaximize"\)/);
+    assert.match(header, /t\("chat\.extensionRestoreSize"\)/);
+    assert.match(header, /<ExtensionSizeIcon expanded=\{full\} \/>/);
+  }
+
+  // A request-level hint wins over the stored preference; without a hint the
+  // preference rules, and only hint-less dialogs write it back.
+  assert.match(dialogSource, /if \(request\.dialogSize !== undefined\) return request\.dialogSize === "full";/);
+  assert.match(dialogSource, /return readStoredFullPref\(EXTENSION_DIALOG_FULL_PREF\);/);
+  assert.match(dialogSource, /if \(request\.dialogSize === undefined\) writeStoredFullPref\(EXTENSION_DIALOG_FULL_PREF, next\);/);
+  // The panel has no hint, so its toggle always persists.
+  assert.match(customSource, /readStoredFullPref\(EXTENSION_PANEL_FULL_PREF\)/);
+  assert.match(customSource, /writeStoredFullPref\(EXTENSION_PANEL_FULL_PREF, next\);/);
 });

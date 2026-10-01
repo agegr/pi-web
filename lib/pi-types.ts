@@ -88,6 +88,8 @@ interface ExtensionRunnerLike {
 type DialogOptionsLike = {
   signal?: AbortSignal;
   timeout?: number;
+  /** pi-web extension: preferred dialog size, honored by the web client (#947). */
+  dialogSize?: "sm" | "md" | "lg" | "full";
 };
 
 type WidgetOptionsLike = {

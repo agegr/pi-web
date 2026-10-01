@@ -378,6 +378,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.extensionPending": "待回答",
     "chat.extensionCollapse": "收起",
     "chat.extensionExpand": "展開",
+    "chat.extensionMaximize": "放大",
+    "chat.extensionRestoreSize": "還原尺寸",
     "chat.extensionMoreWaiting": "還有 {count} 個",
     "chat.cancel": "取消",
     "chat.confirm": "確認",
