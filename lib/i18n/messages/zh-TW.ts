@@ -411,6 +411,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.steerPlaceholder": "立即引導 / 將後續訊息排入佇列...",
     "chat.agentPlaceholder": "Agent 執行中…",
     "chat.messagePlaceholder": "訊息…輸入 / 使用命令，輸入 @ 搜尋檔案",
+    "chat.composerResize": "拖動調整輸入框高度 / 雙擊恢復預設",
     "chat.steer": "引導",
     "chat.followUp": "後續訊息",
     "chat.steerHint": "在目前的回覆及其工具呼叫完成後送達（按「停止」可中斷）",
