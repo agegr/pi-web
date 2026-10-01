@@ -1887,14 +1887,14 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
+    <div className="pi-app-frame" style={{
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
       paddingLeft: "env(safe-area-inset-left)",
       paddingRight: "env(safe-area-inset-right)",
       overflow: "hidden",
-      background: "var(--bg)",
+      background: "var(--app-backdrop, var(--bg))",
     }}>
       {/* Mobile overlay backdrop */}
       <div
@@ -1916,10 +1916,10 @@ export function AppShell() {
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
         inert={rightPanelFullWidth}
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
+        className={`sidebar-container pi-app-sidebar${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
-          background: "var(--bg-panel)",
+          background: "var(--sidebar-surface, var(--bg-panel))",
           borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
@@ -1945,8 +1945,8 @@ export function AppShell() {
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
-        <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+        <div ref={topBarRef} className="pi-app-topbar" style={{ flexShrink: 0, background: "var(--topbar-shell-background, var(--bg-panel))" }}>
+        <div className="pi-app-topbar-inner" style={{ display: "flex", alignItems: "center", position: "relative", border: "1px solid var(--border)", height: "calc(44px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
              title={sidebarOpen ? translate("sidebar.hide") : translate("sidebar.show")}

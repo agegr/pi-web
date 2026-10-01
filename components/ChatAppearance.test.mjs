@@ -17,6 +17,9 @@ test("chat content keeps the existing 820px default behind one shared variable",
   assert.equal((chatWindow.match(widthVariable) ?? []).length, 2);
   assert.equal((chatInput.match(widthVariable) ?? []).length, 1);
   assert.match(globals, /--chat-content-max-width: 820px;/);
+  assert.match(globals, /--chat-content-font-size: 15px;/);
+  assert.match(globals, /--text-xs: 0\.8125rem;/);
+  assert.match(globals, /--text-sm: 0\.9375rem;/);
   assert.doesNotMatch(chatWindow, /max-w-\[820px\]|maxWidth: 820/);
   assert.doesNotMatch(chatInput, /maxWidth: 820/);
 });
@@ -40,10 +43,11 @@ test("chat width validation preserves the default and supported range", () => {
   assert.equal(clampChatContentWidth(2400), 2000);
 });
 
-test("chat font size preserves the default and bounds stored or supplied values", () => {
+test("chat font size defaults larger and bounds stored or supplied values", () => {
   for (const value of [undefined, null, "invalid", Infinity, NaN]) {
-    assert.equal(clampChatContentFontSize(value), 14);
+    assert.equal(clampChatContentFontSize(value), 15);
   }
+  assert.equal(clampChatContentFontSize(14), 14);
   assert.equal(clampChatContentFontSize(8), 12);
   assert.equal(clampChatContentFontSize("18"), 18);
   assert.equal(clampChatContentFontSize(18.7), 19);
