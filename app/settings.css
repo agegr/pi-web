@@ -2106,6 +2106,69 @@
   min-width: 0;
 }
 
+/* Settings › Context (components/ContextConfig.tsx): the sidebar count, the
+   help line under a card's facts, and the editor. The editor keeps the text
+   as written, wraps nowhere, and never grows the pane sideways. */
+.context-group-count {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.context-path {
+  overflow-wrap: anywhere;
+}
+
+.context-help {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.context-editor-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.context-editor {
+  width: 100%;
+  min-width: 0;
+  min-height: 240px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.context-editor:disabled {
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.context-save-error {
+  color: #ef4444;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* Project trust dialog (components/ProjectTrustDialog.tsx). It sits above
    Settings (z-index 1000), which opens it too, keeps clear of the notch and
    the home indicator, and only its body scrolls, so a long MCP server list

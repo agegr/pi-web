@@ -14,6 +14,7 @@ import { currentDemoLocale } from "./locale";
 import { AUTH_PROVIDERS_RESPONSE, ENABLED_MODELS_RESPONSE, MODELS_CONFIG, MODELS_RESPONSE, MODEL_PRICING } from "./data/models";
 import { PLUGINS_RESPONSE, SKILL_SEARCH_RESULTS } from "./data/extensions";
 import { mcpOverview, mcpServersState } from "./data/mcp";
+import { contextListing, contextState } from "./data/context";
 import { settings } from "./settings-state";
 import { demoOnlyMessage } from "./unavailable";
 
@@ -424,6 +425,32 @@ async function mcpRoute(request: MockRequest): Promise<Response> {
   }
 }
 
+/**
+ * Mirrors GET/PUT /api/context: the seven context files, read and written in
+ * memory. The real route resolves the paths from the agent directory and the
+ * project; the demo answers from its fixed layout (mock/paths.ts), so an edit
+ * survives until the page reloads.
+ */
+async function contextRoute(request: MockRequest): Promise<Response> {
+  if (request.method === "GET") return json(contextListing(request.query("cwd")));
+  if (request.method !== "PUT") return error("Method not allowed", 405);
+
+  const body = await request.json<{ id?: string; content?: unknown; remove?: boolean; cwd?: string | null }>();
+  const file = contextListing(body.cwd ?? null).files.find((entry) => entry.id === body.id);
+  if (!file) return error("Unknown context file", 400, { reason: "invalid-request" });
+  if (file.path === null) {
+    return error("This context file belongs to a project, and the request names none", 400, { reason: "cwd-invalid" });
+  }
+  if (body.remove === true) {
+    if (!file.deletable) return error(`${file.path} is not a file Pi Web removes`, 409, { reason: "invalid-request" });
+    contextState.delete(file.id);
+    return json(contextListing(body.cwd ?? null));
+  }
+  if (typeof body.content !== "string") return error("content must be a string", 400, { reason: "invalid-request" });
+  contextState.set(file.id, body.content);
+  return json(contextListing(body.cwd ?? null));
+}
+
 export async function settingsRoutes(request: MockRequest): Promise<Response> {
   switch (request.segments[1]) {
     case "models": return modelsRoute(request);
@@ -438,6 +465,7 @@ export async function settingsRoutes(request: MockRequest): Promise<Response> {
     case "plugins": return pluginsRoute(request);
     case "subagents": return subagentsRoute(request);
     case "mcp": return mcpRoute(request);
+    case "context": return contextRoute(request);
     case "tools": {
       if (request.method === "PUT") return error("PowerShell tool settings are only available on Windows", 404);
       return json({ isWindows: false, powerShellEnabled: settings.powerShellEnabled });

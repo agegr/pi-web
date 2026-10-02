@@ -313,6 +313,68 @@ export function ConfigListAction({ active = false, children, className, ...props
   );
 }
 
+/** A banner above a panel's split view; `action` sits at its right edge. `id` lets a control it explains point at it. */
+export function ConfigNotice({ id, action, children }: { id?: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <div id={id} role="status" className={`config-notice${action ? " has-action" : ""}`}>
+      {action ? <span className="config-notice-text">{children}</span> : children}
+      {action}
+    </div>
+  );
+}
+
+/**
+ * A detail pane's two-column label/value grid. Each row is a
+ * `ConfigDetailGridRow`; values wrap anywhere so a long path never widens the
+ * pane.
+ */
+export function ConfigDetailGrid({ children }: { children: ReactNode }) {
+  return <div className="config-detail-grid">{children}</div>;
+}
+
+export function ConfigDetailGridRow({
+  label,
+  tone = "muted",
+  mono = false,
+  className,
+  style,
+  children,
+}: {
+  label: ReactNode;
+  /** `plain` leaves the color to the value's own children or `style`. */
+  tone?: "plain" | "muted" | "dim" | "error";
+  mono?: boolean;
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <div className="config-detail-grid-label">{label}</div>
+      <div
+        className={[
+          "config-detail-grid-value",
+          tone === "plain" ? null : `is-${tone}`,
+          mono ? "is-mono" : null,
+          className,
+        ].filter(Boolean).join(" ")}
+        style={style}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
+
+/** Where a row lives (`global`, `project`, …); a project scope is tinted. */
+export function ConfigScopeTag({ scope, children }: { scope: string; children: ReactNode }) {
+  return (
+    <span className={`config-scope-tag${scope === "project" ? " is-project" : ""}`}>
+      {children}
+    </span>
+  );
+}
+
 export function ConfigStatusDot({ active, color }: { active?: boolean; color?: string }) {
   return (
     <span

@@ -913,3 +913,83 @@ export interface PluginToggleResult {
 export interface PluginsBulkResponse extends PluginsResponse {
   results: PluginToggleResult[];
 }
+
+// ---------------------------------------------------------------------------
+// Settings › Context
+// ---------------------------------------------------------------------------
+
+/** Which side of Pi's configuration an entry comes from; a local entry needs a working directory. */
+export type ContextScope = "global" | "local";
+
+/**
+ * The seven context entries, in the order Settings › Context lists them: Pi's
+ * own `~/.pi/agent` files, then the project's.
+ */
+export type ContextFileId =
+  | "agents-global"
+  | "system-global"
+  | "append-system-global"
+  | "agents-local"
+  | "system-local"
+  | "append-system-local"
+  | "agents-override-local";
+
+/**
+ * Why an entry cannot be edited: `outside-roots` is a project file that resolves
+ * outside the folders Pi Web may read or write (a link, or a cwd outside them),
+ * `not-a-file` is a directory or a link to nothing, and `unreadable` is a read
+ * that failed (permissions, or the file is gone again).
+ */
+export type ContextFileProblem = ContextPathProblem | "unreadable";
+
+/** The problems that stop a write too, which the write route turns into refusals. */
+export type ContextPathProblem = "outside-roots" | "not-a-file";
+
+export interface ContextFileInfo {
+  id: ContextFileId;
+  scope: ContextScope;
+  /** Whether Pi Web may remove this file; only `AGENTS.override.md` is deletable. */
+  deletable: boolean;
+  /** The resolved absolute path, or null for a local entry without a working directory. */
+  path: string | null;
+  exists: boolean;
+  /**
+   * Whether Pi actually loads this file. False when it is not there, when a file
+   * in the same place, listed in `shadowedBy`, takes precedence (a project's
+   * `.pi/SYSTEM.md` or `.pi/APPEND_SYSTEM.md` over the agent directory's, or an
+   * `AGENTS.override.md` over `AGENTS.md` / `CLAUDE.md`), or while a project
+   * system prompt waits for the project's trust (`requiresTrust`).
+   */
+  effective: boolean;
+  shadowedBy?: string;
+  /**
+   * A project `.pi/SYSTEM.md` or `.pi/APPEND_SYSTEM.md` that is there but not
+   * loaded: `discoverSystemPromptFile()` only prefers the project file while the
+   * project is trusted, so the agent directory's stays the one sessions read.
+   */
+  requiresTrust?: boolean;
+  problem?: ContextFileProblem;
+  /** The file's text, up to `maxBytes`. Empty when it does not exist or cannot be read. */
+  content: string;
+  sizeBytes: number;
+  /** The file is longer than `maxBytes`, so `content` holds only its start. */
+  truncated: boolean;
+}
+
+export interface ContextResponse {
+  /** The resolved agent directory: `PI_CODING_AGENT_DIR`, or `~/.pi/agent`. */
+  agentDir: string;
+  cwd: string | null;
+  /** The largest file Pi Web reads, or writes. */
+  maxBytes: number;
+  files: ContextFileInfo[];
+}
+
+/**
+ * The file a `PUT /api/context` names, resolved from its id (never from the
+ * request) and authorized. `ok: false` carries the code the route turns into a
+ * refusal; `path` is given for the refusals that name the file.
+ */
+export type ContextWriteTarget =
+  | { ok: true; path: string; scope: ContextScope; deletable: boolean }
+  | { ok: false; error: "unknown-id" | "no-cwd" | ContextPathProblem; path?: string };
