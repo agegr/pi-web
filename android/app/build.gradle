@@ -1,0 +1,16 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.su600.piweb'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.su600.piweb'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+}

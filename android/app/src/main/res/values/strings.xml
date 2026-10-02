@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Pi Web</string>
+    <string name="server_url">http://t.su600.cn/</string>
+</resources>

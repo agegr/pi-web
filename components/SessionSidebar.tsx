@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import Image from "next/image";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
@@ -383,6 +384,7 @@ function PiWebTitle() {
     <button
       onClick={handleClick}
       style={{
+        display: "flex", alignItems: "center", gap: 6,
         background: "none", border: "none", padding: 0, cursor: "default",
         fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
         color: showVersion ? "var(--accent)" : "var(--text)",
@@ -390,7 +392,8 @@ function PiWebTitle() {
         minWidth: "6ch",
       }}
     >
-      {display}
+      <Image src="/icons/pi-agent.png" width={20} height={20} alt="" priority />
+      <span>{display}</span>
     </button>
   );
 }

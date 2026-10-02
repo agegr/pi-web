@@ -29,6 +29,21 @@ The CLI opens a browser after the server is ready. If it does not, open [http://
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
+## Android APK
+
+The Android APK is a small WebView client for the Pi Web server at `http://t.su600.cn/`. It does not bundle the Node.js server, pi runtime, or agent files; the server must be running and reachable from the device. Sign in with the same Pi Web password as the browser.
+
+On GitHub, open **Actions → Android APK**, choose the latest successful run, and download the `pi-web-android-debug` artifact. Extract it and install `app-debug.apk`. This debug-signed APK is for sideloading/testing, not a Play Store release.
+
+To build locally (JDK 17, Gradle 8.9, Android SDK 35):
+
+```bash
+gradle --no-daemon --project-dir android assembleDebug
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+The app permits cleartext HTTP only for `t.su600.cn`. HTTP does not encrypt credentials; use a trusted network, or configure HTTPS before exposing the service publicly.
+
 To install the `pi-web` command globally:
 
 ```bash

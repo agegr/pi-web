@@ -21,6 +21,11 @@
 # production
 /build
 
+# Android build output
+/android/.gradle/
+/android/local.properties
+/android/app/build/
+
 # misc
 .DS_Store
 *.pem

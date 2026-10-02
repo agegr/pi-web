@@ -31,6 +31,21 @@ npx @agegr/pi-web@latest
 
 如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
 
+## 安卓 APK
+
+安卓 APK 是连接到 `http://t.su600.cn/` 的轻量 WebView 客户端；它不包含 Node.js 服务端、pi 运行时或智能体文件，因此需要先启动 Pi Web 服务，并确保手机能够访问。使用与浏览器相同的 Pi Web 密码登录。
+
+下载方式：在 GitHub 打开 **Actions → Android APK**，选择最近一次成功的运行，下载 `pi-web-android-debug` artifact 并解压安装 `app-debug.apk`。这是用于侧载/测试的 debug 签名 APK，不是 Play 商店发布包。
+
+本地构建需要 JDK 17、Gradle 8.9 和 Android SDK 35：
+
+```bash
+gradle --no-daemon --project-dir android assembleDebug
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+应用仅对 `t.su600.cn` 开放明文 HTTP。HTTP 不会加密登录凭据；请只在可信网络中使用，或在公网暴露服务前配置 HTTPS。
+
 如需全局安装 `pi-web` 命令：
 
 ```bash
