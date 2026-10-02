@@ -57,3 +57,27 @@ export function inspectUploadTargets(directory: string, fileNames: string[]): Up
 
   return { conflicts, nonReplaceable };
 }
+
+/** Keep the old entry intact until its complete replacement can be renamed over it. */
+export function replaceUploadFile(destination: string, bytes: Buffer): void {
+  const stat = fs.lstatSync(destination);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("Cannot replace a directory or symbolic link");
+  }
+
+  // A private directory beside the destination keeps the rename on the same
+  // filesystem and gives us ownership of the staging file, even on write failure.
+  const stagingDirectory = fs.mkdtempSync(path.join(path.dirname(destination), ".pi-upload-"));
+  const stagingFile = path.join(stagingDirectory, "upload");
+  try {
+    fs.writeFileSync(stagingFile, bytes, { flag: "wx", mode: stat.mode & 0o777 });
+    // The destination may have changed since the multipart upload was inspected.
+    const current = fs.lstatSync(destination);
+    if (!current.isFile() || current.isSymbolicLink()) {
+      throw new Error("Cannot replace a directory or symbolic link");
+    }
+    fs.renameSync(stagingFile, destination);
+  } finally {
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+}
