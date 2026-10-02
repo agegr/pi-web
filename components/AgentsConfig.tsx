@@ -979,7 +979,8 @@ export function AgentsConfig({
                     <Field label={t("agents.rawEntryInput")}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <input aria-label={`${t("agents.excludeTools")} ${t("agents.rawEntryInput")}`} value={rawExcludeEntry} disabled={disabled} placeholder={t("agents.rawEntryPlaceholder")} onChange={(event) => { setRawExcludeEntry(event.target.value); if (rawExcludeEntryError) setRawExcludeEntryError(null); }} style={controlStyle} />
-                        <ConfigButton size="small" disabled={disabled} onClick={() => { appendRaw("excludeTools", rawExcludeEntry); if (!rawExcludeEntry.includes(",")) setRawExcludeEntry(""); }}>+</ConfigButton>                      </div>
+                        <ConfigButton size="small" disabled={disabled} onClick={() => { appendRaw("excludeTools", rawExcludeEntry); if (!rawExcludeEntry.includes(",")) setRawExcludeEntry(""); }}>+</ConfigButton>
+                      </div>
                       {rawExcludeEntryError && <span role="alert" style={{ color: "#ef4444", fontSize: 10 }}>{rawExcludeEntryError}</span>}
                     </Field>
                   </Section>
