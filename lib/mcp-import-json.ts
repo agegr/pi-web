@@ -1,13 +1,13 @@
 import {
   GEMINI_GRAMMAR,
   isLoopbackRedirectUri,
-  isMcpExposure,
   LITERAL_GRAMMAR,
   type McpImportFormat,
   type McpImportNote,
   nameFromPackage,
   OPENCODE_GRAMMAR,
   parseValue,
+  resolveMcpExposure,
   type Segment,
   ServerDraft,
   setLiteralUrl,
@@ -239,20 +239,32 @@ export function mapServerEntry(name: string | undefined, entry: unknown, context
   } else if ((enabled !== undefined && typeof enabled !== "boolean") || (disabled !== undefined && typeof disabled !== "boolean")) {
     draft.note("dropped-key", { key: enabled !== undefined ? "enabled" : "disabled" });
   }
+  // An old exposure name pi still accepts (`codemode-deferred`) is written as what it now means.
   const exposure = take("exposure");
   if (exposure !== undefined) {
-    if (isMcpExposure(exposure)) draft.exposure = exposure;
+    const resolved = resolveMcpExposure(exposure);
+    if (resolved) draft.exposure = resolved;
     else draft.note("invalid-exposure-dropped", { value: String(exposure) });
   }
   const toolExposure = take("toolExposure");
   if (toolExposure !== undefined) {
-    if (isRecord(toolExposure) && Object.values(toolExposure).every(isMcpExposure)) {
-      draft.toolExposure = toolExposure as Record<string, NonNullable<ServerDraft["exposure"]>>;
+    const resolved = isRecord(toolExposure)
+      ? Object.entries(toolExposure).map(([tool, value]) => [tool, resolveMcpExposure(value)] as const)
+      : undefined;
+    if (resolved?.every(([, value]) => value !== undefined)) {
+      draft.toolExposure = Object.fromEntries(resolved) as Record<string, NonNullable<ServerDraft["exposure"]>>;
     } else {
       draft.note("invalid-exposure-dropped", { value: "toolExposure" });
     }
   }
   if (!rawPi && (exposure !== undefined || toolExposure !== undefined)) draft.note("looks-like-pi-config");
+  // pi lists the server with its description in the system prompt. Only pi syntax, which the
+  // user writes, carries it: another client's text would reach the prompt unseen in the preview.
+  if (rawPi) {
+    const description = take("description");
+    if (typeof description === "string") draft.description = description;
+    else if (description !== undefined) draft.note("dropped-key", { key: "description" });
+  }
   mapToolFilters(draft, take("includeTools"), take("excludeTools"));
 
   for (const key of Object.keys(entry)) {
@@ -415,6 +427,15 @@ function mapOAuth(draft: ServerDraft, oauth: Record<string, unknown>, value: Val
       case "callbackPort":
         if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= 65535) draft.oauth.callbackPort = raw;
         else draft.note("callback-port-dropped", { value: String(raw) });
+        break;
+      case "clientName":
+        if (typeof raw === "string" && raw.trim()) draft.oauth.clientName = value(raw, false);
+        else draft.note("oauth-option-dropped", { key: `${prefix}${key}` });
+        break;
+      case "authServerMetadataUrl":
+        // pi checks it is https (or http on a loopback host); validation says so when it is not.
+        if (typeof raw === "string" && raw !== "") draft.oauth.authServerMetadataUrl = value(raw, false);
+        else draft.note("oauth-option-dropped", { key: `${prefix}${key}` });
         break;
       case "callbackUrl":
       case "redirectUri":

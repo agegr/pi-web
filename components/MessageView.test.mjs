@@ -526,9 +526,9 @@ test("expands a codemode call into its script, its calls, and the output without
   });
   const text = textOf(html);
 
-  assert.match(html, /markdown-code-lang">javascript</);
-  assert.match(text, /\/\/ @options: \{"timeoutMs": 5000\}/);
-  assert.match(text, /return files\.length;/);
+  // The script sits in the plain box any tool's input uses, not a highlighted code block.
+  assert.doesNotMatch(html, /markdown-code-block/);
+  assert.equal(textOf(html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)[1]), CODEMODE_SCRIPT);
   assert.match(text, /Tool calls/);
   assert.match(text, /Show 5 earlier calls/);
   // The newest 20 of 25 calls are listed; the 5 oldest are folded.

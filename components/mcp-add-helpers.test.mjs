@@ -7,6 +7,7 @@ const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const {
   EMPTY_MCP_ADD_DRAFT,
   MCP_ADD_BREADTH_KEYS,
+  MCP_ADD_EXAMPLES,
   MCP_ADD_PROJECT_BLOCK_KEYS,
   MCP_IMPORT_FIELD_REASON_KEYS,
   MCP_IMPORT_PROBLEM_KEYS,
@@ -17,9 +18,12 @@ const {
   mcpAddPreview,
   mcpAddProjectMode,
   mcpAddRequest,
+  mcpFieldOptionalHeader,
+  mcpFieldStoredAs,
   mcpFieldSuggestedVariableName,
   mcpFieldTakesVariable,
   mcpImportNoteKey,
+  mcpImportNoteSeverity,
   mcpImportNoteText,
   mcpImportProblemKey,
   mcpSuggestedVariableName,
@@ -267,6 +271,47 @@ test("a literal secret keeps the Project option closed, unless the value is read
   assert.equal(referenced.fill.config.env.GITHUB_TOKEN, "${GITHUB_TOKEN}");
 });
 
+test("every format the importer reads has one example, read as that format with nothing left to fill in", () => {
+  assert.deepEqual(MCP_ADD_EXAMPLES.map(({ source }) => source).sort(), Object.keys(MCP_IMPORT_SOURCE_KEYS).sort());
+  for (const { source, text } of MCP_ADD_EXAMPLES) {
+    const result = parseMcpImport(text);
+    assert.ok(result.ok, `${source}: ${JSON.stringify(result.notes)}`);
+    assert.equal(result.servers.length, 1, source);
+    const [server] = result.servers;
+    assert.equal(server.source, source, text);
+    assert.deepEqual(server.fields, [], `${source} asks for nothing`);
+    assert.deepEqual([...result.notes, ...server.notes].filter((note) => mcpImportNoteSeverity(note) !== "info"), [], `${source} reads cleanly`);
+  }
+  // The install links carry the fetch server, which the preview shows as written.
+  const cursor = parseMcpImport(MCP_ADD_EXAMPLES.find(({ source }) => source === "cursor-install-link").text).servers[0];
+  assert.deepEqual([cursor.name, cursor.config], ["fetch", { command: "uvx", args: ["mcp-server-fetch"] }]);
+});
+
+test("a field says what is stored around it only where it is part of a longer value", () => {
+  const github = parseMcpImport(`claude mcp add-json github '{"type":"http","url":"https://api.githubcopilot.com/mcp","headers":{"Authorization":"Bearer YOUR_GITHUB_PAT"}}'`).servers[0];
+  const [pat] = github.fields;
+  assert.equal(mcpFieldStoredAs(pat, github.fields, "‹your value›"), "Bearer ‹your value›");
+  assert.equal(mcpFieldStoredAs(pat, github.fields, "${GH_TOKEN}", true), "Bearer ${GH_TOKEN}");
+  assert.equal(mcpFieldOptionalHeader(pat), "Authorization");
+
+  const whole = parseMcpImport(JSON.stringify({ mcpServers: { api: { command: "npx", args: ["api"], env: { API_KEY: "<your-api-key>" } } } })).servers[0];
+  assert.equal(mcpFieldStoredAs(whole.fields[0], whole.fields, "‹your value›"), undefined, "the box says it all");
+  assert.equal(mcpFieldStoredAs(whole.fields[0], whole.fields, "${API_KEY}", true), "${API_KEY}");
+  assert.equal(mcpFieldOptionalHeader(whole.fields[0]), undefined);
+
+  // Another field in the same value shows as its label, and a value said twice is said once.
+  const tenant = { id: "tenant", kind: "text", reason: "registry-variable", label: "tenant", targets: [] };
+  const region = {
+    id: "region", kind: "text", reason: "registry-variable", label: "region", targets: [
+      { path: ["url"], parts: ["https://", { field: "region" }, ".example.com/", { field: "tenant" }] },
+      { path: ["headers", "X-Region"], parts: ["r-", { field: "region" }] },
+      { path: ["headers", "X-Region-2"], parts: ["r-", { field: "region" }] },
+    ],
+  };
+  assert.equal(mcpFieldStoredAs(region, [region, tenant], "‹your value›"), "https://‹your value›.example.com/‹tenant›, r-‹your value›");
+  assert.equal(mcpFieldOptionalHeader(region), undefined, "not one header alone");
+});
+
 test("an optional password field left blank is no secret: it is left out, as the route leaves it out", () => {
   const text = JSON.stringify({ mcpServers: { linear: { url: "https://mcp.linear.app/mcp", headers: { "X-Api-Key": "" } } } });
   const blank = analyse({ text, scope: "project" });
@@ -502,7 +547,7 @@ test("the helpers and the pane only use words from the locale files", () => {
   const keys = [
     ...[...paneSource.matchAll(/\bt\("([^"]+)"/g)].map((match) => match[1]),
     ...[...`${paneSource}\n${helperSource}`.matchAll(/"((?:mcp|config|skills)\.[\w.-]+)"/g)].map((match) => match[1]),
-  ].filter((key) => key !== "mcp.json");
+  ].filter((key) => key !== "mcp.json" && key !== "mcp.so"); // a file name and a catalog's label, not keys
   assert.ok(keys.length > 40);
   for (const key of keys) assert.equal(typeof messages.en[key], "string", `${key} is missing from en.ts`);
   assert.doesNotMatch(paneSource, />\s*[A-Z][a-z]+(?: [a-z]+){2,}[.:]?\s*</, "no English sentence in the markup");

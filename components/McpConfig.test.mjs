@@ -188,9 +188,11 @@ test("a stdio server's detail shows its masked command line, folder, env names a
   assert.match(shown, /Command npx -y @acme\/lint-mcp --api-key=••••/);
   assert.match(shown, /Working directory tools/);
   assert.match(markup, /<code class="mcp-config-chip">NODE_ENV<\/code><code class="mcp-config-chip">LINT_TOKEN<\/code>/);
-  assert.match(shown, /Values are not shown here\./);
+  // Names only: the values stay in the file.
+  assert.doesNotMatch(shown, /Values are not shown here/);
   assert.match(shown, /Shell commands Runs a shell command on every connection: env LINT_TOKEN/);
-  assert.match(shown, /Tools Declared to the model directly/);
+  assert.match(markup, /<option value="direct" selected="">direct<\/option>/);
+  assert.match(shown, /Every tool's full declaration goes with every request: the most tokens\./);
   assert.match(shown, /File ~\/\.pi\/agent\/mcp\.json/);
   assert.match(shown, /Parts that look like secrets are hidden\./);
   // Headers and sign-in belong to HTTP servers.
@@ -204,10 +206,10 @@ test("a stdio server's detail shows its masked command line, folder, env names a
 test("an HTTP server's detail shows its URL, header names, the variables it sends and how it signs in", () => {
   const shown = text(view({ selected: "global\0github" }));
   assert.match(shown, /URL https:\/\/api\.example\.com\/mcp/);
-  assert.match(shown, /Headers Authorization Values are not shown here\./);
+  assert.match(shown, /Headers Authorization Host variables/);
   assert.match(shown, /Host variables Sends environment variables of the computer running Pi Web to this server on every connection: GITHUB_TOKEN in header Authorization/);
-  assert.match(shown, /Sign-in Uses its Authorization header instead of OAuth\./);
-  assert.match(shown, /Tools Called from Code mode scripts, not declared to the model/);
+  assert.match(shown, /Sign-in Authorization header/);
+  assert.match(shown, /Only the server's name and summary are listed; Code mode scripts search for its tools\./);
   assert.doesNotMatch(shown, /Working directory|Environment/);
 
   const oauth = (signedIn) => text(view({
@@ -230,7 +232,7 @@ test("an HTTP server's detail shows its URL, header names, the variables it send
     selected: "global\0github",
     load: { state: "loaded", data: overview({ servers: [httpServer], codemode: { sandbox: { state: "available" }, builtinDisabled: true, preference: "always" } }) },
   }));
-  assert.match(builtinOff, /Tools Called from Code mode scripts, not declared to the model -builtin:codemode turns Code mode off, so these tools can be called only while tool search is active\./);
+  assert.match(builtinOff, /search for its tools\. -builtin:codemode turns Code mode off, so these tools can be called only while tool search is active\./);
 
   // Automatic with autoEnableCodemode false never turns Code mode on for them.
   const autoOff = (preference) => text(view({
@@ -451,14 +453,22 @@ function codemodeView(info, props = {}) {
   return view({ selected: "codemode", load: { state: "loaded", data: overview({ codemode: info, ...props.data }) }, ...props.view });
 }
 
-test("the Code mode pane offers Automatic and Always on, and says when a choice applies", () => {
+test("the Code mode pane offers Automatic and Always on, and says once when its settings apply", () => {
   const automatic = codemodeView({ sandbox: { state: "available" }, builtinDisabled: false, preference: "automatic" });
   assert.deepEqual(codemodeOptions(automatic), [
     { label: "Automatic", pressed: true, disabled: false, describedBy: undefined },
     { label: "Always on", pressed: false, disabled: false, describedBy: undefined },
   ]);
   assert.match(text(automatic),
-    /Mode Automatic Always on Turns on when an MCP server that uses code mode connects\. Applies only to sessions started afterwards\. Sandbox Available\./);
+    /Add MCP Code mode The model calls tools from a short script; MCP tools use it by default\. Changes apply to sessions started afterwards\. Mode Automatic Always on Turns on when an MCP server that uses code mode connects\. Sandbox Available\./);
+  // Said once, in the intro, not under every row.
+  assert.equal(text(codemodeView({
+    sandbox: { state: "available" },
+    builtinDisabled: false,
+    preference: "automatic",
+    mode: { settingsPath: "/Users/me/.pi/agent/settings.json", value: "on" },
+    inlineBudget: { settingsPath: "/Users/me/.pi/agent/settings.json", default: 3000, max: 1_000_000 },
+  })).match(/sessions started afterwards/g).length, 1);
   assert.doesNotMatch(automatic, /role="alert"/);
 
   // A self-test nobody has run yet leaves Always on available and has its own wording.
@@ -468,7 +478,7 @@ test("the Code mode pane offers Automatic and Always on, and says when a choice 
     ["Always on", true, false],
   ]);
   assert.match(text(always),
-    /Sessions start with Code mode on .* Sandbox Not checked yet: the self-test runs when the first session starts after Pi Web does\./);
+    /Sessions start with Code mode on\. Sandbox Not checked yet: the self-test runs when the first session starts after Pi Web does\./);
 
   // While a save is on its way both options wait, and the pane says it is saving.
   const saving = codemodeView({ sandbox: { state: "available" }, builtinDisabled: false, preference: "automatic" }, {
@@ -507,7 +517,7 @@ test("Always on is disabled with a visible reason while no session could offer C
   const down = text(codemodeView({ sandbox: { state: "unavailable", error: "worker exited" }, builtinDisabled: true, builtinSettingsPath: globalPath, globalBuiltinSettingsPath: globalPath, preferenceError: "Unexpected token" }));
   // An unreadable settings file offers no choice to save into it.
   assert.match(down, /Cannot read the global settings file: Unexpected token/);
-  assert.doesNotMatch(down, /Applies only to sessions started/);
+  assert.doesNotMatch(down, /Turns on when an MCP server/);
   assert.match(down, /Cannot run on this Pi Web server, so no session offers Code mode: worker exited/);
   assert.match(down, /Turned off by -builtin:codemode in ~\/\.pi\/agent\/settings\.json\./);
   const html = view({ load: { state: "loaded", data: overview({ codemode: { sandbox: { state: "unavailable", error: "x" }, builtinDisabled: false, preference: "automatic" } }) } });
@@ -626,6 +636,149 @@ test("the container saves the Code mode choice, then reads back what is stored",
   assert.doesNotMatch(source, /sendAgentCommand|type: "reload"/);
 });
 
+test("the Code mode pane's budget field saves a whole number, or empty for pi's default", () => {
+  const budget = { settingsPath: "/Users/me/.pi/agent/settings.json", default: 3000, max: 1_000_000 };
+  const info = (inlineBudget, extra = {}) => ({ sandbox: { state: "available" }, builtinDisabled: false, preference: "automatic", inlineBudget, ...extra });
+  const field = (html) => decode(html).match(/<form class="mcp-codemode-budget">([\s\S]*?)<\/form>/)?.[1];
+  const input = (html) => field(html).match(/<input[^>]*>/)[0];
+  const save = (html) => field(html).match(/<button type="submit"[^>]*>/)[0];
+
+  const unset = codemodeView(info(budget));
+  assert.match(input(unset), /aria-label="Tool list budget"/);
+  assert.match(input(unset), /value=""/);
+  assert.match(input(unset), /placeholder="3000"/);
+  assert.match(input(unset), /inputMode="numeric"/);
+  // Nothing typed yet: nothing to save.
+  assert.match(save(unset), /disabled=""/);
+  assert.match(text(unset), /Turns on when an MCP server that uses code mode connects\. Tool list budget tokens Save Tokens the code mode description may spend listing tools; scripts find the rest with searchTools\(\)\. Leave empty for pi's default, 3000\. Sandbox/);
+  // The hint describes the field.
+  const hintId = input(unset).match(/aria-describedby="([^"]+)"/)[1];
+  assert.match(decode(unset), new RegExp(`<span id="${hintId}" class="mcp-config-line">Tokens the code mode description`));
+  assert.match(input(codemodeView(info({ ...budget, value: 1000 }))), /value="1000"/);
+
+  // While a budget save is on its way, the field keeps focus (read-only, not disabled), Save waits, and the
+  // choice waits too; the Saving… line is the budget's, not the choice's.
+  const saving = codemodeView(info({ ...budget, value: 1000 }), { view: { codemodeSave: { saving: true, error: null, target: "inlineBudget" } } });
+  assert.match(input(saving), /readOnly=""/);
+  assert.doesNotMatch(input(saving), /disabled/);
+  assert.match(save(saving), /disabled=""/);
+  assert.match(field(saving), /<span role="status" class="mcp-config-line is-dim">Saving…<\/span>/);
+  assert.deepEqual(codemodeOptions(saving).map(({ disabled }) => disabled), [true, true]);
+  assert.equal(decode(saving).match(/role="status"/g).length, 1);
+  // A server change on its way makes the field wait as well.
+  assert.match(input(codemodeView(info(budget), { view: { busy: "switch:global\0docs" } })), /readOnly=""/);
+
+  // Each failure shows in the row its save was made from.
+  const failure = { error: "Invalid settings.json: codemode must be an object", reason: "internal" };
+  const budgetFailed = text(codemodeView(info(budget), { view: { codemodeSave: { saving: false, error: failure, target: "inlineBudget" } } }));
+  assert.match(budgetFailed, /Could not save the budget: Invalid settings\.json: codemode must be an object Sandbox/);
+  assert.doesNotMatch(budgetFailed, /Could not save the choice/);
+  const choiceFailed = text(codemodeView(info(budget), { view: { codemodeSave: { saving: false, error: failure, target: "preference" } } }));
+  assert.match(choiceFailed, /Could not save the choice:/);
+  assert.doesNotMatch(choiceFailed, /Could not save the budget/);
+
+  // A stored value pi ignores and a project that decides for itself are said under the field.
+  const notices = text(codemodeView(info({
+    ...budget,
+    invalid: '"lots"',
+    projectOverride: { settingsPath: "/Users/me/repo/.pi/settings.json", value: 800 },
+  })));
+  assert.match(notices, /codemode\.inlineBudget in ~\/\.pi\/agent\/settings\.json is "lots", which pi ignores, so sessions use 3000\. Saving replaces it\./);
+  assert.match(notices, /This project decides for itself: codemode\.inlineBudget in ~\/repo\/\.pi\/settings\.json gives its sessions 800, whatever you save here\./);
+
+  // An unreadable settings file offers no field to save into it; an overview without a budget shows no row.
+  const unreadable = text(codemodeView(info(undefined, { inlineBudgetError: "Unexpected token" })));
+  assert.match(unreadable, /Tool list budget Cannot read the global settings file: Unexpected token/);
+  assert.doesNotMatch(codemodeView(info(undefined)), /Tool list budget/);
+});
+
+test("the container saves the budget like the choice, then reads back what is stored", () => {
+  const save = source.slice(source.indexOf("const saveCodemodeInlineBudget = useCallback"), source.indexOf("}, [refresh]);", source.indexOf("const saveCodemodeInlineBudget")));
+  assert.match(save, /setCodemodeSave\(\{ saving: true, error: null, target: "inlineBudget" \}\);/);
+  assert.match(save, /const result = await saveMcpCodemodeInlineBudget\(budget, undefined, controller\.signal\);/);
+  assert.match(save, /if \(saveControllerRef\.current !== controller\) return;/);
+  assert.match(save, /withMcpCodemodeInlineBudget\(current\.data, result\.inlineBudget\)/);
+  assert.match(save, /\n    void refresh\(\);\n {2}$/);
+  // Only a change is saved, and only while nothing else writes.
+  assert.match(source, /if \(parsed\.ok && changes && !waiting\) onSave\(parsed\.value\);/);
+  // Save is disabled while it runs; focus comes back to the field from the page.
+  assert.match(source, /if \(wasSaving && !saving\) focusIfLost\(document, inputRef\.current\);/);
+});
+
+/** The Built-in tools switch's buttons, by label, with whether each is pressed and disabled. */
+function modeOptions(html) {
+  const group = decode(html).match(/<div role="group" aria-label="Built-in tools"[^>]*>([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(group, "the mode switch is rendered");
+  return [...group.matchAll(/<button([^>]*)>([^<]*)<\/button>/g)].map(([, attributes, label]) => [
+    label,
+    /aria-pressed="true"/.test(attributes),
+    /disabled=""/.test(attributes),
+  ]);
+}
+
+test("the Code mode pane's Built-in tools switch keeps tools declared or leaves them to scripts", () => {
+  const settingsPath = "/Users/me/.pi/agent/settings.json";
+  const info = (mode, extra = {}) => ({ sandbox: { state: "available" }, builtinDisabled: false, preference: "always", mode, ...extra });
+
+  const on = codemodeView(info({ settingsPath, value: "on" }));
+  assert.deepEqual(modeOptions(on), [["Direct", true, false], ["In scripts", false, false]]);
+  // Between the choice and the budget, with what it does.
+  assert.match(text(on), /Sessions start with Code mode on\. Built-in tools Direct In scripts The model calls read, bash and the other tools directly\. Sandbox/);
+  // The Code mode choice keeps its own switch.
+  assert.deepEqual(codemodeOptions(on).map(({ label }) => label), ["Automatic", "Always on"]);
+
+  const only = text(codemodeView(info({ settingsPath, value: "only" })));
+  assert.match(only, /Built-in tools Direct In scripts While Code mode is on, the model calls read, bash and the other tools only from scripts\. Sandbox/);
+  assert.doesNotMatch(only, /Under Automatic/);
+  // Under Automatic, Code mode and so "only" wait for an MCP server.
+  assert.match(text(codemodeView(info({ settingsPath, value: "only" }, { preference: "automatic" }))),
+    /only from scripts\. Under Automatic, this waits until Code mode turns on\. Sandbox/);
+
+  // While a mode save is on its way, both switches wait, and the Saving… line is the mode's.
+  const saving = codemodeView(info({ settingsPath, value: "on" }), { view: { codemodeSave: { saving: true, error: null, target: "mode" } } });
+  assert.deepEqual(modeOptions(saving).map(([, , disabled]) => disabled), [true, true]);
+  assert.deepEqual(codemodeOptions(saving).map(({ disabled }) => disabled), [true, true]);
+  assert.equal(decode(saving).match(/role="status"/g).length, 1);
+  assert.match(text(saving), /Built-in tools Direct In scripts Saving…/);
+  // Another write on its way makes the switch wait as well.
+  assert.deepEqual(modeOptions(codemodeView(info({ settingsPath, value: "on" }), { view: { busy: "switch:global\0docs" } })).map(([, , disabled]) => disabled), [true, true]);
+
+  // Each failure shows in the row its save was made from.
+  const failure = { error: "Invalid settings.json: codemode must be an object", reason: "internal" };
+  const modeFailed = text(codemodeView(info({ settingsPath, value: "on" }), { view: { codemodeSave: { saving: false, error: failure, target: "mode" } } }));
+  assert.match(modeFailed, /Could not save the setting: Invalid settings\.json: codemode must be an object Sandbox/);
+  assert.doesNotMatch(modeFailed, /Could not save the choice/);
+  const choiceFailed = text(codemodeView(info({ settingsPath, value: "on" }), { view: { codemodeSave: { saving: false, error: failure, target: "preference" } } }));
+  assert.doesNotMatch(choiceFailed, /Could not save the setting/);
+
+  // A stored value that is not a mode and a project that decides for itself are said under the switch.
+  const notices = text(codemodeView(info({
+    settingsPath,
+    value: "on",
+    invalid: '"never"',
+    projectOverride: { settingsPath: "/Users/me/repo/.pi/settings.json", value: "only" },
+  })));
+  assert.match(notices, /codemode\.mode in ~\/\.pi\/agent\/settings\.json is "never", which pi reads as "on"\. Choosing either option replaces it\./);
+  assert.match(notices, /This project decides for itself: codemode\.mode in ~\/repo\/\.pi\/settings\.json has its sessions call these tools from scripts only, whatever you choose here\./);
+
+  // An unreadable settings file offers no switch to save into it; an overview without a mode shows no row.
+  const unreadable = codemodeView(info(undefined, { modeError: "Unexpected token" }));
+  assert.match(text(unreadable), /Built-in tools Cannot read the global settings file: Unexpected token/);
+  assert.doesNotMatch(unreadable, /aria-label="Built-in tools"/);
+  assert.doesNotMatch(codemodeView(info(undefined)), /Built-in tools/);
+});
+
+test("the container saves the mode like the choice, then reads back what is stored", () => {
+  const save = source.slice(source.indexOf("const saveCodemodeMode = useCallback"), source.indexOf("}, [refresh]);", source.indexOf("const saveCodemodeMode")));
+  assert.match(save, /setCodemodeSave\(\{ saving: true, error: null, target: "mode" \}\);/);
+  assert.match(save, /const result = await saveMcpCodemodeMode\(mode, undefined, controller\.signal\);/);
+  assert.match(save, /if \(saveControllerRef\.current !== controller\) return;/);
+  assert.match(save, /withMcpCodemodeMode\(current\.data, result\.mode\)/);
+  assert.match(save, /\n    void refresh\(\);\n {2}$/);
+  // Only a change is saved: the pressed option saves only over a value that is not a mode.
+  assert.match(source, /if \(mcpCodemodeModeChanges\(mode, value\)\) onChange\(value\);/);
+});
+
 test("every string the panel shows is translated", () => {
   const literal = (text) => [...text.matchAll(/\bt\("([^"]+)"/g)].map((match) => match[1]);
   const quoted = (text) => [...text.matchAll(/"((?:mcp|i18n|skills|settings)\.[\w.-]+)"/g)].map((match) => match[1]);
@@ -651,6 +804,80 @@ test("every string the panel shows is translated", () => {
   for (const key of keys) assert.equal(typeof messages[key], "string", `${key} is missing from en.ts`);
   // No English sentence is written into the markup itself.
   assert.doesNotMatch(source, />\s*[A-Z][a-z]+(?: [a-z]+){2,}[.:]?\s*</);
+});
+
+/** The selected server's exposure dropdown: its opening tag, and each option with whether it is selected. */
+function exposureSelect(html) {
+  const markup = decode(html);
+  const match = markup.match(/(<select[^>]*class="mcp-add-input mcp-exposure-select"[^>]*>)([\s\S]*?)<\/select>/);
+  assert.ok(match, "the Tools row holds the exposure dropdown");
+  return {
+    tag: match[1],
+    options: [...match[2].matchAll(/<option value="([^"]+)"( selected="")?>([^<]*)<\/option>/g)].map(([, value, selected, label]) => ({ value, selected: Boolean(selected), label })),
+  };
+}
+
+test("a server's Tools row chooses its exposure, saying in one line what each costs", () => {
+  const select = exposureSelect(view({ selected: "global\0github" }));
+  assert.match(select.tag, /aria-label="How github's tools reach the model"/);
+  assert.doesNotMatch(select.tag, /disabled/);
+  assert.deepEqual(select.options, [
+    { value: "codemode", selected: true, label: "Code mode (default)" },
+    { value: "deferred", selected: false, label: "tool search" },
+    { value: "direct", selected: false, label: "direct" },
+    { value: "hidden", selected: false, label: "hidden" },
+  ]);
+  // The description of the chosen exposure describes the dropdown.
+  const describedBy = select.tag.match(/aria-describedby="([^"]+)"/)[1];
+  assert.match(decode(view({ selected: "global\0github" })), new RegExp(`<span id="${describedBy}" class="mcp-config-line">Only the server's name and summary are listed`));
+  const shown = text(view({ selected: "global\0github" }));
+  assert.match(shown, /Tools Code mode \(default\) .*? Only the server's name and summary are listed; Code mode scripts search for its tools\. File/);
+  assert.doesNotMatch(shown, /toolExposure/);
+
+  // toolExposure rules are named and kept.
+  const off = text(view({
+    selected: "global\0github",
+    load: { state: "loaded", data: overview({ servers: [{ ...httpServer, enabled: false, exposure: "deferred", toolExposureCount: 2 }] }) },
+  }));
+  assert.match(off, /needs no Code mode\. Rules in toolExposure \(2\) keep their own exposure\./);
+
+  // Behind tool search, while -builtin:tool-search turns it off, only Code mode scripts reach the tools.
+  const noSearch = (toolSearchDisabled) => text(view({
+    selected: "global\0github",
+    load: { state: "loaded", data: overview({ servers: [{ ...httpServer, exposure: "deferred" }], toolSearchDisabled }) },
+  }));
+  assert.match(noSearch({ settingsPath: "/Users/me/.pi/agent/settings.json" }),
+    /needs no Code mode\. -builtin:tool-search in ~\/\.pi\/agent\/settings\.json turns tool search off, so these tools can be called only from Code mode scripts while Code mode is on\./);
+  assert.match(noSearch({}), /-builtin:tool-search turns tool search off/);
+  assert.doesNotMatch(noSearch(undefined), /tool-search/);
+
+  // A refused entry has no exposure to choose.
+  const refused = view({ selected: "global\0bad", load: { state: "loaded", data: overview({ servers: [server({ name: "bad", invalidError: "x" })] }) } });
+  assert.doesNotMatch(refused, /mcp-exposure-select/);
+});
+
+test("the exposure dropdown waits like a switch and is saved through the MCP route", () => {
+  // The group fixture's servers, validated, so each has an exposure.
+  const validated = (props = {}) => writeView({
+    ...props,
+    data: { servers: groupOverview().servers.map((item) => ({ ...item, exposure: "codemode" })), ...props.data },
+  });
+  // While any change is on its way it waits; the one for this server says it is saving.
+  const saving = validated({ view: { busy: "exposure:global\0docs" } });
+  assert.match(exposureSelect(saving).tag, /disabled=""/);
+  assert.match(decode(saving), /<span class="mcp-exposure-choice"><select[^>]*>[\s\S]*?<\/select><span role="status" class="mcp-config-line is-dim">Saving…<\/span><\/span>/);
+  assert.match(exposureSelect(validated({ view: { busy: "switch:global\0pw" } })).tag, /disabled=""/);
+  assert.doesNotMatch(exposureSelect(validated()).tag, /disabled/);
+  // Where no change may be written, it points at the note that says why.
+  const html = validated({ data: { mcp: { available: false, reason: "operator-disabled", error: "x" } } });
+  const select = exposureSelect(html);
+  assert.match(select.tag, /disabled=""/);
+  const { noteId } = detailControls(html);
+  assert.match(select.tag, new RegExp(`aria-describedby="[^"]* ${noteId}"`));
+  // Only a different value is sent, as a change through POST /api/mcp, and focus comes back to the dropdown.
+  assert.match(source, /if \(exposure !== server\.exposure\) onExposureChange\(server, exposure\);/);
+  assert.match(source, /runAction\(\{ action: "set-exposure", scope: server\.scope, name: server\.name, exposure \}, `exposure:\$\{key\}`\)/);
+  assert.match(source, /return active instanceof HTMLButtonElement \|\| active instanceof HTMLSelectElement \? active : null;/);
 });
 
 /** The opening tags of the selected server's Remove button and switch, and the note under them. */
@@ -1173,11 +1400,11 @@ test("a connection the session closed since reads like an untested entry, and sa
   const closed = testView({ status: sessionStatus("connected", { closedAt }) });
   // No green "connected" for a connection nobody holds: the row reads on, as an untested entry does.
   assert.match(row(closed, "docs"), /aria-label="docs: On"/);
-  assert.match(text(decode(closed)), /Status On Sessions connect it before their next message\./);
+  assert.match(text(decode(closed)), /Status On Connection Closed/);
   const { value } = connection(closed);
   assert.equal(
     value.match(/<span class="mcp-config-line"><span class="mcp-config-state is-off">Closed<\/span> ([^<]*)<\/span>/)?.[1],
-    `A session in ~/repo connected it at ${time(TODAY_10_42)}, and closed that connection at ${time(closedAt)}, when the session went idle, ended or reloaded.`,
+    `A session in ~/repo connected it at ${time(TODAY_10_42)} and closed it at ${time(closedAt)}.`,
   );
 
   // A report from another day says which day.

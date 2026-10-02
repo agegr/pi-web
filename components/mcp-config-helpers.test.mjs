@@ -9,6 +9,7 @@ const {
   MCP_CODEMODE_SELECTION,
   MCP_CODEMODE_STATE_KEYS,
   MCP_EXPOSURE_KEYS,
+  MCP_EXPOSURE_OPTIONS,
   MCP_ACTION_TIMEOUT_MS,
   MCP_OVERVIEW_TIMEOUT_MS,
   MCP_READ_ONLY_KEYS,
@@ -26,6 +27,7 @@ const {
   mcpCodemodeBuiltinNotice,
   mcpCodemodeProjectOverrideNotice,
   mcpCodemodeReachNotice,
+  mcpExposureReachNotice,
   mcpCodemodeRowState,
   mcpCodemodeTone,
   mcpEffectiveAutoEnableCodemode,
@@ -60,6 +62,18 @@ const {
   postMcpAction,
   saveMcpCodemodePreference,
   withMcpCodemodePreference,
+  mcpCodemodeInlineBudgetNotices,
+  mcpInlineBudgetDraftChanges,
+  mcpInlineBudgetDraftOf,
+  parseMcpInlineBudgetDraft,
+  saveMcpCodemodeInlineBudget,
+  withMcpCodemodeInlineBudget,
+  MCP_CODEMODE_MODE_DESCRIPTION_KEYS,
+  MCP_CODEMODE_MODE_KEYS,
+  mcpCodemodeModeChanges,
+  mcpCodemodeModeNotices,
+  saveMcpCodemodeMode,
+  withMcpCodemodeMode,
   MCP_EXPOSURE_SHORT_KEYS,
   MCP_TEST_BLOCK_KEYS,
   MCP_TEST_REFUSAL_KEYS,
@@ -174,7 +188,7 @@ test("each state has a color, a full label and, when it is not plain on, visible
   for (const key of [...Object.values(MCP_EXPOSURE_KEYS), ...Object.values(MCP_CODEMODE_STATE_KEYS)]) {
     assert.equal(typeof messages[key], "string", key);
   }
-  assert.deepEqual(Object.keys(MCP_EXPOSURE_KEYS).sort(), ["codemode", "codemode-deferred", "deferred", "direct", "hidden"]);
+  assert.deepEqual(Object.keys(MCP_EXPOSURE_KEYS).sort(), ["codemode", "deferred", "direct", "hidden"]);
 });
 
 test("the Project group appears only with a project, first, and says why it lists nothing", () => {
@@ -659,6 +673,199 @@ test("a saved choice replaces the preference and its read error in the loaded ov
   assert.deepEqual(next.codemode, { sandbox: { state: "available" }, builtinDisabled: false, preference: "always" });
   assert.equal(next.servers, data.servers);
   assert.equal(data.codemode.preferenceError, "Unexpected token", "the loaded overview is not changed in place");
+});
+
+test("the exposure dropdown offers every exposure the SDK accepts, each described", async () => {
+  const { MCP_EXPOSURES } = await jiti.import("@/lib/mcp-import.ts");
+  assert.deepEqual([...MCP_EXPOSURE_OPTIONS], [...MCP_EXPOSURES]);
+  for (const exposure of MCP_EXPOSURE_OPTIONS) {
+    assert.equal(typeof messages[MCP_EXPOSURE_KEYS[exposure]], "string", exposure);
+    assert.equal(typeof messages[MCP_EXPOSURE_SHORT_KEYS[exposure]], "string", exposure);
+  }
+});
+
+test("why an exposure's tools may be out of reach depends on the exposure", () => {
+  const codemode = { sandbox: { state: "available" }, builtinDisabled: true, preference: "automatic" };
+  const autoEnable = { value: true };
+  const toolSearchDisabled = { settingsPath: "/Users/me/.pi/agent/settings.json" };
+  // Code mode's own reasons reach only the exposures Code mode serves.
+  assert.deepEqual(mcpExposureReachNotice("codemode", { codemode, toolSearchDisabled }, autoEnable), { key: "mcp.exposure.builtinDisabled" });
+  // Tool search off strands deferred tools, naming the file when there is one.
+  assert.deepEqual(mcpExposureReachNotice("deferred", { codemode, toolSearchDisabled }, autoEnable), {
+    key: "mcp.exposure.toolSearchDisabled",
+    params: { path: toolSearchDisabled.settingsPath },
+  });
+  assert.deepEqual(mcpExposureReachNotice("deferred", { codemode, toolSearchDisabled: {} }, autoEnable), { key: "mcp.exposure.toolSearchDisabledUnknown" });
+  assert.equal(mcpExposureReachNotice("deferred", { codemode }, autoEnable), undefined);
+  for (const exposure of ["direct", "hidden"]) {
+    assert.equal(mcpExposureReachNotice(exposure, { codemode, toolSearchDisabled }, autoEnable), undefined, exposure);
+  }
+  for (const key of ["mcp.exposure.toolSearchDisabled", "mcp.exposure.toolSearchDisabledUnknown"]) assert.equal(typeof messages[key], "string", key);
+});
+
+const globalSettingsPath = "/Users/me/.pi/agent/settings.json";
+const projectSettingsPath = "/Users/me/repo/.pi/settings.json";
+
+test("the mode switch saves another mode, or either one over a value that is not a mode", () => {
+  const mode = { settingsPath: globalSettingsPath, value: "on" };
+  assert.equal(mcpCodemodeModeChanges(mode, "on"), false);
+  assert.equal(mcpCodemodeModeChanges(mode, "only"), true);
+  assert.equal(mcpCodemodeModeChanges({ ...mode, value: "only" }, "only"), false);
+  assert.equal(mcpCodemodeModeChanges({ ...mode, invalid: '"never"' }, "on"), true);
+  for (const key of [...Object.values(MCP_CODEMODE_MODE_KEYS), ...Object.values(MCP_CODEMODE_MODE_DESCRIPTION_KEYS)]) {
+    assert.equal(typeof messages[key], "string", key);
+  }
+});
+
+test("the mode's notes name a value that is not a mode, a project that decides for itself, and Automatic's wait", () => {
+  const info = (mode, extra = {}) => ({ sandbox: { state: "available" }, builtinDisabled: false, preference: "always", mode, ...extra });
+  assert.deepEqual(mcpCodemodeModeNotices(info(undefined)), []);
+  assert.deepEqual(mcpCodemodeModeNotices(info({ settingsPath: globalSettingsPath, value: "only" })), []);
+  assert.deepEqual(mcpCodemodeModeNotices(info({
+    settingsPath: globalSettingsPath,
+    value: "on",
+    invalid: '"never"',
+    projectOverride: { settingsPath: projectSettingsPath, value: "only" },
+  })), [
+    { key: "mcp.codemode.toolMode.invalid", params: { path: globalSettingsPath, value: '"never"' } },
+    { key: "mcp.codemode.toolMode.projectOverride.only", params: { path: projectSettingsPath } },
+  ]);
+  assert.deepEqual(mcpCodemodeModeNotices(info({
+    settingsPath: globalSettingsPath,
+    value: "only",
+    projectOverride: { settingsPath: projectSettingsPath, value: "on" },
+  })), [{ key: "mcp.codemode.toolMode.projectOverride.on", params: { path: projectSettingsPath } }]);
+
+  // "only" under Automatic waits for an MCP server to turn Code mode on; the effective values count.
+  const only = { settingsPath: globalSettingsPath, value: "only" };
+  assert.deepEqual(mcpCodemodeModeNotices(info(only, { preference: "automatic" })), [{ key: "mcp.codemode.toolMode.automaticNote" }]);
+  assert.deepEqual(mcpCodemodeModeNotices(info(only, { preference: "automatic", projectOverride: { settingsPath: projectSettingsPath, preference: "always" } })), []);
+  assert.deepEqual(mcpCodemodeModeNotices(info(
+    { settingsPath: globalSettingsPath, value: "on", projectOverride: { settingsPath: projectSettingsPath, value: "only" } },
+    { projectOverride: { settingsPath: projectSettingsPath, preference: "automatic" } },
+  )).map((notice) => notice.key), ["mcp.codemode.toolMode.projectOverride.only", "mcp.codemode.toolMode.automaticNote"]);
+  for (const key of [
+    "mcp.codemode.toolMode.invalid",
+    "mcp.codemode.toolMode.projectOverride.on",
+    "mcp.codemode.toolMode.projectOverride.only",
+    "mcp.codemode.toolMode.automaticNote",
+    "mcp.codemode.toolMode.saveFailed",
+  ]) assert.equal(typeof messages[key], "string", key);
+});
+
+test("the mode is saved through the tools settings route and answers with what it stored", async () => {
+  const saved = fakeFetch([{ status: 200, body: { isWindows: false, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "only" }, codemodeInlineBudget: {} } }]);
+  assert.deepEqual(await saveMcpCodemodeMode("only", saved.fetchImpl), { ok: true, mode: { value: "only" } });
+  assert.equal(saved.calls[0].input, "/api/tools/settings");
+  assert.equal(saved.calls[0].init.method, "PUT");
+  assert.deepEqual(JSON.parse(saved.calls[0].init.body), { codemodeMode: "only" });
+
+  const refused = fakeFetch([{ status: 500, body: { error: "Invalid settings.json: codemode must be an object", reason: "internal" } }]);
+  assert.deepEqual(await saveMcpCodemodeMode("only", refused.fetchImpl), {
+    ok: false,
+    error: { error: "Invalid settings.json: codemode must be an object", reason: "internal" },
+  });
+  // A 200 without a mode is not taken for a save.
+  const odd = fakeFetch([{ status: 200, body: { codemode: "automatic", codemodeMode: { value: "off" } } }]);
+  assert.deepEqual(await saveMcpCodemodeMode("on", odd.fetchImpl), { ok: false, error: { error: "HTTP 200" } });
+  const timedOut = await saveMcpCodemodeMode("on", () => new Promise(() => {}), undefined, 30);
+  assert.equal(timedOut.ok, false);
+  assert.equal(timedOut.error.timedOut, true);
+});
+
+test("a saved mode replaces the stored value and keeps the file and the project's own", () => {
+  const projectOverride = { settingsPath: projectSettingsPath, value: "on" };
+  const data = { ...overview, codemode: { ...overview.codemode, mode: { settingsPath: globalSettingsPath, value: "on", invalid: '"never"', projectOverride } } };
+  const next = withMcpCodemodeMode(data, { value: "only" });
+  assert.deepEqual(next.codemode.mode, { settingsPath: globalSettingsPath, projectOverride, value: "only" });
+  assert.equal(next.codemode.preference, data.codemode.preference);
+  assert.equal(data.codemode.mode.invalid, '"never"', "the loaded overview is not changed in place");
+  // An overview without a mode (its file could not be read) is left for the reload.
+  assert.equal(withMcpCodemodeMode(overview, { value: "only" }), overview);
+});
+
+const inlineBudget = { settingsPath: globalSettingsPath, default: 3000, max: 1_000_000 };
+
+test("the budget field is empty for pi's default and saves a whole number within the limit, or empty", () => {
+  assert.equal(mcpInlineBudgetDraftOf(inlineBudget), "");
+  assert.equal(mcpInlineBudgetDraftOf({ ...inlineBudget, value: 0 }), "0");
+  assert.deepEqual(parseMcpInlineBudgetDraft("", 1_000_000), { ok: true, value: null });
+  assert.deepEqual(parseMcpInlineBudgetDraft("  ", 1_000_000), { ok: true, value: null });
+  assert.deepEqual(parseMcpInlineBudgetDraft(" 1500 ", 1_000_000), { ok: true, value: 1500 });
+  assert.deepEqual(parseMcpInlineBudgetDraft("0", 1_000_000), { ok: true, value: 0 });
+  assert.deepEqual(parseMcpInlineBudgetDraft("1000000", 1_000_000), { ok: true, value: 1_000_000 });
+  for (const draft of ["-1", "1.5", "1e3", "3,000", "abc", "1000001"]) {
+    assert.deepEqual(parseMcpInlineBudgetDraft(draft, 1_000_000), { ok: false }, draft);
+  }
+
+  const changes = (budget, draft) => mcpInlineBudgetDraftChanges(budget, parseMcpInlineBudgetDraft(draft, budget.max));
+  assert.equal(changes(inlineBudget, ""), false);
+  assert.equal(changes(inlineBudget, "3000"), true, "writing the default's value is a change: it no longer follows pi");
+  assert.equal(changes({ ...inlineBudget, value: 1000 }, "1000"), false);
+  assert.equal(changes({ ...inlineBudget, value: 1000 }, ""), true);
+  assert.equal(changes({ ...inlineBudget, value: 1000 }, "x"), false);
+  // Saving empty over a value pi ignores removes it.
+  assert.equal(changes({ ...inlineBudget, invalid: '"lots"' }, ""), true);
+});
+
+test("the budget's warnings name a value pi ignores and a project that decides for itself", () => {
+  assert.deepEqual(mcpCodemodeInlineBudgetNotices(inlineBudget), []);
+  const projectPath = "/Users/me/repo/.pi/settings.json";
+  assert.deepEqual(mcpCodemodeInlineBudgetNotices({
+    ...inlineBudget,
+    invalid: '"lots"',
+    projectOverride: { settingsPath: projectPath, value: 800 },
+  }), [
+    { key: "mcp.codemode.inlineBudget.invalid", params: { path: inlineBudget.settingsPath, value: '"lots"', default: "3000" } },
+    { key: "mcp.codemode.inlineBudget.projectOverride", params: { path: projectPath, value: "800" } },
+  ]);
+  // A project value pi ignores, or a codemode that is not an object, leaves its sessions the default.
+  for (const projectOverride of [{ settingsPath: projectPath }, { settingsPath: projectPath, invalid: "null" }]) {
+    assert.deepEqual(mcpCodemodeInlineBudgetNotices({ ...inlineBudget, projectOverride }), [
+      { key: "mcp.codemode.inlineBudget.projectOverrideDefault", params: { path: projectPath, default: "3000" } },
+    ]);
+  }
+  for (const key of [
+    "mcp.codemode.inlineBudget.invalid",
+    "mcp.codemode.inlineBudget.projectOverride",
+    "mcp.codemode.inlineBudget.projectOverrideDefault",
+    "mcp.codemode.inlineBudget.saveFailed",
+  ]) assert.equal(typeof messages[key], "string", key);
+});
+
+test("the budget is saved through the tools settings route and answers with what it stored", async () => {
+  const saved = fakeFetch([{ status: 200, body: { isWindows: false, powerShellEnabled: false, codemode: "automatic", codemodeInlineBudget: { value: 1000 } } }]);
+  assert.deepEqual(await saveMcpCodemodeInlineBudget(1000, saved.fetchImpl), { ok: true, inlineBudget: { value: 1000 } });
+  assert.equal(saved.calls[0].input, "/api/tools/settings");
+  assert.equal(saved.calls[0].init.method, "PUT");
+  assert.deepEqual(JSON.parse(saved.calls[0].init.body), { codemodeInlineBudget: 1000 });
+
+  const reset = fakeFetch([{ status: 200, body: { codemode: "automatic", codemodeInlineBudget: {} } }]);
+  assert.deepEqual(await saveMcpCodemodeInlineBudget(null, reset.fetchImpl), { ok: true, inlineBudget: {} });
+  assert.deepEqual(JSON.parse(reset.calls[0].init.body), { codemodeInlineBudget: null });
+
+  const refused = fakeFetch([{ status: 500, body: { error: "Invalid settings.json: codemode must be an object", reason: "internal" } }]);
+  assert.deepEqual(await saveMcpCodemodeInlineBudget(1000, refused.fetchImpl), {
+    ok: false,
+    error: { error: "Invalid settings.json: codemode must be an object", reason: "internal" },
+  });
+  // A 200 without a budget is not taken for a save.
+  const odd = fakeFetch([{ status: 200, body: { codemode: "automatic", codemodeInlineBudget: { value: "1000" } } }]);
+  assert.deepEqual(await saveMcpCodemodeInlineBudget(1000, odd.fetchImpl), { ok: false, error: { error: "HTTP 200" } });
+  const timedOut = await saveMcpCodemodeInlineBudget(1000, () => new Promise(() => {}), undefined, 30);
+  assert.equal(timedOut.ok, false);
+  assert.equal(timedOut.error.timedOut, true);
+});
+
+test("a saved budget replaces the stored value and keeps the default, the limit and the project's own", () => {
+  const projectOverride = { settingsPath: "/Users/me/repo/.pi/settings.json", value: 800 };
+  const data = { ...overview, codemode: { ...overview.codemode, inlineBudget: { ...inlineBudget, invalid: '"lots"', projectOverride } } };
+  const next = withMcpCodemodeInlineBudget(data, { value: 1000 });
+  assert.deepEqual(next.codemode.inlineBudget, { ...inlineBudget, projectOverride, value: 1000 });
+  assert.equal(next.codemode.preference, "automatic");
+  assert.equal(data.codemode.inlineBudget.invalid, '"lots"', "the loaded overview is not changed in place");
+  // An overview without a budget (its file could not be read) is left for the reload.
+  assert.equal(withMcpCodemodeInlineBudget(overview, { value: 1000 }), overview);
 });
 
 test("the panel is read-only while MCP is off on the server, and for a project no decision trusts", () => {

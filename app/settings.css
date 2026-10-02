@@ -727,6 +727,7 @@
 .config-scope-switch-option[aria-pressed="true"] {
   background: var(--bg-selected);
   color: var(--text);
+  font-weight: 600;
 }
 
 .config-scope-switch-option:disabled {
@@ -758,6 +759,27 @@
   color: var(--text-dim);
   font-size: 11px;
   line-height: 1.4;
+}
+
+/* Where an add or create pane saves: the scope switch, then the path that
+   choice writes to, whole. A path too long for the switch's line moves under
+   it and breaks anywhere, never cut short, since it is the answer to where. */
+.config-save-target {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.config-save-target-path {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .config-detail-grid {
@@ -809,7 +831,7 @@
 .config-add-source-heading {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
 }
 
 .config-add-source-title-row {
@@ -818,6 +840,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.config-add-source-catalogs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 12px;
 }
 
 .config-add-source-catalog {
@@ -834,11 +864,6 @@
   flex-shrink: 0;
 }
 
-.config-add-source-location {
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
 
 .config-add-source-input {
   width: 100%;
@@ -863,12 +888,6 @@
   resize: vertical;
   white-space: pre;
   overflow: auto;
-}
-
-.config-add-source-hint {
-  color: var(--text-dim);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
 .config-add-source-examples {
@@ -901,6 +920,26 @@
   font-family: var(--font-mono);
   font-size: 11px;
   text-align: left;
+  /* An install link is one long word. */
+  overflow-wrap: anywhere;
+}
+
+/* What an example is (a format, a client) beside its text; stacked on a phone. */
+.config-add-source-example.has-label {
+  display: grid;
+  grid-template-columns: minmax(0, 15em) minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: baseline;
+  font-family: inherit;
+}
+
+.config-add-source-example-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.config-add-source-example-value {
+  font-family: var(--font-mono);
 }
 
 .config-add-source-example:hover {
@@ -1726,6 +1765,10 @@
 }
 
 @media (max-width: 640px) {
+  .config-add-source-example.has-label {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .config-panel-root.is-modal > .config-panel-surface {
     width: calc(100vw - 16px);
     height: calc(100dvh - 16px);
@@ -1965,6 +2008,36 @@
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
+}
+
+/* The Code mode pane's budget field: a short number field, its unit and Save
+   on one line, wrapping in the narrow phone pane. */
+.mcp-codemode-budget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Two classes: it reuses .mcp-add-input, which comes later and takes the pane's width. */
+.mcp-add-input.mcp-codemode-budget-input {
+  width: 96px;
+  flex-shrink: 0;
+}
+
+/* A server's exposure dropdown, sized to its longest option, with its Saving… beside it. */
+.mcp-exposure-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mcp-add-input.mcp-exposure-select {
+  width: auto;
+  max-width: 100%;
 }
 
 /* The add pane (components/McpAddServer.tsx). Notes, fields and the failure

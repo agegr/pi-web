@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type McpExposure } from "@earendil-works/pi-coding-agent";
 import type {
   McpActionItemResult,
   McpActionResponse,
@@ -14,6 +14,7 @@ import {
   insertMcpServer,
   isMcpConfigWriteError,
   removeMcpServer,
+  setMcpServerExposure,
   setMcpServersEnabled,
   type McpConfigFileTarget,
   type McpEnabledOutcome,
@@ -34,7 +35,7 @@ import {
   validateMcpProject,
   type McpEntryRefusal,
 } from "@/lib/mcp-entry-request";
-import { suggestFreeName } from "@/lib/mcp-import";
+import { MCP_EXPOSURES, isMcpExposure, suggestFreeName } from "@/lib/mcp-import";
 import { mcpOAuthUrl, signOutMcpServer } from "@/lib/mcp-sign-in";
 import { forgetMcpEntryStatuses } from "@/lib/mcp-status";
 import { findWebPasswordField } from "@/lib/mcp-transport";
@@ -234,6 +235,29 @@ async function switchServer(
 }
 
 /**
+ * How one server's tools reach the model. Nothing connects because of it:
+ * open sessions register the changed entry again at their next message, so
+ * an entry that references PI_WEB_PASSWORD may change too, and stays off.
+ */
+async function setServerExposure(
+  agentDir: string,
+  project: Project | undefined,
+  server: McpServerRef,
+  exposure: McpExposure,
+) {
+  const target = writeTarget(server.scope, project, agentDir);
+  if (target instanceof Refusal) return target.response();
+  try {
+    const { value: outcome, path } = await setMcpServerExposure(target, server.name, exposure);
+    const refused = outcomeRefusal(outcome, path);
+    if (refused) return refused.response();
+  } catch (error) {
+    return writeRefusal(error).response();
+  }
+  return overviewResponse(agentDir, project);
+}
+
+/**
  * The group switch: every server asked for, one write per file, and a result
  * per server, so one the route refuses (removed meanwhile, not an object,
  * referencing PI_WEB_PASSWORD, in an untrusted project, in a file that no
@@ -365,7 +389,7 @@ async function signOutServer(agentDir: string, project: Project | undefined, int
   if (url === undefined) {
     return refusal(409, "sign-in-not-oauth", `MCP server "${name}" does not use OAuth: only an HTTP server without an Authorization header does`, { name });
   }
-  const removed = signOutMcpServer(url, agentDir, internals);
+  const removed = signOutMcpServer(name, url, agentDir, internals);
   forgetMcpEntryStatuses({ scope: server.scope, sourcePath: read.sourcePath, name });
   return overviewResponse(agentDir, project, { signedOut: { ...server, removed } });
 }
@@ -517,6 +541,7 @@ async function addServer(
 // POST /api/mcp body: { action, cwd?, ... }
 //   enable | disable | remove | sign-out: { scope, name }
 //   set-enabled: { enabled, servers: [{ scope, name }] } → per-server `results`
+//   set-exposure: { scope, name, exposure }
 //   undo: { token } (from a remove's `undo`)
 //   add: { text, scope, values?, secretReferences?, server?, name?, rawPi?, trustFolder?, confirmHostEnv? }
 // `cwd` is the panel's project: required for a project server, and the
@@ -563,6 +588,14 @@ export async function POST(req: Request) {
         }
         return await switchServers(agentDir, project, internals, servers, body.enabled);
       }
+      case "set-exposure": {
+        const scope = readScope(body.scope);
+        const name = readName(body.name);
+        if (!scope || name === undefined || !isMcpExposure(body.exposure)) {
+          return refusal(400, "invalid-request", `scope must be "global" or "project", name a server name, and exposure one of ${MCP_EXPOSURES.join(", ")}`);
+        }
+        return await setServerExposure(agentDir, project, { scope, name }, body.exposure);
+      }
       case "undo": {
         if (typeof body.token !== "string" || body.token.length === 0 || body.token.length > 100) {
           return refusal(400, "invalid-request", "token must be the token a remove answered with");
@@ -572,7 +605,7 @@ export async function POST(req: Request) {
       case "add":
         return await addServer(agentDir, project, internals, body);
       default:
-        return refusal(400, "invalid-request", "action must be add, enable, disable, remove, set-enabled, undo or sign-out");
+        return refusal(400, "invalid-request", "action must be add, enable, disable, remove, set-enabled, set-exposure, undo or sign-out");
     }
   } catch (error) {
     return refusal(500, "internal", errorMessage(error));

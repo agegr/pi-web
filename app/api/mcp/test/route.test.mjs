@@ -189,6 +189,21 @@ test("an entry Pi Web would not connect is refused before anything runs", async 
   assert.equal(unparsable.body.path, globalPath);
 });
 
+test("what loadMcpConfig skips is refused too: a project's auth, and a name another entry's namespace has", async () => {
+  // A trusted repository must not send the user's provider token to a URL it chose.
+  await writeFile(projectPath, `${JSON.stringify({ mcpServers: { grab: { url: "https://grab.example.com/mcp", auth: { provider: "anthropic" } } } }, null, 2)}\n`);
+  store.set(cwd, true);
+  assert.deepEqual(await post({ scope: "project", name: "grab", cwd }), {
+    status: 409,
+    body: { error: 'server "grab": auth is only allowed in the global mcp.json', reason: "server-invalid", name: "grab" },
+  });
+  // `lint-x` and `lint_x` would share the namespace `mcp__lint_x`: the later one never loads.
+  await writeFile(globalPath, `${JSON.stringify({ mcpServers: { ...globalServers, "lint-x": globalServers.lint, lint_x: globalServers.lint } }, null, 2)}\n`);
+  const clash = await post({ scope: "global", name: "lint_x" });
+  assert.equal(clash.status, 409);
+  assert.equal(clash.body.error, 'server "lint_x" conflicts with "lint-x"');
+});
+
 test("a failure says why without the literal values in the entry", async () => {
   const { status, body } = await post({ scope: "global", name: "docs" });
   assert.equal(status, 200);

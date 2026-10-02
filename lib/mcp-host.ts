@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { McpHostInactiveInfo, McpScope, McpSessionState, McpSessionStatus } from "./api-types";
 import { isBuiltinMcpCommand, isMcpExtensionCommand } from "./mcp-command";
-import { canonicalJson, mcpConfigKey } from "./mcp-config-key";
+import { canonicalJson, mcpConfigKey, mcpEntryConfigKey } from "./mcp-config-key";
 import { scrubMcpLoadError } from "./mcp-json-error";
 import {
   forgetMcpHostInactive,
@@ -42,7 +42,9 @@ export { canonicalJson };
 //   changed are unregistered and registered again, so a change made anywhere
 //   (the panel, `pi mcp add`, an editor, `git pull`) reaches every open session
 //   on its next message without a reload. The prompt then waits up to 10 s for
-//   servers still connecting, and Stop ends that wait.
+//   servers with `direct` tools still connecting, and Stop ends that wait;
+//   other servers connect in the background, and the SDK's extension waits
+//   for them when a codemode script or `tool_search` needs them.
 // - A host that has not prompted for PI_WEB_MCP_IDLE_MS unregisters its servers.
 // - Project trust is read fresh on every sync too, never taken from the
 //   wrapper (see desiredServers()).
@@ -63,6 +65,9 @@ const PROMPT_WAIT_MS = 10_000;
 /**
  * How long an unregister waits for the extension to start a connection it can
  * close. One that starts later is refused its transport (`refuseAbandoned()`).
+ * In practice the gap is a few microtasks: `lib/pi-sdk-internals.ts` imports the
+ * SDK's `runtime.js` (the same module instance) before any host exists, so the
+ * extension's own runtime load is a cache hit.
  */
 const REPLACE_WAIT_MS = 5_000;
 const LIST_METHODS = new Set(["tools/list", "resources/list", "resources/templates/list"]);
@@ -165,24 +170,21 @@ export function untrustedProjectServerEntries(cwd: string): [name: string, value
   }
 }
 
-const SCRIPT_EXPOSURES = new Set<McpExposure>(["codemode", "codemode-deferred"]);
-
 /**
  * Without a working codemode sandbox, tools only scripts can reach would be
- * unreachable; `deferred` offers them through `tool_search` instead.
+ * unreachable; `deferred` offers them through `tool_search` instead. The
+ * config is `loadMcpConfig()`'s, whose validator already resolved the
+ * `codemode-deferred` alias to `codemode`.
  */
 export function withReachableExposure(config: McpServerConfig, codemodeAvailable: boolean): McpServerConfig {
   if (codemodeAvailable) return config;
-  const exposure = config.exposure ?? "codemode";
+  const reachable = (value: McpExposure): McpExposure => (value === "codemode" ? "deferred" : value);
   const toolExposure = config.toolExposure
-    ? Object.fromEntries(Object.entries(config.toolExposure).map(([tool, value]) => [
-        tool,
-        SCRIPT_EXPOSURES.has(value) ? "deferred" as const : value,
-      ]))
+    ? Object.fromEntries(Object.entries(config.toolExposure).map(([tool, value]) => [tool, reachable(value)]))
     : undefined;
   return {
     ...config,
-    exposure: SCRIPT_EXPOSURES.has(exposure) ? "deferred" : exposure,
+    exposure: reachable(config.exposure ?? "codemode"),
     ...(toolExposure ? { toolExposure } : {}),
   };
 }
@@ -415,6 +417,13 @@ class ConnectAttempt {
   /** A prompt already waited for this attempt until the deadline; later prompts do not. */
   waited = false;
   /**
+   * Some of the server's tools are declared to the model (`direct` exposure, of
+   * the server or a `toolExposure` entry), so a prompt waits for it. The SDK's
+   * extension decides the same way (`hasDirectTools()`): other tools are not in
+   * the request, and scripts and `tool_search` wait for their servers.
+   */
+  readonly declaresTools: boolean;
+  /**
    * The host let it go (unregistered it, or the session ended): whatever its
    * transports do afterwards is the extension closing them, not news.
    */
@@ -429,7 +438,10 @@ class ConnectAttempt {
   private readonly startedListeners = new Set<() => void>();
   private readonly settledListeners = new Set<() => void>();
 
-  constructor(readonly configKey: string, readonly scope: McpScope, readonly target: StatusTarget) {}
+  constructor(readonly configKey: string, readonly scope: McpScope, readonly target: StatusTarget, config: McpServerConfig) {
+    this.declaresTools = (config.exposure ?? "codemode") === "direct"
+      || Object.values(config.toolExposure ?? {}).includes("direct");
+  }
 
   markStarted(): void {
     if (this.started) return;
@@ -670,7 +682,7 @@ class HostInstance {
     const stopped = aborted(signal);
     await Promise.race([this.sync(), stopped]);
     if (signal.aborted || !wait) return;
-    const connecting = [...this.attempts.values()].filter((attempt) => !attempt.settled && !attempt.waited);
+    const connecting = [...this.attempts.values()].filter((attempt) => attempt.declaresTools && !attempt.settled && !attempt.waited);
     if (connecting.length === 0) return;
     const deadline = delay(this.options.promptWaitMs);
     const timedOut = await Promise.race([
@@ -721,6 +733,15 @@ class HostInstance {
   private readonly isCommandValue = (value: string): boolean =>
     // The SDK's rule (`isCommandConfigValue()`), for hosts given no value parser, such as tests'.
     this.options.internals.isCommandConfigValue?.(value) ?? value.startsWith("!");
+
+  /**
+   * The status key of an entry `loadMcpConfig()` did not hand over (an
+   * untrusted project's): the validator's copy when it accepts the entry, as
+   * Settings keys it (`readMcpServerConfigs()`), else the entry as written.
+   */
+  private entryConfigKey(name: string, value: unknown): string {
+    return mcpEntryConfigKey(value, this.options.internals.validateMcpServerConfig?.(name, value));
+  }
 
   /** Writes what this session sees of `target` to the status store, and returns the record. */
   private write(target: StatusTarget, report: SessionReport): McpSessionStatus | undefined {
@@ -854,7 +875,7 @@ class HostInstance {
         try {
           this.problems.set(`project\0${name}`, {
             status: { name, scope: "project", state: "not-trusted" },
-            target: { scope: "project", sourcePath: projectPath, name, configKey: mcpConfigKey(value) },
+            target: { scope: "project", sourcePath: projectPath, name, configKey: this.entryConfigKey(name, value) },
             report: { state: "not-trusted" },
           });
         } catch (error) {
@@ -878,11 +899,13 @@ class HostInstance {
     for (const entry of loaded.servers) {
       if (entry.config.enabled === false) continue;
       const scope = entry.scope === "project" ? "project" : "global";
+      // Each entry is keyed in its own try: one the host cannot key never stops the others,
+      // global servers included, from connecting.
       try {
         desired.set(entry.name, {
           config: withReachableExposure(entry.config, this.options.codemodeAvailable()),
           scope,
-          // The validator hands back the parsed entry itself, so this is the key Settings lists it with.
+          // The validator's copy of the entry (aliases resolved), which Settings keys it by too.
           target: { scope, sourcePath: entry.source, name: entry.name, configKey: mcpConfigKey(entry.config) },
         });
       } catch (error) {
@@ -894,7 +917,7 @@ class HostInstance {
 
   private register(name: string, wanted: DesiredServer): void {
     const { config, scope, target } = wanted;
-    const attempt = new ConnectAttempt(canonicalJson(config), scope, target);
+    const attempt = new ConnectAttempt(canonicalJson(config), scope, target, config);
     this.attempts.set(name, attempt);
     try {
       this.pi.registerMcpServer(name, config);
@@ -960,8 +983,12 @@ class HostInstance {
 
 export interface McpHostOptions {
   agentDir: string;
-  /** `loadMcpConfig`, and the SDK's `!command` test for masking what servers say (else a leading `!`, as the SDK decides). */
-  internals: Pick<PiSdkInternals, "loadMcpConfig"> & Partial<Pick<PiSdkInternals, "isCommandConfigValue">>;
+  /**
+   * `loadMcpConfig`; the SDK's `!command` test for masking what servers say
+   * (else a leading `!`, as the SDK decides); and its validator, which keys an
+   * untrusted project's entries as Settings does (else as written).
+   */
+  internals: Pick<PiSdkInternals, "loadMcpConfig"> & Partial<Pick<PiSdkInternals, "isCommandConfigValue" | "validateMcpServerConfig">>;
   /** Whether codemode can run scripts; servers it cannot reach become `deferred`. */
   codemodeAvailable: () => boolean;
   /**

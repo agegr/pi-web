@@ -26,7 +26,8 @@ function decode(html) {
 }
 
 function text(html) {
-  return decode(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  // A line-break opportunity is no space: the save target's path holds one after each folder.
+  return decode(html.replace(/<wbr\/>/g, "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
 const globalFile = { scope: "global", path: "/Users/me/.pi/agent/mcp.json", exists: true, problems: [] };
@@ -68,11 +69,27 @@ function addButton(html) {
 
 test("the paste box is a textarea that never takes focus by itself on a phone, and Add waits for a paste", () => {
   const html = decode(pane());
-  assert.match(html, /<textarea id="mcp-add-source" aria-label="Server to add" aria-describedby="[^"]+" class="config-add-source-input is-multiline"/);
+  assert.match(html, /<textarea id="mcp-add-source" aria-label="Server to add" class="config-add-source-input is-multiline"/);
   assert.doesNotMatch(html, /autofocus|autoFocus/i, "focus is decided on mount, by pointer, never in the markup");
-  assert.match(html, /<a href="https:\/\/github\.com\/mcp" target="_blank" rel="noopener noreferrer" class="config-add-source-catalog">github\.com\/mcp<\/a>/);
-  assert.match(html, /Cmd\/Ctrl\+Enter adds it\./);
+  // The catalogs to browse, in order, at the right of the title.
+  assert.deepEqual(
+    [...html.matchAll(/<a href="([^"]+)" target="_blank" rel="noopener noreferrer" class="config-add-source-catalog">([^<]+)<\/a>/g)].map((match) => [match[1], match[2]]),
+    [
+      ["https://glama.ai/mcp/servers", "glama.ai"],
+      ["https://smithery.ai/servers", "smithery.ai"],
+      ["https://mcp.so/", "mcp.so"],
+      ["https://registry.modelcontextprotocol.io/", "MCP Registry"],
+      ["https://github.com/mcp", "github.com/mcp"],
+    ],
+  );
+  // The placeholder lists what may be pasted; no sentence under the box repeats it.
+  assert.doesNotMatch(html, /config-add-source-hint|Cmd\/Ctrl\+Enter adds it/);
   assert.match(html, /<div class="config-add-source-examples">/, "an empty box offers examples");
+  // Every supported format, each named as the preview would name it.
+  assert.match(html, /<div class="config-add-source-examples-label">Supported formats \(click one to fill in an example\)<\/div>/);
+  assert.match(html, /<span class="config-add-source-example-label">codex mcp add<\/span><span class="config-add-source-example-value">codex mcp add fetch -- uvx mcp-server-fetch<\/span>/);
+  assert.match(html, /<span class="config-add-source-example-label">Zed settings<\/span>/);
+  assert.equal(html.match(/class="config-add-source-example has-label"/g)?.length, 19);
   assert.match(addButton(html).tag, /disabled=""/);
   assert.equal(addButton(html).label, "Add");
   // An empty box is no refusal: nothing explains Add yet but the hint.
@@ -125,6 +142,13 @@ test("a fresh folder is trusted in the same step, and the button and a line say 
   assert.equal(addButton(html).label, "Add and trust this folder");
   assert.match(text(html), /This folder has no trust decision yet, and writing \.pi\/mcp\.json makes it need one, so Add trusts ~?\/?.*repo in the same step\./);
   assert.match(text(html), /~?\/?.*repo\/\.pi\/mcp\.json/, "the location names the project file");
+  // Where it saves, the file and what choosing it means come first, under the title; the button stays at the end.
+  const decoded = decode(html);
+  const target = decoded.match(/<div class="config-save-target">[\s\S]*?<\/p><\/div>/)?.[0] ?? "";
+  assert.match(target.replace(/<wbr\/>/g, ""), /<span class="config-save-target-path">[^<]*repo\/\.pi\/mcp\.json<\/span>/);
+  assert.match(target, /Add trusts ~?\/?.*repo in the same step\./);
+  assert.ok(decoded.indexOf("config-save-target") < decoded.indexOf("<textarea"), "before the paste box");
+  assert.ok(decoded.indexOf("<textarea") < decoded.indexOf("Add and trust this folder"), "Add after it");
 });
 
 test("why Project is unavailable is visible text under the switch, never only a tooltip", () => {
@@ -142,7 +166,7 @@ test("why Project is unavailable is visible text under the switch, never only a 
   // A literal secret, with the way out: read it from a host variable, with the control that does it.
   const secret = JSON.stringify({ mcpServers: { api: { url: "https://api.example.com/mcp", headers: { Authorization: "Bearer sk-live-0123456789abcdef0123" } } } });
   html = pane({ draft: { text: secret } });
-  assert.match(text(html), /headers\.Authorization holds a secret as plain text, so this server can be saved only globally\. To save it in the project, choose “Read it from a variable of the computer running Pi Web” for it above\./);
+  assert.match(text(html), /headers\.Authorization holds a secret as plain text, so this server can be saved only globally\. To save it in the project, choose “Read it from a variable of the computer running Pi Web” for it\./);
   assert.match(text(html), /Secrets in the paste headers\.Authorization holds a secret as plain text\. Read it from a variable of the computer running Pi Web Saved in mcp\.json as pasted/);
   assert.doesNotMatch(text(html), /headers\.Authorization holds a secret as plain text, so the server can be saved only in the global mcp\.json/, "the importer's note gives way to the row that says it");
   assert.ok(!html.replace(/<textarea[\s\S]*?<\/textarea>/, "").includes("sk-live"), "the secret itself is shown only in the box it was pasted into");
@@ -162,7 +186,19 @@ test("why Project is unavailable is visible text under the switch, never only a 
     onTrustProject: noop,
   });
   assert.match(text(html), /This project is not trusted, so Pi Web does not write its \.pi\/mcp\.json\. Trust it first\./);
-  assert.match(text(html), /Trust project…/);
+  // The way to make Project available sits under its reason, in the save target.
+  assert.match(decode(html), /<div class="config-save-target">[\s\S]*?class="config-scope-switch-reason">This project is not trusted[^<]*<\/span><\/div><span class="mcp-config-line"><button[^>]*>Trust project…<\/button><\/span><\/div>/);
+});
+
+test("the name comes right after the paste, with the importer's notes about it, which go once it is edited", () => {
+  const paste = JSON.stringify({ mcpServers: { "My Server!": { command: "npx", args: ["-y", "@acme/lint-mcp"] } } });
+  let shown = text(pane({ draft: { text: paste } }));
+  assert.match(shown, /Server to add .* Name My Server! became My-Server: pi server names use letters, digits, _ and -\. Preview /);
+  assert.equal(shown.match(/became My-Server/g)?.length, 1, "said once, under the name, not again with the preview's notes");
+  // Typed over, the note would describe a name no longer in the box.
+  shown = text(pane({ draft: { text: paste, name: "lint" } }));
+  assert.doesNotMatch(shown, /became My-Server/);
+  assert.match(shown, /Name Preview /);
 });
 
 test("a password field takes a host variable instead, and the name field says when the name is taken", () => {
@@ -171,13 +207,15 @@ test("a password field takes a host variable instead, and the name field says wh
     inputs: [{ id: "pat", type: "promptString", password: true, description: "GitHub personal access token" }],
   });
   let html = decode(pane({ draft: { text: paste } }));
-  assert.match(html, /<input class="mcp-add-input" type="password" aria-label="pat" autoComplete="off"[^>]*value=""\/>/);
+  // The box shows what the paste held there; the line under it, what is stored around the value.
+  assert.match(html, /<input class="mcp-add-input" type="password" aria-label="pat" autoComplete="off" placeholder="\$\{input:pat\}"[^>]*value=""\/>/);
   assert.match(text(html), /GitHub personal access token/);
-  assert.match(text(html), /In the paste: \$\{input:pat\}/);
+  assert.match(text(html), /Stored as Bearer ‹your value›\./);
   assert.match(text(html), /Read it from a variable of the computer running Pi Web/);
   assert.match(text(html), /Fill in pat first\./);
   html = decode(pane({ draft: { text: paste, references: { "input.pat": "GH_TOKEN" } } }));
   assert.match(html, /aria-label="Variable for pat"[^>]*value="GH_TOKEN"\/>/);
+  assert.match(text(html), /Stored as Bearer \$\{GH_TOKEN\}: pi reads the variable each time it connects/);
   // The preview then says the header sends that variable.
   assert.match(text(html), /Host variables Sends environment variables of the computer running Pi Web to this server on every connection: GH_TOKEN in header Authorization/);
   assert.doesNotMatch(addButton(html).tag, /disabled/);
@@ -185,6 +223,24 @@ test("a password field takes a host variable instead, and the name field says wh
   html = pane({ data: overview(undefined, { servers: [{ name: "gh", scope: "global" }] }), draft: { text: paste, references: { "input.pat": "GH_TOKEN" } } });
   assert.match(text(html), /\.pi\/agent\/mcp\.json already has a server named gh\./);
   assert.match(text(html), /Use gh-2/);
+});
+
+test("a placeholder in a header says only what to type: the box holds the placeholder, the line what is stored around it", () => {
+  const paste = `claude mcp add-json github '{"type":"http","url":"https://api.githubcopilot.com/mcp","headers":{"Authorization":"Bearer YOUR_GITHUB_PAT"}}'`;
+  let html = decode(pane({ draft: { text: paste } }));
+  assert.match(html, /aria-label="Authorization" autoComplete="off" placeholder="YOUR_GITHUB_PAT"[^>]*value=""\/>/);
+  assert.match(text(html), /Stored as Bearer ‹your value›\. Optional: left blank, the Authorization header is not sent\. Read it from a variable/);
+  // No reason for a plain placeholder, no "In the paste" line repeating the box, no warning repeating the scope switch.
+  assert.doesNotMatch(text(html), /placeholder here|In the paste|Stored as typed|value it belongs to/);
+  // Once typed, the scope switch says the secret keeps the server global, once.
+  html = decode(pane({ draft: { text: paste, values: { "headers.Authorization": "ghp_x" } } }));
+  assert.equal(text(html).match(/can be saved only globally/g)?.length, 1);
+
+  // A value the field makes up whole needs no line: the box says it all.
+  const whole = JSON.stringify({ mcpServers: { api: { command: "npx", args: ["api"], env: { API_KEY: "<your-api-key>" } } } });
+  html = decode(pane({ draft: { text: whole } }));
+  assert.match(html, /aria-label="API_KEY" autoComplete="off" placeholder="<your-api-key>"[^>]*value=""\/>/);
+  assert.doesNotMatch(text(html), /Stored as|Optional:/);
 });
 
 test("a pasted secret read from a variable says how it is stored, and a name pi refuses says so under its box", () => {
@@ -283,8 +339,10 @@ test("Settings › MCP opens the add pane from the sidebar, keeps the draft, and
     onClose: noop,
   })));
   assert.match(decode(html), /<button type="button" aria-current="page" class="config-list-action-button">[\s\S]*?Add MCP<\/button>/);
-  // No working directory and no env names: those rows are left out, not shown as "None".
-  assert.match(text(html), /Preview Read as a command line Transport stdio Command npx -y @acme\/lint-mcp Named lint/);
+  // The name first, under the paste box, with the note on where it came from; then the preview, which
+  // leaves out what is not set: no working directory and no env names, rather than "None".
+  assert.match(text(html), /Server to add npx -y @acme\/lint-mcp Name Named lint after its address or command\. Preview Read as a command line Transport stdio Command npx -y @acme\/lint-mcp Add /);
+  assert.match(decode(html), /aria-label="Name"[^>]*value="lint"\/>/);
   // The added notice: the server and its file, the folder trusted with it, the test, and Sign in.
   const addedView = (props = {}) => renderToStaticMarkup(h(I18nProvider, null, h(McpConfigView, {
     cwd: "/Users/me/repo",

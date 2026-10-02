@@ -23,11 +23,20 @@ import {
   type BuiltinExtensionName,
   type BuiltinExtensionSwitch,
 } from "./builtin-extensions";
-import { readCodemodePreference, readProjectCodemodeOverride } from "./codemode-settings";
+import {
+  CODEMODE_INLINE_BUDGET_DEFAULT,
+  CODEMODE_INLINE_BUDGET_MAX,
+  readCodemodePreference,
+  readCodemodeSettings,
+  readProjectCodemodeInlineBudget,
+  readProjectCodemodeMode,
+  readProjectCodemodeOverride,
+} from "./codemode-settings";
 import { getGlobalSettingsPath } from "./global-settings-file";
-import { mcpConfigKey } from "./mcp-config-key";
+import { mcpConfigKey, mcpEntryConfigKey } from "./mcp-config-key";
 import { jsonErrorMessage } from "./mcp-json-error";
 import { maskArgs, maskCommand, maskUrl } from "./mcp-secrets";
+import { mcpOAuthStoreKeys } from "./mcp-sign-out";
 import { readMcpHostInactive, withMcpStatuses } from "./mcp-status";
 import { findWebPasswordField, resolvedConfigValues, WEB_PASSWORD_VARIABLE } from "./mcp-transport";
 import { samePath } from "./paths";
@@ -296,38 +305,48 @@ function parseConfigText(info: McpConfigFileInfo, text: string): [name: string, 
   return entries;
 }
 
-/** What `mcp-auth.json` holds, by URL key: any record at all, and an access token. */
-interface McpAuthState {
-  /** URLs with an access token: signed in. */
-  signedIn: Set<string>;
-  /** URLs with any record, a token-less one a sign-in left included: what Sign out removes. */
-  stored: Set<string>;
-}
+/** What `mcp-auth.json` holds, by the SDK's keys: whether a record is there at all, and whether it has an access token. */
+type McpAuthState = Map<string, { signedIn: boolean }>;
 
 /**
- * The servers `mcp-auth.json` holds state for, keyed as the SDK keys them
- * (`String(new URL(url))`). Read raw and never locked or created; undefined
- * when the file cannot be read, so no server is reported either way.
+ * The records `mcp-auth.json` holds, by their keys (`mcpOAuthStoreKeys()`:
+ * name and URL, or URL alone for a record older versions wrote). Read raw and
+ * never locked or created; undefined when the file cannot be read, so no
+ * server is reported either way.
  */
 function readAuthState(agentDir: string): McpAuthState | undefined {
   const path = join(agentDir, "mcp-auth.json");
-  const none = (): McpAuthState => ({ signedIn: new Set(), stored: new Set() });
-  if (!existsSync(path)) return none();
+  const state: McpAuthState = new Map();
+  if (!existsSync(path)) return state;
   try {
     const text = readFileSync(path, "utf8");
-    if (!text.trim()) return none();
+    if (!text.trim()) return state;
     const parsed: unknown = JSON.parse(text);
-    if (!isRecord(parsed)) return none();
-    const state = none();
+    if (!isRecord(parsed)) return state;
     for (const [key, value] of Object.entries(parsed)) {
-      // The SDK's store removes the whole key, whatever it holds (`McpOAuthCredentialStore.remove()`).
-      state.stored.add(key);
-      if (isRecord(value) && isRecord(value.tokens) && typeof value.tokens.access_token === "string") state.signedIn.add(key);
+      state.set(key, { signedIn: isRecord(value) && isRecord(value.tokens) && typeof value.tokens.access_token === "string" });
     }
     return state;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * What `mcp-auth.json` holds for server `name` at `url`, as the SDK's store
+ * reads it: the record under its name and URL, else the one under the URL
+ * alone (which the first server of the URL to connect takes over). Sign out
+ * removes that record, whatever it holds (`McpOAuthCredentialStore.remove()`).
+ */
+function authStateOf(state: McpAuthState, name: string, url: string): { signedIn: boolean; stored: boolean } | undefined {
+  let keys: { key: string; legacyKey: string };
+  try {
+    keys = mcpOAuthStoreKeys(name, url);
+  } catch {
+    return undefined;
+  }
+  const record = state.get(keys.key) ?? state.get(keys.legacyKey);
+  return { signedIn: record?.signedIn ?? false, stored: record !== undefined };
 }
 
 /**
@@ -352,14 +371,6 @@ function transportOf(config: Record<string, unknown>, refused: boolean): McpTran
   return undefined;
 }
 
-function signInKey(url: string): string | undefined {
-  try {
-    return String(new URL(url));
-  } catch {
-    return undefined;
-  }
-}
-
 interface DescribeContext {
   internals: McpConfigReadInternals | undefined;
   authState: McpAuthState | undefined;
@@ -371,6 +382,8 @@ interface DescribedServer {
   info: McpServerInfo;
   /** Whether the SDK would load it: valid, or not checked because the validator is unavailable. */
   loads: boolean;
+  /** The entry has a `url` and a truthy `auth`, which `loadMcpConfig()` refuses in a project file. */
+  sendsProviderToken: boolean;
 }
 
 const TEMPLATE_REFERENCE = /\$(?:[$!]|\{([^}]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
@@ -409,7 +422,7 @@ function describeServer(
   let configKey = "";
   let keyError: string | undefined;
   try {
-    configKey = mcpConfigKey(value);
+    configKey = mcpEntryConfigKey(value, validation);
   } catch (error) {
     keyError = `server "${name}": cannot be read: ${errorMessage(error)}`;
   }
@@ -432,8 +445,13 @@ function describeServer(
   const transport = transportOf(config, typeof validation === "string");
   if (transport) info.transport = transport;
   if (validation !== undefined && typeof validation !== "string") {
-    info.exposure = (validation as McpServerConfig).exposure ?? "codemode";
+    // The validator's copy, with `codemode-deferred` read as the `codemode` it now means.
+    const validated = validation as McpServerConfig;
+    info.exposure = validated.exposure ?? "codemode";
+    const overrides = validated.toolExposure ? Object.keys(validated.toolExposure).length : 0;
+    if (overrides > 0) info.toolExposureCount = overrides;
   }
+  if (typeof config.description === "string" && config.description.trim()) info.description = config.description;
 
   // Masking hides what looks like a secret by shape and by position (any value after `--token`),
   // which the author of the entry chooses. For a repository nobody has trusted yet, that would let
@@ -456,13 +474,16 @@ function describeServer(
     info.url = url.value;
     info.masked ||= url.masked;
   }
-  // The SDK's rule (runtime.js usesOAuth): `url` present and no Authorization header.
-  info.usesOAuth = transport === "http" && !info.headerNames.some((header) => header.toLowerCase() === "authorization");
+  // The SDK's rule (runtime.js usesOAuth): `url` present, no `auth` and no Authorization header.
+  if (transport === "http" && isRecord(config.auth) && typeof config.auth.provider === "string" && config.auth.provider) {
+    info.authProvider = config.auth.provider;
+  }
+  info.usesOAuth = transport === "http" && !config.auth && !info.headerNames.some((header) => header.toLowerCase() === "authorization");
   if (info.usesOAuth && authState && typeof config.url === "string") {
-    const key = signInKey(config.url);
-    if (key) {
-      info.signedIn = authState.signedIn.has(key);
-      info.oauthStateStored = authState.stored.has(key);
+    const stored = authStateOf(authState, name, config.url);
+    if (stored) {
+      info.signedIn = stored.signedIn;
+      info.oauthStateStored = stored.stored;
     }
   }
 
@@ -483,11 +504,45 @@ function describeServer(
     : values.find((field) => field.value.toUpperCase().includes(WEB_PASSWORD_VARIABLE));
   if (webPasswordField) info.webPasswordField = fieldRef(webPasswordField);
 
+  const sendsProviderToken = "url" in config && Boolean(config.auth);
   if (keyError !== undefined) {
     info.invalidError ??= keyError;
-    return { info, loads: false };
+    return { info, loads: false, sendsProviderToken };
   }
-  return { info, loads: internals ? typeof validation !== "string" : isRecord(value) };
+  return { info, loads: internals ? typeof validation !== "string" : isRecord(value), sendsProviderToken };
+}
+
+/** The namespace pi gives a server's tools (`mcpNamespace()`): `mcp__<name>`, `-` as `_`. */
+function mcpNamespace(name: string): string {
+  return `mcp__${name.replace(/-/g, "_")}`;
+}
+
+/**
+ * Refuses what `loadMcpConfig()` refuses beyond the validator, in its order
+ * (global file first, then the project's): a name whose namespace another
+ * loaded entry already has (`a-b` beside `a_b`; the later one is skipped),
+ * and `auth` in the project file, which would let a repository pick where a
+ * provider's token goes. Each is listed as an entry pi refuses, with its
+ * words, so it never connects and never replaces a global entry.
+ */
+function refuseAsLoaderDoes(described: DescribedServer[]): void {
+  const loaded = new Set<string>();
+  for (const server of described) {
+    if (!server.loads) continue;
+    const { info } = server;
+    const clash = [...loaded].find((other) => other !== info.name && mcpNamespace(other) === mcpNamespace(info.name));
+    if (clash !== undefined) {
+      info.invalidError = `server "${info.name}" conflicts with "${clash}"`;
+      server.loads = false;
+      continue;
+    }
+    if (info.scope === "project" && server.sendsProviderToken) {
+      info.invalidError = `server "${info.name}": auth is only allowed in the global mcp.json`;
+      server.loads = false;
+      continue;
+    }
+    loaded.add(info.name);
+  }
 }
 
 export interface McpConfigReadOptions {
@@ -528,6 +583,7 @@ export function readMcpServerConfigs(options: McpConfigReadOptions): McpConfigRe
       described.push(describeServer(name, value, info.scope, info.path, context));
     }
   }
+  if (options.internals) refuseAsLoaderDoes(described);
   // A project entry the SDK loads replaces the global one of its name once the
   // project is trusted; an invalid one is skipped and leaves the global in place.
   const projectNames = new Set(
@@ -554,8 +610,6 @@ export type McpServerEntryRead =
       value: unknown;
       /** The configured path of its file, as `McpServerInfo.sourcePath` names it. */
       sourcePath: string;
-      /** `mcpConfigKey()` of the raw entry, as GET reports it. */
-      configKey: string;
     }
   | {
       ok: false;
@@ -590,7 +644,7 @@ export function readMcpServerEntry(options: {
   }
   const found = entries.find(([entryName]) => entryName === name);
   if (!found) return { ok: false, reason: "server-missing", error: `${info.path} does not define MCP server "${name}"`, path: info.path };
-  return { ok: true, value: found[1], sourcePath: info.path, configKey: mcpConfigKey(found[1]) };
+  return { ok: true, value: found[1], sourcePath: info.path };
 }
 
 /** Whether a decision, exact or inherited, trusts the project; one that cannot be read does not. */
@@ -662,10 +716,11 @@ function mcpAvailability(
 }
 
 /**
- * Code mode as a session would get it: the global preference, the sandbox
- * self-test and `-builtin:codemode` (both as the project's sessions see it and
- * as the global settings alone say), and, given `trustedCwd`, the project
- * settings that decide it there whatever the global choice.
+ * Code mode as a session would get it: the global preference, mode and inline
+ * budget, the sandbox self-test and `-builtin:codemode` (both as the project's
+ * sessions see it and as the global settings alone say), and, given
+ * `trustedCwd`, the project settings that decide any of them there whatever
+ * the global value.
  */
 async function codemodeInfo(
   agentDir: string,
@@ -692,6 +747,20 @@ async function codemodeInfo(
   }
   const projectOverride = trustedCwd === undefined ? undefined : readProjectCodemodeOverride(trustedCwd);
   if (projectOverride) info.projectOverride = projectOverride;
+  // Read on its own: a malformed defaultTools leaves the codemode object readable, and the other way round.
+  try {
+    const settingsPath = getGlobalSettingsPath(agentDir);
+    const { mode, inlineBudget } = await readCodemodeSettings(settingsPath);
+    info.mode = { ...mode, settingsPath };
+    const projectMode = trustedCwd === undefined ? undefined : readProjectCodemodeMode(trustedCwd);
+    if (projectMode) info.mode.projectOverride = projectMode;
+    info.inlineBudget = { ...inlineBudget, settingsPath, default: CODEMODE_INLINE_BUDGET_DEFAULT, max: CODEMODE_INLINE_BUDGET_MAX };
+    const projectBudget = trustedCwd === undefined ? undefined : readProjectCodemodeInlineBudget(trustedCwd);
+    if (projectBudget) info.inlineBudget.projectOverride = projectBudget;
+  } catch (error) {
+    info.modeError = errorMessage(error);
+    info.inlineBudgetError = info.modeError;
+  }
   return info;
 }
 
@@ -768,6 +837,9 @@ export async function readMcpOverview(options: McpOverviewOptions): Promise<McpR
     codemode: await codemodeInfo(agentDir, switches?.codemode, project && projectSettingsLoad ? project.cwd : undefined),
     files,
     servers: withMcpStatuses(servers, listedFiles),
+    ...(switches?.["tool-search"].enabled === false
+      ? { toolSearchDisabled: switches["tool-search"].settingsPath ? { settingsPath: switches["tool-search"].settingsPath } : {} }
+      : {}),
     ...(projectInfo ? { project: projectInfo } : {}),
     ...withHostInactive(project?.cwd),
   };

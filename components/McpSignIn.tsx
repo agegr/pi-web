@@ -88,7 +88,13 @@ export function McpSignInRow({
   }, [active]);
 
   if (!server.usesOAuth) {
-    return <ConfigDetailGridRow label={t("mcp.detail.signIn")}>{t("mcp.signIn.header")}</ConfigDetailGridRow>;
+    return (
+      <ConfigDetailGridRow label={t("mcp.detail.signIn")}>
+        {server.authProvider !== undefined
+          ? t("mcp.signIn.provider", { provider: revealHiddenCharacters(server.authProvider) })
+          : t("mcp.signIn.header")}
+      </ConfigDetailGridRow>
+    );
   }
   const flow = run?.flow;
   const starting = run?.starting === true;
