@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
@@ -2066,7 +2067,7 @@ export function AppShell() {
             />
           )}
           {/* Top panel dropdown — shared, only one active at a time */}
-          {activeTopPanel && topPanelPos && (
+          {activeTopPanel && topPanelPos && typeof document !== "undefined" && createPortal(
             <div style={{
               position: "fixed",
               top: topPanelPos.top,
@@ -2305,7 +2306,8 @@ export function AppShell() {
                   )}
                 </div>
               )}
-            </div>
+            </div>,
+            document.body,
           )}
 
         </div>
