@@ -12,7 +12,8 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAgentsRefresh } from "@/hooks/useAgentsRefresh";
-import type { SubagentCatalogResponse, SubagentProfilesResponse, SubagentToolsResponse } from "@/lib/api-types";
+import type { ProjectTrustStatus, SubagentCatalogResponse, SubagentProfilesResponse, SubagentToolsResponse } from "@/lib/api-types";
+import { displayPathWithin, shortenPath } from "@/lib/display-path";
 import type { ModelsData } from "@/lib/models-cache";
 import { isSubagentProfileOverridden } from "@/lib/subagent-profile-precedence";
 import type { AgentCatalogAgent, AgentCatalogSource } from "@/lib/pi-subagents-catalog";
@@ -33,6 +34,8 @@ import {
   ConfigFooter,
   ConfigListAction,
   ConfigPanelShell,
+  ConfigSaveTarget,
+  ConfigScopeTag,
   ConfigSidebar,
   ConfigSidebarGroupLabel,
   ConfigSidebarItem,
@@ -43,6 +46,7 @@ import {
   ConfigSwitch,
 } from "./SettingsUi";
 import { ModelSelector } from "./ModelSelector";
+import { projectTrustReloadKey } from "./settings-ui-helpers";
 
 const THINKING_OPTIONS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const CONTEXT_OPTIONS = ["", "fresh", "fork"] as const;
@@ -138,17 +142,11 @@ function isEjectableSource(source: AgentCatalogSource): boolean {
   return source === "builtin" || source === "package";
 }
 
-function shortenPath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+/, "~");
-}
-
 function displayProfilePath(profile: SubagentProfile, cwd: string): string | null {
   if (!profile.filePath) return null;
-  if ((profile.scope === "project" || profile.scope === "workspace") && profile.filePath.startsWith(cwd)) {
-    const relative = profile.filePath.slice(cwd.length).replace(/^[/\\]/, "");
-    return `./${relative}`;
-  }
-  return shortenPath(profile.filePath);
+  return profile.scope === "project" || profile.scope === "workspace"
+    ? displayPathWithin(profile.filePath, cwd)
+    : shortenPath(profile.filePath);
 }
 
 function sourceLabelKey(source: AgentCatalogSource): string {
@@ -410,12 +408,15 @@ export function AgentsConfig({
   onClose,
   embedded = false,
   active = true,
+  trust,
 }: {
   cwd: string;
   onClose: () => void;
   embedded?: boolean;
   /** The settings section host keeps this panel mounted while another section is shown. */
   active?: boolean;
+  /** The page's trust status for `cwd`; a new decision loads the model list again. */
+  trust?: ProjectTrustStatus | null;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -561,6 +562,12 @@ export function AgentsConfig({
     if (selectedKey) setLastSettingsSelection("agents", selectedKey, cwd);
   }, [cwd, selectedKey]);
 
+  // The model list follows the folder's trust: GET /api/models leaves out an
+  // untrusted project's extensions, which can register providers. Trust can
+  // change while this section stays mounted (hidden) in Settings, by trusting
+  // from Settings › MCP; a new decision loads the list again in place, keeping
+  // any profile draft.
+  const trustKey = projectTrustReloadKey(trust);
   useEffect(() => {
     const controller = new AbortController();
     setModelsLoading(true);
@@ -580,7 +587,7 @@ export function AgentsConfig({
       }
     })();
     return () => controller.abort();
-  }, [cwd]);
+  }, [cwd, trustKey]);
 
   /** The raw-entry inputs are local text; reset them whenever the edited profile changes. */
   const resetRawEntries = () => {
@@ -871,14 +878,29 @@ export function AgentsConfig({
                 <ConfigDetailStack>
                   <ConfigDetailHeader>
                     <ConfigDetailHeaderInfo>
-                      {displayedScope && (
-                        <span className={`config-scope-tag${displayedScope === "project" ? " is-project" : ""}`}>
-                          {t(`agents.scope.${displayedScope}`)}
-                        </span>
+                      {/* A new profile chooses its scope where a saved one shows it. */}
+                      {creating ? (
+                        <ConfigSaveTarget
+                          value={targetScope}
+                          label={t("config.saveTo")}
+                          options={(["global", "project"] as const).map((scope) => ({
+                            value: scope,
+                            label: t(`agents.scope.${scope}`),
+                            disabled: saving,
+                          }))}
+                          path={displayedPath}
+                          onChange={setTargetScope}
+                        />
+                      ) : (
+                        <>
+                          {displayedScope && (
+                            <ConfigScopeTag scope={displayedScope}>{t(`agents.scope.${displayedScope}`)}</ConfigScopeTag>
+                          )}
+                          <span title={fullPath} className="config-detail-path">
+                            {displayedPath}
+                          </span>
+                        </>
                       )}
-                      <span title={fullPath} className="config-detail-path">
-                        {displayedPath}
-                      </span>
                     </ConfigDetailHeaderInfo>
                     <ConfigDetailActions>
                       {selected && (mode === "view" || mode === "edit") && <ConfigButton size="small" onClick={beginDuplicate} disabled={saving}>{t("agents.duplicate")}</ConfigButton>}
@@ -887,23 +909,6 @@ export function AgentsConfig({
                   </ConfigDetailHeader>
 
                   <Section title={t("agents.section.basics")} defaultOpen>
-                    {creating && (
-                      <Field label={t("agents.saveScope")}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, padding: 3, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-panel)" }}>
-                          {(["global", "project"] as const).map((scope) => (
-                            <button
-                              key={scope}
-                              type="button"
-                              onClick={() => setTargetScope(scope)}
-                              disabled={saving}
-                              style={{ height: 28, border: "none", borderRadius: 4, background: targetScope === scope ? "var(--bg-selected)" : "transparent", color: targetScope === scope ? "var(--text)" : "var(--text-muted)", cursor: saving ? "default" : "pointer", fontSize: 11, fontWeight: targetScope === scope ? 600 : 400 }}
-                            >
-                              {t(`agents.scope.${scope}`)}
-                            </button>
-                          ))}
-                        </div>
-                      </Field>
-                    )}
                     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}>
                       <Field label={t("agents.name")}>
                         {creating ? (

@@ -29,15 +29,23 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
  * this app never triggers (issue #923).
  *
  * The limit also has to absorb what a healthy client on a slow link has in
- * flight: one `read` of an image emits its base64 three times
- * (`tool_execution_end`, then the tool result's `message_start` and
- * `message_end`), and those queue up while the first one is still being
- * written to the socket.
+ * flight: one `read` of an image emits its base64 twice (the tool result's
+ * `message_start` and `message_end`), and the second queues up while the first
+ * one is still being written to the socket.
  */
 const STREAM_HIGH_WATER_MARK_BYTES = 512 * 1024;
 const DEFAULT_BACKLOG_LIMIT_BYTES = 16 * 1024 * 1024;
 const BACKPRESSURE_LOG_INTERVAL_MS = 60_000;
 let lastBackpressureLogAt = 0;
+
+/**
+ * How long `tool_execution_update` events wait to be coalesced. Each update
+ * carries the tool's whole partial result, so only the latest one per tool call
+ * matters: a codemode script publishes a snapshot of every call it made each
+ * time one starts or ends, and bash streams its output tail per chunk. A burst
+ * inside the window reaches the client as one event per tool call.
+ */
+export const TOOL_UPDATE_COALESCE_MS = 150;
 
 /**
  * Whether a later event repairs this one if it is dropped. A `*_delta` only
@@ -125,6 +133,9 @@ export function createAgentEventStream(
       let heartbeat: ReturnType<typeof setInterval> | null = null;
       let unsubscribe: (() => void) | null = null;
       let abortHandler: (() => void) | null = null;
+      // Latest `tool_execution_update` per tool call id, waiting for the flush.
+      const pendingToolUpdates = new Map<unknown, AgentEventLike>();
+      let toolUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 
       // "error": hard-terminate the response (SSE client sees a broken
       // stream and reconnects). Used on process shutdown: a plain close() is
@@ -141,6 +152,8 @@ export function createAgentEventStream(
         releaseLease = () => {};
         activeStreamClosers.delete(cleanup);
         if (heartbeat !== null) clearInterval(heartbeat);
+        if (toolUpdateTimer !== null) clearTimeout(toolUpdateTimer);
+        pendingToolUpdates.clear();
         unsubscribe?.();
         unsubscribe = null;
         if (abortHandler) req.signal.removeEventListener("abort", abortHandler);
@@ -186,12 +199,32 @@ export function createAgentEventStream(
       const encode = (data: unknown, options?: { droppable?: boolean }) => {
         enqueueText(`data: ${JSON.stringify(data)}\n\n`, options);
       };
+      const flushToolUpdates = () => {
+        toolUpdateTimer = null;
+        const updates = [...pendingToolUpdates.values()];
+        pendingToolUpdates.clear();
+        for (const update of updates) encode(update, { droppable: true });
+      };
+      const sendClientEvent = (clientEvent: AgentEventLike) => {
+        if (clientEvent.type === "tool_execution_update") {
+          pendingToolUpdates.set(clientEvent.toolCallId, clientEvent);
+          toolUpdateTimer ??= setTimeout(flushToolUpdates, TOOL_UPDATE_COALESCE_MS);
+          return;
+        }
+        // The end supersedes a partial result still waiting here, and the client
+        // would treat one arriving after the end as a tool that is running again.
+        // agent_end does the same for any tool call whose end never came.
+        if (clientEvent.type === "tool_execution_end") {
+          pendingToolUpdates.delete(clientEvent.toolCallId);
+        } else if (clientEvent.type === "agent_end") {
+          pendingToolUpdates.clear();
+        }
+        encode(clientEvent, { droppable: isDroppableEvent(clientEvent) });
+      };
       const forwardEvent = (event: AgentEventLike, snapshot: unknown) => {
         if (isEventIncludedInSnapshot(event, snapshot)) return;
         const clientEvent = toClientAgentEvent(event);
-        if (clientEvent) {
-          encode(clientEvent, { droppable: isDroppableEvent(clientEvent) });
-        }
+        if (clientEvent) sendClientEvent(clientEvent);
       };
 
       const publishSession = async () => {
@@ -234,6 +267,11 @@ export function createAgentEventStream(
             type: "connected",
             sessionId,
             isStreaming: session.isStreaming,
+            // onEvent() has just replayed every request the session still holds,
+            // so a reconnecting client can drop the ones closed while it was away.
+            pendingExtensionUiIds: bufferedEvents
+              .filter((event) => event.type === "extension_ui_request" && typeof event.id === "string")
+              .map((event) => event.id as string),
           });
           for (const event of bufferedEvents) forwardEvent(event, snapshot);
           if (snapshot !== undefined && snapshot !== null) {

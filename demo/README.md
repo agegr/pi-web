@@ -46,6 +46,13 @@ differ from their originals:
 | `components/ChatWindow.tsx`, `FileIcons.tsx`, `ProviderIcon.tsx` | Prefix static assets with the Pages base path |
 | `components/FileViewer.tsx`, `FileExplorer.tsx`, `MarkdownBody.tsx` | Load images, media and downloads from the static snapshot |
 | `lib/terminal-manager.ts` | Types only; the original is server code |
+| `lib/api-types.ts` | Carries the MCP and `ProjectTrustStatus` fields the copied panels read; the real reader lives in the Pi Web server |
+
+The Settings › MCP section has no copied panel yet, so the demo's own
+`SettingsPanel` does not list it. The mock still answers `/api/mcp` (overview,
+enable/disable, `set-enabled` and Remove, from `mock/data/mcp.ts`) and refuses
+Test and sign-in with the demo notice, so a copied panel finds a route rather
+than a 404 once that port lands.
 
 `lib/subagent-extension.ts` no longer exists on either side: Pi Web's built-in
 subagent engine was removed and the demo's `SubagentToolDetails` type now lives

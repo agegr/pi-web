@@ -152,7 +152,9 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
     // Only collapse *worktree toplevels* into the main repo. A session whose
     // cwd is a subdirectory of a repo keeps its own project identity —
     // grouping subdirs under the repo root would change where new sessions
-    // are created for existing users.
+    // are created for existing users. samePath, never `===`: git prints POSIX
+    // paths on Windows, where raw equality is always false and hides the
+    // worktree switcher.
     const isTopLevel = samePath(toplevel, realCwd);
     const isWorktreeTopLevel = !samePath(gitDir, commonDir) && isTopLevel;
     const topLevelProjectRoot = isWorktreeTopLevel ? dirname(commonDir) : toplevel;
@@ -295,7 +297,9 @@ export async function addWorktree(cwd: string, branch: string): Promise<{ path: 
 
 export async function removeWorktree(cwd: string, worktreePath: string, force = false): Promise<void> {
   const worktrees = await listWorktrees(cwd);
-  const target = findWorktreeByPath(worktrees, worktreePath);
+  // Git reports worktrees by their real path; the caller's may run through a link
+  // (macOS's /var and /tmp are links to /private/...).
+  const target = findWorktreeByPath(worktrees, realPathOrSelf(worktreePath));
   if (!target) throw new Error(`Not a worktree of this repository: ${worktreePath}`);
   if (target.isMain) throw new Error("Cannot remove the main worktree");
 

@@ -6,7 +6,11 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { buildActivePath, compressChain, hasSessionBranches, selectTopLevelBranches } = await jiti.import("./BranchNavigator.tsx");
+const { BranchNavigator, buildActivePath, compressChain, hasSessionBranches, selectTopLevelBranches } = await jiti.import("./BranchNavigator.tsx");
+const React = await jiti.import("react");
+const { renderToStaticMarkup } = await jiti.import("react-dom/server");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
+const { enLocale } = await jiti.import("@/lib/i18n/messages/en.ts");
 
 const msg = (id, role, text) => ({ type: "message", id, parentId: null, timestamp: "t", message: { role, content: text } });
 const info = (id) => ({ type: "session_info", id, parentId: null, timestamp: "t", name: "x" });
@@ -172,4 +176,36 @@ test("compressChain never labels a branch with a transcript system message", () 
   assert.equal(labelEntry.id, "u1");
   assert.equal(rep.entry.id, "a1");
   assert.equal(skipped, 2);
+});
+
+test("a locked navigator keeps the tree readable but offers no branch to switch to", () => {
+  const tree = [node(msg("u1", "user", "question"), [
+    node(msg("a1", "assistant", "first answer")),
+    node(msg("a2", "assistant", "second answer")),
+  ])];
+  const render = (locked) => renderToStaticMarkup(React.createElement(
+    I18nProvider,
+    null,
+    React.createElement(BranchNavigator, {
+      tree,
+      activeLeafId: "a1",
+      onLeafChange() {},
+      open: true,
+      hasSession: true,
+      locked,
+    }),
+  ));
+  const lockedNotice = enLocale.messages["i18n.branchesLockedWhileRunning"].replace("'", "&#x27;");
+
+  const unlocked = render(false);
+  assert.match(unlocked, /second answer/);
+  assert.equal((unlocked.match(/cursor:pointer/g) ?? []).length, 3);
+  assert.doesNotMatch(unlocked, new RegExp(lockedNotice));
+
+  const locked = render(true);
+  assert.match(locked, /second answer/);
+  assert.match(locked, new RegExp(lockedNotice));
+  // Only the panel header stays clickable; branch rows are not.
+  assert.equal((locked.match(/cursor:pointer/g) ?? []).length, 1);
+  assert.equal((locked.match(/cursor:default/g) ?? []).length, 2);
 });

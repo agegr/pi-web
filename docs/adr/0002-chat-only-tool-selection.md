@@ -57,6 +57,22 @@ so Chat only never imports or executes session extensions. The exact system
 prompt must also be reapplied after Pi's `before_agent_start` phase, because the
 SDK rebuilds its base prompt immediately before the model call.
 
+> **Updates (2026-09-22).** Two details above have changed since this decision:
+>
+> - "No entry" no longer marks only a legacy session (#936). The `configured`
+>   preset sends no `toolNames`, so a new session that follows pi's
+>   `defaultTools` writes no entry, and a later
+>   `{ "version": 1, "cleared": true }` entry retracts a pin. Either way the
+>   session has no pin and follows `defaultTools`; clearing a pin rebuilds the
+>   wrapper.
+> - Since pi 0.86 (the upgrade to 0.87, #931) the prompt lives in the
+>   transcript and can no longer be reapplied after `before_agent_start`.
+>   `lib/exact-system-prompt.ts` registers a `before_agent_start` handler that
+>   returns `{ systemPrompt }`, which the SDK sends as the provider's leading
+>   system prompt for the run.
+>
+> The current rules are in `docs/agents/tools.md`.
+
 Changing among nonempty tool presets can update an existing wrapper. Crossing
 the Chat-only boundary must append the new selection and rebuild the wrapper:
 normal wrappers have already loaded extensions, while Chat-only wrappers do not
