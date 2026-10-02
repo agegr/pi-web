@@ -75,6 +75,10 @@ interface Props {
   /** New session has not committed a thinking level; the button still shows the resolved default. */
   isAutoThinkingSelection?: boolean;
   onThinkingLevelChange?: (level: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
+  /** Extension-provided action chips (statuses whose key starts with "chip:"), shown left of the reasoning-level control. */
+  extensionChips?: { command: string; text: string }[];
+  /** Invoked with the chip's command when the user clicks it. */
+  onExtensionChipActivate?: (command: string) => void;
   availableThinkingLevels?: string[] | null;
   thinkingLevelMap?: Record<string, string | null> | null;
   /** `defaultThinkingLevel` saved in settings, starred in the reasoning menu. */
@@ -589,6 +593,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
+  extensionChips, onExtensionChipActivate,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -2401,7 +2406,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* spacer */}
           {!isMobile && <div style={{ flex: 1 }} />}
 
-          {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
+          {/* RIGHT: extension chips + thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
           <div ref={controlsMenuRef} style={{
             flex: "0 0 auto",
             display: "flex",
@@ -2410,6 +2415,51 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             position: "relative",
             marginLeft: isMobile ? 0 : "auto",
           }}>
+            {(extensionChips?.length ?? 0) > 0 && (
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: isMobile ? 1 : 2,
+                marginRight: isMobile ? 2 : 4,
+              }}>
+                {extensionChips!.map((chip) => (
+                  <button
+                    key={chip.command}
+                    type="button"
+                    disabled={isStreaming}
+                    title={`${chip.text} · ${chip.command}`}
+                    aria-label={`${chip.text} (${chip.command})`}
+                    onClick={() => onExtensionChipActivate?.(chip.command)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                      padding: isMobile ? "0 8px" : "8px 12px",
+                      height: 32,
+                      background: "none",
+                      border: "none",
+                      borderRadius: 9,
+                      color: "var(--text-muted)",
+                      cursor: isStreaming ? "not-allowed" : "pointer",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      whiteSpace: "nowrap",
+                      opacity: isStreaming ? 0.5 : 1,
+                      transition: "background 0.12s, color 0.12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (isStreaming) return;
+                      e.currentTarget.style.background = "var(--bg-hover)";
+                      e.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "none";
+                      e.currentTarget.style.color = "var(--text-muted)";
+                    }}
+                  >
+                    {chip.text}
+                  </button>
+                ))}
+              </div>
+            )}
             {isMobile && (
               <button
                 type="button"
