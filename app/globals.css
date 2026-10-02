@@ -1626,6 +1626,26 @@ span.token.table {
   to { transform: rotate(360deg); }
 }
 
+/* Compositor-friendly ping for the unread-activity ring: animating only
+   opacity keeps the ripple on the compositor thread, unlike SMIL <animate>
+   on geometry attributes (r / opacity inside SVG), which forces a main-
+   thread repaint of the whole page every frame while it runs. */
+@keyframes unread-ping {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 0.04; }
+}
+
+.unread-ping {
+  animation: unread-ping 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unread-ping {
+    animation: none;
+    opacity: 0.16;
+  }
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
