@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -17,6 +17,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { GET, PUT, PATCH, DELETE } = await jiti.import("./route.ts");
 const { allowFileRoot } = await jiti.import("../../../../lib/file-access.ts");
+const { parseFrontmatter } = await jiti.import("../../../../lib/frontmatter.ts");
 
 after(async () => {
   if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -47,6 +48,45 @@ function jsonRequest(method, body) {
     body: JSON.stringify(body),
   });
 }
+
+test("profile PUT and PATCH retain authored named/empty skills, activation and foreign fields", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "skill-route-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, ".pi", "agents"), { recursive: true });
+  const file = join(cwd, ".pi", "agents", "api-test-agent.md");
+  for (const authored of ['"review, audit"', '[review, audit]', '[]', 'none']) {
+    await writeFile(file, `---\nskills: ${authored}\nload_skills: false\nextensions: custom-extension\nforeign: retain-me\n---\nPrompt`);
+    for (const enabled of [false, true]) {
+      const response = await PATCH(jsonRequest("PATCH", { cwd, scope: "project", name: "api-test-agent", enabled }));
+      assert.equal(response.status, 200);
+      const saved = (await response.json()).profile;
+      assert.deepEqual(saved.skills, authored === '[]' || authored === 'none' ? [] : ["review", "audit"]);
+      assert.equal(saved.loadSkills, false);
+      const put = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: { ...saved, description: "Unrelated edit" } }));
+      assert.equal(put.status, 200);
+      const text = await readFile(file, "utf8");
+      assert.match(text, /foreign: retain-me/);
+      assert.match(text, /extensions: custom-extension/);
+      const stored = parseFrontmatter(text).data.skills;
+      if (authored === '"review, audit"') assert.equal(stored, "review, audit");
+      if (authored === '[review, audit]') assert.deepEqual(stored, ["review", "audit"]);
+      if (authored === 'none') assert.equal(stored, "none");
+      if (authored === '[]') assert.deepEqual(stored, []);
+    }
+  }
+});
+
+test("profile PUT rejects malformed scope lists instead of enabling all skills", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "skill-route-invalid-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  for (const skills of ["review", [42], [""], null]) {
+    const response = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: profile({ skills }) }));
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /skills/);
+  }
+});
 
 test("profiles route creates, lists, and deletes a project profile", async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-web-subagent-route-"));

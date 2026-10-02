@@ -2,10 +2,26 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import ts from "typescript";
+import vm from "node:vm";
+
 const source = await readFile(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const modelSelectorSource = await readFile(new URL("./ModelSelector.tsx", import.meta.url), "utf8");
+
+test("editor draft preserves named and empty selections independently of activation", () => {
+  const declaration = source.slice(source.indexOf("function editableProfile("), source.indexOf("function profileKey("));
+  const code = ts.transpileModule(declaration, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const editable = vm.runInNewContext(`${code}; editableProfile`);
+  for (const skills of [["review", "audit"], []]) {
+    const draft = editable({ name: "reviewer", tools: [], loadSkills: false, skills });
+    assert.equal(draft.loadSkills, false);
+    assert.deepEqual(Array.from(draft.skills ?? ["LOST"]), skills);
+    draft.skills.push("new");
+    assert.notEqual(draft.skills.length, skills.length);
+  }
+});
 
 test("keeps same-name profiles selectable by scope and groups writable sources first", () => {
   assert.match(source, /return `\$\{profile\.scope\}:\$\{profile\.name\}`/);

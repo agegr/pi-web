@@ -82,6 +82,7 @@ export async function PATCH(req: Request) {
       systemPrompt: source.systemPrompt,
       tools: source.tools,
       loadSkills: source.loadSkills,
+      ...(source.skills !== undefined ? { skills: [...source.skills] } : {}),
       loadExtensions: source.loadExtensions,
       promptMode: source.promptMode,
       model: source.model,
