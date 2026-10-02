@@ -42,6 +42,47 @@ export interface AttachedImage {
   previewUrl: string; // object URL for display
 }
 
+// Composer height: the textarea defaults to two text lines on desktop, and the
+// user can drag its top edge to a fixed height that persists in localStorage. A
+// fixed height pins both minHeight and maxHeight — long content scrolls inside
+// the box instead of growing it.
+const COMPOSER_LINE_HEIGHT_RATIO = 1.6; // matches the textarea's lineHeight
+const COMPOSER_DEFAULT_MAX_HEIGHT = 200;
+const COMPOSER_HEIGHT_PREF = "pi-composer-height";
+
+function composerDefaultMinHeight(fontSize: number): number {
+  return Math.ceil(fontSize * COMPOSER_LINE_HEIGHT_RATIO * 2) + 2;
+}
+
+function readStoredComposerHeight(): number | null {
+  try {
+    const stored = globalThis.localStorage?.getItem(COMPOSER_HEIGHT_PREF);
+    const height = stored === null ? NaN : Number(stored);
+    return Number.isFinite(height) && height >= 24 ? height : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredComposerHeight(height: number | null): void {
+  try {
+    if (height === null) globalThis.localStorage?.removeItem(COMPOSER_HEIGHT_PREF);
+    else globalThis.localStorage?.setItem(COMPOSER_HEIGHT_PREF, String(height));
+  } catch {
+    // Storage unavailable (private mode); the choice just does not persist.
+  }
+}
+
+/** A fixed height wins; otherwise the historical auto-grow to the default cap. */
+function applyComposerBoxHeight(ta: HTMLTextAreaElement, fixedHeight: number | null): void {
+  if (fixedHeight !== null) {
+    ta.style.height = `${fixedHeight}px`;
+    return;
+  }
+  ta.style.height = "auto";
+  if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, COMPOSER_DEFAULT_MAX_HEIGHT)}px`;
+}
+
 interface Props {
   onSend: (message: string, images?: AttachedImage[]) => void;
   onAbort: () => void;
@@ -659,6 +700,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
+  // A dragged composer height is fixed: the box stays exactly that tall and long
+  // content scrolls inside. null = the historical behavior (min rows, auto-grow to
+  // the default cap). compact mode ignores it — the mobile composer keeps its own
+  // sizing under the software-keyboard viewport logic.
+  const [composerHeight, setComposerHeight] = useState<number | null>(() => readStoredComposerHeight());
+  const composerHeightRef = useRef<number | null>(compact ? null : composerHeight);
+  // The ref mirrors the effective (compact-aware) height, render-time like
+  // valueRef above, so every imperative resize call stays compact-aware.
+  composerHeightRef.current = compact ? null : composerHeight;
+  const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null);
+  const applyComposerHeight = useCallback((height: number | null, persist = true) => {
+    composerHeightRef.current = height;
+    setComposerHeight(height);
+    if (persist) writeStoredComposerHeight(height);
+  }, []);
+  const fixedComposerHeight = compact ? null : composerHeight;
+
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
@@ -670,8 +728,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyComposerBoxHeight(ta, composerHeightRef.current);
       });
     },
     replaceMessage(message: UserMessage) {
@@ -693,8 +750,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyComposerBoxHeight(ta, composerHeightRef.current);
       });
     },
     prependText(text: string) {
@@ -711,8 +767,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyComposerBoxHeight(ta, composerHeightRef.current);
       });
     },
     rekeyDraft(previousKey: string, nextKey: string) {
@@ -807,8 +862,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyComposerBoxHeight(ta, composerHeightRef.current);
       });
     },
     insertText(text: string) {
@@ -831,8 +885,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        applyComposerBoxHeight(ta, composerHeightRef.current);
       });
     },
     addImages(files: File[]) {
@@ -897,7 +950,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+      applyComposerBoxHeight(textareaRef.current, composerHeightRef.current);
     }
   }, [clearImages, draftKey]);
 
@@ -938,8 +991,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    applyComposerBoxHeight(ta, composerHeightRef.current);
   }, []);
 
   useLayoutEffect(resizeTextarea, [value, fontSize, resizeTextarea]);
@@ -957,6 +1009,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     observer.observe(ta);
     return () => observer.disconnect();
   }, [resizeTextarea]);
+
+  // Re-apply when a drag or a double-click reset changes the fixed height; the
+  // drag itself already applies the height per move, this catches the rest.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (ta) applyComposerBoxHeight(ta, composerHeightRef.current);
+  }, [composerHeight]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -1172,8 +1231,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!el) return;
       el.focus();
       el.setSelectionRange(newPos, newPos);
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+      applyComposerBoxHeight(el, composerHeightRef.current);
     });
   }, [atQuery, value]);
 
@@ -1217,8 +1275,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(text.length, text.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      applyComposerBoxHeight(ta, composerHeightRef.current);
     });
   }, []);
 
@@ -1232,8 +1289,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      applyComposerBoxHeight(ta, composerHeightRef.current);
     });
   }, []);
 
@@ -1459,8 +1515,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleInput = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    applyComposerBoxHeight(ta, composerHeightRef.current);
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -2186,6 +2241,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div
             style={{
               minWidth: 0,
+              position: compact ? undefined : "relative",
               display: "flex",
               flexDirection: compact ? "column" : "row",
               gap: 8,
@@ -2200,6 +2256,61 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
+          {!compact && (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label={t("chat.composerResize")}
+              title={t("chat.composerResize")}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                const ta = textareaRef.current;
+                if (!ta) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                composerResizeRef.current = {
+                  pointerId: e.pointerId,
+                  startY: e.clientY,
+                  startHeight: fixedComposerHeight ?? ta.getBoundingClientRect().height,
+                };
+              }}
+              onPointerMove={(e) => {
+                const drag = composerResizeRef.current;
+                if (!drag || drag.pointerId !== e.pointerId) return;
+                // Dragging up grows the box; one text line is the floor and most
+                // of the viewport is the ceiling.
+                const minHeight = Math.ceil(fontSize * COMPOSER_LINE_HEIGHT_RATIO) + 2;
+                const maxHeight = Math.max(minHeight + 40, Math.round(window.innerHeight * 0.6));
+                applyComposerHeight(Math.round(Math.min(maxHeight, Math.max(minHeight, drag.startHeight + (drag.startY - e.clientY)))), false);
+                const ta = textareaRef.current;
+                if (ta) applyComposerBoxHeight(ta, composerHeightRef.current);
+              }}
+              onPointerUp={(e) => {
+                if (!composerResizeRef.current || composerResizeRef.current.pointerId !== e.pointerId) return;
+                composerResizeRef.current = null;
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                writeStoredComposerHeight(composerHeightRef.current);
+              }}
+              onPointerCancel={() => {
+                composerResizeRef.current = null;
+              }}
+              onDoubleClick={() => applyComposerHeight(null)}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 10,
+                display: "grid",
+                placeItems: "center",
+                cursor: "ns-resize",
+                touchAction: "none",
+                zIndex: 1,
+              }}
+            >
+              <div style={{ width: 36, height: 3, borderRadius: 2, background: "var(--border)" }} />
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             className="chat-input-textarea"
@@ -2246,8 +2357,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontSize: "var(--chat-content-font-size, 14px)",
               lineHeight: 1.6,
               fontFamily: "inherit",
-              minHeight: compact ? 96 : 24,
-              maxHeight: 200,
+              minHeight: fixedComposerHeight ?? (compact ? 96 : composerDefaultMinHeight(fontSize)),
+              maxHeight: fixedComposerHeight ?? COMPOSER_DEFAULT_MAX_HEIGHT,
               overflow: "auto",
             }}
           />

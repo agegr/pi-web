@@ -412,6 +412,7 @@ export const enLocale: LocalePlugin = {
     "chat.steerPlaceholder": "Steer now / queue follow-up...",
     "chat.agentPlaceholder": "Agent is running…",
     "chat.messagePlaceholder": "Message… Type / for commands, @ for files",
+    "chat.composerResize": "Drag to resize the input / double-click to reset",
     "chat.steer": "Steer",
     "chat.followUp": "Follow-up",
     "chat.steerHint": "Deliver after the current response and its tool calls finish (Stop interrupts them)",

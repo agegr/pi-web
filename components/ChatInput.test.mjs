@@ -859,3 +859,48 @@ test("selector rows keep the default star and the floating save button in one gu
   assert.match(active, /aria-selected="true"/);
   assert.doesNotMatch(active, /border-left/);
 });
+
+test("defaults the desktop composer to two text lines and lets it be dragged to a fixed height", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false,
+    })),
+  );
+
+  // Two lines at the default 14px reading font: ceil(14 * 1.6 * 2) + 2 = 47.
+  assert.match(html, /min-height:47px/);
+  assert.match(html, /max-height:200px/);
+  // The drag handle sits on the composer's top edge, desktop only.
+  assert.match(html, /role="separator" aria-orientation="horizontal" aria-label="Drag to resize the input \/ double-click to reset"/);
+  assert.match(html, /cursor:ns-resize/);
+
+  const compactHtml = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false, compact: true,
+    })),
+  );
+  // Compact keeps its own mobile sizing and never renders the handle.
+  assert.match(compactHtml, /min-height:96px/);
+  assert.doesNotMatch(compactHtml, /role="separator"/);
+});
+
+test("pins a dragged composer height and stores it instead of the 200px cap", () => {
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+
+  // The auto-grow ceiling lives in one place now; no hardcoded 200px survives.
+  assert.doesNotMatch(source, /scrollHeight, 200/);
+  assert.match(source, /const COMPOSER_DEFAULT_MAX_HEIGHT = 200;/);
+  // A fixed height wins over auto-grow: the box stays exactly that tall.
+  assert.match(
+    source,
+    /if \(fixedHeight !== null\) \{\s*ta\.style\.height = `\$\{fixedHeight\}px`;\s*return;\s*\}/,
+  );
+  // Default is two lines, derived from the reading font size.
+  assert.match(source, /Math\.ceil\(fontSize \* COMPOSER_LINE_HEIGHT_RATIO \* 2\) \+ 2/);
+  // Dragging up grows the box (drag start Y minus the current Y).
+  assert.match(source, /drag\.startHeight \+ \(drag\.startY - e\.clientY\)/);
+  // The dragged height persists on pointer-up; double-click restores the default.
+  assert.match(source, /e\.currentTarget\.releasePointerCapture\(e\.pointerId\);\s*writeStoredComposerHeight\(composerHeightRef\.current\);/);
+  assert.match(source, /onDoubleClick=\{\(\) => applyComposerHeight\(null\)\}/);
+  assert.match(source, /const COMPOSER_HEIGHT_PREF = "pi-composer-height";/);
+});
