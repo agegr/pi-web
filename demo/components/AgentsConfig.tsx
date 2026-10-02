@@ -12,7 +12,8 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAgentsRefresh } from "@/hooks/useAgentsRefresh";
-import type { SubagentCatalogResponse, SubagentProfilesResponse, SubagentToolsResponse } from "@/lib/api-types";
+import type { ProjectTrustStatus, SubagentCatalogResponse, SubagentProfilesResponse, SubagentToolsResponse } from "@/lib/api-types";
+import { displayPathWithin, shortenPath } from "@/lib/display-path";
 import type { ModelsData } from "@/lib/models-cache";
 import { isSubagentProfileOverridden } from "@/lib/subagent-profile-precedence";
 import type { AgentCatalogAgent, AgentCatalogSource } from "@/lib/pi-subagents-catalog";
@@ -43,6 +44,7 @@ import {
   ConfigSwitch,
 } from "./SettingsUi";
 import { ModelSelector } from "./ModelSelector";
+import { projectTrustReloadKey } from "./settings-ui-helpers";
 
 const THINKING_OPTIONS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const CONTEXT_OPTIONS = ["", "fresh", "fork"] as const;
@@ -138,17 +140,11 @@ function isEjectableSource(source: AgentCatalogSource): boolean {
   return source === "builtin" || source === "package";
 }
 
-function shortenPath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+/, "~");
-}
-
 function displayProfilePath(profile: SubagentProfile, cwd: string): string | null {
   if (!profile.filePath) return null;
-  if ((profile.scope === "project" || profile.scope === "workspace") && profile.filePath.startsWith(cwd)) {
-    const relative = profile.filePath.slice(cwd.length).replace(/^[/\\]/, "");
-    return `./${relative}`;
-  }
-  return shortenPath(profile.filePath);
+  return profile.scope === "project" || profile.scope === "workspace"
+    ? displayPathWithin(profile.filePath, cwd)
+    : shortenPath(profile.filePath);
 }
 
 function sourceLabelKey(source: AgentCatalogSource): string {
@@ -410,12 +406,15 @@ export function AgentsConfig({
   onClose,
   embedded = false,
   active = true,
+  trust,
 }: {
   cwd: string;
   onClose: () => void;
   embedded?: boolean;
   /** The settings section host keeps this panel mounted while another section is shown. */
   active?: boolean;
+  /** The page's trust status for `cwd`; a new decision loads the model list again. */
+  trust?: ProjectTrustStatus | null;
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
@@ -561,6 +560,12 @@ export function AgentsConfig({
     if (selectedKey) setLastSettingsSelection("agents", selectedKey, cwd);
   }, [cwd, selectedKey]);
 
+  // The model list follows the folder's trust: GET /api/models leaves out an
+  // untrusted project's extensions, which can register providers. Trust can
+  // change while this section stays mounted (hidden) in Settings, by trusting
+  // from Settings › MCP; a new decision loads the list again in place, keeping
+  // any profile draft.
+  const trustKey = projectTrustReloadKey(trust);
   useEffect(() => {
     const controller = new AbortController();
     setModelsLoading(true);
@@ -580,7 +585,7 @@ export function AgentsConfig({
       }
     })();
     return () => controller.abort();
-  }, [cwd]);
+  }, [cwd, trustKey]);
 
   /** The raw-entry inputs are local text; reset them whenever the edited profile changes. */
   const resetRawEntries = () => {

@@ -13,6 +13,7 @@ import { delay, error, json } from "./http";
 import { currentDemoLocale } from "./locale";
 import { AUTH_PROVIDERS_RESPONSE, ENABLED_MODELS_RESPONSE, MODELS_CONFIG, MODELS_RESPONSE, MODEL_PRICING } from "./data/models";
 import { PLUGINS_RESPONSE, SKILL_SEARCH_RESULTS } from "./data/extensions";
+import { mcpOverview, mcpServersState } from "./data/mcp";
 import { settings } from "./settings-state";
 import { demoOnlyMessage } from "./unavailable";
 
@@ -370,6 +371,59 @@ async function subagentsRoute(request: MockRequest): Promise<Response> {
   return error("Not found", 404);
 }
 
+/**
+ * Settings › MCP, read-only apart from the switches and Remove: a test or a
+ * sign-in would start a server or contact an authorization server, so those
+ * are refused with the demo notice, as installs are elsewhere. The overview
+ * comes from `mock/data/mcp.ts` and edits update it in place, so the panel's
+ * refetch shows the result.
+ */
+async function mcpRoute(request: MockRequest): Promise<Response> {
+  const cwd = request.query("cwd");
+  const sub = request.segments[2];
+  if (sub === "test" || sub === "sign-in") return error(demoOnlyMessage(), 501);
+  if (request.method === "GET") return json(mcpOverview(cwd));
+  if (request.method !== "POST") return error("Method not allowed", 405);
+  const body = await request.json<{
+    action?: string;
+    scope?: string;
+    name?: string;
+    enabled?: boolean;
+    servers?: Array<{ scope: string; name: string }>;
+  }>();
+  const find = (scope: string | undefined, name: string | undefined) =>
+    mcpServersState.find((entry) => entry.name === name && (!scope || entry.scope === scope));
+  // `set-enabled` writes one file per scope and answers a result per server, so
+  // a name the file does not define is reported rather than refusing the batch.
+  const setEnabled = (targets: Array<{ scope: string; name: string }>, enabled: boolean) => targets.map((target) => {
+    const entry = find(target.scope, target.name);
+    if (!entry) return { ...target, reason: "server-missing" as const };
+    entry.enabled = enabled;
+    return { ...target };
+  });
+  switch (body.action) {
+    case "enable":
+    case "disable": {
+      const entry = find(body.scope, body.name);
+      if (!entry) return error("server-missing", 409, { reason: "server-missing" });
+      entry.enabled = body.action === "enable";
+      return json(mcpOverview(cwd));
+    }
+    case "set-enabled":
+      return json({ ...mcpOverview(cwd), results: setEnabled(body.servers ?? [], body.enabled === true) });
+    case "remove": {
+      const entry = find(body.scope, body.name);
+      if (!entry) return error("server-missing", 409, { reason: "server-missing" });
+      mcpServersState.splice(mcpServersState.indexOf(entry), 1);
+      // The real route keeps the entry for 60 s behind an undo token; the demo
+      // never restores it, so Undo meets the same 410 the expired one gets.
+      return json({ ...mcpOverview(cwd), undo: { token: "demo", scope: entry.scope, name: entry.name, expiresInMs: 0 } });
+    }
+    default:
+      return error(demoOnlyMessage(), 501);
+  }
+}
+
 export async function settingsRoutes(request: MockRequest): Promise<Response> {
   switch (request.segments[1]) {
     case "models": return modelsRoute(request);
@@ -383,6 +437,7 @@ export async function settingsRoutes(request: MockRequest): Promise<Response> {
     case "skills": return skillsRoute(request);
     case "plugins": return pluginsRoute(request);
     case "subagents": return subagentsRoute(request);
+    case "mcp": return mcpRoute(request);
     case "tools": {
       if (request.method === "PUT") return error("PowerShell tool settings are only available on Windows", 404);
       return json({ isWindows: false, powerShellEnabled: settings.powerShellEnabled });
