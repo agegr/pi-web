@@ -1950,6 +1950,87 @@ span.token.table {
   }
 }
 
+/* ===== 本地图片/视频背景层（pi-bg）===== */
+.pi-bg-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pi-bg-layer video,
+.pi-bg-layer img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pi-bg-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, var(--pi-bg-dim, 0.55));
+}
+
+/* 启用背景时：外壳容器透明，让背景层透出 */
+html[data-pi-bg] .pi-shell-root {
+  background: transparent !important;
+}
+
+html[data-pi-bg] .pi-topbar {
+  background: color-mix(in srgb, var(--bg-panel) 60%, transparent) !important;
+}
+
+/* 覆盖范围=整个窗口：侧栏/文件面板半透明，背景全窗口可见 */
+html[data-pi-bg="full"] #session-sidebar {
+  background: color-mix(in srgb, var(--bg-panel) 82%, transparent) !important;
+}
+
+html[data-pi-bg="full"] #file-panel {
+  background: color-mix(in srgb, var(--bg) 82%, transparent) !important;
+}
+
+html[data-pi-bg="full"] #file-panel > div:first-child {
+  background: color-mix(in srgb, var(--bg-panel) 80%, transparent) !important;
+}
+
+/* 覆盖范围=仅聊天区：侧栏/文件面板保持不透明（默认即如此，无需覆盖） */
+
+/* 背景视频声音开关按钮（位于外壳之上） */
+.pi-bg-sound-toggle {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  /* above the settings modal backdrop (z-index: 1000) so the toggle stays
+     usable while the settings panel is open */
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  transition: color 0.12s, background 0.12s;
+}
+
+.pi-bg-sound-toggle:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.pi-bg-sound-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* While the software keyboard is up (set by useViewportHeight), only a few
    hundred pixels remain above it. Hand them to the conversation: collapse the
    model/controls row and the extension status shelf, and drop the home

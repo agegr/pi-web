@@ -23,6 +23,7 @@ import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { BackgroundLayer } from "./BackgroundLayer";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName } from "@/lib/file-paths";
@@ -171,6 +172,16 @@ export function AppShell() {
     setSearchTarget((current) => current === target ? null : current);
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+  // 桌面壳标记：Pi 桌面（WebView2 壳）注入 window.__PI_DESKTOP__，设置面板直接弹独立窗口
+  const inDesktopShell = typeof window !== "undefined" && (window as any).__PI_DESKTOP__ === true;
+  const openSettings = (section: SettingsSection) => {
+    if (inDesktopShell) {
+      const cwdParam = projectTrustCwd ? `&cwd=${encodeURIComponent(projectTrustCwd)}` : "";
+      window.open(`${window.location.origin}/settings?section=${section}${cwdParam}`, "pi-settings", "width=1000,height=720");
+    } else {
+      setSettingsSection(section);
+    }
+  };
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
@@ -1212,7 +1223,7 @@ export function AppShell() {
             <button
               key={section}
               type="button"
-              onClick={() => setSettingsSection(section)}
+              onClick={() => openSettings(section)}
               disabled={disabled}
               title={disabled ? translate("settings.projectRequired") : label}
               aria-label={label}
@@ -1233,7 +1244,7 @@ export function AppShell() {
         })}
         <button
           type="button"
-          onClick={() => setSettingsSection(getLastSettingsSection(projectTrustCwd))}
+          onClick={() => openSettings(getLastSettingsSection(projectTrustCwd))}
           title={translate("common.settings")}
           aria-label={translate("common.settings")}
           style={{
@@ -1887,15 +1898,20 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
-      display: "flex",
-      width: "100%",
-      height: "var(--app-viewport-height, 100dvh)",
-      paddingLeft: "env(safe-area-inset-left)",
-      paddingRight: "env(safe-area-inset-right)",
-      overflow: "hidden",
-      background: "var(--bg)",
-    }}>
+    <div
+      className="pi-shell-root"
+      style={{
+        position: "relative",
+        zIndex: 1,
+        display: "flex",
+        width: "100%",
+        height: "var(--app-viewport-height, 100dvh)",
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
+        overflow: "hidden",
+        background: "var(--bg)",
+      }}
+    >
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -1945,7 +1961,7 @@ export function AppShell() {
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        <div ref={topBarRef} className="pi-topbar" style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
@@ -2522,6 +2538,8 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    {/* Background layer sits below the shell (shell has zIndex 1). */}
+    <BackgroundLayer />
     {settingsSection && (
       <SettingsPanel
         cwd={projectTrustCwd}

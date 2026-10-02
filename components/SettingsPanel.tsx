@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
+import { useBackground, INTERVAL_OPTIONS_SEC, formatIntervalSec } from "@/hooks/useBackground";
 import { THEME_OPTIONS } from "@/lib/theme";
 import { ThemeIcon } from "./ThemeIcon";
 import {
@@ -40,6 +41,8 @@ interface Props {
   onSessionReloaded: () => void;
   quoteSelectionEnabled: boolean;
   onQuoteSelectionChange: (enabled: boolean) => void;
+  undockable?: boolean;
+  standalone?: boolean;
 }
 
 export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
@@ -66,6 +69,26 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
+  const {
+    enabled: bgEnabled,
+    coverage: bgCoverage,
+    sound: bgSound,
+    dim: bgDim,
+    intervalSec: bgIntervalSec,
+    order: bgOrder,
+    items: bgItems,
+    currentIndex: bgCurrentIndex,
+    currentItem: bgCurrentItem,
+    addFiles: bgAddFiles,
+    removeItem: bgRemoveItem,
+    removeAll: bgRemoveAll,
+    setEnabled: bgSetEnabled,
+    setCoverage: bgSetCoverage,
+    setSound: bgSetSound,
+    setDim: bgSetDim,
+    setIntervalSec: bgSetIntervalSec,
+    setCurrentIndex: bgSetCurrentIndex,
+  } = useBackground();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
@@ -186,6 +209,146 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               </label>
             );
           })}
+        </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.background")}</h3>
+        <p className="settings-general-description">{t("settings.backgroundDescription")}</p>
+        <div className="settings-bg-options">
+          <label className="config-button config-button-small config-button-secondary settings-bg-pick">
+            <input
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              className="sr-only"
+              onChange={(event) => {
+                if (event.target.files && event.target.files.length > 0) {
+                  bgAddFiles(event.target.files);
+                  event.target.value = "";
+                }
+              }}
+            />
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 15a2 2 0 0 0 2 2h2" /><path d="M18 8a2 2 0 0 0-2-2h-2" /><circle cx="12" cy="13" r="8" /><path d="M12 9v8" /><path d="M8 13h8" />
+            </svg>
+            {t("settings.bgPick")}
+          </label>
+
+          {bgOrder.length > 0 && (
+            <div className="settings-bg-list-wrap">
+              <div className="settings-bg-list-heading">
+                <span>{t("settings.bgList")}（{bgOrder.length}）</span>
+                <button type="button" className="config-button config-button-small config-button-ghost" onClick={bgRemoveAll}>
+                  {t("settings.bgClearAll")}
+                </button>
+              </div>
+              <ul className="settings-bg-list">
+                {bgOrder.map((item, index) => {
+                  const itemData = bgItems.find((bg) => bg.id === item.id);
+                  return (
+                    <li
+                      key={item.id}
+                      className={bgItems.length > 0 && index === bgCurrentIndex ? "is-current" : ""}
+                      onClick={() => bgSetCurrentIndex(index)}
+                      title={t("settings.bgSelect")}
+                    >
+                      <span className="settings-bg-thumb" aria-hidden="true">
+                        {itemData && itemData.kind === "video" ? (
+                          <video src={itemData.url} muted playsInline />
+                        ) : itemData ? (
+                          <img src={itemData.url} alt="" />
+                        ) : (
+                          <span className="settings-bg-list-kind">{item.kind === "video" ? "▶" : "▣"}</span>
+                        )}
+                      </span>
+                      <span className="settings-bg-list-name" title={item.name}>{item.name}</span>
+                      <button
+                        type="button"
+                        className="settings-bg-list-remove"
+                        title={t("settings.bgRemove")}
+                        aria-label={`${t("settings.bgRemove")}: ${item.name}`}
+                        onClick={(event) => { event.stopPropagation(); bgRemoveItem(item.id); }}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {bgCurrentItem && (
+            <div className="settings-bg-preview">
+              {bgCurrentItem.kind === "video" ? (
+                <video src={bgCurrentItem.url} muted autoPlay loop playsInline />
+              ) : (
+                <img src={bgCurrentItem.url} alt="" />
+              )}
+            </div>
+          )}
+
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.bgEnabled")}</span>
+            <ConfigSwitch checked={bgEnabled} label={t("settings.bgEnabled")} onChange={bgSetEnabled} />
+          </div>
+
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.bgVideoSound")}</span>
+            <ConfigSwitch checked={bgSound} label={t("settings.bgVideoSound")} onChange={bgSetSound} />
+          </div>
+
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label id="settings-bg-coverage">{t("settings.bgCoverage")}</label>
+            </div>
+            <div role="radiogroup" aria-labelledby="settings-bg-coverage" className="settings-bg-radios">
+              <label className="settings-bg-radio">
+                <input type="radio" name="bg-coverage" value="full" checked={bgCoverage === "full"} onChange={() => bgSetCoverage("full")} />
+                <span>{t("settings.bgCoverageFull")}</span>
+              </label>
+              <label className="settings-bg-radio">
+                <input type="radio" name="bg-coverage" value="chat" checked={bgCoverage === "chat"} onChange={() => bgSetCoverage("chat")} />
+                <span>{t("settings.bgCoverageChat")}</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label htmlFor="settings-bg-interval">{t("settings.bgInterval")}</label>
+              <output htmlFor="settings-bg-interval">{formatIntervalSec(bgIntervalSec, t("settings.bgIntervalNever"))}</output>
+            </div>
+            <select
+              id="settings-bg-interval"
+              className="settings-bg-interval-select"
+              value={bgIntervalSec}
+              onChange={(event) => bgSetIntervalSec(Number(event.target.value))}
+            >
+              {INTERVAL_OPTIONS_SEC.map((sec) => (
+                <option key={sec} value={sec}>
+                  {formatIntervalSec(sec, t("settings.bgIntervalNever"))}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label htmlFor="settings-bg-dim">{t("settings.bgDim")}</label>
+              <output htmlFor="settings-bg-dim">{Math.round(bgDim * 100)}%</output>
+            </div>
+            <input
+              id="settings-bg-dim"
+              type="range"
+              min={0}
+              max={80}
+              step={5}
+              value={Math.round(bgDim * 100)}
+              onChange={(event) => bgSetDim(Number(event.target.value) / 100)}
+            />
+          </div>
         </div>
       </section>
 
@@ -379,8 +542,64 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   );
 }
 
-export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Props) {
+export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange, undockable = true, standalone = false }: Props) {
   const { t } = useI18n();
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const dragStart = useRef<{ dx: number; dy: number } | null>(null);
+  const [maximized, setMaximized] = useState(false);
+
+  // 小窗口适配：对话框支持按住标题栏拖动（默认居中，拖动后变为自由定位）。
+  // 拖动范围限制在窗口内，避免面板拖出窗口导致内容被裁剪。
+  const onHeaderPointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0 || maximized) return;
+    if ((event.target as HTMLElement).closest(".settings-dialog-close, .settings-dialog-maximize")) return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const rect = surface.getBoundingClientRect();
+    surface.style.position = "fixed";
+    surface.style.left = `${rect.left}px`;
+    surface.style.top = `${rect.top}px`;
+    surface.style.margin = "0";
+    dragStart.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    const onMove = (ev: PointerEvent) => {
+      if (!dragStart.current) return;
+      const w = surface.offsetWidth, h = surface.offsetHeight;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      // 面板始终保持在窗口内：内容不可能被拖出裁剪
+      const left = Math.max(Math.min(ev.clientX - dragStart.current.dx, vw - Math.min(w, vw)), Math.min(0, vw - w));
+      const top = Math.max(Math.min(ev.clientY - dragStart.current.dy, vh - Math.min(h, vh)), Math.min(0, vh - h));
+      surface.style.left = `${left}px`;
+      surface.style.top = `${top}px`;
+    };
+    const onUp = () => {
+      dragStart.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // 最大化：铺满窗口（内部滚动），小窗口下最方便；再点一次还原居中
+  const toggleMaximize = () => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    if (!maximized) {
+      surface.style.cssText = "position:fixed; left:8px; top:8px; width:calc(100vw - 16px); height:calc(100dvh - 16px); margin:0; max-width:none; max-height:none;";
+      setMaximized(true);
+    } else {
+      surface.style.cssText = "";
+      setMaximized(false);
+    }
+  };
+
+  // 移出到桌面：在独立窗口打开设置面板（Pi 桌面壳会弹出真·系统窗口，可拖到桌面任意位置）
+  const undock = () => {
+    const cwdParam = cwd ? `&cwd=${encodeURIComponent(cwd)}` : "";
+    const url = `${window.location.origin}/settings?section=${section}${cwdParam}`;
+    window.open(url, "pi-settings", "width=1000,height=720");
+  };
+
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
     () => new Set([section]),
@@ -434,10 +653,10 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
       aria-modal="true"
       aria-label={t("settings.title")}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-      className="settings-dialog-backdrop"
+      className={standalone ? "settings-dialog-backdrop settings-dialog-backdrop-standalone" : "settings-dialog-backdrop"}
     >
-      <div className="settings-dialog-surface">
-        <div className="settings-dialog-header">
+      <div className={standalone ? "settings-dialog-surface settings-dialog-surface-standalone" : "settings-dialog-surface"} ref={surfaceRef}>
+        <div className="settings-dialog-header" onPointerDown={standalone ? undefined : onHeaderPointerDown}>
           <strong className="settings-dialog-title">{t("settings.title")}</strong>
           <select
             aria-label={t("settings.title")}
@@ -471,7 +690,17 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
               );
             })}
           </nav>
-          <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
+          {undockable !== false && (
+            <button type="button" onClick={undock} title={t("settings.undock")} aria-label={t("settings.undock")} className="config-close-button settings-dialog-undock">⧉</button>
+          )}
+          {!standalone && (
+            <button type="button" onClick={toggleMaximize} title={maximized ? t("i18n.restore") : t("i18n.maximize")} aria-label={maximized ? t("i18n.restore") : t("i18n.maximize")} className="config-close-button settings-dialog-maximize">
+              {maximized ? "⤡" : "⤢"}
+            </button>
+          )}
+          {!standalone && (
+            <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
+          )}
         </div>
 
         <main className="settings-dialog-main">

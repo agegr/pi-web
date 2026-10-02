@@ -1319,15 +1319,45 @@
 .settings-dialog-surface {
   display: flex;
   flex-direction: column;
-  width: 1080px;
+  /* 小窗口适配：默认更紧凑，可拖动（标题栏）可缩放（右下角）；尺寸封顶不超窗口 */
+  width: min(860px, calc(100vw - 24px));
+  height: min(64vh, calc(100dvh - 24px));
+  min-width: 420px;
+  min-height: 300px;
   max-width: calc(100vw - 16px);
-  height: 84vh;
   max-height: calc(100dvh - 16px);
-  overflow: hidden;
+  resize: both;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+}
+
+/* 独立窗口模式（Pi 桌面弹窗 / /settings 页）：设置内容铺满整个窗口，
+   无遮罩、无内边框，移动与缩放交给原生窗口，不显示面板级拖动/放大 */
+.settings-dialog-backdrop-standalone {
+  background: var(--bg);
+}
+
+.settings-dialog-surface-standalone {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  resize: none;
+}
+
+.settings-dialog-surface-standalone .settings-dialog-header {
+  cursor: default;
 }
 
 .settings-dialog-header {
@@ -1338,6 +1368,8 @@
   min-height: 50px;
   padding: 0 52px 0 18px;
   border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
 }
 
 .settings-dialog-title {
@@ -1396,6 +1428,8 @@
 .settings-section-tab[aria-current="page"] {
   color: var(--text);
   font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 8px;
 }
 
 .settings-section-tab[aria-current="page"]::after {
@@ -1438,6 +1472,22 @@
   position: absolute;
   top: 10px;
   right: 14px;
+}
+
+/* 最大化按钮：紧挨关闭按钮左侧 */
+.settings-dialog-maximize {
+  position: absolute;
+  top: 10px;
+  right: 48px;
+  font-size: 15px;
+}
+
+/* 移出到桌面按钮：在最大化按钮左侧 */
+.settings-dialog-undock {
+  position: absolute;
+  top: 10px;
+  right: 82px;
+  font-size: 15px;
 }
 
 .settings-dialog-main {
@@ -1637,6 +1687,17 @@
   accent-color: var(--accent);
 }
 
+.settings-bg-interval-select {
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.35));
+  background: var(--bg-input, var(--bg-panel));
+  color: var(--text);
+  font-size: 13px;
+}
+
 .settings-language-options {
   display: flex;
   flex-direction: column;
@@ -1818,4 +1879,175 @@
       padding-left: max(59px, env(safe-area-inset-left));
     }
   }
+}
+
+/* ===== 设置面板：背景分组 ===== */
+.settings-bg-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.settings-bg-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  cursor: pointer;
+}
+
+.settings-bg-list-wrap {
+  width: 100%;
+}
+
+.settings-bg-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.settings-bg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+.settings-bg-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.settings-bg-list li:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--bg-hover);
+}
+
+.settings-bg-list li.is-current {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
+}
+
+/* 背景缩略图 */
+.settings-bg-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 30px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
+}
+
+.settings-bg-thumb video,
+.settings-bg-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.settings-bg-list li.is-current {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
+}
+
+.settings-bg-list-kind {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.settings-bg-list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-bg-list-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-bg-list-remove:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.settings-bg-preview {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.settings-bg-preview video,
+.settings-bg-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* 完整显示且尽量大：宽度撑满容器，高度按原比例自适应，
+     只对超高图片封顶（70vh），避免撑爆面板 */
+  max-height: 70vh;
+  object-fit: contain;
+  background: var(--bg);
+}
+
+.settings-bg-radios {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.settings-bg-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-bg-radio:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
 }
