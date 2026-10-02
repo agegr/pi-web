@@ -10,6 +10,16 @@ const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const viewportHookSource = await readFile(new URL("../hooks/useViewportHeight.ts", import.meta.url), "utf8");
 const extensionStatusBarSource = await readFile(new URL("./ExtensionStatusBar.tsx", import.meta.url), "utf8");
+const mcpConfigSource = await readFile(new URL("./McpConfig.tsx", import.meta.url), "utf8");
+const mcpSignInSource = await readFile(new URL("./McpSignIn.tsx", import.meta.url), "utf8");
+const mcpAddSource = await readFile(new URL("./McpAddServer.tsx", import.meta.url), "utf8");
+
+/** The declarations of the first `selector {` rule in a stylesheet. */
+function cssRule(css, selector) {
+  const start = css.indexOf(`${selector} {`);
+  assert.ok(start >= 0, `${selector} has a rule`);
+  return css.slice(start, css.indexOf("}", start));
+}
 
 test("configures iOS standalone mode to use the full screen", () => {
   assert.match(layoutSource, /statusBarStyle: "black-translucent"/);
@@ -74,4 +84,37 @@ test("collapses secondary composer chrome while the mobile keyboard is open", ()
   // Mobile send is icon-only but keeps an accessible name.
   assert.match(chatInputSource, /aria-label=\{t\("chat\.send"\)\}/);
   assert.match(chatInputSource, /\{!isMobile && t\("chat\.send"\)\}/);
+});
+
+test("keeps Settings › MCP usable in the 190px phone sidebar", () => {
+  // Phones stack the sidebar above the detail pane and give it 190px.
+  assert.match(settingsCssSource, /@media \(max-width: 640px\) \{[\s\S]*?\.config-sidebar \{[\s\S]*?height: 190px;/);
+  // Code mode is the first row, so it stays in view however many servers follow.
+  const list = mcpConfigSource.slice(mcpConfigSource.indexOf("<ConfigSidebarList>"));
+  assert.ok(list.indexOf("<McpCodemodeRow") < list.indexOf("<McpServerGroupList"));
+  // A row keeps the shared 30px height: its badge never wraps and gives way to the name.
+  const badge = cssRule(settingsCssSource, ".mcp-sidebar-badge");
+  for (const declaration of ["flex-shrink: 0;", "max-width: 45%;", "overflow: hidden;", "text-overflow: ellipsis;", "white-space: nowrap;"]) {
+    assert.ok(badge.includes(declaration), declaration);
+  }
+  // An empty group says so in small type rather than a full message block.
+  assert.match(cssRule(settingsCssSource, ".mcp-sidebar-group-empty"), /font-size: 11px;/);
+  // Long commands, URLs and names wrap inside the narrow detail pane instead of widening it.
+  assert.match(cssRule(settingsCssSource, ".mcp-config-chip"), /max-width: 100%;[\s\S]*?overflow-wrap: anywhere;[\s\S]*?white-space: normal;/);
+  assert.match(cssRule(settingsCssSource, ".mcp-config-chips"), /flex-wrap: wrap;/);
+  assert.match(cssRule(settingsCssSource, ".mcp-config-line"), /overflow-wrap: anywhere;/);
+  // Sign in and Sign out wrap below each other, and the paste box gives way to its button.
+  assert.match(cssRule(settingsCssSource, ".mcp-sign-in-actions"), /flex-wrap: wrap;/);
+  assert.match(cssRule(settingsCssSource, ".oauth-paste-input"), /min-width: 0;/);
+  // The add pane's inputs and notes take the pane's width, and its paste box grows only downwards.
+  assert.match(cssRule(settingsCssSource, ".mcp-add-input"), /width: 100%;[\s\S]*?min-width: 0;/);
+  assert.match(cssRule(settingsCssSource, ".mcp-add-note"), /overflow-wrap: anywhere;/);
+  assert.match(cssRule(settingsCssSource, ".config-add-source-input.is-multiline"), /resize: vertical;[\s\S]*?overflow: auto;/);
+  // Every .mcp-* rule targets a class the panel (its Sign-in row, its add pane) renders, and every
+  // class it renders has a rule, so a rename cannot leave a phone rule silently dead.
+  const styled = new Set([...settingsCssSource.matchAll(/\.(mcp-[a-z-]+)/g)].map((match) => match[1]));
+  const rendered = new Set([...`${mcpConfigSource}\n${mcpSignInSource}\n${mcpAddSource}`.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
+    .flatMap((match) => (match[1] ?? match[2]).split(/\s+/))
+    .filter((name) => name.startsWith("mcp-")));
+  assert.deepEqual([...styled].sort(), [...rendered].sort());
 });

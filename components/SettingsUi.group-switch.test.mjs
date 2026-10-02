@@ -29,10 +29,11 @@ test("a group switch is on only while every row of the group is", () => {
   assert.match(renderSwitch(2, 3), /<span class="config-sidebar-group-count">2\/3<\/span>/);
 });
 
-test("the group switch shares the heading row and uses the small switch", () => {
+test("the group switch shares the heading row and uses the regular switch", () => {
   const html = renderSwitch(1, 2);
   assert.match(html, /^<div class="config-sidebar-group-label"><span class="config-sidebar-group-label-text">global<\/span><span class="config-sidebar-group-switch">/);
-  assert.match(html, /class="config-switch is-small"/);
+  assert.match(html, /class="config-switch"/);
+  assert.doesNotMatch(html, /class="config-switch is-small"/);
   assert.match(html, /aria-label="Switch the group"/);
 });
 

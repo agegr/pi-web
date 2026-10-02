@@ -949,6 +949,17 @@ pre, code {
   margin: 4px 0;
 }
 
+/* A codemode card's script sits flush inside the card, which draws the border. */
+.tool-codemode-script .markdown-code-block {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.tool-codemode-script .markdown-code-block pre {
+  max-height: 360px;
+}
+
 .markdown-compaction-message {
   line-height: 1.5;
 }

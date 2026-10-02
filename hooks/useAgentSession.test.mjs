@@ -7,6 +7,7 @@ const source = await jitiSource(new URL("./useAgentSession.ts", import.meta.url)
 const chatWindowSource = await jitiSource(new URL("../components/ChatWindow.tsx", import.meta.url));
 const phaseLabelSource = await jitiSource(new URL("../lib/chat-phase-label.ts", import.meta.url));
 const chatInputSource = await jitiSource(new URL("../components/ChatInput.tsx", import.meta.url));
+const messageViewSource = await jitiSource(new URL("../components/MessageView.tsx", import.meta.url));
 const appShellSource = await jitiSource(new URL("../components/AppShell.tsx", import.meta.url));
 
 test("keeps the session event stream open through the idle grace window", () => {
@@ -189,13 +190,37 @@ test("only the session-mount load probes disk for external appends", () => {
   assert.equal([...source.matchAll(/\{ force: true \}/g)].length, 1);
 });
 
+test("forking stays available during a run while in-session branch switches wait for it", () => {
+  const forkSource = source.slice(
+    source.indexOf("  const handleFork = useCallback"),
+    source.indexOf("  const handleNavigate = useCallback"),
+  );
+  const leafChangeSource = source.slice(
+    source.indexOf("  const handleLeafChange = useCallback"),
+    source.indexOf("  const handleModelChange = useCallback"),
+  );
+
+  // Fork copies into a new file, so only a shell command blocks it; the
+  // in-session edit still waits because pi refuses navigate_tree mid-run.
+  assert.match(chatWindowSource, /onFork=\{bashRunning \|\| isNew \? undefined : handleFork\}/);
+  assert.match(chatWindowSource, /onEditContent=\{sessionBusy \? undefined : handleEditContent\}/);
+  assert.match(chatWindowSource, /onAskInNewChat && quotedSelection\.sourceEntryId && !bashRunning &&/);
+  assert.match(forkSource, /addNotice\(\{ type: "error", message:/);
+
+  assert.match(leafChangeSource, /if \(bashRunningRef\.current \|\| agentRunningRef\.current \|\| isCompacting\) return;/);
+  assert.match(source, /const branchSwitchLocked = agentRunning \|\| bashRunning \|\| isCompacting;/);
+  assert.match(source, /onBranchDataChange\(data\?\.tree \?\? \[\], activeLeafId, handleLeafChange, branchSwitchLocked\)/);
+  assert.match(appShellSource, /setBranchSwitchLocked\(locked\)/);
+  assert.equal((appShellSource.match(/locked=\{branchSwitchLocked\}/g) ?? []).length, 2);
+});
+
 test("first user messages expose both branch actions and edit before their own entry", () => {
   const navigateSource = source.slice(
     source.indexOf("  const handleNavigate = useCallback"),
     source.indexOf("  const handleLeafChange = useCallback"),
   );
 
-  assert.match(chatWindowSource, /onFork=\{sessionBusy \|\| isNew \? undefined : handleFork\}/);
+  assert.match(chatWindowSource, /onFork=\{bashRunning \|\| isNew \? undefined : handleFork\}/);
   assert.doesNotMatch(chatWindowSource, /idx === 0 && msg\.role === "user"/);
   assert.doesNotMatch(chatWindowSource, /prevAssistantEntryId/);
   assert.match(navigateSource, /type: "navigate_tree",\s*targetId: entryId/);
@@ -209,8 +234,8 @@ test("history edits move the branch only when sent, so cancel or reload keeps it
   );
 
   assert.doesNotMatch(chatWindowSource, /onNavigate=/);
-  assert.match(source, /if \(session\?\.id && opts\.chatInputRef\?\.current\?\.replaceMessage\(message\)\) setEdit\(entryId\)/);
-  assert.match(chatInputSource, /onClick=\{\(\) => \{ clearInput\(\); onCancelEdit\(\); \}\}/);
+  assert.match(source, /opts\.chatInputRef\?\.current\?\.replaceMessage\(message\);\s*setEdit\(entryId\)/);
+  assert.match(messageViewSource, /onClick=\{onCancelEdit\}/);
   assert.match(source, /const cancelEdit = useCallback\(\(\) => setEdit\(null\)/);
   assert.match(sendSource, /setEdit\(null\);\s*if \(!\(await handleNavigateRef\.current\?\.\(entryId\)\)\) \{\s*setEdit\(entryId\);\s*restoreSubmission\(/);
 });
@@ -490,7 +515,7 @@ test("reconnects active shell output to its streaming tool call", () => {
     source.indexOf('case "queue_update"'),
   );
 
-  assert.match(updateSource, /name === "bash" \|\| name === "powershell"/);
+  assert.match(updateSource, /name === "bash" \|\| name === "powershell" \|\| name === CODEMODE_TOOL_NAME/);
   assert.match(updateSource, /setActiveToolResults/);
   assert.match(updateSource, /content,/);
   assert.match(endSource, /setActiveToolResults[\s\S]*next\.delete\(id\)/);
@@ -498,14 +523,107 @@ test("reconnects active shell output to its streaming tool call", () => {
   assert.match(chatWindowSource, /<MessageView message=\{streamState\.streamingMessage as AgentMessage\} toolResults=\{toolResultsMap\}/);
 });
 
-test("plays the enabled sound once for each extension dialog", () => {
-  assert.match(chatWindowSource, /soundedExtensionDialogIdRef = useRef<string \| null>\(null\)/);
-  assert.match(
-    chatWindowSource,
-    /soundedExtensionDialogIdRef\.current === extensionDialog\.id/,
+test("reports a running script's newest call as its progress", () => {
+  const updateSource = source.slice(
+    source.indexOf('case "tool_execution_update"'),
+    source.indexOf('case "tool_execution_end"'),
   );
-  assert.match(chatWindowSource, /soundedExtensionDialogIdRef\.current = extensionDialog\.id/);
-  assert.match(chatWindowSource, /playDoneSoundRef\.current\(\)/);
+  // A codemode snapshot has no text content, so the generic progress would stay empty.
+  assert.match(
+    updateSource,
+    /name === CODEMODE_TOOL_NAME\s*\? getCodemodeProgress\(event\.partialResult\)\s*: getToolExecutionProgress\(event\.partialResult\)/,
+  );
+});
+
+test("keeps calls a tool made itself out of the running tools", () => {
+  // A codemode script's nested calls would otherwise show as top-level running
+  // tools beside the script that made them.
+  for (const [from, to] of [
+    ['case "tool_execution_start"', 'case "tool_execution_update"'],
+    ['case "tool_execution_update"', 'case "tool_execution_end"'],
+    ['case "tool_execution_end"', 'case "queue_update"'],
+  ]) {
+    const caseSource = source.slice(source.indexOf(from), source.indexOf(to));
+    const guard = caseSource.indexOf("if (isNestedToolExecutionEvent(event)) break;");
+    assert.notEqual(guard, -1, `${from} must skip nested tool events`);
+    assert.ok(guard < caseSource.indexOf("const id = event.toolCallId"), `${from} must skip them before using the id`);
+  }
+  assert.match(source, /import \{ isNestedToolExecutionEvent, isSystemMessageEvent \} from "@\/lib\/agent-event-wire";/);
+});
+
+test("plays the enabled sound once when an extension dialog appears over an empty slot", () => {
+  const soundSource = chatWindowSource.slice(
+    chatWindowSource.indexOf("const surfaced = "),
+    chatWindowSource.indexOf("}, [completionNotificationsEnabled, extensionDialog]);"),
+  );
+  assert.match(chatWindowSource, /extensionDialogShownRef = useRef\(false\)/);
+  // A dialog queued behind another surfaces right after the user answers that one,
+  // so only the transition from no dialog to a dialog sounds.
+  assert.match(soundSource, /const surfaced = Boolean\(extensionDialog\) && !extensionDialogShownRef\.current;/);
+  assert.match(soundSource, /extensionDialogShownRef\.current = Boolean\(extensionDialog\);\s+if \(!completionNotificationsEnabled \|\| !surfaced\) return;/);
+  assert.match(soundSource, /playDoneSoundRef\.current\(\)/);
+});
+
+test("queues extension dialogs and custom panels by request id instead of sharing one slot", () => {
+  const extensionRequestSource = source.slice(
+    source.indexOf("  const handleExtensionUiRequest = useCallback"),
+    source.indexOf("  const settleUiStage = useCallback"),
+  );
+  const respondSource = source.slice(
+    source.indexOf("  const respondToExtensionUi = useCallback"),
+    source.indexOf("  const sendExtensionCustomInput = useCallback"),
+  );
+  const closedSource = source.slice(
+    source.indexOf('      case "extension_ui_closed":'),
+    source.indexOf("  handleAgentEventRef.current = handleAgentEvent;"),
+  );
+
+  assert.match(
+    source,
+    /import \{\s+enqueueExtensionUiRequest,\s+removeExtensionUiRequest,\s+retainExtensionUiRequests,\s+upsertExtensionUiRequest,\s+\} from "@\/lib\/extension-ui-queue"/,
+  );
+  // A (re)connect drops what the server no longer holds; its replay follows.
+  const connectedSource = source.slice(source.indexOf('      case "connected": {'), source.indexOf('      case "agent_start":'));
+  assert.match(connectedSource, /const pending = new Set\(event\.pendingExtensionUiIds as string\[\]\);/);
+  assert.match(connectedSource, /setExtensionDialogs\(\(queue\) => retainExtensionUiRequests\(queue, pending\)\);/);
+  assert.match(connectedSource, /setExtensionCustomUis\(\(queue\) => retainExtensionUiRequests\(queue, pending\)\);/);
+  assert.match(source, /const \[extensionDialogs, setExtensionDialogs\] = useState<ExtensionUiDialogRequest\[\]>\(\[\]\)/);
+  assert.match(source, /const \[extensionCustomUis, setExtensionCustomUis\] = useState<ExtensionUiCustomRequest\[\]>\(\[\]\)/);
+  assert.doesNotMatch(source, /setExtensionDialog\(|setExtensionCustomUi\(/);
+  assert.match(
+    extensionRequestSource,
+    /case "editor":\s+setExtensionDialogs\(\(queue\) => enqueueExtensionUiRequest\(queue, request\)\)/,
+  );
+  // A custom panel re-renders under its id: replace it where it stands, drop it on close.
+  assert.match(
+    extensionRequestSource,
+    /case "custom":\s+setExtensionCustomUis\(\(queue\) => request\.closed\s+\? removeExtensionUiRequest\(queue, request\.id\)\s+: upsertExtensionUiRequest\(queue, request\)\)/,
+  );
+  assert.match(respondSource, /setExtensionDialogs\(\(queue\) => removeExtensionUiRequest\(queue, request\.id\)\)/);
+  assert.match(closedSource, /setExtensionDialogs\(\(queue\) => removeExtensionUiRequest\(queue, event\.id as string\)\)/);
+  // The hook keeps exposing what is on screen under the old names, plus how many wait behind it.
+  assert.match(source, /const extensionDialog = extensionDialogs\[0\] \?\? null;/);
+  assert.match(source, /const waitingExtensionDialogCount = Math\.max\(0, extensionDialogs\.length - 1\);/);
+  assert.match(source, /const extensionCustomUi = extensionCustomUis\[0\] \?\? null;/);
+  assert.match(source, /const waitingExtensionCustomUiCount = Math\.max\(0, extensionCustomUis\.length - 1\);/);
+  assert.match(source, /notices: noticeState\.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount,/);
+  assert.match(chatWindowSource, /notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount,/);
+});
+
+test("drops queued extension UI when a tool change rebuilds the wrapper", () => {
+  const setToolsSource = source.slice(
+    source.indexOf("  const handleToolPresetChange = useCallback"),
+    source.indexOf("  const scrollToMessage = useCallback"),
+  );
+  // The old wrapper closes its event stream before cancelling its pending requests,
+  // so their extension_ui_closed events never reach this hook.
+  assert.match(
+    setToolsSource,
+    /if \(activeSessionId !== sid \|\| result\?\.recreated\) \{[\s\S]*?closeEvents\(\);[\s\S]*?setExtensionDialogs\(\[\]\);\s+setExtensionCustomUis\(\[\]\);[\s\S]*?maintainEventsConnected\(activeSessionId\)/,
+  );
+  // A tool change that keeps the wrapper keeps its pending requests on screen.
+  const unconditional = setToolsSource.slice(setToolsSource.indexOf("      setSlashCommands([]);"));
+  assert.doesNotMatch(unconditional, /setExtensionDialogs|setExtensionCustomUis/);
 });
 
 test("suppresses sounds and browser attention for the active subagent session", () => {
@@ -520,7 +638,7 @@ test("suppresses sounds and browser attention for the active subagent session", 
 
   assert.match(chatWindowSource, /completionNotificationsEnabled = session\?\.relation\?\.kind !== "subagent"/);
   assert.match(chatWindowSource, /completionNotificationsEnabled && soundEnabledRef\.current/);
-  assert.match(chatWindowSource, /!completionNotificationsEnabled[\s\S]*?!extensionDialog/);
+  assert.match(chatWindowSource, /!completionNotificationsEnabled \|\| !surfaced/);
   assert.match(completionSource, /selectedSession\?\.relation\?\.kind === "subagent"\) return/);
   assert.match(attentionSource, /selectedSession\?\.relation\?\.kind === "subagent"\) return/);
 });

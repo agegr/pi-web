@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { stripJsonComments } from "./jsonc";
 import { invalidateModelsCache } from "./models-cache";
 
 const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -70,20 +71,12 @@ export class ModelsConfigReadError extends Error {
 }
 
 /**
- * Mirrors pi's `stripJsonComments` (utils/json.js, not exported by the SDK):
- * drops `//` line comments and trailing commas, leaving string literals alone.
- */
-function stripJsonComments(input: string): string {
-  return input
-    .replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*/g, (match) => (match[0] === '"' ? match : ""))
-    .replace(/"(?:\\.|[^"\\])*"|,(\s*[}\]])/g, (match, tail?: string) => tail ?? (match[0] === '"' ? match : ""));
-}
-
-/**
  * Reads models.json with the same leniency as pi's loader (BOM, `//` comments,
- * trailing commas). A file pi accepts must never read as empty here: the panel
- * saves its whole draft, so an empty read would delete every provider on the
- * next save. Unusable contents throw instead.
+ * trailing commas). `stripJsonComments` also drops block comments, which pi
+ * rejects, and returns pi's own result for every file pi accepts. A file pi
+ * accepts must never read as empty here: the panel saves its whole draft, so
+ * an empty read would delete every provider on the next save. Unusable
+ * contents throw instead.
  */
 export function readModelsConfig(
   modelsPath = getModelsConfigPath(),
