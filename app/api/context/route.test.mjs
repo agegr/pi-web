@@ -74,8 +74,9 @@ test("lists the seven entries with resolved paths and the discovered agent file"
   assert.equal(fileOf(body, "system-local").content, "project system prompt\n");
   assert.equal(fileOf(body, "system-local").scope, "local");
   assert.equal(fileOf(body, "append-system-global").exists, false);
-  assert.equal(fileOf(body, "agents-override-local").deletable, true);
-  assert.equal(fileOf(body, "agents-local").deletable, false);
+  // Every entry can be removed, so the listing says nothing about deletability:
+  // the panel offers Delete for whichever files are there.
+  assert.equal("deletable" in fileOf(body, "agents-local"), false);
 });
 
 test("a project .pi file takes over the agent directory's once the project is trusted, and nothing is combined", async () => {
@@ -153,21 +154,71 @@ test("creates an agent-directory file that does not exist yet", async () => {
   assert.equal(await readFile(join(agentDir, "APPEND_SYSTEM.md"), "utf8"), "global appended\n");
 });
 
-test("removes only the override, which exists to replace its siblings", async () => {
-  await writeFile(localOverride, "# override\n");
+test("removes an agent-directory entry", async () => {
+  await writeFile(join(agentDir, "APPEND_SYSTEM.md"), "global appended\n");
 
-  const refused = await put({ id: "agents-local", remove: true, cwd });
-  assert.equal(refused.status, 409);
-  assert.equal((await refused.json()).reason, "invalid-request");
-  assert.equal(await readFile(join(cwd, "AGENTS.md"), "utf8"), "project instructions\n");
+  const removed = await put({ id: "append-system-global", remove: true });
+  const body = await removed.json();
+  assert.equal(removed.status, 200);
+  assert.equal(fileOf(body, "append-system-global").exists, false);
+  assert.equal(fileOf(body, "append-system-global").content, "");
+  await assert.rejects(lstat(join(agentDir, "APPEND_SYSTEM.md")));
+});
+
+test("removes a project .pi entry, and the agent directory's file takes over again", async () => {
+  await writeFile(join(agentDir, "SYSTEM.md"), "global system prompt\n");
+  trustProject(cwd, agentDir);
+  const replaced = await get(forCwd());
+  assert.equal(fileOf(replaced.body, "system-global").effective, false, "the project file replaces the global one");
+
+  const removed = await put({ id: "system-local", remove: true, cwd });
+  const body = await removed.json();
+  assert.equal(removed.status, 200);
+  assert.equal(fileOf(body, "system-local").exists, false);
+  assert.equal(fileOf(body, "system-local").requiresTrust, undefined);
+  assert.equal(fileOf(body, "system-global").effective, true, "nothing replaces it anymore");
+  await assert.rejects(lstat(localSystem));
+
+  // Put the agent directory's file back: later cases list it again.
+  await rm(join(agentDir, "SYSTEM.md"));
+});
+
+test("removes a project AGENTS.md entry", async () => {
+  const removed = await put({ id: "agents-local", remove: true, cwd });
+  const body = await removed.json();
+
+  assert.equal(removed.status, 200);
+  assert.equal(fileOf(body, "agents-local").exists, false);
+  assert.equal(fileOf(body, "agents-global").effective, true, "the agent directory's context file still applies");
+  await assert.rejects(lstat(join(cwd, "AGENTS.md")));
+});
+
+test("removes AGENTS.override.md, and the file it replaced is loaded again", async () => {
+  await writeFile(join(cwd, "AGENTS.md"), "project instructions\n");
+  await writeFile(localOverride, "# override\n");
+  const replacing = await get(forCwd());
+  assert.equal(fileOf(replacing.body, "agents-local").effective, false);
 
   const removed = await put({ id: "agents-override-local", remove: true, cwd });
   const body = await removed.json();
   assert.equal(removed.status, 200);
   assert.equal(fileOf(body, "agents-override-local").exists, false);
-  // Pi falls back to the file the override replaced.
   assert.equal(fileOf(body, "agents-local").effective, true);
   await assert.rejects(lstat(localOverride));
+});
+
+test("refuses to remove a file that is already gone, and refuses a bad id or a missing cwd", async () => {
+  const gone = await put({ id: "agents-override-local", remove: true, cwd });
+  assert.equal(gone.status, 409);
+  assert.equal((await gone.json()).reason, "not-a-file");
+
+  const unknown = await put({ id: "settings-json", remove: true, cwd });
+  assert.equal(unknown.status, 400);
+  assert.equal((await unknown.json()).reason, "invalid-request");
+
+  const noCwd = await put({ id: "system-local", remove: true });
+  assert.equal(noCwd.status, 400);
+  assert.equal((await noCwd.json()).reason, "cwd-invalid");
 });
 
 test("refuses an unknown id, a missing cwd for a local file, and a non-string body", async () => {
@@ -197,7 +248,7 @@ test("refuses a request that is not JSON from this page", async () => {
   assert.equal((await crossSite.json()).reason, "request-denied");
 });
 
-test("refuses a project file whose .pi folder resolves outside the allowed roots", async () => {
+test("refuses a project file whose .pi folder resolves outside the allowed roots, remove included", async () => {
   const linkDir = join(other, "pi");
   await mkdir(linkDir, { recursive: true });
   await writeFile(join(linkDir, "SYSTEM.md"), "escaped\n");
@@ -214,7 +265,30 @@ test("refuses a project file whose .pi folder resolves outside the allowed roots
   const written = await put({ id: "system-local", content: "x", cwd: escape });
   assert.equal(written.status, 403);
   assert.equal((await written.json()).reason, "link-outside");
-  assert.equal(await readFile(join(linkDir, "SYSTEM.md"), "utf8"), "escaped\n");
+
+  const removed = await put({ id: "system-local", remove: true, cwd: escape });
+  assert.equal(removed.status, 403);
+  assert.equal((await removed.json()).reason, "link-outside");
+  assert.equal(await readFile(join(linkDir, "SYSTEM.md"), "utf8"), "escaped\n", "the file behind the link is untouched");
+});
+
+test("refuses to remove a project entry that is a link out of the roots", async () => {
+  // The link itself is inside the roots; its target is not, so neither a write nor
+  // a remove may follow it.
+  const escape = join(root, "workspace", "linked-file");
+  await mkdir(join(escape, ".pi"), { recursive: true });
+  await writeFile(join(other, "outside-system.md"), "outside\n");
+  await symlink(join(other, "outside-system.md"), join(escape, ".pi", "SYSTEM.md"));
+  allowFileRoot(escape);
+
+  const listed = await get(forCwd(escape));
+  assert.equal(fileOf(listed.body, "system-local").problem, "outside-roots");
+
+  const removed = await put({ id: "system-local", remove: true, cwd: escape });
+  assert.equal(removed.status, 403);
+  assert.equal((await removed.json()).reason, "link-outside");
+  assert.equal((await lstat(join(escape, ".pi", "SYSTEM.md"))).isSymbolicLink(), true, "the link is still there");
+  assert.equal(await readFile(join(other, "outside-system.md"), "utf8"), "outside\n");
 });
 
 test("reports a dangling link at a project entry as not-a-file, not as a link outside the roots", async () => {
@@ -232,8 +306,12 @@ test("reports a dangling link at a project entry as not-a-file, not as a link ou
   const written = await put({ id: "system-local", content: "x", cwd: dangling });
   assert.equal(written.status, 409);
   assert.equal((await written.json()).reason, "not-a-file");
+
+  const removed = await put({ id: "system-local", remove: true, cwd: dangling });
+  assert.equal(removed.status, 409);
+  assert.equal((await removed.json()).reason, "not-a-file");
   assert.equal((await lstat(join(dangling, ".pi", "SYSTEM.md"))).isSymbolicLink(), true,
-    "the link is still there, unread and unwritten");
+    "the link is still there, unread, unwritten and unremoved");
 });
 
 test("refuses a cwd outside the folders Pi Web may read, and a non-file path", async () => {
@@ -252,6 +330,10 @@ test("refuses a cwd outside the folders Pi Web may read, and a non-file path", a
   const refused = await put({ id: "system-global", content: "x" });
   assert.equal(refused.status, 409);
   assert.equal((await refused.json()).reason, "not-a-file");
+
+  const refusedRemove = await put({ id: "system-global", remove: true });
+  assert.equal(refusedRemove.status, 409);
+  assert.equal((await refusedRemove.json()).reason, "not-a-file");
   await rm(join(agentDir, "SYSTEM.md"), { recursive: true });
 });
 

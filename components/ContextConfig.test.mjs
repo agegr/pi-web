@@ -12,7 +12,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
 const { ContextConfigView, contextEntryName, contextRowBlockKey } = await jiti.import("./ContextConfig.tsx");
-const { pickContextFile, contextFailureText, CONTEXT_REFUSAL_KEYS, loadContextFiles, saveContextFile } = await jiti.import("./context-config-helpers.ts");
+const { pickContextFile, contextDeleteConsequenceKey, contextFailureText, CONTEXT_REFUSAL_KEYS, loadContextFiles, saveContextFile } = await jiti.import("./context-config-helpers.ts");
 
 const source = await readFile(new URL("./ContextConfig.tsx", import.meta.url), "utf8");
 const helperSource = await readFile(new URL("./context-config-helpers.ts", import.meta.url), "utf8");
@@ -72,7 +72,6 @@ function file(overrides = {}) {
   return {
     id: "agents-global",
     scope: "global",
-    deletable: false,
     path: `${AGENT_DIR}/AGENTS.md`,
     exists: true,
     effective: true,
@@ -93,7 +92,7 @@ function listing(overrides = {}) {
     file({ id: "agents-local", scope: "local", path: `${CWD}/AGENTS.md`, content: "# Project\n" }),
     file({ id: "system-local", scope: "local", path: `${CWD}/.pi/SYSTEM.md`, exists: false, content: "", sizeBytes: 0 }),
     file({ id: "append-system-local", scope: "local", path: `${CWD}/.pi/APPEND_SYSTEM.md`, exists: false, content: "", sizeBytes: 0 }),
-    file({ id: "agents-override-local", scope: "local", deletable: true, path: `${CWD}/AGENTS.override.md`, exists: false, content: "", sizeBytes: 0 }),
+    file({ id: "agents-override-local", scope: "local", path: `${CWD}/AGENTS.override.md`, exists: false, content: "", sizeBytes: 0 }),
   ];
   return {
     ok: true,
@@ -205,27 +204,91 @@ test("the discovery and precedence rules from the docs are in the UI", () => {
   const append = text(view({ selected: "append-system-local" }));
   assert.match(append, /project's \.pi directory\. The project file takes precedence once the project is trusted, and the two are never combined\./);});
 
-test("saving, reverting and deleting are offered per entry, and Delete only for the override", () => {
+test("every card with a file offers Delete, next to its resolved path and the consequence", () => {
   const existing = listing({
     files: [
-      { id: "agents-override-local", path: `${CWD}/AGENTS.override.md`, deletable: true, content: "# override\n", exists: true },
-      { id: "agents-local", path: `${CWD}/AGENTS.md`, exists: false, content: "", sizeBytes: 0 },
+      { id: "agents-override-local", path: `${CWD}/AGENTS.override.md`, content: "# override\n", exists: true },
+      // The agent directory's own file, editable without a project.
+      { id: "agents-global", path: `${AGENT_DIR}/AGENTS.md`, content: "# global\n" },
     ],
   });
-  const html = decode(view({ load: existing, selected: "agents-override-local", drafts: { "agents-override-local": "# edited\n" } }));
+  const html = decode(view({ load: existing, selected: "agents-global", drafts: { "agents-global": "# edited\n" } }));
   assert.match(text(html), /Save Revert Delete/);
-  assert.match(source, /if \(window\.confirm\(t\("context\.deleteConfirm"/);
+  // Delete's own hover text names the file, by its resolved absolute path, and
+  // what Pi reads instead.
+  assert.match(html, /title="\/Users\/me\/\.pi\/agent\/AGENTS\.md — Pi then looks for the next name of the discovery chain in the agent directory, and a project's own AGENTS\.md or CLAUDE\.md still applies\."/);
+  // The confirm names the same path, and repeats the consequence on its own line.
+  assert.match(source, /if \(window\.confirm\(deleteConfirm\)\) onSave\(file, true\);/);
+  assert.match(source, /const deleteTarget = file\.path \?\? name;/);
+  assert.match(source, /const deleteConfirm = `\$\{t\("context\.deleteConfirm", \{ path: deleteTarget \}\)\}\\n\$\{deleteConsequence\}`;/);
 
   // A card with nothing to write offers neither Save nor Revert as a change.
   const untouched = decode(view({ selected: "agents-global" }));
   assert.match(untouched, /disabled=""[^>]*>Save</, "Save waits for a change");
-  // AGENTS.md is not the override: no Delete.
-  assert.doesNotMatch(text(untouched), /Delete/);
+  assert.match(text(untouched), /Save Revert Delete/, "Delete does not wait for a change");
 
-  // An entry that does not exist yet offers Create.
+  // An entry that does not exist yet offers Create, and nothing to Delete.
   const missing = decode(view({ selected: "system-global" }));
   assert.match(text(missing), /Create/);
+  assert.doesNotMatch(text(missing), /Delete/, "a missing file has nothing to remove");
   assert.equal(contextRowBlockKey({ id: "system-global", path: `${AGENT_DIR}/SYSTEM.md`, problem: "not-a-file" }, CWD), "context.block.notAFile");
+
+  // Every entry of the listing offers it: seven cards, seven Deletes.
+  for (const entry of listing().data.files) {
+    const card = decode(view({ load: listing({ files: [{ ...entry, exists: true, content: "x\n", sizeBytes: 2 }] }), selected: entry.id }));
+    assert.match(text(card), /Delete/, entry.id);
+  }
+
+  // A blocked entry keeps its Delete disabled, as Save is.
+  const blocked = decode(view({
+    load: listing({ files: [{ id: "system-local", problem: "outside-roots", path: `${CWD}/.pi/SYSTEM.md`, content: "x\n", exists: true }] }),
+    selected: "system-local",
+  }));
+  assert.match(blocked, /<button type="button"[^>]*disabled=""[^>]*>Delete<\/button>/);
+});
+
+test("the consequence Delete names follows what Pi loads in the file's place", () => {
+  assert.equal(contextDeleteConsequenceKey({ id: "agents-global", effective: true }), "context.deleteConsequence.agentsGlobal");
+  assert.equal(contextDeleteConsequenceKey({ id: "agents-local", effective: true }), "context.deleteConsequence.agentsLocal");
+  assert.equal(contextDeleteConsequenceKey({ id: "system-global", effective: true }), "context.deleteConsequence.systemGlobal");
+  assert.equal(contextDeleteConsequenceKey({ id: "system-local", effective: true }), "context.deleteConsequence.systemLocal");
+  assert.equal(contextDeleteConsequenceKey({ id: "append-system-global", effective: true }), "context.deleteConsequence.appendGlobal");
+  assert.equal(contextDeleteConsequenceKey({ id: "append-system-local", effective: true }), "context.deleteConsequence.appendLocal");
+  assert.equal(contextDeleteConsequenceKey({ id: "agents-override-local", effective: true }), "context.deleteConsequence.overrideLocal");
+  // A file Pi does not load (replaced, or waiting for trust) leaves Pi reading
+  // exactly what it reads now.
+  assert.equal(contextDeleteConsequenceKey({ id: "system-global", effective: false }), "context.deleteConsequence.unloaded");
+  assert.equal(contextDeleteConsequenceKey({ id: "system-local", effective: false }), "context.deleteConsequence.unloaded");
+
+  // The card with the project file waiting for trust says nothing changed, even
+  // though the file is the one Pi would read once the project is trusted.
+  const waiting = listing({
+    files: [
+      { id: "system-global", path: `${AGENT_DIR}/SYSTEM.md`, exists: true, content: "global\n", sizeBytes: 7 },
+      { id: "system-local", path: `${CWD}/.pi/SYSTEM.md`, exists: true, effective: false, requiresTrust: true, content: "project\n", sizeBytes: 8 },
+    ],
+  });
+  assert.match(decode(view({ load: waiting, selected: "system-local" })),
+    /title="[^"]*Pi loads the same file it does now: this one is not the file Pi reads\."/);
+
+  // A shadowed file says so too: the winner keeps loading.
+  const shadowed = listing({
+    files: [
+      { id: "system-global", path: `${AGENT_DIR}/SYSTEM.md`, exists: true, effective: false, shadowedBy: `${CWD}/.pi/SYSTEM.md`, content: "global\n", sizeBytes: 7 },
+      { id: "system-local", path: `${CWD}/.pi/SYSTEM.md`, exists: true, content: "project\n", sizeBytes: 8 },
+    ],
+  });
+  assert.match(decode(view({ load: shadowed, selected: "system-global" })),
+    /title="[^"]*Pi loads the same file it does now: this one is not the file Pi reads\."/);
+
+  // A refused Delete surfaces the route's own sentence, next to the diagnostic.
+  const refused = decode(view({
+    load: listing({ files: [{ id: "agents-global", content: "# global\n" }] }),
+    selected: "agents-global",
+    saveError: { error: "There is no file at ~/.pi/agent/AGENTS.md to remove", reason: "not-a-file", path: `${AGENT_DIR}/AGENTS.md` },
+  }));
+  assert.match(text(refused), /Could not write the file\. The path is not a regular file/);
+  assert.match(refused, /role="alert"/);
 });
 
 test("a file problem is shown on the row and in the card, and blocks the editor", () => {
@@ -322,6 +385,14 @@ test("the panel keeps its text out of the source and in the three locales", () =
       "context.create",
       "context.revert",
       "context.deleteConfirm",
+      "context.deleteConsequence.unloaded",
+      "context.deleteConsequence.agentsGlobal",
+      "context.deleteConsequence.agentsLocal",
+      "context.deleteConsequence.overrideLocal",
+      "context.deleteConsequence.systemGlobal",
+      "context.deleteConsequence.systemLocal",
+      "context.deleteConsequence.appendGlobal",
+      "context.deleteConsequence.appendLocal",
       "context.selectItem",
       "context.loadFailed",
       "context.noProjectNotice",

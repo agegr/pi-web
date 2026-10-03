@@ -42,8 +42,6 @@ export interface ContextFileSpec {
   scope: ContextScope;
   /** The file this entry edits, or null for a local entry without a working directory. */
   path(agentDir: string, cwd: string | null): string | null;
-  /** Whether Pi Web may remove the file. */
-  deletable?: boolean;
 }
 
 /**
@@ -55,8 +53,8 @@ export interface ContextFileSpec {
  * The AGENTS entries surface whichever file of the family is discovered in
  * their directory, the `AGENTS.MD` / `CLAUDE.md` / `CLAUDE.MD` fallbacks the
  * docs list included. The working directory's entry leaves the override to its
- * own card, which is the one context file Pi Web deletes: it exists only to
- * replace its siblings, so keeping it empty is the same as removing it.
+ * own card. Every entry can be removed: what Pi reads next is the file the docs
+ * name in its place, and the next read of the seven reports it missing.
  */
 export const CONTEXT_FILE_SPECS: Record<ContextFileId, ContextFileSpec> = {
   "agents-global": {
@@ -74,7 +72,6 @@ export const CONTEXT_FILE_SPECS: Record<ContextFileId, ContextFileSpec> = {
   "agents-override-local": {
     scope: "local",
     path: (_, cwd) => (cwd ? join(cwd, AGENTS_OVERRIDE_NAME) : null),
-    deletable: true,
   },
 };
 
@@ -191,7 +188,6 @@ export function readContextFiles({ agentDir, cwd, allowedRoots, isProjectTrusted
     const base: ContextFileInfo = {
       id,
       scope: spec.scope,
-      deletable: spec.deletable === true,
       path,
       exists: false,
       effective: false,
@@ -288,7 +284,7 @@ export function contextWriteTarget(
   if (!path) return { ok: false, error: "no-cwd" };
   const problem = contextPathProblem(path, spec.scope, allowedRoots);
   if (problem) return { ok: false, error: problem, path };
-  return { ok: true, path, scope: spec.scope, deletable: spec.deletable === true };
+  return { ok: true, path, scope: spec.scope };
 }
 
 /**
@@ -302,7 +298,7 @@ export function writeContextFile(path: string, content: string): void {
   writeFileSync(path, content, { encoding: "utf8" });
 }
 
-/** Removes the file; false when it was already gone. */
+/** Removes the file, whatever kind of context file it is; false when it was already gone. */
 export function deleteContextFile(path: string): boolean {
   try {
     unlinkSync(path);

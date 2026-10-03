@@ -40,14 +40,14 @@ const INITIAL_TEXT: Record<ContextFileId, string | null> = {
   "agents-override-local": null,
 };
 
-const SPECS: Array<Pick<ContextFileInfo, "id" | "scope" | "deletable" | "path">> = [
-  { id: "agents-global", scope: "global", deletable: false, path: AGENTS_GLOBAL },
-  { id: "system-global", scope: "global", deletable: false, path: SYSTEM_GLOBAL },
-  { id: "append-system-global", scope: "global", deletable: false, path: APPEND_GLOBAL },
-  { id: "agents-local", scope: "local", deletable: false, path: AGENTS_LOCAL },
-  { id: "system-local", scope: "local", deletable: false, path: SYSTEM_LOCAL },
-  { id: "append-system-local", scope: "local", deletable: false, path: APPEND_LOCAL },
-  { id: "agents-override-local", scope: "local", deletable: true, path: OVERRIDE_LOCAL },
+const SPECS: Array<Pick<ContextFileInfo, "id" | "scope" | "path">> = [
+  { id: "agents-global", scope: "global", path: AGENTS_GLOBAL },
+  { id: "system-global", scope: "global", path: SYSTEM_GLOBAL },
+  { id: "append-system-global", scope: "global", path: APPEND_GLOBAL },
+  { id: "agents-local", scope: "local", path: AGENTS_LOCAL },
+  { id: "system-local", scope: "local", path: SYSTEM_LOCAL },
+  { id: "append-system-local", scope: "local", path: APPEND_LOCAL },
+  { id: "agents-override-local", scope: "local", path: OVERRIDE_LOCAL },
 ];
 
 /** The demo's in-memory copy; writes edit it so the panel's refetch shows the result. */

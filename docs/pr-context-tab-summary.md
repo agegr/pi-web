@@ -9,11 +9,10 @@
 ## How each of the 7 entries is exposed
 
 Every entry is one card: resolved absolute path (display-shortened + full), what Pi does with it,
-its precedence state, size, and a monospace editor with Save/Create, Revert and (where applicable)
-Delete. Helper text under each card states the discovery rule. The sidebar groups them as
-"Global (agent directory)" and "Project", each with an `n/m` created count. The tab needs **no
-project**: entries 1/3/5 stay editable, entries 2/4/6/7 are listed disabled with
-"Open a project to edit this file."
+its precedence state, size, and a monospace editor with Save/Create, Revert and Delete. Helper text
+under each card states the discovery rule. The sidebar groups them as "Global (agent directory)" and
+"Project", each with an `n/m` created count. The tab needs **no project**: entries 1/3/5 stay
+editable, entries 2/4/6/7 are listed disabled with "Open a project to edit this file."
 
 | # | Entry | Resolved path | Precedence surfaced |
 |---|-------|---------------|---------------------|
@@ -23,7 +22,7 @@ project**: entries 1/3/5 stay editable, entries 2/4/6/7 are listed disabled with
 | 4 | SYSTEM.md local | `<cwd>/.pi/SYSTEM.md` | Takes precedence |
 | 5 | APPEND_SYSTEM.md global | `<agent-dir>/APPEND_SYSTEM.md` | Replaced by entry 6 (same wording) |
 | 6 | APPEND_SYSTEM.md local | `<cwd>/.pi/APPEND_SYSTEM.md` | Takes precedence |
-| 7 | AGENTS.override.md local | `<cwd>/AGENTS.override.md` | Replaces entry 2/CLAUDE.md in the same directory only; the only **deletable** entry |
+| 7 | AGENTS.override.md local | `<cwd>/AGENTS.override.md` | Replaces entry 2/CLAUDE.md in the same directory only |
 
 `<discovered>` is whichever of `AGENTS.override.md` → `AGENTS.md` → `AGENTS.MD` → `CLAUDE.md` →
 `CLAUDE.MD` is a regular file in that directory (SDK order). The card is titled with the file Pi
@@ -33,7 +32,9 @@ actually finds, which is how "look for CLAUDE.md as well" is surfaced.
 
 - **Entry id, never a path.** `GET`/`PUT /api/context` take `{ id, ... }`; the route resolves the
   file from `getAgentDir()` (honours `PI_CODING_AGENT_DIR`) and the validated `cwd`, so no request
-  can name a file Pi does not read. Traversal is structurally impossible, not filtered.
+  can name a file Pi does not read. Traversal is structurally impossible, not filtered. Delete is
+  `PUT { id, remove: true }`, not a `DELETE` method: it already carried the write's guards and
+  answers with the listing, and the route keeps one shape for both edits.
 - **Path safety beyond the cwd check.** A project entry whose resolved path (or its nearest existing
   ancestor, for a file that does not exist yet) leaves the allowed roots is refused 403
   `link-outside`; a directory / link-to-nothing is 409 `not-a-file` and listed with its problem.
@@ -45,9 +46,14 @@ actually finds, which is how "look for CLAUDE.md as well" is surfaced.
 - **Precedence computed server-side** (`effective` / `shadowedBy`) and rendered; the panel never
   re-derives Pi's rules. `shadowedBy` is only set when both files exist — a missing file is not
   "replaced".
-- **Only the override is deletable** (409 `invalid-request` otherwise). It exists solely to replace
-  its siblings, so deleting is equivalent to emptying it; for AGENTS.md/PI's other files, deleting
-  would silently discard user content that Delete is not there to manage.
+- **Every entry is deletable.** Delete removes the file at its resolved path, for any of the seven,
+  behind one `window.confirm` that names that absolute path and what Pi reads in its place — the
+  consequence is per entry (`contextDeleteConsequenceKey`): the sibling file of the SYSTEM /
+  APPEND pair, the next name of the AGENTS discovery chain, Pi's default system prompt, or "nothing
+  changes" for a file Pi does not load right now (replaced, or waiting for trust). A file that is
+  already gone is refused 409 `not-a-file` rather than answered with the same listing, so a Delete
+  that did nothing never reads as a removal that landed. Delete has no draft: it acts on the file
+  on disk, not the editor's text.
 - **Reads/writes capped at 256 KiB**, read via a single bounded `readSync` from an `openSync` handle
   with an `fstat`-free `statSync` check, so no oversized or special file is slurped.
 - **No lock / no atomic rename** (unlike `lib/mcp-config-file.ts`): these are markdown instruction
@@ -62,8 +68,8 @@ actually finds, which is how "look for CLAUDE.md as well" is surfaced.
   cannot leave the panel on "Loading…" for good. The caller's signal is forwarded by hand
   (`AbortSignal.any` needs Safari 17.4; this is browser code).
 - **Per-entry drafts**: switching cards never discards typing; a successful save clears only its own.
-- i18n: 45 new keys, identical key/placeholder sets in `en`, `zh-CN`, `zh-TW`
-  (`lib/i18n/registry.test.mjs` enforces this).
+- i18n: 55 new keys, identical key/placeholder sets in `en`, `zh-CN`, `zh-TW`
+  (`lib/i18n/registry.test.mjs` enforces this); the per-entry Delete consequences are 8 of them.
 
 ## Files added / changed
 
@@ -97,8 +103,8 @@ each wrapped in `timeout`.
 | `npm test` (pristine `origin/chore/sync-upstream-4`) | 2244 tests / 2148 pass / **96 fail** — identical failure set |
 | `npm test` with `PI_PACKAGE_DIR` + subagent package-root overrides also unset | base 46 fail, branch 46 fail — identical |
 | `components/SettingsPanel.test.mjs`, `lib/settings-navigation.test.mjs` | 25/25 pass |
-| `app/api/context/route.test.mjs` | 12/12 pass |
-| `components/ContextConfig.test.mjs` | 13/13 pass |
+| `app/api/context/route.test.mjs` | 18/18 pass (path resolution, `PI_CODING_AGENT_DIR`, the fallback chain, both precedence rules, create/write, delete of an agent-directory entry, a project `.pi` entry, a project `AGENTS.md` and the override, an already-gone file, traversal and symlink-out refusals for read, write and remove, `cwd` refusals, size cap, origin/content-type guards) |
+| `components/ContextConfig.test.mjs` | 15/15 pass (all seven entries, no-project disabled state, precedence text, file problems, truncation, deadlines, request shapes, class/CSS back-and-forth, the per-entry Delete affordance and consequence text, refusal surfacing, all three locales) |
 | demo `tsc --noEmit` | clean |
 | demo eslint | clean |
 | demo `next build` | **fails identically on the pristine base** (Turbopack `leaves the filesystem root`; worktree layout with a linked dependency folder). Gate not exercisable in this worktree. |

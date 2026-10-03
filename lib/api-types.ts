@@ -948,8 +948,6 @@ export type ContextPathProblem = "outside-roots" | "not-a-file";
 export interface ContextFileInfo {
   id: ContextFileId;
   scope: ContextScope;
-  /** Whether Pi Web may remove this file; only `AGENTS.override.md` is deletable. */
-  deletable: boolean;
   /** The resolved absolute path, or null for a local entry without a working directory. */
   path: string | null;
   exists: boolean;
@@ -991,5 +989,5 @@ export interface ContextResponse {
  * refusal; `path` is given for the refusals that name the file.
  */
 export type ContextWriteTarget =
-  | { ok: true; path: string; scope: ContextScope; deletable: boolean }
+  | { ok: true; path: string; scope: ContextScope }
   | { ok: false; error: "unknown-id" | "no-cwd" | ContextPathProblem; path?: string };

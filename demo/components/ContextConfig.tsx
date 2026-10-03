@@ -29,6 +29,7 @@ import {
 } from "./SettingsUi";
 import {
   CONTEXT_GROUPS,
+  contextDeleteConsequenceKey,
   contextFailureText,
   loadContextFiles,
   pickContextFile,
@@ -249,6 +250,15 @@ function ContextFileDetail({
   const name = contextEntryName(file);
   const dirty = draft !== file.content;
   const blockNoticeId = `context-block-${file.id}`;
+  /**
+   * Delete names the file it removes and what Pi reads in its place: the
+   * consequence depends on the entry (see `contextDeleteConsequenceKey`), and
+   * the card with the file's text in it offers no path to check against.
+   */
+  const deleteConsequence = t(contextDeleteConsequenceKey(file));
+  const deleteTarget = file.path ?? name;
+  const deleteConfirm = `${t("context.deleteConfirm", { path: deleteTarget })}\n${deleteConsequence}`;
+  const deleteTitle = `${deleteTarget} — ${deleteConsequence}`;
 
   /**
    * A truncated file is only its first part, so writing the draft back would
@@ -340,12 +350,14 @@ function ContextFileDetail({
         >
           {t("context.revert")}
         </ConfigButton>
-        {file.deletable && file.exists && (
+        {/* A file that is not there has nothing to remove. */}
+        {file.exists && (
           <ConfigButton
             variant="danger"
             disabled={block !== null || saving}
+            title={deleteTitle}
             onClick={() => {
-              if (window.confirm(t("context.deleteConfirm", { name }))) onSave(file, true);
+              if (window.confirm(deleteConfirm)) onSave(file, true);
             }}
           >
             {t("i18n.delete")}

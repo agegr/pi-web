@@ -442,7 +442,6 @@ async function contextRoute(request: MockRequest): Promise<Response> {
     return error("This context file belongs to a project, and the request names none", 400, { reason: "cwd-invalid" });
   }
   if (body.remove === true) {
-    if (!file.deletable) return error(`${file.path} is not a file Pi Web removes`, 409, { reason: "invalid-request" });
     contextState.delete(file.id);
     return json(contextListing(body.cwd ?? null));
   }

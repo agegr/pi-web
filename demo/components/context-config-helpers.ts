@@ -22,6 +22,34 @@ export type ContextLoadResult =
 
 export type ContextSaveResult = ContextLoadResult;
 
+/**
+ * What removing an entry leaves Pi reading, as the key of the sentence Delete
+ * asks with. A file Pi does not load right now is the one case where nothing
+ * changes: removing it leaves the listing exactly as effective as it was (a file
+ * another one replaces, or a project system prompt still waiting for trust).
+ * Otherwise Pi falls back by its own rules — the sibling file of the pair the
+ * docs name, the next name of the discovery chain, or nothing at all.
+ */
+export function contextDeleteConsequenceKey(file: Pick<ContextFileInfo, "id" | "effective">): string {
+  if (!file.effective) return "context.deleteConsequence.unloaded";
+  switch (file.id) {
+    case "system-global":
+      return "context.deleteConsequence.systemGlobal";
+    case "system-local":
+      return "context.deleteConsequence.systemLocal";
+    case "append-system-global":
+      return "context.deleteConsequence.appendGlobal";
+    case "append-system-local":
+      return "context.deleteConsequence.appendLocal";
+    case "agents-global":
+      return "context.deleteConsequence.agentsGlobal";
+    case "agents-local":
+      return "context.deleteConsequence.agentsLocal";
+    default:
+      return "context.deleteConsequence.overrideLocal";
+  }
+}
+
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 function failure(error: unknown, timedOut = false): ContextFailure {

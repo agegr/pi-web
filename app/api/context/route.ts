@@ -105,9 +105,10 @@ export async function GET(req: Request) {
 
 // PUT /api/context — write or remove one context file.
 // Body: `{ id, content }` writes it, creating it and the folders on the way;
-// `{ id, remove: true }` removes it, and only an entry the panel offers Delete
-// for. The answer is the whole listing, so the panel replaces its state in place
-// instead of guessing what the write changed.
+// `{ id, remove: true }` removes it, any of the seven. The answer is the whole
+// listing, so the panel replaces its state in place instead of guessing what
+// the write changed: a removed file is reported missing, which is also what
+// makes Pi fall back to whichever file the docs name next.
 export async function PUT(req: Request) {
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
@@ -137,10 +138,12 @@ export async function PUT(req: Request) {
 
   try {
     if (remove === true) {
-      if (!target.deletable) {
-        return refusal(409, "invalid-request", `${target.path} is not a file Pi Web removes`, target.path);
+      // A file that is already gone is refused rather than answered with the same
+      // listing: the panel's Delete names a file it saw, and silently doing
+      // nothing would read as a removal that landed.
+      if (!deleteContextFile(target.path)) {
+        return refusal(409, "not-a-file", `There is no file at ${target.path} to remove`, target.path);
       }
-      deleteContextFile(target.path);
     } else {
       if (typeof content !== "string") return refusal(400, "invalid-request", "content must be a string");
       if (Buffer.byteLength(content, "utf8") > CONTEXT_FILE_MAX_BYTES) {

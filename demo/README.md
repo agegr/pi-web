@@ -57,7 +57,7 @@ than a 404 once that port lands.
 
 The Settings › Context tab is copied whole. Its mock (`mock/data/context.ts`,
 `GET`/`PUT /api/context` in `mock/settings-routes.ts`) keeps the seven context
-files in memory, so editing, creating and deleting `AGENTS.override.md` all work
+files in memory, so editing, creating and deleting any of the seven all work
 until the page reloads. The demo runs on one fixed layout (`mock/paths.ts`), so
 the resolved paths, the `AGENTS.MD` / `CLAUDE.md` fallback and the `.pi/`
 precedence rules come from that layout rather than from a real filesystem.

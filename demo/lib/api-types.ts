@@ -623,8 +623,6 @@ export type ContextPathProblem = "outside-roots" | "not-a-file";
 export interface ContextFileInfo {
   id: ContextFileId;
   scope: ContextScope;
-  /** Whether Pi Web may remove this file; only `AGENTS.override.md` is deletable. */
-  deletable: boolean;
   /** The resolved absolute path, or null for a local entry without a working directory. */
   path: string | null;
   exists: boolean;
