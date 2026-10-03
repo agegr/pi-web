@@ -18,6 +18,7 @@ const {
 } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
+const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
@@ -126,6 +127,31 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.doesNotMatch(html, /secret-stream-fragment/);
   assert.equal(getToolCallInputText(block), block.rawInput);
   assert.equal(getTokenEstimateText(block), block.rawInput);
+});
+
+test("renders write tool content as readable file text", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-file",
+    toolName: "write",
+    input: { path: "src/example.ts", content: "first line\nsecond line\n" },
+  };
+  clearExpandedToolCalls();
+  setToolCallExpanded(block.toolCallId, true);
+  try {
+    const html = renderMessage({
+      role: "assistant",
+      provider: "anthropic",
+      model: "claude-test",
+      content: [block],
+    });
+
+    assert.ok(html.includes("src/example.ts"));
+    assert.match(html, /first line\nsecond line\n/);
+    assert.doesNotMatch(html, /"content":/);
+  } finally {
+    clearExpandedToolCalls();
+  }
 });
 
 test("renders subagents as standard tool calls with only an extra session button", () => {
