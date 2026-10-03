@@ -170,6 +170,13 @@ export function fileManagerFocusCommand(
   if (platform !== "win32") return null;
   // -EncodedCommand keeps the script out of the argument quoting rules, and
   // -WindowStyle Hidden avoids a console flash for a background raise.
+  // -ExecutionPolicy Bypass overrides a stricter execution preference set on
+  // the box itself (CurrentUser/LocalMachine), e.g. a machine left on
+  // Restricted or AllSigned: measured, the helper also runs without it on a
+  // default box, because Restricted only stops script files. It is not a
+  // skeleton key: a Group Policy lockdown (MachinePolicy/UserPolicy) or
+  // ConstrainedLanguage still wins, and then the helper dies quietly with the
+  // window merely opened, which the SilentlyContinue at the top guarantees.
   return {
     command: "powershell.exe",
     args: [
