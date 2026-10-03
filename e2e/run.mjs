@@ -405,6 +405,9 @@ try {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
+      await page.setViewportSize(viewport);
+      const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
+      if (await showSidebar.isVisible()) await showSidebar.click();
       await checkModelDiscovery(page);
     }
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
