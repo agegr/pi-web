@@ -1,0 +1,144 @@
+name: Release
+
+# release-please keeps ONE accumulating release pull request. It does the version
+# bookkeeping; the OWNER decides WHEN by choosing when to merge that PR.
+#
+# What the bot does on its own, on every push to main:
+#   - reads the conventional commits since the last release and computes the next
+#     version (or opens nothing while a release PR is already pending),
+#   - opens/updates a single PR that bumps package.json + package-lock.json and
+#     writes CHANGELOG.md.
+# It never pushes to main and never publishes.
+#
+# What happens when the OWNER merges that PR — in the SAME run that sees the merge:
+#   - release-please commits the version, pushes the tag vX.Y.Z and creates the
+#     GitHub release; job `release-please` reports release_created=true + the tag.
+#   - job `publish`, gated by `needs: release-please`, then checks out that tag,
+#     builds, tests and STAGES the tarball on npm via OIDC trusted publishing (no
+#     stored NPM_TOKEN) with provenance attached.
+#
+# OWNER control: hold a release back by leaving the release PR open; ship it by
+# merging. Merging releases the metadata (tag + GitHub release) and stages the
+# artifact, but NOTHING IS INSTALLABLE until the OWNER approves the staged version
+# on npmjs.com (package → "Staged Packages" tab → Approve, 2FA) or runs
+# `npm stage approve <stage-id>`; that approval is the only way a version goes live.
+# The "staged with id <uuid>" line is written into the workflow run summary. The
+# one-time prerequisite is a STAGE-ONLY npm trusted publisher registration
+# (environment `release`, this file's name) — see docs/release.md.
+#
+# Trusted publisher, STAGE-ONLY: register it with staged publishing allowed and
+# direct publishing DISALLOWED (npmjs.com → package → Settings → Trusted Publisher,
+# or `npm trust github … --allow-stage-publish` without `--allow-publish`). npm then
+# rejects `npm publish` from this workflow, so a compromised run could stage a
+# tarball but could never move a version live — the OWNER's 2FA click is the only
+# way. Staged publishing needs npm >= 11.15.0; the node-24 toolcache image
+# setup-node installs bundles npm >= 11.16, so the floor is met with no pin
+# (https://docs.npmjs.com/staged-publishing). If a future image ever shipped an
+# older npm, `npm stage publish` fails as an unknown command — the playbook in
+# docs/release.md names that failure. The dist-tag is IMMUTABLE: whatever
+# tag the stage carries (`latest` here, the default for a stable version) is the tag
+# the version goes live with on approval; there is no separate promotion step.
+#
+# Token: the default GITHUB_TOKEN. The release PR is therefore authored by
+# github-actions[bot], and a PR opened with GITHUB_TOKEN deliberately does NOT trigger
+# other workflows. Accepted here because
+#   (a) publish is needs-chained, not event-chained: it runs in the same workflow run
+#       that saw the merge, so no tag-push-triggered workflow has to fire,
+#   (b) this repository's ruleset (Default: deletion, non-fast-forward, pull_request;
+#       empty bypass actors; NO required status checks — verified via the API) does
+#       not need the PR to carry checks to be mergeable,
+#   (c) release PRs are mechanically trivial — version fields plus changelog; the nix
+#       side needs no hash maintenance any more (importNpmLock, see docs/release.md).
+# Forward-compat: if required status checks are ever added to the ruleset, give this
+# job an App token (actions/create-github-app-token) so the release PR triggers them.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # re-runs and maintenance; same two jobs, same gates
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # read the manifest config and the commits
+      pull-requests: write # open/update the release PR
+    # One release PR at a time. A queued run is not cancelled: canceling mid-flight
+    # can leave a label/PR state that the next run has to untangle.
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # No `token:`: the action defaults it to `${{ github.token }}` — from its
+      # action.yml, `token: ... default: ${{ github.token }}`. The release PR is thus
+      # github-actions[bot]-authored and triggers no other workflow; the header says
+      # why that is fine and what to change if that stops being true.
+      #
+      # Manifest mode: no `release-type` here, the config file carries it.
+      # v5 is additive-only over v4 (same inputs, same `${{ github.token }}` default);
+      # it bundles release-please 17.6 (was 17.3), so the first bot PR is the smoke test.
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # STAGES the release the job above just created — it does not publish anything
+  # live. Runs only when a release was actually created, i.e. in the same workflow
+  # run that saw the owner merge the release PR. On a run that only opens/updates the
+  # PR this job is skipped.
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Must match the Trusted Publisher registered on npmjs.com for @dreadster3/pi-web,
+    # and the `release` environment must exist in repo settings (see docs/release.md).
+    # The registration must be STAGE-ONLY — staged publishing allowed, direct
+    # publishing disallowed — so this job cannot bypass the owner's approval.
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # OIDC for npm trusted publishing; provenance follows from it
+    steps:
+      # The tag release-please just pushed, so the build is of the released commit.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      # Node 24 for trusted publishing; staged publishing also needs Node >= 22.14.
+      # package-manager-cache: false — no cache for a job holding an OIDC publish
+      # token (supply-chain hardening; the input exists from setup-node v5 on).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # npm floor: staged publishing requires npm >= 11.15.0, and the node-24
+      # toolcache this setup-node installs bundles npm >= 11.16 — no pin needed
+      # (https://docs.npmjs.com/staged-publishing; the header says what to do if a
+      # future image ever ships an older npm).
+      - run: npm ci
+
+      # Required, not --if-present: the tarball ships .next and next.config.ts bakes
+      # NEXT_PUBLIC_APP_VERSION from package.json, so a skipped build would publish
+      # an empty artifact with a wrong version.
+      - run: npm run build
+
+      - run: npm test
+
+      # Stages the built tarball for the owner's review — no NPM_TOKEN, the trusted
+      # publisher grants this run the right to stage (and, stage-only, nothing more).
+      # `--provenance`/`--access` are ordinary `npm publish` flags that
+      # `npm stage publish` accepts (params parity); hono's release.yml is the same
+      # invocation. The stage-id lands in the run summary via `tee`.
+      - name: Stage the release on npm
+        run: |
+          set -o pipefail
+          npm stage publish --provenance --access public | tee -a "$GITHUB_STEP_SUMMARY"
