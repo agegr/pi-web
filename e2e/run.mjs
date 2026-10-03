@@ -12,6 +12,7 @@ import { chromium } from "playwright";
 import { checkFilePanel, filePanelFixture } from "./file-panel.mjs";
 import { checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
 import { checkChatAppearance } from "./chat-appearance.mjs";
+import { checkModelDiscovery } from "./model-discovery.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -404,6 +405,7 @@ try {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
+      await checkModelDiscovery(page);
     }
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
