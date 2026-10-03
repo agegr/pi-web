@@ -106,6 +106,7 @@ export function windowsFocusScript(target: string): string {
     "$ErrorActionPreference = 'SilentlyContinue'",
     `$expected = '${expected}'`,
     "$member = @'",
+    '[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);',
     '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);',
     '[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);',
     '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
@@ -126,9 +127,11 @@ export function windowsFocusScript(target: string): string {
     "    $window.Visible = $true",
     "    $hwnd = $window.HWND",
     "    if ($hwnd -ne [IntPtr]::Zero) {",
-    // Explorer is still finishing with the window it just opened, and a minimized
-    // window has to come back before anything can be done to its z-order.
-    "      [PiWeb.WindowFocus]::ShowWindow($hwnd, 9) | Out-Null",
+    // Explorer is still finishing with the window it just opened. A minimized
+    // window has to come back before anything can be done to its z-order, but
+    // only a minimized one: SW_RESTORE would also shrink a maximized window
+    // back to a normal one, and there is no reason to touch that state.
+    "      if ([PiWeb.WindowFocus]::IsIconic($hwnd)) { [PiWeb.WindowFocus]::ShowWindow($hwnd, 9) | Out-Null }",
     "      Start-Sleep -Milliseconds 100",
     // Moving a window in the z-order is something Windows lets any process do,
     // unlike taking the foreground, so the window goes in front for good instead
