@@ -41,6 +41,8 @@ test("provides one template for config layout and controls", () => {
     "ConfigStatusDot",
     "ConfigScopeTag",
     "ConfigScopeSwitch",
+    "ConfigSaveTarget",
+    "ConfigAddSourceHeading",
     "ConfigAddSourcePanel",
     "ConfigDetailGrid",
     "ConfigDetailGridRow",
@@ -155,6 +157,7 @@ test("keeps shared static presentation in the stylesheet", () => {
     "config-button",
     "config-switch",
     "config-scope-switch",
+    "config-save-target",
     "config-detail-grid",
     "config-add-source-input",
     "config-add-source-example",
@@ -197,7 +200,7 @@ test("skills and plugins show reasons as visible text, never only as a tooltip",
   const sources = Object.fromEntries(configSources);
   for (const name of ["SkillsConfig", "PluginsConfig"]) {
     // The unavailable project scope explains itself under the scope switch.
-    assert.match(sources[name], /<ConfigScopeSwitch[\s\S]*?disabledReason=\{t\("trust\.projectScopeUnavailable"\)\}/, name);
+    assert.match(sources[name], /<ConfigSaveTarget[\s\S]*?disabledReason=\{t\("trust\.projectScopeUnavailable"\)\}/, name);
     assert.doesNotMatch(sources[name], /title=\{[^}]*(?:projectScopeUnavailable|openSessionToReload)/, name);
     assert.match(sources[name], /<ConfigTrustNotice message=\{t\("trust\.(?:skills|plugins)NotLoaded"\)\} \/>/, name);
     assert.doesNotMatch(sources[name], /className="config-trust-notice"/, name);
@@ -208,6 +211,32 @@ test("skills and plugins show reasons as visible text, never only as a tooltip",
   // Diagnostics open a list in the footer instead of a title.
   assert.match(plugins, /<ConfigFooterStatus[\s\S]*?details=\{data\.diagnostics\.map\(diagnosticText\)\}/);
   assert.doesNotMatch(plugins, /title=\{data\.diagnostics/);
+});
+
+test("every add pane chooses its scope in one place: the save target under its title", async () => {
+  const sources = Object.fromEntries(configSources);
+  const panes = {
+    SkillsConfig: sources.SkillsConfig.match(/function AddSkillPanel[\s\S]*?\n\}\n/)?.[0] ?? "",
+    PluginsConfig: sources.PluginsConfig.match(/function AddPluginPanel[\s\S]*?\n\}\n/)?.[0] ?? "",
+    AgentsConfig: sources.AgentsConfig,
+    McpAddServer: await readFile(new URL("./McpAddServer.tsx", import.meta.url), "utf8"),
+  };
+  for (const [name, source] of Object.entries(panes)) {
+    assert.ok(source, name);
+    assert.match(source, /<ConfigSaveTarget[\s\S]*?label=\{t\("config\.saveTo"\)\}[\s\S]*?path=\{/, name);
+    assert.doesNotMatch(source, /<ConfigScopeSwitch/, `${name} uses the shared row, not a switch of its own`);
+  }
+  // Skills and plugins: right under the title, before the box that searches or names the source.
+  assert.match(panes.SkillsConfig, /t\("i18n\.addSkill"\)[^]*?<ConfigSaveTarget[^]*?placeholder=\{t\("i18n\.skillSearchPlaceholder"\)\}/);
+  assert.match(panes.PluginsConfig, /target=\{\s*<ConfigSaveTarget/);
+  assert.match(panes.SkillsConfig, /<ConfigAddSourceHeading[\s\S]*?target=\{\s*<ConfigSaveTarget/);
+  assert.match(templateSource, /export function ConfigAddSourcePanel[\s\S]*?<ConfigAddSourceHeading/, "the add panel builds its heading from the same block");
+  assert.match(panes.McpAddServer, /target=\{\s*<ConfigSaveTarget/);
+  // Sub-agents: where a saved profile shows its scope tag, while creating; no hand-made switch beside it.
+  assert.match(panes.AgentsConfig, /<ConfigDetailHeaderInfo>[\s\S]*?\{creating \? \(\s*<ConfigSaveTarget[\s\S]*?<ConfigScopeTag scope=\{displayedScope\}>/);
+  assert.doesNotMatch(panes.AgentsConfig, /agents\.saveScope|setTargetScope\(scope\)\}\s*disabled=/);
+  assert.match(cssSource, /\.config-save-target-path \{[\s\S]*?overflow-wrap: anywhere/);
+  assert.doesNotMatch(cssSource, /config-add-source-location/);
 });
 
 test("plugin and skill panel words come from the locale files", () => {
@@ -234,10 +263,11 @@ test("plugin and skill panel words come from the locale files", () => {
   for (const literal of [/label="(?:Source|Version|Name|Description)"/, /"No skills found"/, /: "unknown"/, /to discover and install skills/, /\{s\}\s*<\/button>/, /\{label\}\s*<\/span>/]) {
     assert.doesNotMatch(skills, literal);
   }
-  assert.match(skills, /t\("skills\.discoverHint"\)\.split\("\{site\}"\)/);
+  // The catalog link sits at the right of the title, as in every add pane, and nowhere else.
+  assert.match(skills, /<ConfigAddSourceHeading\s+title=\{t\("i18n\.addSkill"\)\}\s+catalogs=\{\[\{ href: "https:\/\/skills\.sh", label: "skills\.sh" \}\]\}/);
+  assert.doesNotMatch(skills, /href="https:\/\/skills\.sh"|skills\.discoverHint/);
   for (const source of [enSource, zhSource]) {
-    assert.match(source, /"skills\.discoverHint": "[^"]*\{site\}[^"]*"/);
-    for (const key of ["config.source", "config.examples", "config.name", "config.scope", "plugins.diagnostic", "plugins.diagnostics"]) {
+    for (const key of ["config.source", "config.examples", "config.name", "config.saveTo", "plugins.diagnostic", "plugins.diagnostics"]) {
       assert.match(source, new RegExp(`"${key.replace(".", "\\.")}":`));
     }
     for (const status of ["loaded", "installed", "missing", "disabled"]) {

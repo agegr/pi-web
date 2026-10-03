@@ -96,19 +96,24 @@ function EmptyState({ children }: { children: string }) {
 }
 
 export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
-  const activeTools = useMemo(() => tools?.filter((tool) => tool.active) ?? null, [tools]);
+  // What the model is sent: under codemode's "only" mode the active built-in tools are reached
+  // from scripts, and codemode's description lists them.
+  const declaredTools = useMemo(
+    () => tools?.filter((tool) => tool.active && !tool.declarationHidden) ?? null,
+    [tools],
+  );
   const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedToolName((current) => (
-      activeTools?.some((tool) => tool.name === current)
+      declaredTools?.some((tool) => tool.name === current)
         ? current
-        : activeTools?.[0]?.name ?? null
+        : declaredTools?.[0]?.name ?? null
     ));
-  }, [activeTools]);
+  }, [declaredTools]);
 
-  const selectedTool = activeTools?.find((tool) => tool.name === selectedToolName)
-    ?? activeTools?.[0]
+  const selectedTool = declaredTools?.find((tool) => tool.name === selectedToolName)
+    ?? declaredTools?.[0]
     ?? null;
   const fields = selectedTool ? getToolParameterFields(selectedTool.parameters) : [];
 
@@ -116,7 +121,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
     <div className="tool-definitions-panel">
       <nav className="tool-definitions-sidebar" aria-label={translate("tools.title")}>
         <div className="tool-definitions-list">
-          {activeTools && activeTools.length > 0 ? activeTools.map((tool) => {
+          {declaredTools && declaredTools.length > 0 ? declaredTools.map((tool) => {
             const selected = tool.name === selectedTool?.name;
             return (
               <button
@@ -129,7 +134,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
                 <code>{tool.name}</code>
               </button>
             );
-          }) : activeTools ? (
+          }) : declaredTools ? (
             <EmptyState>{translate("tools.noTools")}</EmptyState>
           ) : (
             <EmptyState>{loading ? translate("tools.loading") : translate("tools.load")}</EmptyState>
@@ -197,7 +202,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate }: Props) {
           </div>
         ) : (
           <EmptyState>
-            {activeTools
+            {declaredTools
               ? translate("tools.noTools")
               : loading
                 ? translate("tools.loading")

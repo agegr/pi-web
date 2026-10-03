@@ -6,7 +6,7 @@ import {
   guardedCredentialStore,
   mcpOAuthUrl,
   McpSignedOutError,
-  mcpSignInUrlKey,
+  mcpSignInKey,
   mcpSignOutCount,
   noteMcpSignOut,
   type McpSignInWriteGuard,
@@ -35,7 +35,7 @@ import type {
 
 // The URL rule, the sign-out counts and the guarded store live in
 // `lib/mcp-sign-out.ts`, which Tests use too; re-exported for the routes.
-export { guardedCredentialStore, mcpOAuthUrl, McpSignedOutError, mcpSignInUrlKey, type McpSignInWriteGuard };
+export { guardedCredentialStore, mcpOAuthUrl, McpSignedOutError, mcpSignInKey, type McpSignInWriteGuard };
 
 // Settings › MCP's sign-in (ADR 0006), run as `pi mcp login` runs it (SDK
 // `extensions/mcp/cli.js` login()): connect once, to learn whether the server
@@ -52,11 +52,12 @@ export { guardedCredentialStore, mcpOAuthUrl, McpSignedOutError, mcpSignInUrlKey
 //   it (`GET /api/mcp/sign-in/[flowId]`), and nothing ties it to a request
 //   signal or an event stream, so a phone that sleeps or a closed tab does not
 //   end it.
-// - **One flow per server URL per process.** The SDK keeps one PKCE verifier
-//   and one `state` per URL in `mcp-auth.json`, so two sign-ins of one URL
-//   overwrite each other's and both fail. A second start joins the flow under
-//   way; a new flow of a URL whose previous run is still unwinding (cancelled
-//   or expired, its network request not answered yet) waits for that run.
+// - **One flow per server per process.** The SDK keeps one PKCE verifier and
+//   one `state` per server (its name and URL, `mcpSignInKey()`) in
+//   `mcp-auth.json`, so two sign-ins of one server overwrite each other's and
+//   both fail. A second start joins the flow under way; a new flow of a server
+//   whose previous run is still unwinding (cancelled or expired, its network
+//   request not answered yet) waits for that run.
 // - **A time limit.** The SDK's loopback callback gives up after 5 minutes and
 //   `signInMcpServer()` takes no AbortSignal: the flow expires at the same
 //   5 minutes (counted from its start, so it ends first), and the only way to
@@ -78,9 +79,9 @@ export { guardedCredentialStore, mcpOAuthUrl, McpSignedOutError, mcpSignInUrlKey
 //   (the SDK's own, or the connection's), already on its way stores its
 //   tokens whatever happens to the flow, which would sign the URL back in
 //   right after `signOutMcpServer()` removed them. So a run writes
-//   `mcp-auth.json` only through stores that first check the URL's sign-out
-//   count (`McpSignInWriteGuard`), and throw once it moved since the run
-//   started; the check and the SDK's write happen in one synchronous step.
+//   `mcp-auth.json` only through stores that first check the server's
+//   sign-out count (`McpSignInWriteGuard`), and throw once it moved since the
+//   run started; the check and the SDK's write happen in one synchronous step.
 // - Starting a sign-in may replace the stored client registration and tokens
 //   (the SDK drops a registration whose redirect URI is not the new one), so
 //   the panel says so beside the button.
@@ -149,8 +150,8 @@ export interface McpSignInDeps {
   open(target: McpSignInTarget, guard: McpSignInWriteGuard): McpSignInConnection;
   /** The SDK's `signInMcpServer()`. */
   signIn(options: McpSignInOptions): Promise<void>;
-  /** The server's part of `mcp-auth.json`, from the SDK's credential store. */
-  store(url: string): McpOAuthStateStore;
+  /** The server's part of `mcp-auth.json`, from the SDK's credential store, by its name and URL. */
+  store(name: string, url: string): McpOAuthStateStore;
   /** Whether `error` is the SDK's McpSignInCancelledError: the prompt was answered with "". */
   isCancelled(error: unknown): boolean;
 }
@@ -238,7 +239,7 @@ export function createMcpSignInDeps(internals: McpSignInInternals): McpSignInDep
   return {
     open: (target, guard) => openMcpSignInConnection(target, internals, { guard }),
     signIn: (options) => internals.signInMcpServer(options),
-    store: (url) => new internals.McpOAuthCredentialStore().forServer(url),
+    store: (name, url) => new internals.McpOAuthCredentialStore().forServer(name, url),
     isCancelled: (error) => error instanceof internals.McpSignInCancelledError || (error instanceof Error && error.name === "McpSignInCancelledError"),
   };
 }
@@ -249,10 +250,10 @@ export function createMcpSignInDeps(internals: McpSignInInternals): McpSignInDep
 
 interface Flow {
   id: string;
-  /** `mcpSignInUrlKey()` of the target's URL. */
+  /** `mcpSignInKey()` of the target's name and URL. */
   key: string;
   target: McpSignInTarget;
-  /** The URL's sign-out count when the flow started; its run writes nothing once that moved. */
+  /** The server's sign-out count when the flow started; its run writes nothing once that moved. */
   signOutsAtStart: number;
   phase: McpSignInPhase;
   expiresAt: number;
@@ -282,9 +283,9 @@ interface Flow {
 
 interface Registry {
   flows: Map<string, Flow>;
-  /** URL key → the flow under way for it. */
+  /** Sign-in key → the flow under way for it. */
   active: Map<string, string>;
-  /** URL key → the end of the last run started for it, which the next run waits for. */
+  /** Sign-in key → the end of the last run started for it, which the next run waits for. */
   tails: Map<string, Promise<void>>;
 }
 
@@ -295,7 +296,7 @@ function registry(): Registry {
   return (store[REGISTRY_KEY] ??= { flows: new Map(), active: new Map(), tails: new Map() });
 }
 
-/** The guard of a flow's run: its URL must not have been signed out since the flow started. */
+/** The guard of a flow's run: its server must not have been signed out since the flow started. */
 function writeGuard(flow: Flow): McpSignInWriteGuard {
   return () => {
     if (mcpSignOutCount(flow.key) !== flow.signOutsAtStart) throw new McpSignedOutError();
@@ -364,7 +365,7 @@ function prune(flows: Map<string, Flow>): void {
 
 /**
  * The SDK's store, watched for the `state` it saves and reads back (the one
- * it checks a redirect against), whose writes stop once the URL was signed
+ * it checks a redirect against), whose writes stop once the server was signed
  * out (`guard`, checked right before the SDK's synchronous write).
  */
 function watchedStore(store: McpOAuthStateStore, flow: Flow, guard: McpSignInWriteGuard): McpOAuthStateStore {
@@ -451,7 +452,7 @@ async function runFlow(flow: Flow, deps: McpSignInDeps): Promise<void> {
   const redact = (text: string) => (connection ? connection.redact(text) : text);
   const guard = writeGuard(flow);
   try {
-    // A run of the same URL still unwinding goes first: two at once would overwrite each other's
+    // A run of the same server still unwinding goes first: two at once would overwrite each other's
     // verifier and state in mcp-auth.json.
     await previous;
     if (isEnded(flow)) return;
@@ -487,7 +488,7 @@ async function runFlow(flow: Flow, deps: McpSignInDeps): Promise<void> {
     try {
       await deps.signIn({
         serverUrl: flow.target.url,
-        store: watchedStore(deps.store(flow.target.url), flow, guard),
+        store: watchedStore(deps.store(flow.target.name, flow.target.url), flow, guard),
         settings,
         challenge: connection.challenge,
         prompt: {
@@ -554,9 +555,9 @@ export interface McpSignInStartOptions {
 }
 
 /**
- * Starts signing in to `target`, or joins the sign-in under way for its URL
- * (`joined`). Answers at once: the flow runs in the background and is read
- * with `readMcpSignIn()`.
+ * Starts signing in to `target`, or joins the sign-in under way for its name
+ * and URL (`joined`). Answers at once: the flow runs in the background and is
+ * read with `readMcpSignIn()`.
  */
 export function startMcpSignIn(
   target: McpSignInTarget,
@@ -564,7 +565,7 @@ export function startMcpSignIn(
   options: McpSignInStartOptions = {},
 ): { flow: McpSignInFlowInfo; joined: boolean } {
   const { flows, active } = registry();
-  const key = mcpSignInUrlKey(target.url);
+  const key = mcpSignInKey(target.name, target.url);
   const activeId = active.get(key);
   const existing = activeId === undefined ? undefined : flows.get(activeId);
   if (existing && !isEnded(existing)) return { flow: describeFlow(existing), joined: true };
@@ -646,31 +647,38 @@ export function cancelMcpSignIn(flowId: string): McpSignInFlowInfo | undefined {
   return describeFlow(flow);
 }
 
-/** Cancels the sign-in under way for `url`, if any. */
-export function cancelMcpSignInsFor(url: string): void {
+/** Cancels the sign-in under way for server `name` at `url`, if any. */
+export function cancelMcpSignInsFor(name: string, url: string): void {
   const { flows, active } = registry();
-  const id = active.get(mcpSignInUrlKey(url));
+  const id = active.get(mcpSignInKey(name, url));
   const flow = id === undefined ? undefined : flows.get(id);
   if (flow) end(flow, "cancelled");
 }
 
 /**
- * Signs out of `url` as `pi mcp logout` does (`credentials.remove(url)`):
- * deletes the URL's tokens and client registration from `mcp-auth.json`,
- * answering whether it held any. First every run of the URL started before
- * now is barred from writing (its stores throw `McpSignedOutError`): a
- * sign-in's, and a Test's (`lib/mcp-test.ts`). The active sign-in is also cancelled, and only then the credentials go: a cancel alone
+ * Signs server `name` out of `url` as `pi mcp logout` does
+ * (`credentials.remove(name, url)`): deletes its tokens and client
+ * registration from `mcp-auth.json` (the legacy record by URL alone when it
+ * has none of its own), answering whether it held any. First every run of the
+ * server started before now is barred from writing (its stores throw
+ * `McpSignedOutError`): a sign-in's, and a Test's (`lib/mcp-test.ts`). The
+ * active sign-in is also cancelled, and only then the credentials go: a cancel alone
  * does not stop a code exchange or a refresh already on its way, which would
  * store tokens right after the removal. A missing file is not created just to
  * find nothing in it. Open sessions read the store on every request, so they
  * lose access at their next one; a refresh one of them already has on its way
  * is theirs, as it is for `pi mcp logout`.
  */
-export function signOutMcpServer(url: string, agentDir: string, internals: Pick<PiSdkInternals, "McpOAuthCredentialStore">): boolean {
-  noteMcpSignOut(mcpSignInUrlKey(url));
-  cancelMcpSignInsFor(url);
+export function signOutMcpServer(
+  name: string,
+  url: string,
+  agentDir: string,
+  internals: Pick<PiSdkInternals, "McpOAuthCredentialStore">,
+): boolean {
+  noteMcpSignOut(mcpSignInKey(name, url));
+  cancelMcpSignInsFor(name, url);
   if (!existsSync(join(agentDir, "mcp-auth.json"))) return false;
-  return new internals.McpOAuthCredentialStore().remove(url);
+  return new internals.McpOAuthCredentialStore().remove(name, url);
 }
 
 /** Ends and forgets every flow; for tests. */

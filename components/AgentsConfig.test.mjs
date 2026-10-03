@@ -44,8 +44,10 @@ test("treats global and project profiles as directly editable", () => {
 });
 
 test("offers both writable scopes when creating a profile", () => {
-  assert.match(source, /\{creating && \(/);
-  assert.match(source, /\["global", "project"\] as const/);
+  // In the header, where a saved profile shows its scope tag.
+  assert.match(source, /\{creating \? \(\s*<ConfigSaveTarget\s+value=\{targetScope\}/);
+  // Both, whatever the folder's trust: profiles are not project resources that wait for it.
+  assert.match(source, /\(\["global", "project"\] as const\)\.map\(\(scope\) => \(\{\s*value: scope,\s*label: t\(`agents\.scope\.\$\{scope\}`\),\s*disabled: saving,\s*\}\)\)/);
   assert.doesNotMatch(source, /beginOverride|mode === "override"|agents\.readOnly|agents\.override/);
 });
 

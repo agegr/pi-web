@@ -55,3 +55,14 @@ export function mcpConfigKey(value: unknown): string {
   const secret = (store[CONFIG_KEY_SECRET] ??= randomBytes(32));
   return createHmac("sha256", secret).update(canonicalJson(value)).digest("base64url");
 }
+
+/**
+ * The key of an `mcp.json` entry as pi loads it: the validator's copy when it
+ * accepts the entry (`validated`, the return of `validateMcpServerConfig()`),
+ * else the entry as written. The copy has the exposure aliases resolved
+ * (`codemode-deferred` reads `codemode`), and it is what `loadMcpConfig()`
+ * hands the MCP host, so the host and Settings key an entry alike.
+ */
+export function mcpEntryConfigKey(value: unknown, validated: unknown): string {
+  return mcpConfigKey(isRecord(validated) ? validated : value);
+}

@@ -1,4 +1,4 @@
-import type { McpExposure, McpServerConfig, McpServerEntry } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry, type McpExposure, type McpServerConfig, type McpServerEntry } from "@earendil-works/pi-coding-agent";
 import type { McpScope, McpTestResult, McpTestState, McpTestTool } from "./api-types";
 import {
   argSecretParts,
@@ -10,9 +10,10 @@ import {
   SECRET_MASK,
   urlSecretParts,
 } from "./mcp-secrets";
-import { guardedCredentialStore, mcpOAuthUrl, mcpSignInUrlKey, mcpSignOutCount, mcpSignOutGuard, type McpSignInWriteGuard } from "./mcp-sign-out";
+import { guardedCredentialStore, mcpOAuthUrl, mcpSignInKey, mcpSignOutCount, mcpSignOutGuard, type McpSignInWriteGuard } from "./mcp-sign-out";
 import { recordMcpStatus } from "./mcp-status";
 import { createPiWebMcpTransportFactory, resolvedConfigValues } from "./mcp-transport";
+import { createModelRuntimeWithExtensions } from "./model-runtime";
 import type {
   McpClient,
   McpOAuthCredentialStore,
@@ -74,7 +75,7 @@ const TEXT_MAX_CHARS = 300;
 const MASK_MIN_LENGTH = 6;
 /** The SDK's words before the text of a `!command` that failed (`resolveConfigValueOrThrow()`). */
 const SHELL_COMMAND_QUOTE = "from shell command: ";
-const EXPOSURES: ReadonlySet<string> = new Set<McpExposure>(["codemode", "codemode-deferred", "deferred", "direct", "hidden"]);
+const EXPOSURES: ReadonlySet<string> = new Set<McpExposure>(["codemode", "deferred", "direct", "hidden"]);
 
 export type McpTestInternals = Pick<
   PiSdkInternals,
@@ -354,6 +355,8 @@ export function openTestConnection(
     requestTimeoutMs?: number;
     /** The store the connection reads and refreshes tokens through; the default one when omitted. */
     credentials?: McpOAuthCredentialStore;
+    /** A pi provider's current token, for an entry with `auth.provider`; read from pi's credentials when omitted. */
+    providerToken?: (provider: string) => Promise<string | undefined>;
   } = {},
 ): McpTestConnection {
   const requestTimeoutMs = options.requestTimeoutMs ?? MCP_TEST_REQUEST_TIMEOUT_MS;
@@ -371,11 +374,32 @@ export function openTestConnection(
       return transport;
     },
     // The default store, `mcp-auth.json` in the agent dir: the one sessions and the pi CLI use. A
-    // sign-in passes one over the same file whose writes stop once its URL is signed out.
+    // sign-in passes one over the same file whose writes stop once its server is signed out.
     credentials: options.credentials ?? new internals.McpOAuthCredentialStore(),
+    providerToken: options.providerToken ?? providerTokenReader(),
     onTools: () => {},
   });
   return { connection, transports };
+}
+
+/**
+ * Reads a pi provider's token for an entry with `auth.provider`, as a
+ * session's MCP extension does (`modelRegistry.getApiKeyForProvider()`), with
+ * the providers extensions register: the runtime is built at the first request
+ * that asks, once per connection, and asked again on every request, so a
+ * provider's refresh applies. Undefined when it cannot be read, as in a
+ * session; the server then answers 401.
+ */
+function providerTokenReader(): (provider: string) => Promise<string | undefined> {
+  let registry: Promise<ModelRegistry> | undefined;
+  return async (provider) => {
+    try {
+      registry ??= createModelRuntimeWithExtensions().then((runtime) => new ModelRegistry(runtime));
+      return await (await registry).getApiKeyForProvider(provider);
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 /**
@@ -536,19 +560,19 @@ function signOutGuardFor(target: McpTestTarget): McpSignInWriteGuard | undefined
   const url = mcpOAuthUrl(target.config);
   if (url === undefined) return undefined;
   try {
-    return mcpSignOutGuard(url);
+    return mcpSignOutGuard(target.name, url);
   } catch {
     // Not a URL the store could key: it stores nothing for it either.
     return undefined;
   }
 }
 
-/** How often the entry's OAuth URL was signed out: a press after a sign-out never joins a test started before it. */
+/** How often the entry's server was signed out: a press after a sign-out never joins a test started before it. */
 function signOutsOf(target: McpTestTarget): number {
   const url = mcpOAuthUrl(target.config);
   if (url === undefined) return 0;
   try {
-    return mcpSignOutCount(mcpSignInUrlKey(url));
+    return mcpSignOutCount(mcpSignInKey(target.name, url));
   } catch {
     return 0;
   }

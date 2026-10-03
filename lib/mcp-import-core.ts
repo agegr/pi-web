@@ -141,7 +141,7 @@ export type McpImportPath =
   | ["url"]
   | ["env", string]
   | ["headers", string]
-  | ["oauth", "clientId" | "clientSecret" | "callbackUrl" | "scope"];
+  | ["oauth", "clientId" | "clientSecret" | "clientName" | "callbackUrl" | "scope" | "authServerMetadataUrl"];
 
 /** One config value built from fixed text and fields. */
 export interface McpImportTarget {
@@ -445,8 +445,10 @@ export interface DraftOAuth {
   clientId?: Segment[];
   clientSecret?: Segment[];
   callbackPort?: number;
+  clientName?: Segment[];
   callbackUrl?: Segment[];
   scope?: Segment[];
+  authServerMetadataUrl?: Segment[];
 }
 
 export interface VsCodeInput {
@@ -479,6 +481,8 @@ export class ServerDraft {
   toolExposure: Record<string, McpExposure> | undefined;
   enabled: false | undefined;
   timeout: number | undefined;
+  /** pi's `description`, as written: pi resolves nothing in it. Read only from pi syntax, which the user writes. */
+  description: string | undefined;
   /** Input definitions of a VS Code config, by id. */
   inputs: Map<string, VsCodeInput> | undefined;
   readonly notes: McpImportNote[] = [];
@@ -796,12 +800,14 @@ export function finishDraft(draft: ServerDraft): { server: McpImportServer } | {
     const headers: Record<string, string> = {};
     for (const [key, segments] of draft.headers) headers[key] = encoder.encode(["headers", key], segments);
     const oauth: Record<string, unknown> = {};
-    const { clientId, clientSecret, callbackPort, callbackUrl, scope } = draft.oauth;
+    const { clientId, clientSecret, callbackPort, clientName, callbackUrl, scope, authServerMetadataUrl } = draft.oauth;
     if (clientId) oauth.clientId = encoder.encode(["oauth", "clientId"], clientId);
     if (clientSecret) oauth.clientSecret = encoder.encode(["oauth", "clientSecret"], clientSecret);
     if (callbackPort !== undefined) oauth.callbackPort = callbackPort;
+    if (clientName) oauth.clientName = encoder.encode(["oauth", "clientName"], clientName);
     if (callbackUrl) oauth.callbackUrl = encoder.encode(["oauth", "callbackUrl"], callbackUrl);
     if (scope) oauth.scope = encoder.encode(["oauth", "scope"], scope);
+    if (authServerMetadataUrl) oauth.authServerMetadataUrl = encoder.encode(["oauth", "authServerMetadataUrl"], authServerMetadataUrl);
     config = {
       url,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
@@ -814,6 +820,7 @@ export function finishDraft(draft: ServerDraft): { server: McpImportServer } | {
   if (draft.toolExposure !== undefined) config.toolExposure = draft.toolExposure;
   if (draft.enabled === false) config.enabled = false;
   if (draft.timeout !== undefined) config.timeout = draft.timeout;
+  if (draft.description !== undefined) config.description = draft.description;
   return {
     server: {
       name: draft.name ?? "",
@@ -1098,11 +1105,25 @@ function setTimeoutSeconds(draft: ServerDraft, seconds: number, milliseconds: nu
 // ---------------------------------------------------------------------------
 // Validation: a port of the SDK's `validateMcpServerConfig` with typed codes.
 
-export const MCP_EXPOSURES: readonly McpExposure[] = ["codemode", "codemode-deferred", "deferred", "direct", "hidden"];
+export const MCP_EXPOSURES: readonly McpExposure[] = ["codemode", "deferred", "direct", "hidden"];
+/** Old exposure names pi still accepts, and the exposure each now means (SDK `resolveExposureAlias()`). */
+const MCP_EXPOSURE_ALIASES: Readonly<Record<string, McpExposure>> = { "codemode-deferred": "codemode" };
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
 export function isMcpExposure(value: unknown): value is McpExposure {
   return typeof value === "string" && (MCP_EXPOSURES as readonly string[]).includes(value);
+}
+
+/** The exposure `value` names, an alias read as what it now means; undefined for anything else. */
+export function resolveMcpExposure(value: unknown): McpExposure | undefined {
+  if (isMcpExposure(value)) return value;
+  return typeof value === "string" && Object.hasOwn(MCP_EXPOSURE_ALIASES, value) ? MCP_EXPOSURE_ALIASES[value] : undefined;
+}
+
+/** SDK `validateOAuth`'s rule for `oauth.authServerMetadataUrl`: https, or http on a loopback host. */
+function isMetadataUrl(value: unknown): boolean {
+  const url = typeof value === "string" ? parseUrl(value) : undefined;
+  return url !== undefined && (url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname)));
 }
 
 function parseUrl(value: string): URL | undefined {
@@ -1127,42 +1148,60 @@ function isStringRecord(value: unknown): boolean {
   return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
 }
 
+/** SDK `validateOAuth`: why `oauth` would be refused, as a problem code. */
+function oauthValidationProblem(oauth: unknown): { problem: string; [key: string]: string } | undefined {
+  if (oauth === undefined) return undefined;
+  if (!isRecord(oauth)) return { problem: "oauth" };
+  if (oauth.clientId !== undefined && typeof oauth.clientId !== "string") return { problem: "oauth-client-id" };
+  if (oauth.clientSecret !== undefined && typeof oauth.clientSecret !== "string") return { problem: "oauth-client-secret" };
+  const port = oauth.callbackPort;
+  if (port !== undefined && (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535)) {
+    return { problem: "callback-port", value: String(port) };
+  }
+  if (oauth.callbackUrl !== undefined) {
+    if (typeof oauth.callbackUrl !== "string" || !isLoopbackRedirectUri(oauth.callbackUrl)) {
+      return { problem: "callback-url", value: String(oauth.callbackUrl) };
+    }
+    const urlPort = new URL(oauth.callbackUrl).port;
+    if (urlPort && port !== undefined && Number(urlPort) !== port) return { problem: "callback-port-mismatch", value: urlPort };
+  }
+  if (oauth.scope !== undefined && typeof oauth.scope !== "string") return { problem: "oauth-scope" };
+  if (oauth.clientName !== undefined && (typeof oauth.clientName !== "string" || !oauth.clientName.trim())) {
+    return { problem: "oauth-client-name" };
+  }
+  if (oauth.authServerMetadataUrl !== undefined && !isMetadataUrl(oauth.authServerMetadataUrl)) {
+    return { problem: "auth-server-metadata-url", value: String(oauth.authServerMetadataUrl) };
+  }
+  return undefined;
+}
+
 /** Why `validateMcpServerConfig(name, config)` would refuse the config, as a `invalid-config` problem code. */
 export function validationProblem(name: string, config: unknown): { problem: string; [key: string]: string } | undefined {
   if (!SERVER_NAME.test(name)) return { problem: "name", name };
   if (!isRecord(config)) return { problem: "not-an-object" };
-  const { type, exposure, enabled, timeout, toolExposure } = config;
-  if (exposure !== undefined && !isMcpExposure(exposure)) return { problem: "exposure", value: String(exposure) };
+  const { type, exposure, enabled, timeout, toolExposure, description } = config;
+  if (exposure !== undefined && !resolveMcpExposure(exposure)) return { problem: "exposure", value: String(exposure) };
   if (toolExposure !== undefined) {
     if (!isRecord(toolExposure)) return { problem: "tool-exposure" };
     for (const [tool, value] of Object.entries(toolExposure)) {
-      if (!isMcpExposure(value)) return { problem: "tool-exposure", tool };
+      if (!resolveMcpExposure(value)) return { problem: "tool-exposure", tool };
     }
   }
   if (enabled !== undefined && typeof enabled !== "boolean") return { problem: "enabled" };
+  if (description !== undefined && typeof description !== "string") return { problem: "description" };
   if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) return { problem: "timeout", value: String(timeout) };
   if (type === "sse") return { problem: "sse" };
   if (typeof config.url === "string" && (type === undefined || type === "http" || type === "streamable-http")) {
     const url = parseUrl(config.url);
     if (!url || !/^https?:$/.test(url.protocol)) return { problem: "url", url: config.url };
     if (config.headers !== undefined && !isStringRecord(config.headers)) return { problem: "headers" };
-    const oauth = config.oauth;
-    if (oauth === undefined) return undefined;
-    if (!isRecord(oauth)) return { problem: "oauth" };
-    if (oauth.clientId !== undefined && typeof oauth.clientId !== "string") return { problem: "oauth-client-id" };
-    if (oauth.clientSecret !== undefined && typeof oauth.clientSecret !== "string") return { problem: "oauth-client-secret" };
-    const port = oauth.callbackPort;
-    if (port !== undefined && (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535)) {
-      return { problem: "callback-port", value: String(port) };
+    const oauthProblem = oauthValidationProblem(config.oauth);
+    if (oauthProblem) return oauthProblem;
+    const auth = config.auth;
+    if (auth !== undefined) {
+      if (!isRecord(auth) || typeof auth.provider !== "string" || !auth.provider) return { problem: "auth" };
+      if (url.protocol !== "https:" && !LOOPBACK_HOSTS.includes(url.hostname)) return { problem: "auth-url" };
     }
-    if (oauth.callbackUrl !== undefined) {
-      if (typeof oauth.callbackUrl !== "string" || !isLoopbackRedirectUri(oauth.callbackUrl)) {
-        return { problem: "callback-url", value: String(oauth.callbackUrl) };
-      }
-      const urlPort = new URL(oauth.callbackUrl).port;
-      if (urlPort && port !== undefined && Number(urlPort) !== port) return { problem: "callback-port-mismatch", value: urlPort };
-    }
-    if (oauth.scope !== undefined && typeof oauth.scope !== "string") return { problem: "oauth-scope" };
     return undefined;
   }
   if (typeof config.command === "string" && (type === undefined || type === "stdio")) {

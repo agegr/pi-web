@@ -15,6 +15,7 @@ const {
   ConfigDetailGridRow,
   ConfigFooterStatus,
   ConfigNotice,
+  ConfigSaveTarget,
   ConfigScopeSwitch,
   ConfigScopeTag,
   ConfigTrustNotice,
@@ -79,6 +80,25 @@ test("a scope switch keeps the caller's controls on its line and the reason unde
   );
 });
 
+test("a save target is the scope switch with the path it writes to, the reason and the caller's lines under both", () => {
+  const html = render(h(ConfigSaveTarget, {
+    value: "global",
+    options: [{ value: "global", label: "global" }, { value: "project", label: "project", disabled: true }],
+    label: "Save to",
+    path: "~/.pi/agent/mcp.json",
+    disabledReason: "Project installs are unavailable",
+    onChange: noop,
+  }, h("p", null, "Trust project…")));
+  assert.match(
+    html,
+    /^<div class="config-save-target"><div class="config-scope-switch-field"><div class="config-scope-switch-row"><div role="group" aria-label="Save to" class="config-scope-switch is-small">.*?<\/div><span class="config-save-target-path">~\/<wbr\/>\.pi\/<wbr\/>agent\/<wbr\/>mcp\.json<\/span><\/div><span id="[^"]+" class="config-scope-switch-reason">Project installs are unavailable<\/span><\/div><p>Trust project…<\/p><\/div>$/,
+  );
+  // The path is shown whole, never cut short behind a tooltip; a narrow pane breaks it between folders.
+  assert.doesNotMatch(html, /title=/);
+  const windows = render(h(ConfigSaveTarget, { value: "global", options: [], label: "Save to", path: "C:\\Users\\me\\mcp.json", onChange: noop }));
+  assert.match(windows, /<span class="config-save-target-path">C:\\<wbr\/>Users\\<wbr\/>me\\<wbr\/>mcp\.json<\/span>/);
+});
+
 test("a detail grid pairs each label with its value", () => {
   const html = render(h(ConfigDetailGrid, null,
     h(ConfigDetailGridRow, { label: "Status", tone: "plain", style: { color: "red" } }, "loaded"),
@@ -118,12 +138,11 @@ test("a trust notice offers its button only when the caller can trust the projec
   assert.match(render(h(ConfigNotice, { action: h("a", { href: "#" }, "Open") }, "Off")), /class="config-notice has-action"/);
 });
 
-test("the add panel lays out the catalog, location, source box, caller controls and examples", () => {
+test("the add panel lays out the catalog, save target, source box, caller controls and examples", () => {
   const html = render(h(ConfigAddSourcePanel, {
     title: "Add plugin",
-    catalogHref: "https://pi.dev/packages",
-    catalogLabel: "pi.dev/packages",
-    location: "~/.pi/agent/{npm,git}",
+    catalogs: [{ href: "https://pi.dev/packages", label: "pi.dev/packages" }],
+    target: h("div", { className: "save-target" }, "~/.pi/agent/{npm,git}"),
     inputLabel: "Source",
     inputId: "plugin-source",
     placeholder: "npm:@scope/package",
@@ -135,8 +154,9 @@ test("the add panel lays out the catalog, location, source box, caller controls 
     examples: ["npm:a", "git:b"],
     error: "boom",
   }, h("div", { className: "caller-controls" }, "controls")));
-  assert.match(html, /<div class="config-detail-title">Add plugin<\/div><a href="https:\/\/pi\.dev\/packages" target="_blank" rel="noopener noreferrer" class="config-add-source-catalog">pi\.dev\/packages<\/a>/);
-  assert.match(html, /<div class="config-add-source-location">~\/\.pi\/agent\/\{npm,git\}<\/div>/);
+  assert.match(html, /<div class="config-detail-title">Add plugin<\/div><span class="config-add-source-catalogs"><a href="https:\/\/pi\.dev\/packages" target="_blank" rel="noopener noreferrer" class="config-add-source-catalog">pi\.dev\/packages<\/a><\/span>/);
+  // Where it saves comes first under the title, before the source box.
+  assert.match(html, /<\/a><\/span><\/div><div class="save-target">~\/\.pi\/agent\/\{npm,git\}<\/div><\/div><div class="config-field">/);
   assert.match(html, /<span class="config-field-label">Source<\/span><input id="plugin-source" aria-label="Source" class="config-add-source-input" placeholder="npm:@scope\/package" value=""\/>/);
   // The caller's controls sit between the box and the examples.
   assert.match(html, /<\/div><div class="caller-controls">controls<\/div><div class="config-add-source-examples">/);
@@ -145,12 +165,32 @@ test("the add panel lays out the catalog, location, source box, caller controls 
   assert.match(html, /<div role="alert" class="config-add-source-error">boom<\/div>/);
 });
 
+test("a labeled example shows what it is beside its text, and the box gets the text alone", async () => {
+  const html = render(h(ConfigAddSourcePanel, {
+    title: "Add MCP server",
+    catalogs: [{ href: "https://mcp.so/", label: "mcp.so" }],
+    target: "~/.pi/agent/mcp.json",
+    inputLabel: "Server to add",
+    placeholder: "",
+    value: "",
+    canSubmit: false,
+    onValueChange: noop,
+    onSubmit: noop,
+    examplesLabel: "Supported formats",
+    examples: [{ label: "Zed settings", value: '{ "context_servers": {} }' }, "plain"],
+  }));
+  assert.match(html, /<button type="button" class="config-add-source-example has-label"><span class="config-add-source-example-label">Zed settings<\/span><span class="config-add-source-example-value">\{ &quot;context_servers&quot;: \{\} \}<\/span><\/button>/);
+  assert.match(html, /<button type="button" class="config-add-source-example">plain<\/button>/);
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./SettingsUi.tsx", import.meta.url), "utf8");
+  assert.match(source, /onClick=\{\(\) => onValueChange\(example\.value\)\}/, "the label never reaches the box");
+});
+
 test("the multiline add box is a textarea where Enter adds a line and Cmd/Ctrl+Enter submits", () => {
   const html = render(h(ConfigAddSourcePanel, {
     title: "Add MCP server",
-    catalogHref: "https://github.com/mcp",
-    catalogLabel: "github.com/mcp",
-    location: "~/.pi/agent/mcp.json",
+    catalogs: [{ href: "https://mcp.so/", label: "mcp.so" }],
+    target: "~/.pi/agent/mcp.json",
     inputLabel: "Server to add",
     inputId: "mcp-add-source",
     placeholder: "https://…",
@@ -161,11 +201,8 @@ test("the multiline add box is a textarea where Enter adds a line and Cmd/Ctrl+E
     examplesLabel: "Examples",
     examples: [],
     multiline: true,
-    hint: "Cmd/Ctrl+Enter adds it.",
   }));
-  const hintId = html.match(/<span id="([^"]+)" class="config-add-source-hint">Cmd\/Ctrl\+Enter adds it\.<\/span>/)?.[1];
-  assert.ok(hintId, "the hint is visible text under the box");
-  assert.match(html, new RegExp(`<textarea id="mcp-add-source" aria-label="Server to add" aria-describedby="${hintId}" class="config-add-source-input is-multiline" placeholder="https://…" rows="5" spellCheck="false" autoCapitalize="off" autoCorrect="off">npx x</textarea>`));
+  assert.match(html, /<textarea id="mcp-add-source" aria-label="Server to add" class="config-add-source-input is-multiline" placeholder="https:\/\/…" rows="5" spellCheck="false" autoCapitalize="off" autoCorrect="off">npx x<\/textarea>/);
   assert.doesNotMatch(html, /<input/, "no single-line box beside it");
 
   const key = (overrides) => ({ key: "Enter", metaKey: false, ctrlKey: false, nativeEvent: { isComposing: false }, keyCode: 13, ...overrides });

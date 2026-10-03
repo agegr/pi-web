@@ -11,14 +11,16 @@ import { mcpFieldLabel, mcpVariableChips, revealHiddenCharacters } from "@/lib/m
 import {
   ConfigAddSourcePanel,
   ConfigButton,
+  type ConfigAddSourceCatalog,
   ConfigDetailGrid,
   ConfigDetailGridRow,
   ConfigField,
-  ConfigScopeSwitch,
+  ConfigSaveTarget,
   ConfigSectionTitle,
 } from "./SettingsUi";
 import {
   MCP_ADD_BREADTH_KEYS,
+  MCP_ADD_EXAMPLES,
   MCP_IMPORT_FIELD_REASON_KEYS,
   MCP_IMPORT_SOURCE_KEYS,
   mcpAddAnalysis,
@@ -26,6 +28,8 @@ import {
   mcpAddOffersRawPi,
   mcpAddProjectBlockText,
   mcpAddRequest,
+  mcpFieldOptionalHeader,
+  mcpFieldStoredAs,
   mcpFieldSuggestedVariableName,
   mcpFieldTakesVariable,
   mcpImportNoteSeverity,
@@ -40,14 +44,6 @@ import type { McpActionFailure, McpActionRequest } from "./mcp-config-helpers";
 type Translate = ReturnType<typeof useI18n>["t"];
 export type McpAddActionRequest = Extract<McpActionRequest, { action: "add" }>;
 
-/** Pastes the box offers to fill in: an address, a command line, another client's command, a config. */
-export const MCP_ADD_EXAMPLES = [
-  "https://mcp.example.com/mcp",
-  "npx -y @modelcontextprotocol/server-everything",
-  "claude mcp add --transport http docs https://mcp.example.com/mcp",
-  '{ "mcpServers": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } } }',
-] as const;
-
 function displayPath(path: string): string {
   return revealHiddenCharacters(shortenPath(path));
 }
@@ -55,6 +51,18 @@ function displayPath(path: string): string {
 function scopeLabel(scope: McpScope, t: Translate): string {
   return scope === "project" ? t("skills.scope.project") : t("skills.scope.global");
 }
+
+/** MCP server catalogs to browse, linked at the right of the pane's title. */
+const MCP_CATALOGS: readonly ConfigAddSourceCatalog[] = [
+  { href: "https://glama.ai/mcp/servers", label: "glama.ai" },
+  { href: "https://smithery.ai/servers", label: "smithery.ai" },
+  { href: "https://mcp.so/", label: "mcp.so" },
+  { href: "https://registry.modelcontextprotocol.io/", label: "MCP Registry" },
+  { href: "https://github.com/mcp", label: "github.com/mcp" },
+];
+
+/** The importer's notes about the server's name, shown under the name box instead of with the rest. */
+const NAME_NOTE_CODES: ReadonlySet<string> = new Set(["name-derived", "name-sanitized", "name-deduplicated", "name-taken"]);
 
 /** The importer's notes as a list, errors first; each says what it is about in words. */
 function McpImportNotes({ notes, fields = [] }: { notes: readonly McpImportNote[]; fields?: readonly McpImportField[] }) {
@@ -130,14 +138,14 @@ function failureText(failure: McpActionFailure, t: Translate): string {
  * Settings › MCP's add pane: one paste box for a URL, a command line,
  * `pi | claude | codex | gemini mcp add …`, another client's JSON or an
  * install link, read in the browser by the importer the route parses it with
- * again (`lib/mcp-import.ts`). Before Add it shows what would be written:
- * the masked command line or URL, env and header names, the values that run a
- * shell command and the host variables it reads, what the importer changed or
- * dropped, the values to fill in, the name, and the scope, whose Project
- * option says why it is unavailable. A fresh folder is trusted in the same
- * step, and the button says so. The box never takes focus on a touch screen,
- * and only its button or Cmd/Ctrl+Enter adds; the panel tests the server once
- * that explicit Add has written it.
+ * again (`lib/mcp-import.ts`). Under the title, where it is saved: the scope,
+ * whose Project option says why it is unavailable, and the file. Before Add it
+ * shows what would be written: the masked command line or URL, env and header
+ * names, the values that run a shell command and the host variables it reads,
+ * what the importer changed or dropped, the values to fill in, and the name.
+ * A fresh folder is trusted in the same step, and the button says so. The box
+ * never takes focus on a touch screen, and only its button or Cmd/Ctrl+Enter
+ * adds; the panel tests the server once that explicit Add has written it.
  */
 export function McpAddServer({
   data,
@@ -166,15 +174,19 @@ export function McpAddServer({
 }) {
   const { t } = useI18n();
   const blockId = useId();
-  const scopeBlockId = useId();
   const nameId = useId();
   const analysis = useMemo(() => mcpAddAnalysis(draft, data, cwd), [draft, data, cwd]);
   const offersRawPi = useMemo(() => mcpAddOffersRawPi(draft.text), [draft.text]);
   const { parsed, server, preview, projectBlock, submitBlock } = analysis;
   // The paste's secrets that can be read from a variable have their own rows below, which say it.
-  const notes = server ? [...server.notes, ...parsed.notes].filter((note) => (
+  const allNotes = server ? [...server.notes, ...parsed.notes].filter((note) => (
     note.code !== "literal-secret" || !analysis.pasteSecrets.includes(String(note.params?.field))
   )) : [];
+  // The name's notes go under its box, and only while it holds the importer's name: once edited,
+  // they would describe a name no longer there.
+  const nameEdited = draft.name !== undefined && draft.name !== server?.name;
+  const nameNotes = nameEdited ? [] : allNotes.filter((note) => NAME_NOTE_CODES.has(note.code));
+  const notes = allNotes.filter((note) => !NAME_NOTE_CODES.has(note.code));
   const canSubmit = !busy && !controlsBusy && submitBlock === undefined;
   const submit = () => {
     if (canSubmit) onSubmit(mcpAddRequest(draft, analysis));
@@ -182,14 +194,11 @@ export function McpAddServer({
   const change = (patch: Partial<McpAddDraft>) => onDraftChange({ ...draft, ...patch });
   const targetFile = data.files.find((file) => file.scope === analysis.scope)?.path
     ?? (analysis.scope === "project" && cwd ? `${cwd.replace(/[\\/]+$/, "")}/.pi/mcp.json` : "mcp.json");
-  // Project picked, then blocked (a secret typed since): the switch shows its reason only under a
-  // disabled option, so the line is the pane's own, and Add points at it.
-  const scopeLine = analysis.scope === "project" && projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : undefined;
-  const blockSaidByScopeLine = submitBlock?.kind === "scope" && scopeLine !== undefined && submitBlock.block === projectBlock;
-  const ownBlockLine = submitBlock && !blockSaidByScopeLine && (draft.text.trim() !== "" || submitBlock.kind === "mcp-off")
+  // Why Add waits, under it. Project picked, then blocked (a secret typed since) is said here too:
+  // the switch at the top explains only a disabled option, and the way out is often in the fields above Add.
+  const ownBlockLine = submitBlock && (draft.text.trim() !== "" || submitBlock.kind === "mcp-off")
     ? submitBlockText(submitBlock, t, server?.fields)
     : undefined;
-  const describedBy = [scopeLine ? scopeBlockId : undefined, ownBlockLine ? blockId : undefined].filter(Boolean).join(" ") || undefined;
   const trustable = projectBlock?.kind === "project-untrusted" && projectBlock.trustable && onTrustProject;
   // The preview leaves out what is not set: no working directory, no env or header names.
   const names = preview ? (preview.transport === "http" ? preview.headerNames : preview.envNames) : [];
@@ -197,9 +206,29 @@ export function McpAddServer({
   return (
     <ConfigAddSourcePanel
       title={t("mcp.add.title")}
-      catalogHref="https://github.com/mcp"
-      catalogLabel="github.com/mcp"
-      location={displayPath(targetFile)}
+      catalogs={MCP_CATALOGS}
+      target={
+        <ConfigSaveTarget
+          value={analysis.scope}
+          label={t("config.saveTo")}
+          options={[
+            { value: "global", label: scopeLabel("global", t) },
+            { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
+          ]}
+          path={displayPath(targetFile)}
+          disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
+          onChange={(scope) => change({ scope })}
+        >
+          {trustable && (
+            <span className="mcp-config-line">
+              <ConfigButton size="small" onClick={onTrustProject}>{t("mcp.trust.trustButton")}</ConfigButton>
+            </span>
+          )}
+          {analysis.trustFolder && analysis.projectMode.kind === "trust-and-write" && (
+            <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayPath(analysis.projectMode.folder) })}</p>
+          )}
+        </ConfigSaveTarget>
+      }
       inputLabel={t("mcp.add.inputLabel")}
       inputId="mcp-add-source"
       placeholder={t("mcp.add.placeholder")}
@@ -207,11 +236,10 @@ export function McpAddServer({
       canSubmit={canSubmit}
       onValueChange={(text) => onDraftChange(mcpAddDraftWithPaste(draft, { text }))}
       onSubmit={submit}
-      examplesLabel={t("config.examples")}
-      // Examples only while the box is empty: clicking one replaces the paste.
-      examples={draft.text.trim() === "" ? MCP_ADD_EXAMPLES : []}
+      examplesLabel={t("mcp.add.examples")}
+      // Every format the importer reads, each with an example, only while the box is empty: clicking one replaces the paste.
+      examples={draft.text.trim() === "" ? MCP_ADD_EXAMPLES.map(({ source, text }) => ({ label: t(MCP_IMPORT_SOURCE_KEYS[source]), value: text })) : []}
       multiline
-      hint={t("mcp.add.hint")}
     >
       {offersRawPi && (
         <label className="mcp-add-toggle">
@@ -239,6 +267,32 @@ export function McpAddServer({
           </select>
           <span className="mcp-config-line is-dim">{t("mcp.add.serverCount", { count: parsed.servers.length })}</span>
         </ConfigField>
+      )}
+
+      {/* What the server is called comes first: it is its key in mcp.json and its row in the list. */}
+      {server && (
+        <>
+          <ConfigField label={t("config.name")}>
+            <input
+              id={nameId}
+              className="mcp-add-input"
+              aria-label={t("config.name")}
+              value={analysis.name}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => change({ name: event.target.value })}
+            />
+          </ConfigField>
+          <McpImportNotes notes={nameNotes} fields={server.fields} />
+          {submitBlock?.kind === "name-taken" && (
+            <span className="mcp-config-line">
+              <ConfigButton size="small" onClick={() => change({ name: submitBlock.suggestedName })}>
+                {t("mcp.add.useName", { name: revealHiddenCharacters(submitBlock.suggestedName) })}
+              </ConfigButton>
+            </span>
+          )}
+        </>
       )}
 
       {server && preview && (
@@ -304,6 +358,7 @@ export function McpAddServer({
                 <McpAddFieldInput
                   key={field.id}
                   field={field}
+                  fields={server.fields}
                   draft={draft}
                   suggestedName={mcpFieldSuggestedVariableName(field, analysis.name)}
                   problem={analysis.fieldProblems[field.id]}
@@ -329,60 +384,22 @@ export function McpAddServer({
               ))}
             </>
           )}
-
-          <ConfigField label={t("config.name")}>
-            <input
-              id={nameId}
-              className="mcp-add-input"
-              aria-label={t("config.name")}
-              value={analysis.name}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => change({ name: event.target.value })}
-            />
-          </ConfigField>
-          {submitBlock?.kind === "name-taken" && (
-            <span className="mcp-config-line">
-              <ConfigButton size="small" onClick={() => change({ name: submitBlock.suggestedName })}>
-                {t("mcp.add.useName", { name: revealHiddenCharacters(submitBlock.suggestedName) })}
-              </ConfigButton>
-            </span>
-          )}
         </>
       )}
 
-      <ConfigScopeSwitch
-        value={analysis.scope}
-        label={t("config.scope")}
-        options={[
-          { value: "global", label: scopeLabel("global", t) },
-          { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
-        ]}
-        disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
-        onChange={(scope) => change({ scope })}
+      <ConfigButton
+        variant="primary"
+        className="is-pushed-right"
+        disabled={!canSubmit}
+        aria-busy={busy || undefined}
+        aria-describedby={ownBlockLine ? blockId : undefined}
+        onClick={submit}
       >
-        <ConfigButton
-          variant="primary"
-          className="is-pushed-right"
-          disabled={!canSubmit}
-          aria-busy={busy || undefined}
-          aria-describedby={describedBy}
-          onClick={submit}
-        >
-          {busy ? t("mcp.add.adding") : analysis.trustFolder ? t("mcp.add.buttonTrust") : t("mcp.add.button")}
-        </ConfigButton>
-      </ConfigScopeSwitch>
-      {scopeLine && <p id={scopeBlockId} className="mcp-config-line is-warning">{scopeLine}</p>}
-      {trustable && (
-        <span className="mcp-config-line">
-          <ConfigButton size="small" onClick={onTrustProject}>{t("mcp.trust.trustButton")}</ConfigButton>
-        </span>
+        {busy ? t("mcp.add.adding") : analysis.trustFolder ? t("mcp.add.buttonTrust") : t("mcp.add.button")}
+      </ConfigButton>
+      {ownBlockLine && (
+        <p id={blockId} className={`mcp-config-line ${submitBlock?.kind === "scope" ? "is-warning" : "is-dim"}`}>{ownBlockLine}</p>
       )}
-      {analysis.trustFolder && analysis.projectMode.kind === "trust-and-write" && (
-        <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayPath(analysis.projectMode.folder) })}</p>
-      )}
-      {ownBlockLine && <p id={blockId} className="mcp-config-line is-dim">{ownBlockLine}</p>}
       {server && !submitBlock && <p className="mcp-config-line is-dim">{t("mcp.add.afterAdd")}</p>}
 
       {failure && (
@@ -439,19 +456,25 @@ function McpAddNames({ names }: { names: readonly string[] }) {
 
 /**
  * One value the paste left to fill in: its label and description as the
- * source gave them, why it is asked for, and a box (a password box for a
- * secret, a list for a choice). Where pi resolves every value it fills, the
- * user may name a host variable instead, stored as `${NAME}`, which keeps a
- * secret out of the file; its box opens with the name the pane suggests.
+ * source gave them, a box (a password box for a secret, a list for a choice)
+ * showing what the paste held there, why it is asked for unless that is a
+ * plain placeholder, and what is stored around it (`Bearer ‹your value›`).
+ * Where pi resolves every value it fills, the user may name a host variable
+ * instead, stored as `${NAME}`, which keeps a secret out of the file; its box
+ * opens with the name the pane suggests. That a typed secret keeps the server
+ * global is said once, under the scope switch.
  */
 function McpAddFieldInput({
   field,
+  fields,
   draft,
   suggestedName,
   problem,
   onDraftChange,
 }: {
   field: McpImportField;
+  /** Every field of the server, for another field's slot in a value this one is part of. */
+  fields: readonly McpImportField[];
   draft: McpAddDraft;
   /** The variable the box opens with (`mcpFieldSuggestedVariableName()`), always a valid name. */
   suggestedName?: string;
@@ -467,6 +490,11 @@ function McpAddFieldInput({
   const usesVariable = reference !== undefined;
   const label = revealHiddenCharacters(field.label);
   const value = draft.values[field.id] ?? field.defaultValue ?? "";
+  const reasonKey = MCP_IMPORT_FIELD_REASON_KEYS[field.reason];
+  const optionalHeader = field.optional ? mcpFieldOptionalHeader(field) : undefined;
+  const storedAs = usesVariable
+    ? (reference && !problem ? mcpFieldStoredAs(field, fields, "${" + reference + "}", true) : undefined)
+    : mcpFieldStoredAs(field, fields, `‹${t("mcp.add.field.slot")}›`);
   const setValue = (next: string) => onDraftChange({ ...draft, values: { ...draft.values, [field.id]: next } });
   const setReference = (next: string | undefined) => {
     const references = { ...draft.references };
@@ -501,6 +529,7 @@ function McpAddFieldInput({
             aria-label={label}
             value={value}
             autoComplete="off"
+            placeholder={field.placeholder ? revealHiddenCharacters(field.placeholder) : undefined}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -511,16 +540,24 @@ function McpAddFieldInput({
       </ConfigField>
       {problem && <span id={problemId} className="mcp-config-line is-error">{mcpImportNoteText(problem, t, [field])}</span>}
       <span className="mcp-config-lines">
-        <span className="mcp-config-line is-dim">
-          {t(MCP_IMPORT_FIELD_REASON_KEYS[field.reason])}
-          {field.optional && <> {t("mcp.add.field.optional")}</>}
-        </span>
         {field.description && <span className="mcp-config-line is-dim">{revealHiddenCharacters(field.description)}</span>}
-        {field.placeholder && (
-          <span className="mcp-config-line is-dim">{t("mcp.add.field.inPaste", { placeholder: revealHiddenCharacters(field.placeholder) })}</span>
+        {reasonKey && <span className="mcp-config-line is-dim">{t(reasonKey)}</span>}
+        {usesVariable ? (
+          <span className="mcp-config-line is-dim">
+            {storedAs ? t("mcp.add.field.storedAsVariable", { value: storedAs }) : t("mcp.add.field.variableHint")}
+          </span>
+        ) : (
+          <>
+            {storedAs && <span className="mcp-config-line is-dim">{t("mcp.add.field.storedAs", { value: storedAs })}</span>}
+            {field.optional && (
+              <span className="mcp-config-line is-dim">
+                {optionalHeader
+                  ? t("mcp.add.field.optionalHeader", { name: revealHiddenCharacters(optionalHeader) })
+                  : t("mcp.add.field.optional")}
+              </span>
+            )}
+          </>
         )}
-        {usesVariable && <span className="mcp-config-line is-dim">{t("mcp.add.field.variableHint")}</span>}
-        {!usesVariable && field.kind === "password" && <span className="mcp-config-line is-dim">{t("mcp.add.field.secret")}</span>}
       </span>
       {takesVariable && (
         <label className="mcp-add-toggle">

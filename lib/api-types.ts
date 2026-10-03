@@ -14,11 +14,39 @@ export interface SubagentSettingsResponse {
 /** Code mode's one choice (ADR 0006): Automatic writes nothing, Always on adds `+codemode` to the global defaultTools. */
 export type McpCodemodePreference = "automatic" | "always";
 
+/** One settings layer's `codemode.inlineBudget`, as the codemode extension reads it. */
+export interface CodemodeInlineBudgetSetting {
+  /** The budget sessions use; absent when unset or ignored, which gives them pi's default. */
+  value?: number;
+  /** A value pi ignores (not a finite number of 0 or more), as shortened JSON. */
+  invalid?: string;
+}
+
+/**
+ * pi's `codemode.mode`: how the codemode tool presents the other tools while
+ * it is active. "on" (pi's default) keeps them declared; "only" hides the
+ * active `direct` ones (built-in, extension and direct MCP tools) from the
+ * model and lists them in the codemode description, so scripts call them.
+ */
+export type CodemodeMode = "on" | "only";
+
+/** One settings layer's `codemode.mode`, as the codemode extension reads it. */
+export interface CodemodeModeSetting {
+  /** The mode sessions get: "only" when set to exactly that, else "on". */
+  value: CodemodeMode;
+  /** A value that is neither mode, which pi reads as "on", as shortened JSON. */
+  invalid?: string;
+}
+
 export interface ToolSettingsResponse {
   isWindows: boolean;
   powerShellEnabled: boolean;
   /** "always" when the global defaultTools starts sessions with codemode active (ADR 0006). */
   codemode: McpCodemodePreference;
+  /** The global `codemode.mode`. */
+  codemodeMode: CodemodeModeSetting;
+  /** The global `codemode.inlineBudget`. */
+  codemodeInlineBudget: CodemodeInlineBudgetSetting;
 }
 
 export interface SkillSearchResult {
@@ -231,6 +259,10 @@ export interface McpServerInfo {
    */
   transport?: McpTransportKind;
   exposure?: McpExposure;
+  /** How many tools `toolExposure` gives an exposure of their own, by exact name or pattern; absent when none. */
+  toolExposureCount?: number;
+  /** The entry's `description`, as written: what pi lists the server with in the system prompt. */
+  description?: string;
   command?: string;
   args?: string[];
   /** The configured working directory, relative to the session's. */
@@ -238,12 +270,18 @@ export interface McpServerInfo {
   envNames: string[];
   url?: string;
   headerNames: string[];
-  /** An HTTP server without an `Authorization` header signs in with OAuth when it answers 401. */
+  /** An HTTP server without an `Authorization` header or `auth` signs in with OAuth when it answers 401. */
   usesOAuth: boolean;
-  /** Whether `mcp-auth.json` holds an access token for the URL; absent when unknown or not an OAuth server. */
+  /** An HTTP server's `auth.provider`: it sends that pi provider's token (signed in under Settings › Models) instead of using OAuth. */
+  authProvider?: string;
+  /**
+   * Whether `mcp-auth.json` holds an access token for the server (by its name
+   * and URL, else the record older versions kept by URL alone, as the SDK
+   * reads it); absent when unknown or not an OAuth server.
+   */
   signedIn?: boolean;
   /**
-   * Whether `mcp-auth.json` holds anything for the URL: tokens, or what a
+   * Whether `mcp-auth.json` holds anything for the server: tokens, or what a
    * sign-in stores before any token (a dynamic client registration, the PKCE
    * verifier and state), which a cancelled or expired sign-in leaves behind.
    * Sign out removes all of it. Absent when unknown or not an OAuth server.
@@ -434,6 +472,46 @@ export interface McpCodemodeInfo {
    * Only read with a cwd whose project settings sessions load.
    */
   projectOverride?: McpCodemodeProjectOverride;
+  /**
+   * `codemode.mode`: whether active built-in and extension tools stay
+   * declared while Code mode is on, or are reached only from scripts. Absent
+   * when the global settings file cannot be read; see `modeError`.
+   */
+  mode?: McpCodemodeMode;
+  modeError?: string;
+  /**
+   * `codemode.inlineBudget`: the estimated tokens (characters / 4) the
+   * codemode tool's description may spend on tool declarations. Absent when
+   * the global settings file cannot be read; see `inlineBudgetError`.
+   */
+  inlineBudget?: McpCodemodeInlineBudget;
+  inlineBudgetError?: string;
+}
+
+export interface McpCodemodeMode extends CodemodeModeSetting {
+  /** The global settings file the mode is read from and saved to. */
+  settingsPath: string;
+  /**
+   * A trusted project whose `.pi/settings.json` sets the mode its sessions get
+   * whatever the global value: its `codemode.mode`, or a `codemode` that is
+   * not an object, which leaves them "on".
+   */
+  projectOverride?: CodemodeModeSetting & { settingsPath: string };
+}
+
+export interface McpCodemodeInlineBudget extends CodemodeInlineBudgetSetting {
+  /** The global settings file the value is read from and saved to. */
+  settingsPath: string;
+  /** pi's default, which sessions use while nothing usable is set. */
+  default: number;
+  /** The largest budget `PUT /api/tools/settings` saves. */
+  max: number;
+  /**
+   * A trusted project whose `.pi/settings.json` sets the budget its sessions
+   * get whatever the global value: its `codemode.inlineBudget`, or a
+   * `codemode` that is not an object, which leaves them the default.
+   */
+  projectOverride?: CodemodeInlineBudgetSetting & { settingsPath: string };
 }
 
 export interface McpCodemodeProjectOverride {
@@ -459,6 +537,12 @@ export interface McpProjectInfo {
 export interface McpResponse {
   mcp: McpAvailability;
   codemode: McpCodemodeInfo;
+  /**
+   * Present when `-builtin:tool-search` (or a pattern matching it), in the
+   * global or a trusted project's `extensions`, turns tool search off, so
+   * `deferred` tools are reached only from Code mode scripts.
+   */
+  toolSearchDisabled?: { settingsPath?: string };
   /** The global file, then the project file when a cwd was given. */
   files: McpConfigFileInfo[];
   /** Global entries, then project entries, each in file order. */

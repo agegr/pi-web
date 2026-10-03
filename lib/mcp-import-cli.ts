@@ -3,6 +3,7 @@ import {
   LITERAL_GRAMMAR,
   type McpImportNote,
   parseValue,
+  resolveMcpExposure,
   type Segment,
   ServerDraft,
   timeoutFromMilliseconds,
@@ -192,10 +193,12 @@ const PI_ADD_OPTIONS: Record<string, PiOptionKind> = {
   "oauth-client-id": "value",
   "oauth-client-secret": "value",
   "oauth-callback-port": "value",
+  "oauth-client-name": "value",
   exposure: "value",
+  description: "value",
 };
 const PI_OPTION_ALIASES = new Map([["-l", "--local"]]);
-const PI_HTTP_ONLY = ["header", "bearer-token-env-var", "oauth-client-id", "oauth-client-secret", "oauth-callback-port"];
+const PI_HTTP_ONLY = ["header", "bearer-token-env-var", "oauth-client-id", "oauth-client-secret", "oauth-callback-port", "oauth-client-name"];
 const PI_STDIO_ONLY = ["env", "cwd"];
 
 function readPiMcpAdd(args: ShellWord[], mcpArgs: ShellWord[]): EntryOutcome | { error: McpImportNote } {
@@ -273,12 +276,16 @@ function readPiMcpAdd(args: ShellWord[], mcpArgs: ShellWord[]): EntryOutcome | {
     const clientId = value("oauth-client-id");
     const clientSecret = value("oauth-client-secret");
     const port = value("oauth-callback-port");
+    const clientName = value("oauth-client-name");
     if (clientId) draft.oauth.clientId = wordSegments(clientId.parts, "pi", false);
     if (clientSecret) draft.oauth.clientSecret = wordSegments(clientSecret.parts, "pi", true);
     if (port) draft.oauth.callbackPort = Number(port.text);
+    if (clientName) draft.oauth.clientName = wordSegments(clientName.parts, "pi", false);
     // A variable the shell would have replaced becomes a field; validate the rest.
     config.url = url.parts.some((part) => part.type === "variable") ? "https://placeholder.invalid/" : url.text;
-    if (port) config.oauth = { callbackPort: Number(port.text) };
+    if (port || clientName) {
+      config.oauth = { ...(port ? { callbackPort: Number(port.text) } : {}), ...(clientName ? { clientName: clientName.text } : {}) };
+    }
   } else {
     draft.transport = "stdio";
     const env = pairs("env");
@@ -291,10 +298,16 @@ function readPiMcpAdd(args: ShellWord[], mcpArgs: ShellWord[]): EntryOutcome | {
     if (cwd) draft.cwd = wordSegments(cwd.parts, "pi", false);
     config.command = executable.text;
   }
+  // pi writes the validator's copy, so an old exposure name (`codemode-deferred`) is written as what it now means.
   const exposure = value("exposure");
   if (exposure !== undefined) {
     config.exposure = exposure.text;
-    draft.exposure = exposure.text as ServerDraft["exposure"];
+    draft.exposure = resolveMcpExposure(exposure.text) ?? (exposure.text as ServerDraft["exposure"]);
+  }
+  const description = value("description");
+  if (description !== undefined) {
+    config.description = description.text;
+    draft.description = description.text;
   }
   // pi validates before writing; the name is checked (and sanitized) by the importer like any other.
   const problem = validationProblem("server", config);

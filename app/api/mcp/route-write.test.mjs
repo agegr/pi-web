@@ -84,6 +84,68 @@ test("a server is switched off and on in its file, and the answer is the overvie
   assert.ok(!JSON.stringify(body).includes(SECRET));
 });
 
+test("a server's exposure is set in its file, codemode removing the key, and the answer is the overview after it", async () => {
+  let { status, body } = await post({ action: "set-exposure", scope: "global", name: "docs", exposure: "direct" });
+  assert.equal(status, 200);
+  assert.equal(server(body, "global", "docs").exposure, "direct");
+  assert.equal((await readJson(globalPath)).mcpServers.docs.exposure, "direct");
+  assert.ok(!JSON.stringify(body).includes(SECRET));
+
+  // The old name pi still reads is not offered, and an entry holding it lists as what it now means.
+  ({ status, body } = await post({ action: "set-exposure", scope: "global", name: "docs", exposure: "codemode-deferred" }));
+  assert.equal(status, 400);
+  const aliased = JSON.parse(globalText);
+  aliased.mcpServers.docs.exposure = "codemode-deferred";
+  await writeFile(globalPath, JSON.stringify(aliased));
+  ({ status, body } = await post({ action: "set-exposure", scope: "global", name: "lint", exposure: "codemode" }));
+  assert.equal(status, 200);
+  assert.equal(server(body, "global", "docs").exposure, "codemode");
+
+  ({ status, body } = await post({ action: "set-exposure", scope: "global", name: "docs", exposure: "codemode" }));
+  assert.equal(status, 200);
+  assert.equal(server(body, "global", "docs").exposure, "codemode");
+  assert.equal(await readFile(globalPath, "utf8"), globalText, "codemode, the default, removes the key, as the SDK does");
+
+  // Nothing connects because of it, so an entry that references PI_WEB_PASSWORD may change too, and stays off.
+  ({ status, body } = await post({ action: "set-exposure", scope: "global", name: "pw", exposure: "hidden" }));
+  assert.equal(status, 200);
+  assert.deepEqual([server(body, "global", "pw").exposure, server(body, "global", "pw").enabled], ["hidden", false]);
+
+  // toolExposure is kept, and counted.
+  const withOverrides = JSON.parse(globalText);
+  withOverrides.mcpServers.lint.toolExposure = { lint_file: "direct", "fix_*": "hidden" };
+  await writeFile(globalPath, JSON.stringify(withOverrides));
+  ({ body } = await post({ action: "set-exposure", scope: "global", name: "lint", exposure: "deferred" }));
+  assert.equal(server(body, "global", "lint").toolExposureCount, 2);
+  assert.deepEqual((await readJson(globalPath)).mcpServers.lint, { command: "npx", args: ["lint-mcp"], toolExposure: { lint_file: "direct", "fix_*": "hidden" }, exposure: "deferred" });
+});
+
+test("an exposure change follows the same guards as a switch", async () => {
+  for (const body of [
+    { action: "set-exposure", scope: "global", name: "docs" },
+    { action: "set-exposure", scope: "global", name: "docs", exposure: "sometimes" },
+    { action: "set-exposure", scope: "elsewhere", name: "docs", exposure: "direct" },
+  ]) {
+    const response = await post(body);
+    assert.equal(response.status, 400, JSON.stringify(body));
+    assert.equal(response.body.reason, "invalid-request", JSON.stringify(body));
+  }
+  const missing = await post({ action: "set-exposure", scope: "global", name: "gone", exposure: "direct" });
+  assert.deepEqual([missing.status, missing.body.reason], [409, "server-missing"]);
+  const untrusted = await post({ action: "set-exposure", scope: "project", name: "repo", exposure: "direct", cwd });
+  assert.deepEqual([untrusted.status, untrusted.body.reason], [403, "project-untrusted"]);
+  assert.equal(await readFile(projectPath, "utf8"), projectText);
+  process.env.PI_WEB_DISABLE_MCP = "1";
+  const off = await post({ action: "set-exposure", scope: "global", name: "docs", exposure: "direct" });
+  assert.deepEqual([off.status, off.body.reason], [409, "mcp-off"]);
+  delete process.env.PI_WEB_DISABLE_MCP;
+  assert.equal(await readFile(globalPath, "utf8"), globalText);
+
+  await writeFile(globalPath, JSON.stringify({ mcpServers: { text: "x" } }));
+  const notObject = await post({ action: "set-exposure", scope: "global", name: "text", exposure: "direct" });
+  assert.deepEqual([notObject.status, notObject.body.reason], [409, "entry-not-object"]);
+});
+
 test("requests from another page, not sent as JSON, or naming nothing to do are refused", async () => {
   assert.deepEqual(
     await post({ action: "disable", scope: "global", name: "lint" }, { origin: "https://evil.example", "sec-fetch-site": "cross-site" }),

@@ -141,10 +141,13 @@ export const MCP_IMPORT_PROBLEM_KEYS = [
   "mcp.importProblem.tool-exposure",
   "mcp.importProblem.tool-exposure.tool",
   "mcp.importProblem.enabled",
+  "mcp.importProblem.description",
   "mcp.importProblem.timeout",
   "mcp.importProblem.sse",
   "mcp.importProblem.url",
   "mcp.importProblem.headers",
+  "mcp.importProblem.auth",
+  "mcp.importProblem.auth-url",
   "mcp.importProblem.oauth",
   "mcp.importProblem.oauth-client-id",
   "mcp.importProblem.oauth-client-secret",
@@ -152,6 +155,8 @@ export const MCP_IMPORT_PROBLEM_KEYS = [
   "mcp.importProblem.callback-url",
   "mcp.importProblem.callback-port-mismatch",
   "mcp.importProblem.oauth-scope",
+  "mcp.importProblem.oauth-client-name",
+  "mcp.importProblem.auth-server-metadata-url",
   "mcp.importProblem.args",
   "mcp.importProblem.args.index",
   "mcp.importProblem.env",
@@ -187,9 +192,12 @@ export function mcpImportNoteText(note: McpImportNote, t: Translate, fields: rea
   return typeof params.server === "string" ? t("mcp.importNote.forServer", { server: params.server, note: text }) : text;
 }
 
-export const MCP_IMPORT_FIELD_REASON_KEYS: Record<McpImportField["reason"], string> = {
-  placeholder: "mcp.importField.reason.placeholder",
-  "placeholder-path": "mcp.importField.reason.placeholder-path",
+/**
+ * Why a field is asked for. A placeholder has no words of its own: its box
+ * shows the paste's text as its placeholder, and `mcpFieldStoredAs()` the text
+ * around it.
+ */
+export const MCP_IMPORT_FIELD_REASON_KEYS: Partial<Record<McpImportField["reason"], string>> = {
   empty: "mcp.importField.reason.empty",
   input: "mcp.importField.reason.input",
   variable: "mcp.importField.reason.variable",
@@ -223,8 +231,69 @@ export const MCP_IMPORT_SOURCE_KEYS: Record<McpImportFormat, string> = {
   "copilot-app-install-link": "mcp.add.source.copilot-app-install-link",
 };
 
+// The fetch server the stdio examples add, as an install link carries it: Cursor's
+// config without its name, VS Code's (and the links built on it) with it.
+const FETCH_CONFIG = JSON.stringify({ command: "uvx", args: ["mcp-server-fetch"] });
+const FETCH_NAMED = JSON.stringify({ name: "fetch", command: "uvx", args: ["mcp-server-fetch"] });
+
+/**
+ * One example per format the importer reads, shown under the empty paste box
+ * with its format's name (`MCP_IMPORT_SOURCE_KEYS`): addresses and commands,
+ * other clients' command lines, configs, install links. Each is read as its
+ * format with nothing left to fill in, which `mcp-add-helpers.test.mjs` checks,
+ * along with a format added to the importer without one here.
+ */
+export const MCP_ADD_EXAMPLES: readonly { source: McpImportFormat; text: string }[] = [
+  { source: "url", text: "https://mcp.example.com/mcp" },
+  { source: "command-line", text: "npx -y @modelcontextprotocol/server-everything" },
+  { source: "pi-mcp-add", text: "pi mcp add docs --url https://mcp.example.com/mcp" },
+  { source: "claude-mcp-add", text: "claude mcp add --transport http docs https://mcp.example.com/mcp" },
+  { source: "claude-mcp-add-json", text: `claude mcp add-json docs '{"type":"http","url":"https://mcp.example.com/mcp"}'` },
+  { source: "codex-mcp-add", text: "codex mcp add fetch -- uvx mcp-server-fetch" },
+  { source: "gemini-mcp-add", text: "gemini mcp add --transport http docs https://mcp.example.com/mcp" },
+  { source: "vscode-add-mcp", text: `code --add-mcp '${FETCH_NAMED}'` },
+  { source: "mcp-servers-json", text: '{ "mcpServers": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } } }' },
+  { source: "vscode-json", text: '{ "servers": { "docs": { "type": "http", "url": "https://mcp.example.com/mcp" } } }' },
+  { source: "zed-json", text: '{ "context_servers": { "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } } }' },
+  { source: "opencode-json", text: '{ "mcp": { "docs": { "type": "remote", "url": "https://mcp.example.com/mcp" } } }' },
+  { source: "server-object", text: '{ "type": "http", "url": "https://mcp.example.com/mcp" }' },
+  { source: "server-map", text: '{ "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] } }' },
+  {
+    source: "registry-server-json",
+    text: '{ "name": "com.example/docs", "version": "1.0.0", "remotes": [{ "type": "streamable-http", "url": "https://mcp.example.com/mcp" }] }',
+  },
+  { source: "cursor-install-link", text: `cursor://anysphere.cursor-deeplink/mcp/install?name=fetch&config=${btoa(FETCH_CONFIG)}` },
+  { source: "vscode-install-link", text: `vscode:mcp/install?${encodeURIComponent(FETCH_NAMED)}` },
+  { source: "visual-studio-install-link", text: `vsweb+mcp:/install?${encodeURIComponent(FETCH_NAMED)}` },
+  { source: "copilot-app-install-link", text: `ghapp://mcp/install?${encodeURIComponent(FETCH_NAMED)}` },
+];
+
 // ---------------------------------------------------------------------------
 // Fields
+
+/**
+ * The values a field is part of, as they will be stored: the paste's fixed
+ * text with `slot` where this field goes (`Bearer ‹your value›`, or
+ * `Bearer ${GH_TOKEN}` for a variable) and `‹label›` where another field goes.
+ * Undefined when the field makes up every value whole, unless `whole` is set:
+ * the line would only repeat the box. It is what tells whether to type the
+ * token or `Bearer` and the token.
+ */
+export function mcpFieldStoredAs(field: McpImportField, fields: readonly McpImportField[], slot: string, whole = false): string | undefined {
+  if (!whole && field.targets.every(({ parts }) => parts.length === 1)) return undefined;
+  const values = field.targets.map(({ parts }) => parts.map((part) => {
+    if (typeof part === "string") return revealHiddenCharacters(part);
+    if (part.field === field.id) return slot;
+    return `‹${revealHiddenCharacters(fields.find(({ id }) => id === part.field)?.label ?? part.field)}›`;
+  }).join(""));
+  return [...new Set(values)].join(", ");
+}
+
+/** The header a blank optional field leaves out, when it fills exactly one. */
+export function mcpFieldOptionalHeader(field: McpImportField): string | undefined {
+  const names = new Set(field.targets.map(({ path }) => (path[0] === "headers" ? path[1] : undefined)));
+  return names.size === 1 ? [...names][0] : undefined;
+}
 
 /** Whether a field may be answered with a host variable: only where pi resolves every value it fills (env, headers, `oauth.clientSecret`). */
 export function mcpFieldTakesVariable(field: McpImportField): boolean {

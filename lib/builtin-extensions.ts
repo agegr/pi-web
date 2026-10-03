@@ -378,6 +378,9 @@ export async function createPiWebBuiltinExtensions(
         ? createMcpExtension({
             loadConfig: createMcpExtensionConfigLoader(mcp.internals, options.agentDir),
             createTransport: mcpHost.wrapTransportFactory(createPiWebMcpTransportFactory(mcp.internals)),
+            // The host already waited, and Stop ends its wait. The extension's own wait for
+            // servers with `direct` tools, at a session's first prompt, ignores Stop.
+            startupWaitMs: 0,
             // `/mcp login` already shows the address in the chat; a browser
             // opened on the server host is one a remote user never sees.
             openUrl: () => {},

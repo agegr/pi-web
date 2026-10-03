@@ -15,8 +15,9 @@ import { invalidateModelsCache } from "@/lib/models-cache";
  * was the known workaround — the CLI refreshes with the network on, and every
  * pi-web request then reads what the CLI left behind. Both of pi-web's own
  * refresh paths ask for the offline half only (`createAgentSessionServices()`
- * and `lib/provider-usage.ts` pass `allowNetwork: false`), so pi-web never
- * filled that file itself.
+ * and `set_model` in `lib/rpc-manager.ts` pass `allowNetwork: false`;
+ * `lib/provider-usage.ts` skips the refresh with `refreshOnCreate: false`), so
+ * pi-web never filled that file itself.
  *
  * This runs the network pass in pi-web, behind the Models panel's refresh
  * button. It only has to write `models-store.json`: the overlay reaches the UI

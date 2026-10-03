@@ -25,7 +25,7 @@ await mkdir(join(cwd, ".pi"), { recursive: true });
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { allowFileRoot } = await jiti.import("../../../../lib/file-access.ts");
 const { clearMcpStatuses } = await jiti.import("../../../../lib/mcp-status.ts");
-const { clearMcpSignIns, mcpSignInUrlKey } = await jiti.import("../../../../lib/mcp-sign-in.ts");
+const { cancelMcpSignIn, clearMcpSignIns, mcpSignInKey } = await jiti.import("../../../../lib/mcp-sign-in.ts");
 const { POST: START } = await jiti.import("./route.ts");
 const flowRoute = await jiti.import("./[flowId]/route.ts");
 const mcpRoute = await jiti.import("../route.ts");
@@ -136,9 +136,14 @@ test("a sign-in is started, polled, finished with a pasted address, and the list
 
   const waiting = await until(flowId, (flow) => flow.phase === "authorize" || ENDED.has(flow.phase));
   assert.equal(waiting.phase, "authorize", waiting.error);
-  // Another entry of the same URL joins the sign-in under way instead of starting a second one.
-  const joined = await start({ scope: "global", name: "alias" });
+  // A second start for the server joins the sign-in under way instead of starting a second one.
+  const joined = await start({ scope: "global", name: "oauth" });
   assert.deepEqual([joined.body.flowId, joined.body.joined, joined.body.name], [flowId, true, "oauth"]);
+  // Another name at the same URL keeps its own account: it signs in on its own.
+  const alias = await start({ scope: "global", name: "alias" });
+  assert.notEqual(alias.body.flowId, flowId);
+  assert.equal(alias.body.joined, undefined);
+  cancelMcpSignIn(alias.body.flowId);
 
   const landed = await approveSignIn(waiting.authorizationUrl);
   // A bad paste is a 400 with a reason, and the sign-in keeps waiting.
@@ -155,15 +160,15 @@ test("a sign-in is started, polled, finished with a pasted address, and the list
   assert.equal(done.phase, "done", done.error);
   assert.equal(done.result.state, "connected", done.result.error);
   const auth = JSON.parse(readFileSync(authPath, "utf8"));
-  assert.ok(fake.issued.access.has(auth[mcpSignInUrlKey(fake.url)].tokens.access_token));
+  assert.ok(fake.issued.access.has(auth[mcpSignInKey("oauth", fake.url)].tokens.access_token));
   // The listing reads mcp-auth.json raw: signed in, with the reconnect as the status.
   const servers = await listed();
   const oauth = servers.find((server) => server.name === "oauth");
   assert.equal(oauth.signedIn, true);
   assert.equal(oauth.status.state, "connected");
   assert.equal(oauth.status.afterSignIn, true);
-  // The tokens serve every entry of the URL; the status is the entry's that signed in.
-  assert.equal(servers.find((server) => server.name === "alias").signedIn, true);
+  // The tokens are this server's; another name at the URL is not signed in by them.
+  assert.equal(servers.find((server) => server.name === "alias").signedIn, false);
 });
 
 test("a cancel ends the sign-in, and a flow nobody knows is a 404", async () => {
@@ -260,10 +265,10 @@ for (const [label, revoke] of [
   });
 }
 
-test("sign-out deletes the URL's tokens through POST /api/mcp, under the checks of any change", async () => {
-  const key = mcpSignInUrlKey(fake.url);
-  const other = mcpSignInUrlKey("https://other.example/mcp");
-  await writeFile(authPath, `${JSON.stringify({ [key]: { serverUrl: key, tokens: { access_token: "a", token_type: "Bearer" } }, [other]: { serverUrl: other } }, null, 2)}\n`);
+test("sign-out deletes the server's tokens through POST /api/mcp, under the checks of any change", async () => {
+  const key = mcpSignInKey("oauth", fake.url);
+  const other = mcpSignInKey("alias", fake.url);
+  await writeFile(authPath, `${JSON.stringify({ [key]: { serverUrl: fake.url, tokens: { access_token: "a", token_type: "Bearer" } }, [other]: { serverUrl: fake.url } }, null, 2)}\n`);
   assert.equal((await listed()).find((server) => server.name === "oauth").signedIn, true);
 
   const signedOut = await action({ action: "sign-out", scope: "global", name: "oauth" });
@@ -281,7 +286,8 @@ test("sign-out deletes the URL's tokens through POST /api/mcp, under the checks 
 });
 
 test("what a cancelled sign-in left behind without tokens is listed as stored, and Sign out removes it", async () => {
-  const key = mcpSignInUrlKey(fake.url);
+  // Kept by URL alone, as older versions did: the server reads it while it has no record of its own.
+  const key = String(new URL(fake.url));
   // A dynamic registration and the PKCE state, saved before the browser was sent to the page.
   await writeFile(authPath, `${JSON.stringify({ [key]: { serverUrl: key, clientInformation: { client_id: "c" }, codeVerifier: "v", oauthState: "s" } }, null, 2)}\n`);
   const server = (await listed()).find((item) => item.name === "oauth");

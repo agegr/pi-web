@@ -36,22 +36,83 @@ test("reports and switches Code mode on every platform", async () => {
   await writeFile(settingsPath, JSON.stringify({ defaultModel: "m" }));
   const initial = await GET();
   assert.equal(initial.status, 200);
-  assert.deepEqual(await initial.json(), { isWindows, powerShellEnabled: false, codemode: "automatic" });
+  assert.deepEqual(await initial.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: {} });
 
   const enabled = await put({ codemode: "always" });
   assert.equal(enabled.status, 200);
-  assert.deepEqual(await enabled.json(), { isWindows, powerShellEnabled: false, codemode: "always" });
+  assert.deepEqual(await enabled.json(), { isWindows, powerShellEnabled: false, codemode: "always", codemodeMode: { value: "on" }, codemodeInlineBudget: {} });
   assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", defaultTools: ["+codemode"] });
 
   const automatic = await put({ codemode: "automatic" });
-  assert.deepEqual(await automatic.json(), { isWindows, powerShellEnabled: false, codemode: "automatic" });
+  assert.deepEqual(await automatic.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: {} });
   assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m" });
+});
+
+test("saves the Code mode inline budget, and null gives sessions pi's default again", async () => {
+  await writeFile(settingsPath, JSON.stringify({ defaultModel: "m", codemode: { mode: "on" } }));
+  const saved = await put({ codemodeInlineBudget: 1000 });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: { value: 1000 } });
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", codemode: { mode: "on", inlineBudget: 1000 } });
+
+  const zero = await put({ codemodeInlineBudget: 0 });
+  assert.deepEqual((await zero.json()).codemodeInlineBudget, { value: 0 });
+
+  const reset = await put({ codemodeInlineBudget: null });
+  assert.deepEqual((await reset.json()).codemodeInlineBudget, {});
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", codemode: { mode: "on" } });
+
+  // A codemode that is not an object is refused, not replaced.
+  await writeFile(settingsPath, JSON.stringify({ codemode: "on" }));
+  const refused = await put({ codemodeInlineBudget: 1000 });
+  assert.equal(refused.status, 500);
+  assert.match((await refused.json()).error, /codemode must be an object/);
+  assert.equal(await readFile(settingsPath, "utf8"), JSON.stringify({ codemode: "on" }));
+});
+
+test("saves the Code mode mode, and \"on\" gives sessions pi's default again", async () => {
+  await writeFile(settingsPath, JSON.stringify({ defaultModel: "m", codemode: { inlineBudget: 1000 } }));
+  const only = await put({ codemodeMode: "only" });
+  assert.equal(only.status, 200);
+  assert.deepEqual(await only.json(), {
+    isWindows,
+    powerShellEnabled: false,
+    codemode: "automatic",
+    codemodeMode: { value: "only" },
+    codemodeInlineBudget: { value: 1000 },
+  });
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", codemode: { inlineBudget: 1000, mode: "only" } });
+
+  const on = await put({ codemodeMode: "on" });
+  assert.deepEqual((await on.json()).codemodeMode, { value: "on" });
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", codemode: { inlineBudget: 1000 } });
+
+  // A value that is neither mode is reported as pi reads it.
+  await writeFile(settingsPath, JSON.stringify({ codemode: { mode: "never" } }));
+  assert.deepEqual((await (await GET()).json()).codemodeMode, { value: "on", invalid: '"never"' });
+
+  // A codemode that is not an object is refused, not replaced.
+  await writeFile(settingsPath, JSON.stringify({ codemode: "only" }));
+  const refused = await put({ codemodeMode: "only" });
+  assert.equal(refused.status, 500);
+  assert.match((await refused.json()).error, /codemode must be an object/);
+  assert.equal(await readFile(settingsPath, "utf8"), JSON.stringify({ codemode: "only" }));
 });
 
 test("rejects requests that do not name exactly one valid change, with a reason Settings › MCP translates", async () => {
   for (const body of [
     { codemode: "never" },
     { codemode: "always", enabled: true },
+    { codemode: "always", codemodeInlineBudget: 1000 },
+    { codemodeMode: "only", codemodeInlineBudget: 1000 },
+    { codemodeMode: "off" },
+    { codemodeMode: null },
+    { codemodeMode: true },
+    { codemodeInlineBudget: -1 },
+    { codemodeInlineBudget: 1.5 },
+    { codemodeInlineBudget: "3000" },
+    { codemodeInlineBudget: 1_000_001 },
+    { codemodeInlineBudget: true },
     {},
     [],
     "{ not json",
