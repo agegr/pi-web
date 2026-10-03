@@ -2,7 +2,7 @@
   lib,
   buildNpmPackage,
   nodejs_24,
-  makeWrapper,
+  importNpmLock,
   # Source override: the flake passes `self` (the flake source tree). Set to a
   # fetchFromGitHub result to build a pinned upstream release instead.
   src ? lib.cleanSource ./.,
@@ -10,12 +10,13 @@
 
 buildNpmPackage rec {
   pname = "pi-web";
-  version = (lib.importJSON ./package.json).version;
-
   inherit src;
+  inherit (lib.importJSON ./package.json) version;
 
-  npmDepsHash = "sha256-+sfleedrMv+estAmMXkyyvAXGs0BicXxyxZbEzlt1Dk=";
-  npmDepsFetcherVersion = 2;
+  npmDeps = importNpmLock {
+    npmRoot = src;
+  };
+  inherit (importNpmLock) npmConfigHook;
 
   nodejs = nodejs_24;
 
@@ -30,8 +31,6 @@ buildNpmPackage rec {
       --replace-fail 'import { Noto_Sans_Mono } from "next/font/google";' "" \
       --replace-fail 'const notoSansMono = Noto_Sans_Mono({' 'const notoSansMono = ((_: unknown) => ({ variable: "" }))({'
   '';
-
-  npmBuildScript = "build";
 
   installPhase = ''
     runHook preInstall
@@ -52,7 +51,7 @@ buildNpmPackage rec {
     description = "Web UI for the pi coding agent";
     homepage = "https://github.com/dreadster3/pi-web";
     license = licenses.mit;
-    mainProgram = "pi-web";
+    mainProgram = pname;
     platforms = platforms.linux ++ platforms.darwin;
   };
 }
