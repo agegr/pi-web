@@ -851,6 +851,7 @@ pre, code {
 }
 .markdown-table-wrap > table { width: max-content; }
 .markdown-body th, .markdown-body td {
+  max-width: 240px;
   border: 0;
   border-bottom: 1px solid var(--border);
   padding: 6px 10px;

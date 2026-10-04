@@ -91,6 +91,14 @@ try {
       { type: "thinking", thinking: "E2E final reasoning\nFinal thinking details." },
       { type: "text", text:
         "E2E final answer\n```js\nconsole.log('E2E code');\n```\n\n"
+        + "| Kind | " + "Long headings should wrap without stretching the table. ".repeat(8) + " |\n| --- | --- |\n"
+        + "| Text | " + "Long sentences should wrap while wide tables keep their natural column widths. ".repeat(8) + " |\n"
+        + "| 中文 | " + "表格中的长句应该自然换行，多列表格仍然可以横向滚动。".repeat(12) + " |\n"
+        + "| URL | https://example.invalid/" + "long-path-segment".repeat(24) + " |\n"
+        + "| Code | `" + "long_identifier_".repeat(24) + "` |\n\n"
+        + "| " + Array.from({ length: 8 }, (_, i) => `Column ${i + 1}`).join(" | ") + " |\n"
+        + "| " + Array(8).fill("---").join(" | ") + " |\n"
+        + "| " + Array.from({ length: 8 }, (_, i) => `release-20260901-${String(i + 1).padStart(6, "0")}`).join(" | ") + " |\n\n"
         + "E2E answer paragraph.\n\n".repeat(20)
         + "## E2E reading position\n\n"
         + "E2E answer paragraph.\n\n".repeat(20),
@@ -295,6 +303,29 @@ try {
     assert.equal(await processDetails.count(), 1);
     assert.equal(await thinking.count(), 0, "All thinking stays inside process details");
     const finalMessage = page.locator("[data-entry-id='answer']");
+    const tables = finalMessage.last().locator(".markdown-table-wrap");
+    assert.equal(await tables.count(), 2);
+    await tables.first().scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.fonts.ready);
+    const tableLayout = await tables.evaluateAll(([prose, wide]) => {
+      const wraps = (cell) => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        return range.getBoundingClientRect().height > parseFloat(getComputedStyle(cell).lineHeight);
+      };
+      return {
+        proseFits: prose.scrollWidth <= prose.clientWidth + 1,
+        longCellsWrap: [...prose.querySelectorAll("tr > :last-child")].every(wraps),
+        wideScrolls: wide.scrollWidth > wide.clientWidth + 1,
+        wideCellsStayOnOneLine: [...wide.querySelectorAll("tbody td")].every((cell) => !wraps(cell)),
+      };
+    });
+    assert.ok(tableLayout.proseFits, "Long table cells must not stretch a two-column table beyond the chat");
+    assert.ok(tableLayout.longCellsWrap, "Long headings, sentences, URLs, and inline code must wrap");
+    assert.ok(tableLayout.wideScrolls, "Wide tables must retain horizontal scrolling");
+    assert.ok(tableLayout.wideCellsStayOnOneLine, "Wide tables must not squeeze ordinary values into narrow columns");
+    await page.screenshot({ path: join(artifacts, `markdown-tables-${viewport.width}.png`) });
+    console.log(`PASS: ${viewport.width}px wrapping long table cells and scrolling wide tables`);
     assert.equal(await finalMessage.getByRole("button", { name: /^Thinking/ }).count(), 0);
     assert.equal(await finalMessage.getByText("test/E2E Model", { exact: true }).count(), 1);
     assert.equal(thinkingRequests.length, 0);
