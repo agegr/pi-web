@@ -85,15 +85,17 @@ const SUBAGENT_CONTEXT_LIMIT = 50_000;
 const PARENT_IDLE_POLL_MS = 200;
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-/** pi's agent loop records provider failures as an assistant message with `stopReason: "error"` and resolves `prompt()` normally; surface that as a failed run. */
+/** The SDK may resolve prompt() after failure or abort. Callers handle requested cancellation separately. */
 function lastAssistantError(sessionManager: { getEntries?: () => unknown }): string | undefined {
   const entries = sessionManager.getEntries?.();
   if (!Array.isArray(entries)) return undefined;
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i] as { type?: unknown; message?: { role?: unknown; stopReason?: unknown; errorMessage?: unknown } };
     if (entry?.type !== "message" || entry.message?.role !== "assistant") continue;
-    if (entry.message.stopReason !== "error") return undefined;
-    return typeof entry.message.errorMessage === "string" && entry.message.errorMessage ? entry.message.errorMessage : "Provider returned an error";
+    const reason = entry.message.stopReason;
+    if (reason !== "error" && reason !== "aborted") return undefined;
+    const fallback = reason === "aborted" ? "Subagent stopped before completion" : "Provider returned an error";
+    return typeof entry.message.errorMessage === "string" && entry.message.errorMessage ? entry.message.errorMessage : fallback;
   }
   return undefined;
 }
@@ -339,22 +341,6 @@ export function createSubagentController(
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
 
-      let turnCount = 0;
-      let maxTurnsReached = false;
-      let softLimitReached = false;
-      const unsubscribeTurns = turnLimit
-        ? inner.subscribe((event) => {
-            if (event.type !== "turn_end") return;
-            turnCount += 1;
-            if (!softLimitReached && turnCount >= turnLimit) {
-              softLimitReached = true;
-              void inner.steer("You have reached your turn limit. Wrap up immediately and provide your final answer now.");
-            } else if (softLimitReached && turnCount >= turnLimit + 1) {
-              maxTurnsReached = true;
-              void inner.abort();
-            }
-          })
-        : () => {};
       let resolveCompletion!: (run: SubagentRunInfo) => void;
       const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
       const stored: StoredSubagentExecution = {
@@ -388,33 +374,65 @@ export function createSubagentController(
         sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
         request.onUpdate?.(stored.run);
         dependencies.invalidateSessionList();
+        let turnCount = 0;
+        let maxTurnsReached = false;
+        const previousFinishTurn = inner.agent.finishTurn;
+        let unsubscribeTools: (() => void) | undefined;
+        if (turnLimit) {
+          // Finalized events retain the SDK's terminate hint; tool-result messages do not.
+          const terminatingTools = new Set<string>();
+          unsubscribeTools = inner.subscribe((event) => {
+            if (event.type === "tool_execution_end" && event.result?.terminate === true) {
+              terminatingTools.add(event.toolCallId);
+            }
+          });
+          inner.agent.finishTurn = async (turn, signal) => {
+            const decision = (await previousFinishTurn?.(turn, signal)) ?? undefined;
+            const toolsContinue = turn.toolResults.some((message) => !terminatingTools.has(message.toolCallId));
+            terminatingTools.clear();
+            turnCount += 1;
+            if (signal?.aborted || decision?.action === "end" ||
+              turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return decision;
+            const needsAnotherTurn = toolsContinue || decision?.action === "continue" || inner.agent.hasQueuedMessages();
+            if (!needsAnotherTurn || turnCount < turnLimit) return decision;
+            if (turnCount >= turnLimit + 1) {
+              maxTurnsReached = true;
+              return { action: "end" };
+            }
+            // The awaited SDK boundary delivers the instruction before the wrap-up request.
+            await inner.steer("You have reached your turn limit. Wrap up immediately and provide your final answer now.");
+            return decision;
+          };
+        }
         let result: SubagentRunInfo;
         try {
           await inner.prompt(delegatedTask, { source: "rpc" });
           const text = inner.getLastAssistantText()?.trim();
-          const aborted = stored.abortRequested && !maxTurnsReached;
-          const providerError = aborted ? undefined : lastAssistantError(sessionManager);
+          const aborted = stored.abortRequested;
+          const errorMessage = aborted ? undefined : lastAssistantError(sessionManager) ??
+            (maxTurnsReached ? `Subagent reached its turn limit (${turnLimit}) without completing the task.` : undefined);
           result = {
             ...initialRun,
-            status: aborted ? "aborted" : providerError ? "failed" : "completed",
+            status: aborted ? "aborted" : errorMessage ? "failed" : "completed",
             completedAt: new Date().toISOString(),
             ...(text ? { result: text } : {}),
-            ...(providerError ? { error: providerError } : {}),
+            ...(errorMessage ? { error: errorMessage } : {}),
           };
         } catch (error) {
           const text = inner.getLastAssistantText()?.trim();
           const aborted = stored.abortRequested || request.signal?.aborted;
           result = {
             ...initialRun,
-            status: aborted ? "aborted" : maxTurnsReached ? "completed" : "failed",
+            status: aborted ? "aborted" : "failed",
             completedAt: new Date().toISOString(),
             ...(text ? { result: text } : {}),
-            ...(!aborted && !maxTurnsReached
+            ...(!aborted
               ? { error: error instanceof Error ? error.message : String(error) }
               : {}),
           };
         } finally {
-          unsubscribeTurns();
+          if (turnLimit) inner.agent.finishTurn = previousFinishTurn;
+          unsubscribeTools?.();
           request.signal?.removeEventListener("abort", handleParentAbort);
         }
 

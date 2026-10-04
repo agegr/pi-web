@@ -125,7 +125,9 @@ export function subagentFinalText(run: SubagentRunInfo): string {
   }
   if (run.status === "aborted") return `Subagent ${run.sessionId} was stopped.`;
   if (run.status === "interrupted") return `Subagent ${run.sessionId} was interrupted before completion.`;
-  return `Subagent ${run.sessionId} failed: ${run.error ?? "Unknown error"}`;
+  const failure = `Subagent ${run.sessionId} failed: ${run.error ?? "Unknown error"}`;
+  const partial = run.result?.trim();
+  return partial ? `${failure}\n\nPartial output:\n\n${partial}` : failure;
 }
 
 /**
