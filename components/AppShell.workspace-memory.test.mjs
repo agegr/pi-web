@@ -115,6 +115,7 @@ test("New restores the draft after session navigation and workspace auto-restore
       // Run the actual hook cleanup with the outgoing mount's captured draft key.
       const makeCleanup = vm.runInContext(stripTypeScriptTypes(`((isNew, newSessionDraftKey) => {
         const sessionHookMountedRef = { current: true };
+        const contextUsageRequestIdRef = { current: 0 };
         const newSessionPromotedRef = { current: false };
         const sessionIdRef = { current: null };
         const dataRef = { current: null };
