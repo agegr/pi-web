@@ -479,3 +479,180 @@ test("uses the unanswered truncation notice for an empty length reply", () => {
   assert.match(html, /nearly full context/i);
   assert.doesNotMatch(html, /follow-up/i);
 });
+
+const { setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
+
+function textOf(html) {
+  return html.replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&#x27;/g, "'");
+}
+
+function codemodeCall(toolCallId, code) {
+  return { type: "toolCall", toolCallId, toolName: "codemode", input: { code } };
+}
+
+function renderCodemode(block, result) {
+  return renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map(result ? [[block.toolCallId, result]] : []) });
+}
+
+const CODEMODE_SCRIPT = "// @options: {\"timeoutMs\": 5000}\nconst files = await tools.ls({ path: \".\" });\nreturn files.length;";
+
+test("collapses a codemode call to its first script line and call count", (t) => {
+  const block = codemodeCall("call-codemode-collapsed", CODEMODE_SCRIPT);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const html = renderCodemode(block, {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\n" }, { type: "text", text: "3" }],
+    details: {
+      calls: [
+        { id: "call-codemode-collapsed/1", name: "ls", args: "{\"path\":\".\"}", status: "ok", durationMs: 4 },
+        { id: "call-codemode-collapsed/2", name: "read", args: "{\"path\":\"a\"}", status: "ok", durationMs: 2 },
+      ],
+    },
+  });
+  const text = textOf(html);
+  assert.match(text, /codemode/);
+  assert.match(text, /const files = await tools\.ls\(\{ path: "\." \}\);/);
+  assert.match(text, /2 calls/);
+  assert.doesNotMatch(text, /@options/);
+  assert.doesNotMatch(text, /"code"/);
+  assert.doesNotMatch(text, /Tool calls/);
+});
+
+test("expands a codemode call into its script, its calls, and the output without the header", (t) => {
+  const block = codemodeCall("call-codemode-expanded", CODEMODE_SCRIPT);
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const calls = Array.from({ length: 23 }, (_, index) => ({
+    id: `call-codemode-expanded/${index + 1}`,
+    name: index === 22 ? "bash" : "read",
+    args: `{"path":"file-${index + 1}"}`,
+    status: index === 22 ? "error" : "ok",
+    durationMs: 1500,
+    ...(index === 22 ? { error: "exit code 2" } : {}),
+  }));
+  calls.push(
+    { id: "call-codemode-expanded/24", name: "models.classify", args: "", status: "ok", cost: 0.004 },
+    { id: "call-codemode-expanded/25", name: "models.classify", args: "", status: "ok", cost: 0.006 },
+  );
+  const html = renderCodemode(block, {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    isError: true,
+    content: [
+      { type: "text", text: "Script failed\nWall time 4.2 seconds\nOutput:\n" },
+      { type: "text", text: "Script error:\nError: exit code 2" },
+    ],
+    details: { calls },
+  });
+  const text = textOf(html);
+
+  // The script sits in the plain box any tool's input uses, not a highlighted code block.
+  assert.doesNotMatch(html, /markdown-code-block/);
+  assert.equal(textOf(html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)[1]), CODEMODE_SCRIPT);
+  assert.match(text, /Tool calls/);
+  assert.match(text, /Show 5 earlier calls/);
+  // The newest 20 of 25 calls are listed; the 5 oldest are folded.
+  assert.doesNotMatch(text, /"file-5"/);
+  assert.match(text, /"file-6"/);
+  assert.match(text, /bash\{"path":"file-23"\}1\.5s/);
+  assert.match(text, /exit code 2/);
+  assert.match(html, /aria-label="Failed"/);
+  assert.match(text, /Model calls: \$0\.01/);
+  assert.match(text, /Script error:\nError: exit code 2/);
+  assert.doesNotMatch(text, /Wall time/);
+  assert.doesNotMatch(text, /"code":/);
+});
+
+test("shows a running script's calls without an empty output", (t) => {
+  const block = codemodeCall("call-codemode-running", "await tools.read({ path: \"a\" })");
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const html = renderCodemode(block, {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    content: [],
+    details: {
+      calls: [{ id: "call-codemode-running/201", name: "read", args: "{\"path\":\"a\"}", status: "running" }],
+      omittedCalls: 200,
+    },
+  });
+  const text = textOf(html);
+  assert.match(text, /201 calls/);
+  assert.match(text, /200 earlier calls not shown/);
+  assert.match(html, /aria-label="Running"/);
+  assert.doesNotMatch(text, /No output/i);
+});
+
+test("keeps the generic view for a codemode call whose input is still streaming or has no script", (t) => {
+  const streaming = { ...codemodeCall("call-codemode-streaming", ""), input: {}, rawInput: "{\"code\":\"const secret" };
+  setToolCallExpanded(streaming.toolCallId, true);
+  t.after(() => setToolCallExpanded(streaming.toolCallId, false));
+  const streamingText = textOf(renderCodemode(streaming));
+  assert.match(streamingText, /Generating parameters/);
+  assert.match(streamingText, /\{"code":"const secret/);
+  assert.doesNotMatch(streamingText, /Tool calls/);
+
+  const other = { type: "toolCall", toolCallId: "call-codemode-other", toolName: "codemode", input: { script: "x" } };
+  setToolCallExpanded(other.toolCallId, true);
+  t.after(() => setToolCallExpanded(other.toolCallId, false));
+  assert.match(textOf(renderCodemode(other)), /"script": "x"/);
+});
+
+test("labels an MCP call server/tool and indents a JSON result", (t) => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-mcp-1",
+    toolName: "mcp__docs_v2__search",
+    input: { query: "codemode" },
+  };
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, {
+    toolResults: new Map([[block.toolCallId, {
+      role: "toolResult",
+      toolCallId: block.toolCallId,
+      content: [{ type: "text", text: "{\"hits\":[{\"title\":\"Code mode\"}]}" }],
+      details: { server: "docs.v2", tool: "search" },
+    }]]),
+  });
+  const text = textOf(html);
+  assert.match(text, /docs\.v2\/search/);
+  assert.match(html, /title="mcp__docs_v2__search"/);
+  assert.match(text, /\{\n {2}"hits": \[\n {4}\{\n {6}"title": "Code mode"/);
+});
+
+test("keeps the registered name where no result names the server and tool", (t) => {
+  // Sanitizing maps docs.v2/search.pages and docs_v2/search_pages to one name, so it is not split.
+  const block = { type: "toolCall", toolCallId: "call-mcp-running", toolName: "mcp__docs_v2__search_pages", input: {} };
+  const running = textOf(renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map() }));
+  assert.match(running, /mcp__docs_v2__search_pages/);
+  assert.doesNotMatch(running, /docs_v2\//);
+
+  // A codemode script's calls carry only that name, which is also what the script calls.
+  const script = codemodeCall("call-codemode-mcp", "await tools.mcp__docs_v2__search_pages({})");
+  setToolCallExpanded(script.toolCallId, true);
+  t.after(() => setToolCallExpanded(script.toolCallId, false));
+  const html = renderCodemode(script, {
+    role: "toolResult",
+    toolCallId: script.toolCallId,
+    content: [{ type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\n" }],
+    details: { calls: [{ id: "call-codemode-mcp/1", name: "mcp__docs_v2__search_pages", args: "{}", status: "ok" }] },
+  });
+  assert.match(textOf(html), /mcp__docs_v2__search_pages\{\}/);
+});

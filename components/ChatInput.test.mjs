@@ -11,7 +11,8 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, replaceLinksWithMarkdown, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, shouldCompressImageFile, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command.ts");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -68,6 +69,8 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["Alt+Enter falls back to steer", { altKey: true }, { onFollowUp: undefined }, "steer"],
     ["slash completion takes priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "help" }, "slash"],
     ["available built-in commands take priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "send"],
+    ["pi's built-in /mcp submits at once, also while streaming", {}, { slashMenuOpen: true, slashQuery: "mcp", value: "/mcp", displayedSlashCommands: [{ name: "mcp", source: "extension", sourceInfo: { path: "builtin:mcp" } }] }, "send"],
+    ["another extension's /mcp completes first", {}, { slashMenuOpen: true, slashQuery: "mcp", value: "/mcp", displayedSlashCommands: [{ name: "mcp", source: "extension", sourceInfo: { path: "/ext/mcp.ts" } }] }, "slash"],
     ["file completion takes priority", { altKey: true }, { atMenuOpen: true, atQuery: {} }, "file"],
     ["history selection takes priority", { altKey: true }, { historyMenuOpen: true }, "history"],
     ["Ctrl+Enter mode: Enter inserts a newline", {}, { enterSendMode: "ctrlEnter", isStreaming: false }, "native"],
@@ -93,7 +96,7 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
       onSteer() {}, onFollowUp() {},
       sendQueued(mode) { action = mode; }, handleSend() { action = "send"; },
       applySlashCommand() { action = "slash"; },
-      isExactSlashCommand, value: "", setSlashMenuOpen() {},
+      submitsSlashCommandOnEnter, value: "", setSlashMenuOpen() {},
       applyAtCompletion() { action = "file"; },
       applyHistoryInput() { action = "history"; },
       ...state,
@@ -502,6 +505,108 @@ test("keeps only read-only built-ins available while a run is active", () => {
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/auto-compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/reload"), false);
+});
+
+test("a bare /mcp reaches the built-in handler while a run is active", () => {
+  assert.equal(offersBuiltinSlashCommandWhileStreaming("/mcp"), true);
+  assert.equal(offersBuiltinSlashCommandWhileStreaming("/copy"), true);
+  assert.equal(offersBuiltinSlashCommandWhileStreaming("/compact"), false);
+  // Subcommands act on the session's connections and are queued like any message.
+  assert.equal(offersBuiltinSlashCommandWhileStreaming("/mcp login docs"), false);
+  assert.equal(offersBuiltinSlashCommandWhileStreaming("/mcp:1"), false);
+  // The built-in list itself is unchanged: /mcp is not one of the composer's built-ins.
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/mcp"), false);
+});
+
+test("Enter on pi's built-in /mcp submits it at once; other extension commands still complete first", () => {
+  const builtinMcp = { name: "mcp", source: "extension", sourceInfo: { path: "builtin:mcp", source: "builtin", scope: "temporary", origin: "top-level" } };
+  const otherMcp = { ...builtinMcp, sourceInfo: { ...builtinMcp.sourceInfo, path: "/ext/mcp.ts" } };
+  const copy = { name: "copy", description: "", source: "builtin", availableWhileStreaming: true };
+  const compact = { name: "compact", description: "", source: "builtin" };
+
+  assert.equal(submitsSlashCommandOnEnter("/mcp", builtinMcp, false), true);
+  assert.equal(submitsSlashCommandOnEnter("/mcp", builtinMcp, true), true);
+  assert.equal(submitsSlashCommandOnEnter("/mc", builtinMcp, false), false);
+  assert.equal(submitsSlashCommandOnEnter("/mcp", otherMcp, false), false);
+  assert.equal(submitsSlashCommandOnEnter("/deploy", { ...otherMcp, name: "deploy" }, false), false);
+  // The composer's built-ins keep their rule: typed in full, and while streaming only those allowed then.
+  assert.equal(submitsSlashCommandOnEnter("/copy", copy, true), true);
+  assert.equal(submitsSlashCommandOnEnter("/compact", compact, false), true);
+  assert.equal(submitsSlashCommandOnEnter("/compact", compact, true), false);
+  assert.equal(submitsSlashCommandOnEnter("/co", copy, false), false);
+
+  const sourceText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(sourceText, /if \(sendShortcut && submitsSlashCommandOnEnter\(value, selectedCommand, isStreaming\)\) \{/);
+});
+
+function chatInputCallback(name, context) {
+  const sourceText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const source = ts.createSourceFile("ChatInput.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findCallback(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === name) {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findCallback);
+  }
+  return new Script(ts.transpileModule(findCallback(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText).runInNewContext(context);
+}
+
+test("while a run streams, a bare /mcp opens Settings or is queued as before", async () => {
+  const run = async (value, handled, { mode = "steer", images = [] } = {}) => {
+    const calls = { builtin: [], prompts: [], cleared: 0 };
+    const sendQueued = chatInputCallback("sendQueued", {
+      value,
+      attachedImages: images,
+      onAudioUnlock() {},
+      clearInput() { calls.cleared += 1; },
+      onBuiltinCommand: async () => ({ handled }),
+      canRunBuiltinSlashCommandWhileStreaming,
+      isBareMcpCommand,
+      runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
+      onPromptWithStreamingBehavior: (message, behavior, attached) => calls.prompts.push([message, behavior, attached?.length ?? 0]),
+      onSteer() { throw new Error("slash messages are prompts"); },
+      onFollowUp() { throw new Error("slash messages are prompts"); },
+    });
+    sendQueued(mode);
+    await new Promise((resolve) => setImmediate(resolve));
+    return calls;
+  };
+
+  // Owned: Settings opened, nothing queued, the handler clears the input itself.
+  assert.deepEqual(await run("/mcp", true), { builtin: ["/mcp"], prompts: [], cleared: 0 });
+  // Another extension's /mcp: queued exactly as before.
+  assert.deepEqual(await run("/mcp", false), { builtin: ["/mcp"], prompts: [["/mcp", "steer", 0]], cleared: 1 });
+  assert.deepEqual(await run("/mcp", false, { mode: "followup" }), { builtin: ["/mcp"], prompts: [["/mcp", "followUp", 0]], cleared: 1 });
+  // Subcommands and a /mcp with images never reach the handler.
+  assert.deepEqual(await run("/mcp login docs", true), { builtin: [], prompts: [["/mcp login docs", "steer", 0]], cleared: 1 });
+  assert.deepEqual(await run("/mcp", true, { images: [{}] }), { builtin: [], prompts: [["/mcp", "steer", 1]], cleared: 1 });
+  // The composer's own built-ins are unchanged.
+  assert.deepEqual(await run("/copy", true), { builtin: ["/copy"], prompts: [], cleared: 0 });
+});
+
+test("handleSend lets a handled /mcp through while streaming and sends an unowned one when idle", async () => {
+  const run = async (value, { isStreaming, handled }) => {
+    const calls = { builtin: [], sent: [] };
+    const handleSend = chatInputCallback("handleSend", {
+      value,
+      attachedImages: [],
+      onAudioUnlock() {},
+      isStreaming,
+      offersBuiltinSlashCommandWhileStreaming,
+      runBuiltinCommand: async (message) => { calls.builtin.push(message); return handled; },
+      clearInput() {},
+      onSend: (message) => calls.sent.push(message),
+    });
+    await handleSend();
+    return calls;
+  };
+  assert.deepEqual(await run("/mcp", { isStreaming: true, handled: true }), { builtin: ["/mcp"], sent: [] });
+  assert.deepEqual(await run("/mcp", { isStreaming: false, handled: true }), { builtin: ["/mcp"], sent: [] });
+  assert.deepEqual(await run("/mcp", { isStreaming: false, handled: false }), { builtin: ["/mcp"], sent: ["/mcp"] });
+  // Streaming without steer handlers keeps any other message in the composer, as before.
+  assert.deepEqual(await run("/mcp login", { isStreaming: true, handled: false }), { builtin: [], sent: [] });
 });
 
 test("restores text and base64 images when editing a user message", () => {

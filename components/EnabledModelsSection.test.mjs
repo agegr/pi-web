@@ -130,16 +130,27 @@ test("a custom provider is switched from its header, by one switch and no prose"
   // It sits in the detail header, left of the provider's own buttons.
   assert.match(
     modelsConfigSource,
-    /<EnabledModelsProviderSwitch providerId=\{name\} controller=\{enabledModels\} \/>\s*\n\s*<ConfigButton variant="danger"/,
+    /<EnabledModelsProviderSwitch providerId=\{name\} controller=\{enabledModels\} noteId=\{switchNoteId\} \/>\s*\n\s*<ConfigButton variant="danger"/,
   );
   // Nothing about it is explained in body text any more.
   assert.doesNotMatch(source, /enabledCustomHint/);
   assert.doesNotMatch(source, /provider\.kind === "custom"/);
 });
 
-test("why the switch cannot move is a tooltip, not a paragraph", () => {
-  assert.match(source, /label=\{toggle\.reason\s*\n\s*\? t\(FAILURE_KEYS\[toggle\.reason\]\)/);
-  assert.match(source, /label=\{t\("models\.enabledCustomEmpty"\)\}/);
+test("why a switch cannot move is visible text it points at, never only its tooltip", () => {
+  // The provider switch keeps its name and points at the note under the detail header.
+  assert.match(source, /label=\{t\("models\.enabledProviderToggle", \{ provider: provider\.name \}\)\}\s*\n\s*describedBy=\{describedBy\}/);
+  assert.match(source, /return key \? <div id=\{id\} className="config-detail-heading-note">\{t\(key\)\}<\/div> : null;/);
+  assert.match(
+    modelsConfigSource,
+    /<\/ConfigDetailHeader>\s*\n\s*<EnabledModelsProviderSwitchNote providerId=\{name\} controller=\{enabledModels\} id=\{switchNoteId\} \/>/,
+  );
+  // A built-in provider's rows and Disable all point at the section's notes.
+  assert.match(source, /\{showLastModelNote && <div id=\{lastModelNoteId\} className="enabled-models-note">\{t\("models\.enabledLastModel"\)\}<\/div>\}/);
+  assert.match(source, /describedBy=\{!editable \? scopeNoteId : lastOne \? lastModelNoteId : undefined\}/);
+  // No reason lives in a label or a title any more.
+  assert.doesNotMatch(source, /title=\{[^}]*enabledLastModel/);
+  assert.doesNotMatch(source, /label=\{[^}]*(enabledLastModel|enabledCustomEmpty|FAILURE_KEYS)/);
 });
 
 test("the provider switch is on only while every model of the provider is", () => {
@@ -203,7 +214,7 @@ test("a missing custom provider is not blamed on a sign-in", () => {
     source.indexOf("export function EnabledModelsProviderSwitch"),
     source.indexOf("export function EnabledModelsSection"),
   );
-  assert.match(switchSource, /t\("models\.enabledCustomEmpty"\)/);
+  assert.match(switchSource, /"models\.enabledCustomEmpty"/);
   assert.doesNotMatch(switchSource, /enabledUnavailable/);
 });
 

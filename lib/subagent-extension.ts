@@ -4,6 +4,7 @@ import {
   type ExtensionContext,
   type InlineExtension,
   type LoadExtensionsResult,
+  type ToolExposure,
 } from "@earendil-works/pi-coding-agent";
 import {
   SUBAGENT_CONTROL_TOOL_NAMES,
@@ -17,6 +18,14 @@ const HOST_SUBAGENT_EXTENSION_PATH = `<inline:${HOST_SUBAGENT_EXTENSION_NAME}>`;
 const SUBAGENT_TOOL_NAMES = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 const LEGACY_SUBAGENT_PACKAGE_NAME = "pi-subagents";
 const TERMINAL_SUBAGENT_STATUSES = new Set<SubagentRunInfo["status"]>(["completed", "failed", "aborted", "interrupted"]);
+/**
+ * The control tools are declared to the model and activated on registration like `direct` tools,
+ * but pi never lets another tool call a `model-only` tool through `ctx.executeTool()`, so a
+ * codemode script cannot start, collect, or steer a subagent. A run started from a script would
+ * record the nested call id (`<codemode call>/<n>`) as its `parentToolCallId`, which no transcript
+ * entry carries, so the chat would lose the link to the child session.
+ */
+const SUBAGENT_TOOL_EXPOSURE = "model-only" satisfies ToolExposure;
 
 export interface SubagentToolDetails {
   kind: "pi-web-subagent";
@@ -155,6 +164,7 @@ export function createSubagentExtension(
         label: "Agent",
         description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
         promptSnippet: "Delegate a focused task to an inspectable subagent session",
+        exposure: SUBAGENT_TOOL_EXPOSURE,
         promptGuidelines: [
           "Use Agent for a focused task that benefits from an isolated context.",
           "Use multiple background Agent calls in the same response for independent parallel work.",
@@ -249,6 +259,7 @@ export function createSubagentExtension(
         name: "get_subagent_result",
         label: "Get agent result",
         description: "Check an inspectable subagent session and retrieve its latest result.",
+        exposure: SUBAGENT_TOOL_EXPOSURE,
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),
           wait: Type.Optional(Type.Boolean({ description: "Wait until the subagent finishes." })),
@@ -287,6 +298,7 @@ export function createSubagentExtension(
         name: "steer_subagent",
         label: "Steer agent",
         description: "Send a steering message to a currently running subagent session.",
+        exposure: SUBAGENT_TOOL_EXPOSURE,
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),
           message: Type.String({ description: "Instruction to inject after the current tool execution." }),

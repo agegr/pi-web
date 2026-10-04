@@ -12,6 +12,7 @@ const themeOptionsSource = await readFile(new URL("../lib/theme.ts", import.meta
 const enSource = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const zhSource = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
 const loginSource = await readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8");
+const stackedDialogSource = await readFile(new URL("../lib/stacked-dialog.ts", import.meta.url), "utf8");
 
 test("opens one settings panel from direct sidebar shortcuts", () => {
   assert.match(shellSource, /<SettingsPanel/);
@@ -25,19 +26,36 @@ test("opens one settings panel from direct sidebar shortcuts", () => {
 });
 
 test("keeps every requested configuration surface inside the settings panel", () => {
-  for (const section of ["general", "models", "skills", "agents", "plugins"]) {
+  for (const section of ["general", "models", "skills", "agents", "plugins", "mcp"]) {
     assert.match(panelSource, new RegExp(`id: "${section}"`));
   }
-  for (const component of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
+  for (const component of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig", "McpConfig"]) {
     assert.match(panelSource, new RegExp(`<${component} embedded`));
   }
+});
+
+test("Settings › MCP works without a project, and only project sections fall back to General", () => {
+  // Mounted with or without a cwd, and remounted when the project changes.
+  assert.match(panelSource, /\{sectionHost\("mcp", <McpConfig embedded key=\{cwd \?\? ""\} cwd=\{cwd\} [^\n]*onClose=\{onClose\} \/>\)\}/);
+  assert.doesNotMatch(panelSource, /cwd && sectionHost\("mcp"/);
+  // Which sections need a project is decided once, in settings-navigation.
+  assert.match(panelSource, /requiresProject: settingsSectionRequiresProject\(item\.id\)/);
+  assert.match(panelSource, /const sectionRequiresProject = settingsSectionRequiresProject\(section\);/);
+  assert.match(panelSource, /if \(cwd \|\| !sectionRequiresProject\) return;/);
+  assert.doesNotMatch(panelSource, /section !== "skills" && section !== "agents"/);
+  // The sidebar shortcuts ask the same function instead of naming sections by hand.
+  assert.match(shellSource, /const disabled = settingsSectionRequiresProject\(section\) && !projectTrustCwd;/);
+  assert.doesNotMatch(shellSource, /section !== "models"/);
+  // Its own glyph, not the Plugins fallback.
+  assert.match(panelSource, /if \(section === "mcp"\) return <svg \{\.\.\.common\}>/);
+  for (const source of [enSource, zhSource]) assert.match(source, /"settings\.mcp": "MCP"/);
 });
 
 test("restores the settings section and each list detail selection", async () => {
   assert.match(shellSource, /getLastSettingsSection\(projectTrustCwd\)/);
   assert.match(panelSource, /setLastSettingsSection\(initialSection\)/);
   assert.match(panelSource, /setLastSettingsSection\(nextSection\)/);
-  for (const name of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
+  for (const name of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig", "McpConfig"]) {
     assert.match(
       await readFile(new URL(`./${name}.tsx`, import.meta.url), "utf8"),
       /getLastSettingsSelection/,
@@ -49,8 +67,71 @@ test("keeps visited settings sections mounted and contains nested Escape handlin
   const modelsSource = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
   assert.match(panelSource, /mountedSections\.has\(id\)/);
   assert.match(panelSource, /hidden=\{section !== id\}/);
-  assert.match(panelSource, /event\.defaultPrevented/);
+  // Settings closes on an Escape nothing nearer handled (lib/stacked-dialog.test.mjs pins the phases).
+  assert.match(panelSource, /useEffect\(\(\) => listenForPanelEscape\(document, onClose\), \[onClose\]\);/);
+  assert.doesNotMatch(panelSource, /addEventListener\("keydown"/);
+  // An Escape that cancels an IME composition is the input method's, not a request to close.
+  assert.match(stackedDialogSource, /if \(event\.key !== "Escape" \|\| event\.defaultPrevented \|\| cancelsComposition\(event\)\) return;/);
   assert.match(modelsSource, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);\s*onClose\(\);/);
+});
+
+test("focus moves into Settings as it opens and back to its opener as it closes", () => {
+  // Left on the composer a bare /mcp opened Settings from, Escape stopped a running agent
+  // and Settings stayed open (lib/stacked-dialog.test.mjs runs focusModalPanel()).
+  assert.match(panelSource, /const dialogRef = useRef<HTMLDivElement>\(null\);\n\s*useLayoutEffect\(\(\) => focusModalPanel\(document, dialogRef\.current, \{\n\s*restoreTextEntry: !window\.matchMedia\?\.\("\(pointer: coarse\)"\)\.matches,\n\s*\}\), \[\]\);/);
+  assert.match(panelSource, /<div\n\s*ref=\{dialogRef\}\n\s*role="dialog"\n\s*aria-modal="true"\n\s*aria-label=\{t\("settings\.title"\)\}\n\s*tabIndex=\{-1\}/);
+  // The dialog element is not a control: no focus ring around the whole page.
+  assert.match(cssSource, /\.settings-dialog-backdrop:focus \{\n\s*outline: none;\n\}/);
+});
+
+test("Settings › MCP offers Trust through the page's trust dialog, which opens above Settings", () => {
+  // AppShell owns trust: its status and its dialog opener go through SettingsPanel to McpConfig.
+  assert.match(shellSource, /<SettingsPanel[\s\S]*?projectTrust=\{projectTrust\}\n\s*onOpenTrustDialog=\{openProjectTrustDialog\}[\s\S]*?\/>/);
+  assert.match(panelSource, /<McpConfig embedded key=\{cwd \?\? ""\} cwd=\{cwd\} trust=\{projectTrust\} onTrustProject=\{onOpenTrustDialog\} onProjectTrustChanged=\{onProjectTrustChanged\} onClose=\{onClose\} \/>/);
+  // The banner and Settings open the same dialog, for the same folder Settings shows.
+  assert.match(shellSource, /const openProjectTrustDialog = useCallback\(\(\) => \{\n\s*setProjectTrustError\(null\);\n\s*setProjectTrustDialogOpen\(true\);\n\s*\}, \[\]\);/);
+  assert.match(shellSource, /onClick=\{openProjectTrustDialog\}/);
+  assert.match(shellSource, /<SettingsPanel\n\s*cwd=\{projectTrustCwd\}/);
+  assert.match(shellSource, /<ProjectTrustDialog\n\s*cwd=\{projectTrustCwd\}/);
+  // Rendered after Settings and stacked above it.
+  assert.ok(shellSource.indexOf("<ProjectTrustDialog") > shellSource.indexOf("<SettingsPanel"));
+  const zIndex = (selector) => Number(cssSource.match(new RegExp(`\\${selector} \\{[^}]*z-index: (\\d+);`))?.[1]);
+  assert.ok(zIndex(".project-trust-backdrop") > zIndex(".settings-dialog-backdrop"));
+  // Escape there closes only the dialog: ProjectTrustDialog.test.mjs and lib/stacked-dialog.test.mjs.
+});
+
+test("an Add in Settings › MCP hands the folder's new trust to the page, which every section reloads on", () => {
+  // Adding a project server writes .pi/mcp.json (the folder now requires trust) and may trust a
+  // fresh folder in the same step; the page takes that status only for the folder Settings shows.
+  assert.match(shellSource, /<SettingsPanel[\s\S]*?onProjectTrustChanged=\{handleProjectTrustChanged\}[\s\S]*?\/>/);
+  assert.match(shellSource, /const handleProjectTrustChanged = useCallback\(\(cwd: string, status: ProjectTrustStatus\) => \{\n\s*if \(cwd === projectTrustCwd\) setProjectTrust\(status\);\n\s*\}, \[projectTrustCwd\]\);/);
+  // Nothing was rebuilt on the server, so the chat keeps its session key.
+  const handler = shellSource.slice(shellSource.indexOf("const handleProjectTrustChanged"), shellSource.indexOf("}, [projectTrustCwd]);", shellSource.indexOf("const handleProjectTrustChanged")));
+  assert.doesNotMatch(handler, /setSessionKey|setModelsRefreshKey/);
+});
+
+test("trusting from Settings › MCP reloads, in place, the other mounted sections whose answer depends on trust", async () => {
+  // Visited sections stay mounted (hidden), so each one that reads trust takes the page's
+  // status. Still keyed by cwd alone: a remount would drop an install under way or a draft.
+  for (const name of ["SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
+    assert.match(panelSource, new RegExp(`<${name} embedded key=\\{cwd\\} cwd=\\{cwd\\}[^\\n]*? trust=\\{projectTrust\\} `), name);
+  }
+  const read = (name) => readFile(new URL(`./${name}.tsx`, import.meta.url), "utf8");
+  const [skills, plugins, agents] = await Promise.all(["SkillsConfig", "PluginsConfig", "AgentsConfig"].map(read));
+  // Skills and Plugins report "not loaded" and disable the Project scope from the trust at load
+  // time: a new decision loads the list again, keeping the selection and update checks; the
+  // first load stays the cwd effect's.
+  for (const [src, load] of [[skills, "loadSkills"], [plugins, "loadPlugins"]]) {
+    assert.match(src, new RegExp(
+      "const trustKey = projectTrustReloadKey\\(trust\\);\\n\\s*const loadedTrustKeyRef = useRef\\(trustKey\\);\\n\\s*useEffect\\(\\(\\) => \\{\\n"
+      + "\\s*if \\(loadedTrustKeyRef\\.current === trustKey\\) return;\\n\\s*loadedTrustKeyRef\\.current = trustKey;\\n"
+      + `\\s*void ${load}\\(\\);\\n\\s*\\}, \\[trustKey, ${load}\\]\\);`,
+    ), load);
+  }
+  // Agents: only the model list (GET /api/models leaves out an untrusted project's extensions).
+  assert.match(agents, /const response = await fetch\(`\/api\/models\?cwd=\$\{encodeURIComponent\(cwd\)\}`[\s\S]*?\}, \[cwd, trustKey\]\);/);
+  // Models reads models.json, auth and enabledModels, none of which follows trust.
+  assert.match(panelSource, /sectionHost\("models", <ModelsConfig embedded cwd=\{cwd\} onClose=\{onClose\} \/>\)/);
 });
 
 test("offers five palettes and system theme selection with native radios", () => {

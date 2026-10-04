@@ -1,14 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import lockfile from "proper-lockfile";
+import {
+  defaultToolEntries,
+  getGlobalSettingsPath,
+  readGlobalSettings,
+  updateGlobalSettings,
+} from "./global-settings-file";
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function isPowerShellToolEnabled(
   defaultTools: readonly string[] | undefined,
@@ -40,39 +38,45 @@ export function resolveShellTools(
   return replaceShellTool(toolNames, isPowerShellToolEnabled(defaultTools, platform));
 }
 
-export function getPowerShellSettingsPath(agentDir = getAgentDir()): string {
-  return join(agentDir, "settings.json");
+export function getPowerShellSettingsPath(agentDir?: string): string {
+  return getGlobalSettingsPath(agentDir);
 }
 
-function parseSettings(path: string): Record<string, unknown> {
-  if (!existsSync(path)) return {};
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!isRecord(parsed)) throw new Error("Invalid settings.json: expected an object");
-  return parsed;
+function isToolModifier(entry: string): boolean {
+  return entry.startsWith("+") || entry.startsWith("-");
 }
 
-function configuredTools(settings: Record<string, unknown>): string[] | undefined {
-  if (settings.defaultTools === undefined) return undefined;
-  if (
-    !Array.isArray(settings.defaultTools)
-    || settings.defaultTools.some((name) => typeof name !== "string")
-  ) {
-    throw new Error("Invalid settings.json: defaultTools must be an array of strings");
+/**
+ * The tools a `defaultTools` list selects, by pi's rule (0.99): plain names replace the
+ * defaults, then each `+name` adds and each `-name` removes a tool, in list order.
+ */
+export function resolveDefaultToolEntries(entries: readonly string[]): string[] {
+  const plain = entries.filter((entry) => !isToolModifier(entry));
+  const tools = plain.length > 0 || entries.length === 0 ? plain : [...DEFAULT_TOOLS];
+  for (const entry of entries) {
+    if (!isToolModifier(entry)) continue;
+    const name = entry.slice(1);
+    const index = tools.indexOf(name);
+    if (entry.startsWith("+") && index === -1 && name) tools.push(name);
+    else if (entry.startsWith("-") && index !== -1) tools.splice(index, 1);
   }
-  return settings.defaultTools as string[];
+  return tools;
+}
+
+/**
+ * The resolved tool list, never the raw entries: appending a plain name to a list of only
+ * `+name`/`-name` entries would turn it into a plain list that drops pi's default tools.
+ */
+function configuredTools(settings: Record<string, unknown>): string[] | undefined {
+  const entries = defaultToolEntries(settings);
+  return entries === undefined ? undefined : resolveDefaultToolEntries(entries);
 }
 
 export async function readPowerShellToolEnabled(
   settingsPath = getPowerShellSettingsPath(),
   platform: NodeJS.Platform = process.platform,
 ): Promise<boolean> {
-  if (!existsSync(settingsPath)) return false;
-  const release = await lockfile.lock(settingsPath, { realpath: false, retries: 10 });
-  try {
-    return isPowerShellToolEnabled(configuredTools(parseSettings(settingsPath)), platform);
-  } finally {
-    await release();
-  }
+  return readGlobalSettings(settingsPath, (settings) => isPowerShellToolEnabled(configuredTools(settings), platform));
 }
 
 export async function writePowerShellToolEnabled(
@@ -82,25 +86,13 @@ export async function writePowerShellToolEnabled(
 ): Promise<boolean> {
   if (platform !== "win32") throw new Error("PowerShell tool settings are only available on Windows");
 
-  mkdirSync(dirname(settingsPath), { recursive: true });
-  try {
-    writeFileSync(settingsPath, "{}", { flag: "wx", mode: 0o600 });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  const release = await lockfile.lock(settingsPath, { realpath: false, retries: 10 });
-  try {
-    const settings = parseSettings(settingsPath);
+  await updateGlobalSettings(settingsPath, (settings) => {
     const currentTools = configuredTools(settings) ?? DEFAULT_TOOLS;
     const nextTools = replaceShellTool(currentTools, enabled);
     if (!currentTools.some((name) => SHELL_TOOLS.has(name))) {
       nextTools.push(enabled ? "powershell" : "bash");
     }
     settings.defaultTools = nextTools;
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-    chmodSync(settingsPath, 0o600);
-  } finally {
-    await release();
-  }
+  });
   return enabled;
 }
