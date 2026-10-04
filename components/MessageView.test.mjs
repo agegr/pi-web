@@ -154,6 +154,25 @@ test("renders write tool content as readable file text", () => {
   }
 });
 
+test("keeps the input JSON for a write with another argument, an empty file or streamed input", () => {
+  const cases = [
+    { id: "call-write-mode", input: { path: "notes.md", content: "text", mode: "append" } },
+    { id: "call-write-empty", input: { path: "empty.txt", content: "" } },
+    { id: "call-write-streaming", input: {}, rawInput: "{\"path\":\"a.ts\",\"content\":\"one\\ntwo" },
+  ];
+  for (const { id, input, rawInput } of cases) {
+    const block = { type: "toolCall", toolCallId: id, toolName: "write", input, ...(rawInput === undefined ? {} : { rawInput }) };
+    clearExpandedToolCalls();
+    setToolCallExpanded(id, true);
+    try {
+      const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+      assert.equal(textOf(html).includes(getToolCallInputText(block)), true, id);
+    } finally {
+      clearExpandedToolCalls();
+    }
+  }
+});
+
 test("renders subagents as standard tool calls with only an extra session button", () => {
   const block = {
     type: "toolCall",
@@ -479,8 +498,6 @@ test("uses the unanswered truncation notice for an empty length reply", () => {
   assert.match(html, /nearly full context/i);
   assert.doesNotMatch(html, /follow-up/i);
 });
-
-const { setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 
 function textOf(html) {
   return html.replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&#x27;/g, "'");
