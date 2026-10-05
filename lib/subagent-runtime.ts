@@ -40,6 +40,10 @@ import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-sett
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
+import {
+  captureProviderExtensions, createSubagentModelRuntime, inheritSubagentSettings, requiredProviderExtensions,
+} from "./subagent-provider-runtime";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -223,6 +227,8 @@ export function createSubagentController(
 
       const agentDir = getAgentDir();
       const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
+      const childModelRuntime = await createSubagentModelRuntime(parentModelRuntime);
+      const providerExtensions = requiredProviderExtensions(parent.inner as unknown as AgentSession);
       const settingsManager = SettingsManager.create(childCwd, agentDir);
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
@@ -242,9 +248,11 @@ export function createSubagentController(
       const services = await createAgentSessionServices({
         cwd: childCwd,
         agentDir,
-        modelRuntime: parentModelRuntime,
+        modelRuntime: childModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
+          additionalExtensionPaths: providerExtensions,
+          extensionsOverride: captureProviderExtensions,
           noExtensions: !profile.loadExtensions,
           noSkills: !profile.loadSkills,
           noPromptTemplates: true,
@@ -300,15 +308,17 @@ export function createSubagentController(
           appendSystemPrompt: [...appendSystemPrompt],
           tools: [...activeTools],
           loadSkills: profile.loadSkills,
-        loadExtensions: profile.loadExtensions,
-        ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
+          loadExtensions: profile.loadExtensions,
+          ...(providerExtensions.length ? { providerExtensions } : {}),
+          ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
         },
         ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
       sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
+      inheritSubagentSettings(parent.inner.sessionManager, sessionManager);
       sessionManager.appendSessionInfo(metadata.description);
 
-      const requestedModel = parseSubagentModel(parentModelRuntime, request.model ?? profile.model);
+      const requestedModel = parseSubagentModel(childModelRuntime, request.model ?? profile.model);
       const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
       const { session: inner } = await createAgentSessionFromServices({
         services,

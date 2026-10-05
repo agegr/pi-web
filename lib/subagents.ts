@@ -2,7 +2,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { dump as stringifyYaml } from "js-yaml";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "fs";
-import { basename, dirname, join, resolve } from "path";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import { parseFrontmatter } from "./frontmatter";
 import { parseNpmSource } from "./npm-source";
 import { writePrivateFileAtomicSync } from "./atomic-file";
@@ -66,6 +66,8 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  /** Model-provider dependencies initialized against the child's extension context. */
+  providerExtensions?: string[];
   exactSystemPrompt?: string;
 }
 
@@ -74,6 +76,7 @@ export interface SubagentSessionResources {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  providerExtensions?: string[];
   exactSystemPrompt?: string;
 }
 
@@ -541,6 +544,9 @@ export function readSubagentSessionResources(
   const snapshot = data.resourceSnapshot;
   const loadSkills = isRecord(snapshot) && snapshot.loadSkills === true;
   const loadExtensions = isRecord(snapshot) && snapshot.loadExtensions === true;
+  const providerExtensions = isRecord(snapshot) && Array.isArray(snapshot.providerExtensions)
+    ? snapshot.providerExtensions.filter((path): path is string => typeof path === "string" && isAbsolute(path))
+    : [];
   if (
     isRecord(snapshot)
     && snapshot.version === 1
@@ -559,6 +565,7 @@ export function readSubagentSessionResources(
       tools: [...new Set(snapshot.tools)],
       loadSkills,
       loadExtensions,
+      ...(providerExtensions.length ? { providerExtensions: [...new Set(providerExtensions)] } : {}),
       ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
     };
   }

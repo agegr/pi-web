@@ -1,4 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { captureProviderExtensions, trackProviderExtensions } from "./subagent-provider-runtime";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -452,6 +454,7 @@ export class AgentSessionWrapper {
     this.extensionBindingPromise = (async () => {
       if (!this._alive) return;
       const uiContext = this.createExtensionUiContext();
+      trackProviderExtensions(this.inner as unknown as AgentSession);
       if (typeof this.inner.bindExtensions === "function") {
         const bindExtensions = this.inner.bindExtensions as (bindings: {
           uiContext?: ExtensionUiContextLike;
@@ -1154,7 +1157,7 @@ export class AgentSessionWrapper {
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
-        await this.inner.reload();
+        await this.inner.reload({ beforeSessionStart: () => trackProviderExtensions(this.inner as unknown as AgentSession) });
         // pi rebuilds from the tools active before, then extensions adjust them as they start
         // again; carry that result so a tool one switched off during reload stays off.
         this.setActiveToolSelection(activeToolNames);
@@ -2366,6 +2369,8 @@ export async function startRpcSession(
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
+            additionalExtensionPaths: subagentResources.providerExtensions,
+            extensionsOverride: captureProviderExtensions,
             noExtensions: !subagentResources.loadExtensions,
             noSkills: !subagentResources.loadSkills,
             noPromptTemplates: true,
@@ -2396,7 +2401,7 @@ export async function startRpcSession(
                 isBuiltInSubagentsEnabled,
               ),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            extensionsOverride: (base) => captureProviderExtensions(preferUserBashExtension(preferPiWebSubagentExtension(base))),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
