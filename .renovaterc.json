@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "packageRules": [
+    {
+      "description": "Pi Coding Agent group",
+      "groupName": "Pi Coding Agent",
+      "matchDatasources": ["npm"],
+      "matchPackageNames": ["/@earendil-works\/pi/"],
+      "group": {
+        "commitMessageTopic": "{{{groupName}}} group"
+      },
+      "minimumGroupSize": 4
+    }
+  ]
+}
