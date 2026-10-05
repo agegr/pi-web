@@ -9,6 +9,7 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasAssistantAnswer, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
+import { buildDropMentions, collectDroppedItems, uploadDroppedItems } from "@/lib/drop-items";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -698,9 +699,60 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [ctxKey, onContextUsageChange]);
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
-  const onDrop = useCallback((files: File[]) => {
-    chatInputRef?.current?.addImages(files);
-  }, [chatInputRef]);
+  const [dropNotices, setDropNotices] = useState<NoticeItem[]>([]);
+  const pushDropNotice = useCallback((message: string, type: NoticeItem["type"]) => {
+    const id = `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setDropNotices((prev) => [...prev, { id, message, type }]);
+    window.setTimeout(() => {
+      setDropNotices((prev) => prev.filter((notice) => notice.id !== id));
+    }, 6000);
+  }, []);
+
+  const addDropReferences = useCallback(async (
+    entries: (FileSystemEntry | null)[],
+    files: File[],
+    uriList: string,
+  ) => {
+    const cwd = session?.cwd ?? newSessionCwd;
+    if (!cwd) {
+      pushDropNotice(t("chat.dropNoCwd"), "warning");
+      return;
+    }
+    let collected: Awaited<ReturnType<typeof collectDroppedItems>>;
+    try {
+      collected = await collectDroppedItems(entries, files, uriList);
+    } catch (dropError) {
+      pushDropNotice(
+        t("chat.dropFailed", { message: dropError instanceof Error ? dropError.message : String(dropError) }),
+        "error",
+      );
+      return;
+    }
+    if (collected.files.length === 0 && collected.roots.every((root) => !root.isDir)) {
+      pushDropNotice(t("chat.dropEmpty"), "warning");
+      return;
+    }
+    const result = await uploadDroppedItems(cwd, collected.files, collected.roots);
+    if (result.error || !result.roots?.length) {
+      pushDropNotice(t("chat.dropFailed", { message: result.error ?? "unknown error" }), "error");
+      return;
+    }
+    const mentions = buildDropMentions(result.uploaded, result.roots);
+    if (mentions) chatInputRef?.current?.insertText(mentions);
+    const count = result.uploaded?.length ?? 0;
+    pushDropNotice(t("chat.dropAdded", { count: count > 0 ? count : result.roots.length }), "success");
+  }, [session?.cwd, newSessionCwd, pushDropNotice, t, chatInputRef]);
+
+  const onDrop = useCallback((files: File[], entries: (FileSystemEntry | null)[], uriList: string) => {
+    const looseImages = files.filter((file) => file.type.startsWith("image/"));
+    const hasDirectory = entries.some((entry) => entry?.isDirectory);
+    const hasNonImage = files.some((file) => !file.type.startsWith("image/"));
+    if (!hasDirectory && !hasNonImage && looseImages.length > 0) {
+      chatInputRef?.current?.addImages(files);
+      return;
+    }
+    void addDropReferences(entries, files, uriList);
+  }, [addDropReferences, chatInputRef]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -921,6 +973,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     >
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
+          <div className="pointer-events-none absolute bottom-[16%] left-0 right-0 text-center text-[14px] font-medium text-[rgba(37,99,235,0.85)]">
+            {t("chat.dropReferenceHint")}
+          </div>
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {[0, 0.8, 1.6].map((delay) => (
               <div
@@ -965,7 +1020,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           pointerEvents: "none",
         }}
       >
-        <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, pointerEvents: "none" }}>
+          <NoticeShelf notices={dropNotices} floating />
+          <NoticeShelf notices={notices} floating onPauseChange={setNoticePaused} />
+        </div>
       </div>
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">

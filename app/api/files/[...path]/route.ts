@@ -24,7 +24,12 @@ import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import {
   inspectUploadTargets,
+  normalizeDropRelativePath,
+  parseDropPaths,
+  parseDropRoots,
   parseUploadConflictStrategy,
+  resolveDropRootNames,
+  validateDropPaths,
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
@@ -165,6 +170,90 @@ export async function POST(
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
       return NextResponse.json(inspectUploadTargets(directory, fileNames));
+    }
+
+    if (type === "drop") {
+      let formData: FormData;
+      try {
+        formData = await parseFormDataWithinLimit(request, MAX_UPLOAD_REQUEST_BYTES);
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) {
+          return NextResponse.json({ error: "Uploads must total 100MB or less" }, { status: 413 });
+        }
+        throw error;
+      }
+      const files = formData.getAll("files").filter((entry): entry is File => typeof entry !== "string");
+      if (files.some((file) => file.size > MAX_UPLOAD_FILE_BYTES)) {
+        return NextResponse.json({ error: "Each upload must be 25MB or smaller" }, { status: 413 });
+      }
+      if (files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_TOTAL_BYTES) {
+        return NextResponse.json({ error: "Uploads must total 100MB or less" }, { status: 413 });
+      }
+      const paths = parseDropPaths(formData.get("paths"));
+      const roots = parseDropRoots(formData.get("roots"));
+      if (!paths || paths.length !== files.length) {
+        return NextResponse.json({ error: "paths must match files" }, { status: 400 });
+      }
+      if (!roots) {
+        return NextResponse.json({ error: "roots must be an array of dropped items" }, { status: 400 });
+      }
+      const validationError = validateDropPaths(paths, roots);
+      if (validationError) {
+        return NextResponse.json({ error: validationError }, { status: 400 });
+      }
+
+      const nameMap = resolveDropRootNames(directory, roots);
+      const rootResults = roots.map((root) => ({
+        original: root.name,
+        final: nameMap.get(root.name) ?? root.name,
+        isDir: root.isDir,
+      }));
+      const uploaded: string[] = [];
+      const errors: Array<{ name: string; error: string }> = [];
+
+      // Create the top-level directory for dropped folders, even when empty.
+      for (const root of rootResults) {
+        if (!root.isDir) continue;
+        try {
+          fs.mkdirSync(path.join(directory, root.final), { recursive: true });
+        } catch (error) {
+          errors.push({ name: root.final, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+
+      for (let index = 0; index < files.length; index += 1) {
+        const normalized = normalizeDropRelativePath(paths[index]);
+        if (!normalized) {
+          errors.push({ name: paths[index], error: "Invalid relative path" });
+          continue;
+        }
+        const segments = normalized.split("/");
+        segments[0] = nameMap.get(segments[0]) ?? segments[0];
+        const relativeFinal = segments.join("/");
+        const destination = path.join(directory, relativeFinal);
+        try {
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          const realParent = fs.realpathSync(path.dirname(destination));
+          if (realParent !== directory && !realParent.startsWith(directory + path.sep)) {
+            errors.push({ name: relativeFinal, error: "Access denied" });
+            continue;
+          }
+          if (fs.existsSync(destination)) {
+            errors.push({ name: relativeFinal, error: "File already exists" });
+            continue;
+          }
+          const bytes = Buffer.from(await files[index].arrayBuffer());
+          fs.writeFileSync(destination, bytes, { flag: "wx" });
+          uploaded.push(relativeFinal);
+        } catch (error) {
+          errors.push({ name: relativeFinal, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+
+      return NextResponse.json(
+        { roots: rootResults, uploaded, skipped: [], errors },
+        { status: errors.length > 0 ? 207 : 200 },
+      );
     }
 
     if (type !== "upload") {
