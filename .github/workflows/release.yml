@@ -108,14 +108,14 @@ jobs:
       id-token: write # OIDC for npm trusted publishing; provenance follows from it
     steps:
       # The tag release-please just pushed, so the build is of the released commit.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
       # Node 24 for trusted publishing; staged publishing also needs Node >= 22.14.
       # package-manager-cache: false — no cache for a job holding an OIDC publish
       # token (supply-chain hardening; the input exists from setup-node v5 on).
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           package-manager-cache: false
