@@ -63,7 +63,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "semver": "7.8.5",
-    "undici": "8.11.0",
+    "undici": "8.11.2",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
