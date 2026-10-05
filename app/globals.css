@@ -933,6 +933,20 @@ pre, code {
   margin: 6px 0;
 }
 
+.compaction-summary-details {
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.compaction-summary-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.compaction-summary-details .markdown-compaction-message {
+  margin-top: 8px;
+}
+
 .compaction-file-details {
   margin-top: 10px;
   padding-top: 8px;
