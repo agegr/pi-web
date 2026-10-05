@@ -1,7 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices"],
-  "automergeType": "pr",
+  "extends": [
+    "config:best-practices",
+    ":semanticPrefixChore",
+    ":automergePr",
+    ":automergeRequireAllStatusChecks",
+    ":preserveSemverRanges",
+    ":disableRateLimiting"
+  ],
+  "ignorePresets": [":semanticPrefixFixDepsChoreOthers"],
   "automergeStrategy": "squash",
   "packageRules": [
     {
