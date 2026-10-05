@@ -42,6 +42,8 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
+import { expandChainedCommands } from "./chained-commands";
+import { createOneShotCommandExtension } from "./one-shot-commands";
 import { createPiWebBuiltinExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
@@ -53,6 +55,22 @@ import {
   readSessionToolSelection,
   validateSessionToolSelection,
 } from "./session-tool-selection";
+
+/**
+ * Expand chained prompt templates (`/ref <url> /fuse <task>`) into one prompt.
+ * The Pi SDK only expands the first command, so rpc-manager does the rest.
+ */
+function expandCommandChains(
+  message: string,
+  templates: readonly { name: string; content?: string }[] | undefined,
+): string {
+  return expandChainedCommands(
+    message,
+    (templates ?? [])
+      .filter((t): t is { name: string; content: string } => typeof t.content === "string")
+      .map((t) => ({ name: t.name, content: t.content })),
+  );
+}
 
 // ============================================================================
 // Types
@@ -795,7 +813,7 @@ export class AgentSessionWrapper {
           }
           let prompt: Promise<void>;
           try {
-            prompt = this.inner.prompt(command.message as string, {
+            prompt = this.inner.prompt(expandCommandChains(command.message as string, this.inner.promptTemplates), {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
               source: "rpc",
@@ -1081,13 +1099,13 @@ export class AgentSessionWrapper {
 
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
+        await this.inner.steer(expandCommandChains(command.message as string, this.inner.promptTemplates), steerImages?.length ? steerImages : undefined);
         return null;
       }
 
       case "follow_up": {
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
+        await this.inner.followUp(expandCommandChains(command.message as string, this.inner.promptTemplates), followImages?.length ? followImages : undefined);
         return null;
       }
 
@@ -2354,6 +2372,17 @@ export async function startRpcSession(
     // after the session is created, so the getter is filled in below.
     const exactSystemPromptRef: { current?: () => string } = {};
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
+    // Prompt templates expand into ordinary user messages that stay in the
+    // transcript. Their instructions must stop applying once the turn that used
+    // them is over, otherwise the model re-runs the workflow on the next short
+    // follow-up. This extension rewrites the outgoing context to drop those
+    // blocks; see lib/one-shot-commands.ts for why it cannot be done by editing
+    // the transcript itself.
+    const oneShotCommandExtension = createOneShotCommandExtension({
+      onStrip: (count) => {
+        console.log(`[pi-web] stripped one-shot command instructions from ${count} context messages`);
+      },
+    });
     const usesExactSystemPrompt = chatOnly || subagentResources?.exactSystemPrompt !== undefined;
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
@@ -2378,13 +2407,17 @@ export async function startRpcSession(
                 }
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
-            ...(usesExactSystemPrompt ? { extensionFactories: [exactSystemPromptExtension] } : {}),
+            extensionFactories: [
+              ...(usesExactSystemPrompt ? [exactSystemPromptExtension] : []),
+              oneShotCommandExtension,
+            ],
           }
         : chatOnly
-          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
+          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension, oneShotCommandExtension] }
         : {
             extensionFactories: [
               ...(builtins?.extensions ?? []),
+              oneShotCommandExtension,
               createReadOnlyMcpPolicyExtension(),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
