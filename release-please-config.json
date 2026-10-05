@@ -5,6 +5,11 @@
       "release-type": "node",
       "include-component-in-tag": false,
       "include-v-in-tag": true
+    },
+    "demo": {
+      "release-type": "node",
+      "skip-github-release": true,
+      "skip-changelog": true
     }
   }
 }
