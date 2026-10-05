@@ -991,3 +991,45 @@ export interface ContextResponse {
 export type ContextWriteTarget =
   | { ok: true; path: string; scope: ContextScope }
   | { ok: false; error: "unknown-id" | "no-cwd" | ContextPathProblem; path?: string };
+
+// ---------------------------------------------------------------------------
+// Deleting a project entirely (`POST /api/projects/delete`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why `POST /api/projects/delete` refused: the codes every mutating route
+ * shares (`request-denied`, `content-type`, `invalid-request`, `internal`),
+ * plus the three only removing a project's sessions gives.
+ */
+export type ProjectDeleteRefusalReason =
+  | "request-denied"
+  | "content-type"
+  | "invalid-request"
+  /** No enumerated session belongs to the posted `projectKey`. */
+  | "project-not-found"
+  /** A session of the project is running, so nothing was deleted (`runningSessionTitles`). */
+  | "session-busy"
+  /** A per-cwd session directory of the project is a symbolic link: removing it would follow the link out of the sessions tree. */
+  | "symlink"
+  | "internal";
+
+export interface ProjectDeleteFailure {
+  path: string;
+  error: string;
+}
+
+/** `deletedSessions` counts the session files removed; a file already gone counts as removed. */
+export interface ProjectDeleteResponse {
+  deletedSessions: number;
+  /** Per-cwd session directories removed: one per cwd the project had sessions in, worktrees included. */
+  removedDirs: number;
+  /** What the removal could not finish, each with why. */
+  failures?: ProjectDeleteFailure[];
+}
+
+export interface ProjectDeleteErrorResponse {
+  error: string;
+  reason: ProjectDeleteRefusalReason;
+  /** `session-busy`: the running sessions' titles, as the sidebar shows them. */
+  runningSessionTitles?: string[];
+}

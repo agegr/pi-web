@@ -125,6 +125,21 @@ export function addSession(session: MockSession): void {
   state.version += 1;
 }
 
+/**
+ * Delete every session of one project, as `POST /api/projects/delete` does on
+ * the real server. The demo has no session files, so the answer counts the
+ * in-memory rows and the distinct cwds they live in; running sessions are
+ * refused by the route before this is called.
+ */
+export function deleteProject(projectKey: string): { deletedSessions: number; removedDirs: number } {
+  const doomed = [...state.sessions.values()].filter((session) => projectRootFor(session.cwd) === projectKey);
+  const dirs = new Set(doomed.map((session) => session.cwd));
+  for (const session of doomed) state.sessions.delete(session.id);
+  state.touched = true;
+  state.version += 1;
+  return { deletedSessions: doomed.length, removedDirs: dirs.size };
+}
+
 export function deleteSession(id: string): void {
   state.sessions.delete(id);
   // Subagents are removed with their parent, like the real DELETE route.

@@ -51,3 +51,27 @@ export function sessionsForProject(
 ): SessionInfo[] {
   return sessions.filter((session) => workspaceKeyOf(session) === projectKey);
 }
+
+export interface ProjectDeleteCounts {
+  /** Sessions the project holds, transient ones excluded — they have no file yet. */
+  sessions: number;
+  /** Directories those sessions live in: one per cwd, worktrees included. */
+  directories: number;
+}
+
+/**
+ * What deleting this project would remove, for the confirmation dialog. Both
+ * numbers come from the loaded session list, so the dialog states what the
+ * sidebar itself is showing: the server deletes exactly the sessions it
+ * enumerates, one directory per cwd the project has sessions in.
+ */
+export function projectDeleteCounts(
+  sessions: readonly SessionInfo[],
+  projectKey: string,
+): ProjectDeleteCounts {
+  const projectSessions = sessionsForProject(sessions, projectKey).filter((session) => !session.transient);
+  return {
+    sessions: projectSessions.length,
+    directories: new Set(projectSessions.map((session) => session.cwd).filter(Boolean)).size,
+  };
+}

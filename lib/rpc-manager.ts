@@ -2235,6 +2235,31 @@ export function getRunningRpcSessionIds(): string[] {
   return [...ids];
 }
 
+/**
+ * Whether any *alive* wrapper belongs to this cwd, running or idle. A wrapper
+ * stays alive long after its run ends while its chat tab is open, and it owns
+ * the session file from then on — its next flush or prompt writes there. A
+ * route that removes the file must refuse such a project too, so this is the
+ * check to use where refusing is the policy; hasBusyRpcSessionForCwd() answers
+ * the narrower "is something running right now".
+ */
+export function hasAliveRpcSessionForCwd(cwd: string): boolean {
+  const targetCwd = normalizeRpcCwd(cwd);
+  if (getStartingSessionCwds().has(targetCwd)) return true;
+  return Array.from(getRegistry().values()).some(
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isAlive(),
+  );
+}
+
+/** Every live session id: running or idle, any wrapper that still owns its file. */
+export function getAliveRpcSessionIds(): string[] {
+  const ids = new Set<string>();
+  for (const [sessionId, session] of getRegistry()) {
+    if (session.isAlive()) ids.add(session.sessionId || sessionId);
+  }
+  return [...ids];
+}
+
 export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {
   const ids = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {

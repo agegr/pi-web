@@ -2457,3 +2457,181 @@
     }
   }
 }
+
+/* Delete-project dialog (components/ProjectDeleteDialog.tsx). Sits above the
+   sidebar and Settings (z-index 1100, like the trust dialog), scrolls its body
+   only, so the counts and the confirmation field never push the buttons off a
+   short screen. */
+.project-delete-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.project-delete-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  max-width: 100%;
+  max-height: 100%;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+}
+
+/* Focus moves to the dialog itself when it opens (tabIndex -1); it is not a control, so no ring. */
+.project-delete-dialog:focus {
+  outline: none;
+}
+
+.project-delete-icon {
+  flex-shrink: 0;
+}
+
+.project-delete-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.project-delete-title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* The full path, so two projects sharing a name are told apart. Wraps rather
+   than scrolls: an absolute path is long and the dialog is narrow. */
+.project-delete-path {
+  display: block;
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.project-delete-path-label {
+  color: var(--text-dim);
+}
+
+.project-delete-partial-title {
+  font-weight: 600;
+}
+
+.project-delete-warning {
+  margin: 7px 0 0;
+  color: #ef4444;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.project-delete-counts {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.project-delete-label {
+  display: block;
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.project-delete-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 9px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.project-delete-input:focus {
+  border-color: var(--accent);
+}
+
+.project-delete-mismatch {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.project-delete-error {
+  margin-top: 10px;
+  color: #ef4444;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.project-delete-error p {
+  margin: 0;
+}
+
+.project-delete-running {
+  margin-top: 4px !important;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.project-delete-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.project-delete-footer {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.project-delete-button {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.project-delete-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.project-delete-button.is-danger {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  font-weight: 600;
+}

@@ -14,9 +14,11 @@ import { agentState, attachAgentStream, createRuntimeSession, runAgentCommand, r
 import {
   allSessions,
   buildContext,
+  deleteProject,
   deleteSession,
   ensureSessions,
   getSession,
+  projectRootFor,
   markTouched,
   sessionDetail,
   sessionInfo,
@@ -192,6 +194,34 @@ async function branchesRoute(request: MockRequest): Promise<Response> {
   return error(demoOnlyMessage(), 501);
 }
 
+/**
+ * `POST /api/projects/delete`: the in-memory half of the real route. The demo
+ * names a project by its stable key only and deletes its sessions from the
+ * store; a running session is refused with the same `session-busy` shape the
+ * server answers, so the dialog's error path is reachable in the demo too.
+ */
+async function projectsRoute(request: MockRequest): Promise<Response> {
+  const [, , action] = request.segments;
+  if (action !== "delete") return error("Not found", 404);
+  // The real route exports POST only; a wrong method is 405, not a missing path.
+  if (request.method !== "POST") return error("Method not allowed", 405);
+  const body = await request.json<{ projectKey?: unknown }>();
+  const projectKey = body.projectKey;
+  if (typeof projectKey !== "string" || projectKey.length === 0) {
+    return error("projectKey must be a non-empty string", 400, { reason: "invalid-request" });
+  }
+  const projectSessions = allSessions().filter((session) => projectRootFor(session.cwd) === projectKey);
+  if (projectSessions.length === 0) return error("No sessions belong to this project", 404, { reason: "project-not-found" });
+  const running = projectSessions.filter((session) => session.live?.running);
+  if (running.length > 0) {
+    return error("A session of this project is running. Wait for it to finish before deleting the project.", 409, {
+      reason: "session-busy",
+      runningSessionTitles: running.map((session) => session.name ?? session.id.slice(0, 12)),
+    });
+  }
+  return json(deleteProject(projectKey));
+}
+
 async function cwdRoute(request: MockRequest): Promise<Response> {
   const [, , action] = request.segments;
   if (action === "validate") {
@@ -236,6 +266,7 @@ const ROUTES: Record<string, Handler> = {
   files: filesRoute,
   "file-index": fileIndexRoute,
   worktrees: worktreesRoute,
+  projects: projectsRoute,
   branches: branchesRoute,
   cwd: cwdRoute,
   home: () => json({ home: HOME }),

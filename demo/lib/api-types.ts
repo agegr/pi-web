@@ -657,3 +657,39 @@ export interface ContextResponse {
   maxBytes: number;
   files: ContextFileInfo[];
 }
+
+// ---------------------------------------------------------------------------
+// Deleting a project entirely (`POST /api/projects/delete`). The demo mock
+// answers the same shapes from its in-memory session store; the real route
+// walks the agent directory's sessions tree, which the demo has no backend for.
+// ---------------------------------------------------------------------------
+
+export type ProjectDeleteRefusalReason =
+  | "request-denied"
+  | "content-type"
+  | "invalid-request"
+  | "project-not-found"
+  | "session-busy"
+  | "symlink"
+  | "internal";
+
+export interface ProjectDeleteFailure {
+  path: string;
+  error: string;
+}
+
+/** `deletedSessions` counts the session files removed; a file already gone counts as removed. */
+export interface ProjectDeleteResponse {
+  deletedSessions: number;
+  /** Per-cwd session directories removed: one per cwd the project had sessions in, worktrees included. */
+  removedDirs: number;
+  /** What the removal could not finish, each with why. */
+  failures?: ProjectDeleteFailure[];
+}
+
+export interface ProjectDeleteErrorResponse {
+  error: string;
+  reason: ProjectDeleteRefusalReason;
+  /** `session-busy`: the running sessions' titles, as the sidebar shows them. */
+  runningSessionTitles?: string[];
+}
