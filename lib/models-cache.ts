@@ -1,6 +1,6 @@
 export interface ModelsData {
   models: Record<string, string>;
-  modelList: { id: string; name: string; provider: string; input?: string[] }[];
+  modelList: { id: string; name: string; provider: string; input?: string[]; note?: string }[];
   defaultModel: { provider: string; modelId: string } | null;
   /** Resolved thinking level a new session starts with when the user has not picked one. */
   defaultThinkingLevel: string | null;

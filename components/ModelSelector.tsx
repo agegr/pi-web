@@ -9,6 +9,8 @@ export interface ModelSelectorOption {
   provider: string;
   modelId: string;
   name: string;
+  /** Curated one-line note from `~/.pi/agent/model-notes.json`. */
+  note?: string;
 }
 
 interface ModelSelectorProps {
@@ -324,7 +326,7 @@ export function ModelSelector({
                           onSave: () => saveDefault(option),
                         } : undefined}
                       >
-                        <OptionLabel label={option.name} />
+                        <OptionLabel label={option.name} note={option.note} />
                       </SelectorRow>
                     );
                   })}
@@ -338,6 +340,13 @@ export function ModelSelector({
   );
 }
 
-function OptionLabel({ label }: { label: string }) {
-  return <span title={label} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>;
+function OptionLabel({ label, note }: { label: string; note?: string }) {
+  return (
+    <span title={note ? `${label}\n${note}` : label} style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+      {note && (
+        <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>{note}</span>
+      )}
+    </span>
+  );
 }

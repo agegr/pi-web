@@ -9,6 +9,7 @@ import {
   type ModelsData,
 } from "@/lib/models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
+import { loadModelNotes, resolveModelNote } from "@/lib/model-notes";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
@@ -27,7 +28,7 @@ function compareModelEntries(
 
 async function loadModels(cwd: string): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
+  let modelList: { id: string; name: string; provider: string; note?: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
@@ -51,12 +52,18 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     settings.getEnabledModels(),
   );
   const { visible, thinkingLevelPins, warnings } = scope;
-  modelList = visible.map((m) => ({
-    id: m.id,
-    name: m.name,
-    provider: m.provider,
-    input: m.input,
-  })).sort(compareModelEntries);
+  // Notes are user-authored decoration; a broken file must not fail the load.
+  const modelNotes = loadModelNotes(agentDir);
+  modelList = visible.map((m) => {
+    const note = resolveModelNote(modelNotes, m.provider, m.id);
+    return {
+      id: m.id,
+      name: m.name,
+      provider: m.provider,
+      input: m.input,
+      ...(note ? { note } : {}),
+    };
+  }).sort(compareModelEntries);
   for (const m of visible) {
     const key = `${m.provider}:${m.id}`;
     nameMap.set(key, m.name);
