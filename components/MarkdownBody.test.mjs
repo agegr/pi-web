@@ -27,6 +27,36 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("renders CJK sentence emphasis without spaces after closing punctuation", () => {
+  const sentence = "今天天气很好。";
+  const markdown = `**${sentence}**我们去公园散步吧。`;
+  for (const props of [{}, { keepLineBreaks: true }]) {
+    const html = renderMarkdown(markdown, props);
+    assert.ok(html.includes(`<strong>${sentence}</strong>我们`));
+    assert.doesNotMatch(html, /\*\*/);
+  }
+  const preview = renderToStaticMarkup(React.createElement(ReactMarkdown, {
+    remarkPlugins: markdownPreviewRemarkPlugins,
+    rehypePlugins: markdownPreviewRehypePlugins,
+  }, markdown));
+  assert.ok(preview.includes(`<strong>${sentence}</strong>我们`));
+});
+
+test("renders CJK brackets next to prose while preserving nested emphasis", () => {
+  assert.match(renderMarkdown("这是**「重要」**内容。"), /这是<strong>「重要」<\/strong>内容。/);
+  assert.match(renderMarkdown("これは**テスト。**テスト"), /これは<strong>テスト。<\/strong>テスト/);
+  assert.match(renderMarkdown("**outer *inner* text**"), /<strong>outer <em>inner<\/em> text<\/strong>/);
+});
+
+test("keeps CJK emphasis markers literal in code and escaped text", () => {
+  const literal = "**需要。**即使";
+  for (const markdown of [`\`${literal}\``, `\`\`\`\n${literal}\n\`\`\``, "\\*\\*需要。\\*\\*即使"]) {
+    const html = renderMarkdown(markdown);
+    assert.doesNotMatch(html, /<strong>/);
+    assert.ok(html.includes(literal));
+  }
+});
+
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");
 
