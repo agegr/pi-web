@@ -15,8 +15,15 @@
 // built-in's tools by the path, and the composer opens Settings › MCP for a
 // bare `/mcp` (ADR 0006). This module has no imports, so the browser can load it.
 
-/** The `sourceInfo.path` of everything pi's built-in MCP extension registers. */
+/**
+ * The `sourceInfo.path` of each pi built-in extension's resources, as the SDK
+ * names them (`builtin:<name>`). Identity checks compare against these instead
+ * of repeating the literal, so a rename stays in one place. `MCP_EXTENSION_PATH`
+ * is also the `/mcp` ownership marker above.
+ */
 export const MCP_EXTENSION_PATH = "builtin:mcp";
+export const CODEMODE_EXTENSION_PATH = "builtin:codemode";
+export const TOOL_SEARCH_EXTENSION_PATH = "builtin:tool-search";
 
 export const MCP_COMMAND_NAME = "mcp";
 

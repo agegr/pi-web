@@ -14,7 +14,7 @@ import {
 } from "./project-command-env";
 import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
-import { createSubagentSessionServices } from "./subagent-resources";
+import { createSubagentSessionServices, subagentHostToolAdmission } from "./subagent-resources";
 import { reconcileSubagentActiveTools, subagentToolExclusions } from "./subagent-tool-policy";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -128,7 +128,7 @@ type AgentSessionWrapperOptions = {
   /** Validated creation snapshot, supplied by child registration/cold restore; never a live profile. */
   subagentResources?: SubagentSessionResources | null;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
-  mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pick<McpHost, "admitsTool">>;
 };
 
 export const MCP_WAIT_STOPPED_MESSAGE = "Stopped while MCP servers were connecting; the message was not sent.";
@@ -307,7 +307,7 @@ export class AgentSessionWrapper {
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
   private readonly subagentResources?: SubagentSessionResources;
-  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pick<McpHost, "admitsTool">>;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
@@ -542,12 +542,15 @@ export class AgentSessionWrapper {
   async abortDelegated(): Promise<void> { await this.send({ type: "abort" }); }
 
   private async prepareMcpPrompt(message: string): Promise<void> {
+    if (this.subagentResources?.version === 3 && this.subagentResources.loadMcp
+      && typeof this.mcpHost?.prepareForPrompt !== "function") throw new Error("Subagent MCP requires a prepared session host");
     const preparation = this.mcpHost && !this.inner.isStreaming
       ? mcpPromptPreparation(message, this.extensionCommandCandidates()) : "none";
     if (!this.mcpHost || preparation === "none") return;
     const controller = new AbortController();
     const waited = this.mcpHost.prepareForPrompt(controller.signal, { wait: preparation === "wait" })
       .catch((error: unknown) => {
+        if (this.subagentResources?.version === 3) throw error;
         console.error("[pi-web] MCP servers could not be prepared:", error instanceof Error ? error.message : error);
       }).then(() => {
         if (controller.signal.aborted) throw new Error(MCP_WAIT_STOPPED_MESSAGE);
@@ -560,13 +563,14 @@ export class AgentSessionWrapper {
 
   private reconcileSubagentToolPolicy(): void {
     const resources = this.subagentResources;
-    if (resources?.version !== 2) return; // Normal sessions and v1 retain their existing loadout rules.
+    if (resources?.version !== 2 && resources?.version !== 3) return; // Normal sessions and v1 retain their existing loadout rules.
     const sdk = this.inner as unknown as Pick<AgentSession, "getAllTools" | "getActiveToolNames" | "setActiveToolsByName" | "resourceLoader">;
     reconcileSubagentActiveTools({
       getActiveTools: () => sdk.getActiveToolNames(),
       getAllTools: () => sdk.getAllTools(),
       setActiveTools: (names) => sdk.setActiveToolsByName(names),
-    }, resources.builtinTools, resources.toolPolicy, () => sdk.resourceLoader.getExtensions().extensions);
+    }, resources.builtinTools, resources.toolPolicy, () => sdk.resourceLoader.getExtensions().extensions,
+      resources.version === 3 ? subagentHostToolAdmission(resources, this.mcpHost?.admitsTool ? { admitsTool: this.mcpHost.admitsTool.bind(this.mcpHost) } : undefined) : undefined);
   }
 
   private async waitForExtensionsBound(): Promise<void> {
@@ -2030,6 +2034,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         ? { exactSystemPrompt: () => options.exactSystemPrompt! }
         : {}),
       chatOnly: options?.chatOnly,
+      mcpHost: options?.mcpHost,
       subagentResources: readSubagentSessionResources(inner.sessionManager.getEntries() as unknown as SessionEntry[]),
       suppressCompletionNotifications: true,
     });
@@ -2380,7 +2385,7 @@ export async function startRpcSession(
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
   const subagentLoadsResources = Boolean(
-    subagentResources?.loadExtensions || subagentResources?.loadSkills,
+    subagentResources?.loadExtensions || subagentResources?.loadSkills || (subagentResources?.version === 3 && (subagentResources.codeMode || subagentResources.loadMcp)),
   );
   const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
   const finishStartingSession = trackStartingSession(sessionCwd);
@@ -2391,7 +2396,7 @@ export async function startRpcSession(
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
-    let toolsOption: string[] | undefined = subagentResources?.version === 2 ? undefined : subagentResources?.tools;
+    let toolsOption: string[] | undefined = subagentResources?.toolPolicy ? undefined : subagentResources?.tools;
     if (!subagentResources && selectedToolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
@@ -2508,12 +2513,12 @@ export async function startRpcSession(
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
-      ...(subagentResources?.version === 2
+      ...(subagentResources?.toolPolicy
         ? { noTools: "builtin", excludeTools: subagentToolExclusions(subagentResources.builtinTools) }
         : subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
     });
 
-    if (subagentResources?.version === 2) {
+    if (subagentResources?.toolPolicy) {
       inner.setActiveToolsByName([...new Set([...subagentResources.builtinTools, ...inner.getActiveToolNames()])]);
     }
 
@@ -2546,7 +2551,7 @@ export async function startRpcSession(
       },
       suppressCompletionNotifications: Boolean(subagentResources),
       subagentResources,
-      ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
+      ...(subagentResources && "mcpHost" in services && services.mcpHost ? { mcpHost: services.mcpHost as McpHost } : builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);

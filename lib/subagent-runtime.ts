@@ -18,6 +18,7 @@ import {
 } from "./subagent-extension";
 import {
   readSubagentRun,
+  readSubagentSessionResources,
   resolveSubagentProfile,
   SUBAGENT_META_TYPE,
   SUBAGENT_STATUS_TYPE,
@@ -54,7 +55,7 @@ export interface SubagentRuntimeDependencies {
   getSession(sessionId: string): HostSession | undefined;
   registerSession(
     inner: AgentSessionLike,
-    options?: { exactSystemPrompt?: string; chatOnly?: boolean },
+    options?: { exactSystemPrompt?: string; chatOnly?: boolean; mcpHost?: import("./mcp-host").McpHost },
   ): void | Promise<void>;
   reopenSession(sessionId: string, sessionFile: string): Promise<HostSession>;
   resolveSessionPath(sessionId: string): Promise<string | null>;
@@ -79,6 +80,11 @@ type StoredSubagentExecution = {
 
 async function promptDelegated(wrapper: HostSession | undefined, inner: AgentSessionLike, message: string, stored: StoredSubagentExecution): Promise<void> {
   throwIfSubagentCancelled(stored);
+  const resources = readSubagentSessionResources(inner.sessionManager.getEntries() as unknown as SessionEntry[]);
+  if (resources?.version === 3 && (resources.codeMode || resources.loadMcp)
+    && (typeof wrapper?.promptDelegated !== "function" || typeof wrapper.waitUntilReady !== "function")) {
+    throw new Error("Subagent host capabilities require delegated wrapper preparation");
+  }
   if (wrapper?.promptDelegated) return wrapper.promptDelegated(message, (stored.promptController ??= new AbortController()).signal);
   await inner.prompt(message, { source: "rpc" });
 }
@@ -251,6 +257,8 @@ export function createSubagentController(
         tools: profile.tools,
         loadSkills: profile.loadSkills,
         loadExtensions: profile.loadExtensions,
+        codeMode: profile.codeMode,
+        loadMcp: profile.loadMcp,
         promptMode: profile.promptMode,
         task: appendSubagentInputFiles(request.task, inputFiles),
         inheritedParentContext,
@@ -302,7 +310,10 @@ export function createSubagentController(
         runInBackground,
         createdAt,
         resourceSnapshot: {
-          version: 2,
+          version: 3,
+          codeMode: profile.codeMode === true,
+          loadMcp: profile.loadMcp === true,
+          mcpServers: structuredClone(profile.mcpServers ?? []),
           appendSystemPrompt: [...appendSystemPrompt],
           builtinTools: [...builtinTools],
           toolPolicy,
@@ -337,6 +348,7 @@ export function createSubagentController(
           ? { exactSystemPrompt: promptPlan.exactSystemPrompt }
           : {}),
         chatOnly,
+        mcpHost: services.mcpHost,
       })).then(
         () => ({ ok: true as const }),
         (error: unknown) => ({ ok: false as const, error }),

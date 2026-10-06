@@ -48,6 +48,23 @@ function jsonRequest(method, body) {
   });
 }
 
+test("profile PUT validates scoped MCP fields and old clients preserve stored role capabilities", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-child-profile-put-")); allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const capabilities = { codeMode: true, loadMcp: true, mcpServers: [{ scope: "global", name: "Case-ID" }] };
+  let response = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: profile(capabilities) }));
+  assert.equal(response.status, 200); assert.deepEqual((await response.json()).profile.mcpServers, capabilities.mcpServers);
+  response = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: profile({ description: "old client" }) }));
+  assert.equal(response.status, 200); const preserved = (await response.json()).profile;
+  assert.equal(preserved.codeMode, true); assert.equal(preserved.loadMcp, true); assert.deepEqual(preserved.mcpServers, capabilities.mcpServers);
+  for (const invalid of [{ codeMode: "true" }, { loadMcp: null }, { mcpServers: ["Case-ID"] }, { mcpServers: [{ name: "Case-ID" }] }, { mcpServers: [{ scope: "global", name: "Case-ID", config: {} }] }]) {
+    response = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: profile(invalid) })); assert.equal(response.status, 400);
+  }
+  response = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: profile({ codeMode: false, loadMcp: false, mcpServers: [] }) }));
+  assert.equal(response.status, 200); const disabled = (await response.json()).profile;
+  assert.equal(disabled.codeMode, false); assert.equal(disabled.loadMcp, false); assert.deepEqual(disabled.mcpServers, []);
+});
+
 test("profiles route creates, lists, and deletes a project profile", async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-web-subagent-route-"));
   allowFileRoot(cwd);

@@ -14,6 +14,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { McpHost, type McpHostOptions } from "./mcp-host";
+import { CODEMODE_EXTENSION_PATH } from "./mcp-command";
 import { createPiWebMcpTransportFactory } from "./mcp-transport";
 import { loadPiSdkInternals, type PiSdkInternals, type PiSdkInternalsResult } from "./pi-sdk-internals";
 import { mayReadProjectConfigNow } from "./project-trust";
@@ -343,8 +344,27 @@ function builtin(name: string, factory: ExtensionFactory): InlineExtension {
   return { name, factory, replaceable: true, builtin: true };
 }
 
+export interface PiWebBuiltinCapability {
+  codeMode: boolean;
+  loadMcp: boolean;
+  mcpServers: import("./subagents").SubagentMcpServerRef[];
+  cwd: string;
+  /** Read real scoped source settings, before restricted resource clearing. */
+  builtinEnabled(name: BuiltinExtensionName): Promise<boolean>;
+  /** Presentation/discovery only; execution still passes the separate tool_call guard. */
+  allowedTools?(tools: ReturnType<ExtensionAPI["getAllTools"]>): Set<string>;
+}
+
+export async function scopedBuiltinExtensionSwitches(source: SettingsManager, cwd: string, agentDir: string) {
+  return resolveBuiltinSwitches({ cwd, agentDir, projectTrusted: source.isProjectTrusted() }, {
+    global: source.getGlobalSettings().extensions,
+    project: source.getProjectSettings().extensions,
+  }, { global: join(agentDir, "settings.json"), project: join(cwd, CONFIG_DIR_NAME, "settings.json") });
+}
+
 export interface PiWebBuiltinExtensionsOptions {
   agentDir: string;
+  capability?: PiWebBuiltinCapability;
   /** Timing overrides for tests. */
   mcpHost?: Pick<McpHostOptions, "idleMs" | "promptWaitMs">;
 }
@@ -360,34 +380,96 @@ export interface PiWebBuiltinExtensions {
 export async function createPiWebBuiltinExtensions(
   options: PiWebBuiltinExtensionsOptions,
 ): Promise<PiWebBuiltinExtensions> {
-  const [sandbox, mcp] = await Promise.all([checkCodemodeSandbox(), loadMcpRuntime()]);
+  const cap = options.capability ? { ...options.capability, mcpServers: structuredClone(options.capability.mcpServers) } : undefined;
+  const codeEnabled = !cap || (cap.codeMode && await cap.builtinEnabled("codemode"));
+  const mcpEnabled = !cap || cap.loadMcp;
+  const [sandbox, mcp] = await Promise.all([
+    codeEnabled ? checkCodemodeSandbox() : Promise.resolve<BuiltinFeatureStatus>({ available: false, reason: "Role Code mode is off" }),
+    mcpEnabled ? loadMcpRuntime() : Promise.resolve<McpRuntimeResult>({ available: false, reason: "Role MCP is off" }),
+  ]);
+  let codemodeAvailable = sandbox.available;
   const mcpHost = mcp.available
     ? new McpHost({
         ...options.mcpHost,
         agentDir: options.agentDir,
         internals: mcp.internals,
-        codemodeAvailable: () => sandbox.available,
+        codemodeAvailable: () => codemodeAvailable,
+        ...(cap ? { selection: { cwd: cap.cwd, servers: structuredClone(cap.mcpServers) } } : {}),
       })
     : undefined;
   const extensions = [
-    builtin("codemode", sandbox.available ? createCodemodeExtension() : unavailableExtension),
+    builtin("codemode", sandbox.available ? createCodemodeExtension(cap ? { models: false } : undefined) : unavailableExtension),
     builtin("tool-search", createToolSearchExtension()),
     builtin(
       "mcp",
       mcp.available && mcpHost
-        ? createMcpExtension({
+        ? (pi) => {
+          const createTransport = mcpHost.wrapTransportFactory(createPiWebMcpTransportFactory(mcp.internals), Boolean(cap));
+          const observeRegistry = cap ? mcpHost.registrationObserverForLoad() : undefined;
+          // SDK consumes this roster synchronously when rebuilding its server/resource
+          // catalog, before awaiting close/connect. A preceding extension handler may
+          // delay that read after the registry changes; aggregates stay blocked then.
+          const api: ExtensionAPI = observeRegistry ? { ...pi, getMcpServers: () => {
+            const servers = pi.getMcpServers(); observeRegistry(servers); return servers;
+          } } : pi;
+          return createMcpExtension({
             loadConfig: createMcpExtensionConfigLoader(mcp.internals, options.agentDir),
-            createTransport: mcpHost.wrapTransportFactory(createPiWebMcpTransportFactory(mcp.internals)),
+            createTransport,
             // The host already waited, and Stop ends its wait. The extension's own wait for
             // servers with `direct` tools, at a session's first prompt, ignores Stop.
             startupWaitMs: 0,
             // `/mcp login` already shows the address in the chat; a browser
             // opened on the server host is one a remote user never sees.
             openUrl: () => {},
-          })
+          })(api);
+        }
         : unavailableExtension,
     ),
   ];
+  if (cap) {
+    for (const extension of extensions) {
+      if (typeof extension === "function") continue;
+      const name = extension.name as BuiltinExtensionName;
+      const factory = extension.factory;
+      extension.factory = async (pi) => {
+        if (!(name === "codemode" ? cap.codeMode : cap.loadMcp) || !await cap.builtinEnabled(name)) return;
+        let selectedFactory = factory;
+        if (name === "codemode") {
+          const currentSandbox = await checkCodemodeSandbox();
+          codemodeAvailable = currentSandbox.available;
+          selectedFactory = currentSandbox.available ? createCodemodeExtension({ models: false }) : unavailableExtension;
+        }
+        const allowed = () => cap.allowedTools?.(pi.getAllTools());
+        const api: ExtensionAPI = cap.allowedTools ? {
+          ...pi,
+          getAllTools: () => { const names = allowed(); return pi.getAllTools().filter((tool) => names?.has(tool.name)); },
+          registerTool: (definition) => pi.registerTool({
+            ...definition,
+            ...(definition.prepareLoadout ? { prepareLoadout: (loadout) => {
+              const names = allowed();
+              return definition.prepareLoadout!({ ...loadout, declared: loadout.declared.filter((tool) => names?.has(tool.name)), callable: loadout.callable.filter((tool) => names?.has(tool.name)) });
+            } } : {}),
+            execute: (id, params, signal, update, ctx) => {
+              const names = allowed();
+              // ExtensionToolContext has prototype methods (executeTool) and getters.
+              // Preserve them; only narrow the public discovery view for this builtin.
+              const context = new Proxy({} as typeof ctx, { get(_target, property) {
+                if (property === "tools") return ctx.tools.filter((tool) => names?.has(tool.name));
+                const value = Reflect.get(ctx, property, ctx);
+                return typeof value === "function" ? value.bind(ctx) : value;
+              } });
+              return definition.execute(id, params, signal, update, context);
+            },
+          }),
+        } : pi;
+        await selectedFactory(api);
+        if (name === "codemode" && codemodeAvailable) pi.on("session_start", () => {
+          const tool = pi.getAllTools().find((tool) => tool.name === "codemode");
+          if (tool?.sourceInfo.path === CODEMODE_EXTENSION_PATH && tool.sourceInfo.source === "builtin") pi.setActiveTools([...new Set([...pi.getActiveTools(), "codemode"])]);
+        });
+      };
+    }
+  }
   if (mcpHost) extensions.push(mcpHost.extension());
   return { extensions, mcpHost };
 }

@@ -2,6 +2,7 @@ import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } fro
 import { join } from "node:path";
 import {
   CONFIG_DIR_NAME,
+  type ToolInfo,
   type ExtensionAPI,
   type ExtensionContext,
   type InlineExtension,
@@ -11,7 +12,7 @@ import {
   type McpTransportFactory,
 } from "@earendil-works/pi-coding-agent";
 import type { McpHostInactiveInfo, McpScope, McpSessionState, McpSessionStatus } from "./api-types";
-import { isBuiltinMcpCommand, isMcpExtensionCommand } from "./mcp-command";
+import { CODEMODE_EXTENSION_PATH, isBuiltinMcpCommand, isMcpExtensionCommand, MCP_EXTENSION_PATH } from "./mcp-command";
 import { canonicalJson, mcpConfigKey, mcpEntryConfigKey } from "./mcp-config-key";
 import { scrubMcpLoadError } from "./mcp-json-error";
 import {
@@ -59,6 +60,8 @@ export { canonicalJson };
 // for Settings › MCP, keyed by the entry as its file holds it.
 
 export const MCP_HOST_EXTENSION_NAME = "pi-web-mcp-host";
+export const MCP_HOST_EXTENSION_PATH = `<inline:${MCP_HOST_EXTENSION_NAME}>`;
+const MCP_RESOURCE_TOOLS = new Set(["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]);
 
 const DEFAULT_MCP_IDLE_MS = 10 * 60 * 1000;
 const PROMPT_WAIT_MS = 10_000;
@@ -537,8 +540,10 @@ class HostInstance {
   private runActive = false;
   /** Prompts waiting in prepareForPrompt(); nor does it run while one waits. */
   private preparing = 0;
+  /** Runtime-only roster the builtin MCP consumed for its own catalog. Never persisted. */
+  private consumedRegistry: string | undefined;
 
-  constructor(private readonly pi: ExtensionAPI, private readonly options: Required<McpHostOptions>) {
+  constructor(private readonly pi: ExtensionAPI, private readonly options: Required<Omit<McpHostOptions, "selection">> & Pick<McpHostOptions, "selection">) {
     pi.on("session_start", (_event, ctx) => {
       if (this.disposed) return;
       this.ctx = ctx;
@@ -583,7 +588,15 @@ class HostInstance {
    */
   attemptFor(entry: McpServerEntry): ConnectAttempt | undefined {
     const attempt = this.attempts.get(entry.name);
-    return attempt && !attempt.released && attempt.configKey === canonicalJson(entry.config) ? attempt : undefined;
+    if (!attempt || attempt.released || attempt.configKey !== canonicalJson(entry.config)) return undefined;
+    if (this.options.selection) {
+      if (!this.active || this.disposed || !this.ctx || entry.scope !== "extension" || entry.source !== MCP_HOST_EXTENSION_PATH) return undefined;
+      const owner = this.pi.getMcpServers().find((server) => server.name === entry.name);
+      if (owner?.extensionPath !== MCP_HOST_EXTENSION_PATH || canonicalJson(owner.config) !== attempt.configKey) return undefined;
+      const wanted = this.desiredServers(this.ctx).get(entry.name);
+      if (!wanted || wanted.scope !== attempt.scope || canonicalJson(wanted.config) !== attempt.configKey || wanted.target.sourcePath !== attempt.target.sourcePath) return undefined;
+    }
+    return attempt;
   }
 
   /**
@@ -647,7 +660,8 @@ class HostInstance {
       const desired = this.desiredServers(this.ctx);
       for (const [name, attempt] of [...this.attempts]) {
         const wanted = desired.get(name);
-        if (wanted && canonicalJson(wanted.config) === attempt.configKey) continue;
+        if (wanted && canonicalJson(wanted.config) === attempt.configKey
+          && (!this.options.selection || (wanted.scope === attempt.scope && wanted.target.sourcePath === attempt.target.sourcePath))) continue;
         await this.unregister(name);
       }
       for (const [name, wanted] of desired) {
@@ -898,12 +912,15 @@ class HostInstance {
     }
     for (const entry of loaded.servers) {
       if (entry.config.enabled === false) continue;
+      const selection = this.options.selection;
+      if (selection && (ctx.cwd !== selection.cwd || !selection.servers.some((ref) => ref.scope === entry.scope && ref.name === entry.name)
+        || entry.source !== (entry.scope === "project" ? projectPath : join(this.options.agentDir, "mcp.json")))) continue;
       const scope = entry.scope === "project" ? "project" : "global";
       // Each entry is keyed in its own try: one the host cannot key never stops the others,
       // global servers included, from connecting.
       try {
         desired.set(entry.name, {
-          config: withReachableExposure(entry.config, this.options.codemodeAvailable()),
+          config: withReachableExposure(entry.config, this.options.codemodeAvailable() && (!selection || this.pi.getAllTools().some((tool) => tool.name === "codemode" && tool.sourceInfo.path === CODEMODE_EXTENSION_PATH && tool.sourceInfo.source === "builtin"))),
           scope,
           // The validator's copy of the entry (aliases resolved), which Settings keys it by too.
           target: { scope, sourcePath: entry.source, name: entry.name, configKey: mcpConfigKey(entry.config) },
@@ -913,6 +930,40 @@ class HostInstance {
       }
     }
     return desired;
+  }
+
+  /**
+   * The exact registry roster the builtin MCP factory has consumed for its own
+   * server/resource catalog. `getMcpServers()` is a public roster query, not a
+   * consumed-catalog notification: in the audited SDK the factory reads it only
+   * at `session_start` and synchronously at the start of `mcp_servers_change`,
+   * before its first await. Execution compares against this so a catalog that
+   * still names a revoked server stays blocked. Re-audit those call sites on an
+   * SDK upgrade; do not present this as a stable SDK guarantee.
+   */
+  observeRegistrations(servers: ReturnType<ExtensionAPI["getMcpServers"]>): void {
+    if (!this.disposed) this.consumedRegistry = canonicalJson(servers);
+  }
+
+  admitsTool(tool: Pick<ToolInfo, "name" | "sourceInfo" | "namespace">, phase: "declare" | "execute", input?: Record<string, unknown>): boolean {
+    if (!this.options.selection || !this.active || this.disposed || tool.sourceInfo?.path !== MCP_EXTENSION_PATH || tool.sourceInfo.source !== "builtin") return false;
+    const registrations = this.pi.getMcpServers();
+    const admitted = (server: typeof registrations[number]) => this.attemptFor({ name: server.name, config: server.config, scope: "extension", source: server.extensionPath }) !== undefined;
+    if (MCP_RESOURCE_TOOLS.has(tool.name)) {
+      // Structural for both phases: the aggregate reaches at least one admitted
+      // selected server. Declaration never consults the consumed roster, so a
+      // catalog lag cannot prune the tool (and no replay is needed to restore it).
+      if (!registrations.some(admitted)) return false;
+      if (phase === "declare") return true;
+      // Execution: the SDK catalog must have consumed this exact roster (no lag
+      // window), every current registration must be admitted, and a named server
+      // must itself be admitted. The phase is explicit, so a no-argument call is
+      // still an execution and cannot take the declaration shortcut.
+      if (!registrations.every(admitted) || canonicalJson(registrations) !== this.consumedRegistry) return false;
+      if (input?.server === undefined) return tool.name !== "read_mcp_resource";
+      return typeof input.server === "string" && registrations.some((server) => server.name === input.server && admitted(server));
+    }
+    return registrations.some((server) => admitted(server) && tool.namespace?.name === `mcp__${server.name.replaceAll("-", "_")}`);
   }
 
   private register(name: string, wanted: DesiredServer): void {
@@ -991,6 +1042,8 @@ export interface McpHostOptions {
   internals: Pick<PiSdkInternals, "loadMcpConfig"> & Partial<Pick<PiSdkInternals, "isCommandConfigValue" | "validateMcpServerConfig">>;
   /** Whether codemode can run scripts; servers it cannot reach become `deferred`. */
   codemodeAvailable: () => boolean;
+  /** Optional child authority; SDK merge/trust/validation precede exact scoped filtering. */
+  selection?: { cwd: string; servers: import("./subagents").SubagentMcpServerRef[] };
   /**
    * Whether the project's `.pi/mcp.json` may be read, asked on every sync.
    * Defaults to a fresh read of the folder and `trust.json`
@@ -1011,8 +1064,9 @@ export interface McpHostOptions {
  * connects through.
  */
 export class McpHost {
-  private readonly options: Required<McpHostOptions>;
+  private readonly options: Required<Omit<McpHostOptions, "selection">> & Pick<McpHostOptions, "selection">;
   private current: HostInstance | undefined;
+  private pendingTransportBinding: { host?: HostInstance } | undefined;
 
   constructor(options: McpHostOptions) {
     this.options = {
@@ -1031,14 +1085,20 @@ export class McpHost {
       factory: (pi) => {
         this.current?.dispose();
         this.current = new HostInstance(pi, this.options);
+        if (this.pendingTransportBinding) this.pendingTransportBinding.host = this.current;
+        this.pendingTransportBinding = undefined;
       },
     };
   }
 
-  wrapTransportFactory(factory: McpTransportFactory): McpTransportFactory {
+  wrapTransportFactory(factory: McpTransportFactory, bindNextLoad = false): McpTransportFactory {
+    // A child MCP factory is built once per extension load, before the adjacent
+    // host factory. Late calls keep THAT instance, never a same-config replacement.
+    const binding: { host?: HostInstance } | undefined = bindNextLoad ? (this.pendingTransportBinding = {}) : undefined;
     return (entry, cwd, authProvider) => {
-      const host = this.current;
+      const host = binding ? binding.host : this.current;
       const attempt = host?.attemptFor(entry);
+      if (this.options.selection && !attempt) throw new Error(`Subagent MCP registration not admitted: ${entry.name}`);
       if (!attempt && host?.refuseAbandoned(entry)) {
         throw new Error(`MCP server "${entry.name}" was removed before it connected, so Pi Web did not start it`);
       }
@@ -1053,6 +1113,12 @@ export class McpHost {
       if (host && attempt) host.watch(attempt, entry, transport as McpTransport, authProvider !== undefined);
       return transport;
     };
+  }
+
+  /** Observe the builtin's public registry reads, bound to the same load as its transport. */
+  registrationObserverForLoad(): (servers: ReturnType<ExtensionAPI["getMcpServers"]>) => void {
+    const binding = this.pendingTransportBinding;
+    return (servers) => binding?.host?.observeRegistrations(servers);
   }
 
   /**
@@ -1073,6 +1139,10 @@ export class McpHost {
    */
   prepareForPrompt(signal: AbortSignal, options: { wait?: boolean } = {}): Promise<void> {
     return this.current?.prepareForPrompt(signal, options.wait ?? true) ?? Promise.resolve();
+  }
+
+  admitsTool(tool: Pick<ToolInfo, "name" | "sourceInfo" | "namespace">, phase: "declare" | "execute", input?: Record<string, unknown>): boolean {
+    try { return this.current?.admitsTool(tool, phase, input) ?? false; } catch { return false; }
   }
 
   serverStates(): McpHostServerStatus[] {

@@ -3,7 +3,27 @@ import { isPathWithinRoots } from "./path-security";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { addExplicitResources, assertResourceSettingsReadable, explicitResourcePath, readSubagentResourceCatalog, resourceIdentity, selectCatalogResources, uniqueResourceDiagnostics, type SubagentResourceItem } from "./subagent-resource-catalog";
 import type { SubagentResourceSelection } from "./subagent-resource-selection";
-import { createSubagentToolPolicyExtension, type SubagentToolPolicy } from "./subagent-tool-policy";
+import { allowedSubagentTools, createSubagentToolPolicyExtension, type SubagentHostToolAdmission, type SubagentToolPolicy } from "./subagent-tool-policy";
+import { createPiWebBuiltinExtensions, scopedBuiltinExtensionSwitches } from "./builtin-extensions";
+import type { McpHost } from "./mcp-host";
+import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
+import type { SubagentMcpServerRef } from "./subagents";
+import { CODEMODE_EXTENSION_PATH, MCP_EXTENSION_PATH, TOOL_SEARCH_EXTENSION_PATH } from "./mcp-command";
+
+/**
+ * The shared host admission predicate. `declare` gates builtin discovery/active
+ * loadout, `execute` additionally validates the live roster and explicit server.
+ * The phase is an explicit parameter, never inferred from an absent input: a
+ * no-argument aggregate call is a real execution too.
+ */
+export function subagentHostToolAdmission(policy: { codeMode?: boolean; loadMcp?: boolean }, host?: Pick<McpHost, "admitsTool">): SubagentHostToolAdmission {
+  return (tool, phase, input) => {
+    if (tool.sourceInfo?.source !== "builtin") return false;
+    if (tool.sourceInfo.path === CODEMODE_EXTENSION_PATH) return policy.codeMode === true && tool.name === "codemode";
+    if (tool.sourceInfo.path === TOOL_SEARCH_EXTENSION_PATH) return policy.loadMcp === true && tool.name === "tool_search";
+    return policy.loadMcp === true && (host?.admitsTool(tool, phase, input) ?? false);
+  };
+}
 
 const RESOURCE_KEYS = ["packages", "extensions", "skills", "prompts", "themes"] as const;
 function clearResources(settings: ReturnType<SettingsManager["getGlobalSettings"]>): string {
@@ -62,6 +82,9 @@ export interface SubagentResourcePolicy {
   extensions?: SubagentResourceSelection;
   builtinTools?: string[];
   toolPolicy?: SubagentToolPolicy;
+  codeMode?: boolean;
+  loadMcp?: boolean;
+  mcpServers?: SubagentMcpServerRef[];
 }
 
 /** Any discovered project source or selected project alias makes the canonical file project-owned. */
@@ -79,10 +102,27 @@ function projectExtensionIdentities(entries: SubagentResourceItem[], selection: 
 
 /** Reuse original services/model runtime/cwd. Only restricted resources get a transient SDK loader. */
 export async function createSubagentSessionServices(options: CreateAgentSessionServicesOptions & { agentDir: string; settingsManager: SettingsManager }, policy: SubagentResourcePolicy) {
+  policy = structuredClone(policy);
   const { cwd, agentDir, settingsManager: source } = options;
+  assertResourceSettingsReadable(source);
+  let policyLoader: Awaited<ReturnType<typeof createAgentSessionServices>>["resourceLoader"] | undefined;
+  const builtins: Awaited<ReturnType<typeof createPiWebBuiltinExtensions>> | undefined = policy.codeMode || policy.loadMcp ? await createPiWebBuiltinExtensions({
+    agentDir,
+    capability: {
+      cwd, codeMode: policy.codeMode === true, loadMcp: policy.loadMcp === true, mcpServers: structuredClone(policy.mcpServers ?? []),
+      builtinEnabled: async (name) => (await scopedBuiltinExtensionSwitches(source, cwd, agentDir))[name].enabled,
+      allowedTools: (tools) => policyLoader && policy.toolPolicy
+        ? allowedSubagentTools(policy.builtinTools ?? [], policy.toolPolicy, tools, policyLoader.getExtensions().extensions, subagentHostToolAdmission(policy, builtins?.mcpHost))
+        : new Set(),
+    },
+  }) : undefined;
+  const admitHost = subagentHostToolAdmission(policy, builtins?.mcpHost);
+  options = { ...options, resourceLoaderOptions: { ...options.resourceLoaderOptions,
+    extensionFactories: [...builtins?.extensions ?? [], ...options.resourceLoaderOptions?.extensionFactories ?? [],
+      ...(policy.loadMcp ? [createReadOnlyMcpPolicyExtension(policy.builtinTools ?? [])] : [])],
+  } };
   // Compose host factories in one place on both create and cold restore. Reload reuses
   // this factory but obtains the newly approved, trust-checked roster from the loader.
-  let policyLoader: Awaited<ReturnType<typeof createAgentSessionServices>>["resourceLoader"] | undefined;
   if (policy.toolPolicy) options = {
     ...options,
     resourceLoaderOptions: {
@@ -92,7 +132,7 @@ export async function createSubagentSessionServices(options: CreateAgentSessionS
         createSubagentToolPolicyExtension(policy.builtinTools ?? [], policy.toolPolicy, () => {
           if (!policyLoader) throw new Error("Subagent resource roster not ready");
           return policyLoader.getExtensions().extensions;
-        }),
+        }, admitHost),
       ],
     },
   };
@@ -108,7 +148,7 @@ export async function createSubagentSessionServices(options: CreateAgentSessionS
       await reload(projectTrustReloadOptions(cwd, agentDir));
       assertResourceSettingsReadable(source);
     };
-    return services;
+    return { ...services, mcpHost: builtins?.mcpHost };
   }
 
   const settingsManager = createSubagentMemorySettings(source);
@@ -139,7 +179,7 @@ export async function createSubagentSessionServices(options: CreateAgentSessionS
     diagnostics = [...catalog.diagnostics, ...skills.diagnostics, ...extensions.diagnostics];
     for (const entry of extensions.items.filter((item) => !approvedExtensions.includes(item))) diagnostics.push({ type: "warning", path: entry.path, message: "Project extension not loaded: project trust required" });
     // Load the identity we approved, not an alias that can be retargeted before SDK import.
-    extensionPaths.splice(0, extensionPaths.length, ...approvedExtensions.map((entry) => entry.identity));
+    extensionPaths.splice(0, extensionPaths.length, ...(builtins ? [CODEMODE_EXTENSION_PATH, TOOL_SEARCH_EXTENSION_PATH, MCP_EXTENSION_PATH] : []), ...approvedExtensions.map((entry) => entry.identity));
     skillPaths.splice(0, skillPaths.length, ...approvedSkills.map((entry) => entry.path));
   };
   const skillsOverride = (base: { skills: Skill[]; diagnostics: typeof diagnostics }) => ({
@@ -154,6 +194,8 @@ export async function createSubagentSessionServices(options: CreateAgentSessionS
     resourceLoaderOptions: {
       ...options.resourceLoaderOptions,
       noExtensions: true, noSkills: true,
+      // Explicit builtin paths bypass noExtensions only; their factories still consult
+      // the un-cleared source settings above. Excluded user modules never run.
       additionalExtensionPaths: extensionPaths, additionalSkillPaths: skillPaths,
       skillsOverride,
     },
@@ -187,5 +229,5 @@ export async function createSubagentSessionServices(options: CreateAgentSessionS
     extend({ skillPaths: paths.skillPaths });
     restoreSources();
   };
-  return services;
+  return { ...services, mcpHost: builtins?.mcpHost };
 }

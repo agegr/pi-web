@@ -41,6 +41,14 @@ export type SubagentStatus = SubagentSessionStatus;
 export type SubagentScope = "builtin" | "global" | "workspace" | "project";
 export type SubagentWritableScope = Extract<SubagentScope, "global" | "project">;
 
+export type SubagentMcpServerRef = { scope: "global" | "project"; name: string };
+
+export function isSubagentMcpServerRefs(value: unknown): value is SubagentMcpServerRef[] {
+  return Array.isArray(value) && value.every((ref) => ref && typeof ref === "object" && !Array.isArray(ref)
+    && Object.keys(ref).every((key) => key === "scope" || key === "name")
+    && (ref.scope === "global" || ref.scope === "project") && typeof ref.name === "string" && /^[A-Za-z0-9_-]+$/.test(ref.name));
+}
+
 export interface SubagentProfile {
   name: string;
   displayName: string;
@@ -52,6 +60,9 @@ export interface SubagentProfile {
   disallowedExtensionTools?: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  codeMode?: boolean;
+  loadMcp?: boolean;
+  mcpServers?: SubagentMcpServerRef[];
   skills?: SubagentResourceSelection;
   extensions?: SubagentResourceSelection;
   model?: string;
@@ -86,6 +97,7 @@ export interface SubagentMetadata {
 export type SubagentResourceSnapshot = SubagentResourceSnapshotBase & (
   | { version: 1; tools: string[] }
   | { version: 2; builtinTools: string[]; toolPolicy: SubagentToolPolicy }
+  | { version: 3; builtinTools: string[]; toolPolicy: SubagentToolPolicy; codeMode: boolean; loadMcp: boolean; mcpServers: SubagentMcpServerRef[] }
 );
 
 interface SubagentResourceSnapshotBase {
@@ -97,10 +109,11 @@ interface SubagentResourceSnapshotBase {
   exactSystemPrompt?: string;
 }
 
-/** Legacy reads retain their unversioned shape; only v2 carries predicate authority. */
+/** Each version is explicit; legacy authority never acquires v3 host capabilities. */
 export type SubagentSessionResources = SubagentResourceSnapshotBase & { tools: string[] } & (
-  | { version?: undefined; builtinTools?: never; toolPolicy?: never }
+  | { version: 1; builtinTools?: never; toolPolicy?: never }
   | { version: 2; builtinTools: string[]; toolPolicy: SubagentToolPolicy }
+  | { version: 3; builtinTools: string[]; toolPolicy: SubagentToolPolicy; codeMode: boolean; loadMcp: boolean; mcpServers: SubagentMcpServerRef[] }
 );
 
 export interface SubagentResultMetadata {
@@ -156,6 +169,9 @@ const MANAGED_FRONTMATTER_KEYS = new Set([
   "tools",
   "load_skills",
   "load_extensions",
+  "code_mode",
+  "load_mcp",
+  "mcp_servers",
   "enabled",
   "inherit_context",
   "run_in_background",
@@ -320,6 +336,9 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       ...(stringValue(data?.model) ? { model: stringValue(data?.model) } : {}),
       ...(thinkingValue && THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
+      codeMode: booleanValue(data?.code_mode, false),
+      loadMcp: booleanValue(data?.load_mcp, false),
+      mcpServers: isSubagentMcpServerRefs(data?.mcp_servers) ? structuredClone(data.mcp_servers) : [],
       inheritContext: booleanValue(data?.inherit_context, false),
       runInBackground: booleanValue(data?.run_in_background, false),
       promptMode: data?.prompt_mode === "replace" ? "replace" : "append",
@@ -448,6 +467,10 @@ export function saveSubagentProfile(
   for (const selection of [profile.skills, profile.extensions]) {
     if (selection !== undefined && typeof selection !== "boolean" && !(Array.isArray(selection) && selection.every((entry) => typeof entry === "string"))) throw new Error("skills/extensions must be boolean or string[]");
   }
+  for (const key of ["codeMode", "loadMcp"] as const) {
+    if (profile[key] !== undefined && typeof profile[key] !== "boolean") throw new Error(`${key} must be boolean`);
+  }
+  if (profile.mcpServers !== undefined && !isSubagentMcpServerRefs(profile.mcpServers)) throw new Error("mcpServers must be scoped server references");
   const loadSkills = profile.skills !== undefined ? resourceSelectionEnabled(profile.skills) : profile.loadSkills === true;
   const loadExtensions = profile.extensions !== undefined ? resourceSelectionEnabled(profile.extensions) : profile.loadExtensions === true;
   const promptMode = profile.promptMode === "replace" ? "replace" : "append";
@@ -466,6 +489,9 @@ export function saveSubagentProfile(
     tools: composeToolsField([...tools, ...extensionTools], stored.tools),
     load_skills: loadSkills,
     load_extensions: loadExtensions,
+    code_mode: profile.codeMode ?? booleanValue(stored.code_mode, false),
+    load_mcp: profile.loadMcp ?? booleanValue(stored.load_mcp, false),
+    mcp_servers: profile.mcpServers ?? (isSubagentMcpServerRefs(stored.mcp_servers) ? stored.mcp_servers : []),
     enabled: profile.enabled,
     inherit_context: profile.inheritContext,
     run_in_background: profile.runInBackground,
@@ -488,6 +514,9 @@ export function saveSubagentProfile(
   writePrivateFileAtomicSync(filePath, `---\n${yaml}\n---\n\n${systemPrompt}\n`);
   return {
     ...profile,
+    codeMode: managed.code_mode === true,
+    loadMcp: managed.load_mcp === true,
+    mcpServers: structuredClone(managed.mcp_servers as SubagentMcpServerRef[]),
     skills: profileResourceSelection(managed.skills, loadSkills),
     extensions: profileResourceSelection(managed.extensions, loadExtensions),
     name,
@@ -550,7 +579,8 @@ export function readSubagentSessionResources(
   const snapshot = data.resourceSnapshot;
   const loadSkills = isRecord(snapshot) && snapshot.loadSkills === true;
   const loadExtensions = isRecord(snapshot) && snapshot.loadExtensions === true;
-  if (isRecord(snapshot) && snapshot.version === 2) {
+  if (isRecord(snapshot) && (snapshot.version === 2 || snapshot.version === 3)) {
+    if (snapshot.version === 3 && (typeof snapshot.codeMode !== "boolean" || typeof snapshot.loadMcp !== "boolean" || !isSubagentMcpServerRefs(snapshot.mcpServers))) return null;
     if (typeof snapshot.loadSkills !== "boolean" || typeof snapshot.loadExtensions !== "boolean"
       || ![snapshot.skills, snapshot.extensions].every((value) => value === undefined || typeof value === "boolean" || (Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim().length > 0)))
       || !Array.isArray(snapshot.appendSystemPrompt) || !snapshot.appendSystemPrompt.every((item) => typeof item === "string")
@@ -559,7 +589,9 @@ export function readSubagentSessionResources(
       || (!loadExtensions && snapshot.toolPolicy.mode !== "none")
       || (snapshot.exactSystemPrompt !== undefined && typeof snapshot.exactSystemPrompt !== "string")) return null;
     return {
-      version: 2,
+      ...(snapshot.version === 3
+        ? { version: 3 as const, codeMode: snapshot.codeMode as boolean, loadMcp: snapshot.loadMcp as boolean, mcpServers: structuredClone(snapshot.mcpServers as SubagentMcpServerRef[]) }
+        : { version: 2 as const }),
       builtinTools: [...new Set(snapshot.builtinTools as string[])],
       tools: [...new Set(snapshot.builtinTools as string[])],
       toolPolicy: structuredClone(snapshot.toolPolicy),
@@ -585,6 +617,7 @@ export function readSubagentSessionResources(
     )
   ) {
     return {
+      version: 1,
       appendSystemPrompt: [...snapshot.appendSystemPrompt],
       tools: [...new Set(snapshot.tools)],
       loadSkills,

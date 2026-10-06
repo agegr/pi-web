@@ -33,7 +33,7 @@ export function readOnlyMcpBlockReason(toolName: string): string {
   return `This session uses a read-only tool selection, and the MCP server does not mark "${toolName}" as read-only (readOnlyHint), so the call was blocked. Switch the session to a preset that allows changes to use it.`;
 }
 
-export function createReadOnlyMcpPolicyExtension(): InlineExtension {
+export function createReadOnlyMcpPolicyExtension(subagentBuiltinTools?: readonly string[]): InlineExtension {
   return {
     name: READ_ONLY_MCP_POLICY_EXTENSION_NAME,
     hidden: true,
@@ -43,7 +43,7 @@ export function createReadOnlyMcpPolicyExtension(): InlineExtension {
         const tool = pi.getAllTools().find((candidate) => candidate.name === event.toolName);
         if (!tool || !isMcpTool(tool) || tool.annotations?.readOnlyHint === true) return undefined;
         // Read last: most calls are not MCP calls, and the selection scan walks the session.
-        const selection = readSessionToolSelection(ctx.sessionManager.getEntries() as unknown as SessionEntry[]);
+        const selection = subagentBuiltinTools ?? readSessionToolSelection(ctx.sessionManager.getEntries() as unknown as SessionEntry[]);
         if (!isReadOnlySelection(selection)) return undefined;
         return { block: true, reason: readOnlyMcpBlockReason(event.toolName) };
       });
