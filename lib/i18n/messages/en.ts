@@ -241,6 +241,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.newSessionTitle": "New session in {path}",
     "sidebar.refresh": "Refresh",
     "sidebar.selectProject": "Select project…",
+    "sidebar.noDirectoryFilter": "No directory filter",
     "sidebar.filterProjects": "Filter projects…",
     "sidebar.noMatchingProjects": "No matching projects",
     "sidebar.useDefaultDirectory": "Use default directory",

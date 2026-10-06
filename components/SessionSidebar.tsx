@@ -404,7 +404,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionLoadIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
+  const [selectedCwdState, setSelectedCwd] = useState<string | null>(null);
+  // "No directory filter" — show sessions from every project at once.
+  const [noDirectoryFilter, setNoDirectoryFilter] = useState(false);
+  const selectedCwd = noDirectoryFilter ? null : selectedCwdState;
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
@@ -893,7 +896,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     if (allSessions.length === 0 || skipInitialProjectSelection) return;
 
-    if (selectedCwd === null) {
+    if (selectedCwd === null && !noDirectoryFilter) {
       // If restoring a session, set cwd to match that session
       if (initialSessionId && !restoredRef.current) {
         restoredRef.current = true;
@@ -909,7 +912,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const projects = getRecentProjects(allSessions);
       if (projects.length > 0) setSelectedCwd(projects[0].root);
     }
-  }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, selectedCwd, initialSessionId, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone, noDirectoryFilter]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and
@@ -955,6 +958,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setCustomPathValue(data.cwd);
       }
       setSelectedCwd(data.cwd);
+      setNoDirectoryFilter(false);
       setCustomPathOpen(false);
       setDropdownOpen(false);
     } catch (e) {
@@ -1128,7 +1132,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     && selectedCwd
     && selectedProject?.key === worktreeState.projectKey
   );
-  const worktreeGuide = selectedCwd
+  const worktreeGuide = noDirectoryFilter
+    ? {
+         label: t("sidebar.gitRepoRootOnly"),
+         title: t("sidebar.gitRepoRootOnlyTitle"),
+       }
+    : selectedCwd
     && worktreeState
     && selectedProject?.key === worktreeState.projectKey
     && !showWorktreeSwitcher
@@ -1293,7 +1302,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   color: "var(--text-dim)",
                 }}
               >
-                 {initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
+                 {initialSessionId && !restoredRef.current ? "" : noDirectoryFilter ? t("sidebar.noDirectoryFilter") : t("sidebar.selectProject")}
               </span>
             )}
             {hasOtherWorkspaceActivity && (
@@ -1356,11 +1365,43 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 </div>
               )}
               <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
+                <button
+                  onClick={() => {
+                    setNoDirectoryFilter(true);
+                    setProjectFilter("");
+                    setCustomPathOpen(false);
+                    setCustomPathError(null);
+                    setDropdownOpen(false);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    width: "100%",
+                    padding: "8px 10px",
+                    background: "var(--bg)",
+                    border: "none",
+                    borderBottom: "1px solid var(--border)",
+                    color: noDirectoryFilter ? "var(--text)" : "var(--text-muted)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  {noDirectoryFilter ? (
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <polyline points="1.5 5 4 7.5 8.5 2.5" />
+                    </svg>
+                  ) : <span style={{ width: 10, flexShrink: 0 }} />}
+                  {t("sidebar.noDirectoryFilter")}
+                </button>
                 {visibleProjects.map((project) => (
                   <button
                     key={project.key}
                     onClick={() => {
                       setSelectedCwd(project.root);
+                      setNoDirectoryFilter(false);
                       setProjectFilter("");
                       setCustomPathOpen(false);
                       setCustomPathError(null);
