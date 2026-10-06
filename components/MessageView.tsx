@@ -1634,6 +1634,9 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
   const time = formatTime(message.timestamp);
+  const details = message.details as { tokensBefore?: unknown } | undefined;
+  const tokensBefore = typeof details?.tokensBefore === "number" ? details.tokensBefore : undefined;
+  const bodyChars = parsedSummary.body.length;
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1666,11 +1669,16 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           <div style={{ color: "var(--text)", fontSize: "calc(15px + var(--chat-font-size-offset, 0px))", fontWeight: 700, lineHeight: 1.35 }}>
              {t("i18n.conversationCompacted")}
           </div>
-          <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: "calc(14px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
-             {t("i18n.compactionDescription")}
-          </div>
-          {parsedSummary.body ? (
-            <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+          {typeof tokensBefore === "number" && (
+            <div style={{ marginTop: 3, color: "var(--text-muted)", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.4 }}>
+              {t("i18n.tokensBefore", { count: tokensBefore.toLocaleString() })}
+            </div>
+          )}
+          {bodyChars > 0 ? (
+            <details className="compaction-summary-details">
+              <summary>{t("i18n.showSummary", { size: formatMessageBytes(bodyChars) })}</summary>
+              <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+            </details>
           ) : (
              <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
           )}
