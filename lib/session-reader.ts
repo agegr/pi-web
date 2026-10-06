@@ -5,7 +5,7 @@ import {
 import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
-import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
+import type { AgentMessage, CompactionEntry, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import { normalizeToolCalls } from "./normalize";
 import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
@@ -663,6 +663,8 @@ export interface BuildSessionContextOptions {
   excludeLeaf?: boolean;
   /** Session id used to build lazy URLs for historical tool-result images. */
   sessionId?: string;
+  /** Precomputed post-compaction estimates, keyed by compaction entry id. */
+  compactionEstimates?: Map<string, { tokensAfter?: number; elapsedMs?: number }>;
 }
 
 export function buildSessionContext(
@@ -678,11 +680,15 @@ export function buildSessionContext(
   );
   const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
 
+  const mappingOptions = options.compactionEstimates
+    ? options
+    : { ...options, compactionEstimates: buildCompactionEstimates(entries) };
+
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
   for (const entry of sliced) {
-    const m = entryToUiMessage(entry, options);
+    const m = entryToUiMessage(entry, mappingOptions);
     if (m) {
       messages.push(m);
       entryIds.push(entry.id);
@@ -759,6 +765,58 @@ export function sliceActiveBranch(
 function parseEntryTimestamp(timestamp: string): number | undefined {
   const parsed = Date.parse(timestamp);
   return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+/** Rough character count of the content persisted in a session message entry. */
+function estimateEntryChars(entry: SessionEntry): number {
+  if (entry.type !== "message") return 0;
+  const content = (entry.message as { content?: unknown }).content;
+  if (typeof content === "string") return content.length;
+  if (!Array.isArray(content)) return 0;
+  let chars = 0;
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+    if (block.type === "text" && typeof block.text === "string") chars += block.text.length;
+    else if (block.type === "thinking" && typeof block.thinking === "string") chars += block.thinking.length;
+    else if (block.type === "toolCall") {
+      chars += (typeof block.toolName === "string" ? block.toolName.length : 0) + JSON.stringify(block.input ?? {}).length;
+    }
+  }
+  return chars;
+}
+
+/**
+ * Post-compaction estimates for the inline header: the kept context is the
+ * summary plus the entries from firstKeptEntryId up to the compaction entry's
+ * parent. Elapsed time is the gap between the compaction entry and its parent.
+ */
+function buildCompactionEstimates(
+  entries: SessionEntry[],
+): Map<string, { tokensAfter?: number; elapsedMs?: number }> {
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) byId.set(entry.id, entry);
+  const estimates = new Map<string, { tokensAfter?: number; elapsedMs?: number }>();
+  for (const entry of entries) {
+    if (entry.type !== "compaction") continue;
+    const compaction = entry as CompactionEntry;
+    const est: { tokensAfter?: number; elapsedMs?: number } = {};
+    const entryTs = parseEntryTimestamp(compaction.timestamp);
+    const parent = compaction.parentId ? byId.get(compaction.parentId) : undefined;
+    const parentTs = parent ? parseEntryTimestamp(parent.timestamp) : undefined;
+    if (entryTs !== undefined && parentTs !== undefined && entryTs > parentTs) {
+      est.elapsedMs = entryTs - parentTs;
+    }
+    let chars = compaction.summary.length;
+    let cursor: SessionEntry | undefined = parent;
+    for (let guard = 0; cursor && guard < 5000; guard++) {
+      chars += estimateEntryChars(cursor);
+      if (cursor.id === compaction.firstKeptEntryId) break;
+      cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+    }
+    est.tokensAfter = Math.max(0, Math.round(chars / 4));
+    estimates.set(compaction.id, est);
+  }
+  return estimates;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -873,6 +931,8 @@ function entryToUiMessage(
         details: {
           tokensBefore: entry.tokensBefore,
           firstKeptEntryId: entry.firstKeptEntryId,
+          estimatedTokensAfter: options.compactionEstimates?.get(entry.id)?.tokensAfter,
+          elapsedMs: options.compactionEstimates?.get(entry.id)?.elapsedMs,
         },
         timestamp: parseEntryTimestamp(entry.timestamp),
       };

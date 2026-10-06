@@ -265,6 +265,8 @@ export interface CompactionEntry extends SessionEntryBase {
   details?: unknown;
   fromHook?: boolean;
   usage?: AgentUsage;
+  /** System prompt used for the compaction (present in session files). */
+  systemMessage?: string;
 }
 
 export interface BranchSummaryEntry extends SessionEntryBase {
