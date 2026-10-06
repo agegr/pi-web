@@ -4,6 +4,7 @@ import { dump as stringifyYaml } from "js-yaml";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { parseFrontmatter } from "./frontmatter";
+import { profileResourceSelection, resourceSelectionEnabled, sameResourceSelection, type SubagentResourceSelection } from "./subagent-resource-selection";
 import { parseNpmSource } from "./npm-source";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
@@ -15,6 +16,26 @@ export const SUBAGENT_META_TYPE = "pi-web:subagent";
 export const SUBAGENT_STATUS_TYPE = "pi-web:subagent-status";
 export const SUBAGENT_RESULT_TYPE = "pi-web:subagent-result";
 export const SUBAGENT_CONTROL_TOOL_NAMES = ["Agent", "get_subagent_result", "steer_subagent"] as const;
+export const SUBAGENT_BUILTIN_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"] as const;
+export const SUBAGENT_BUILTIN_TOOLS = new Set<string>(SUBAGENT_BUILTIN_TOOL_NAMES);
+export const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
+
+/** Persisted creation authority. Explicit empty selectors mean None; deny always wins. */
+export interface SubagentToolPolicy {
+  mode: "implicitAll" | "selectors" | "none";
+  selectors: string[];
+  deny: string[];
+}
+
+export function isSubagentToolPolicy(value: unknown): value is SubagentToolPolicy {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const policy = value as Record<string, unknown>;
+  const selectors = (entries: unknown): entries is string[] => Array.isArray(entries) && entries.every((entry) => typeof entry === "string" && /^ext:.+/i.test(entry) && entry.slice(4).trim().length > 0);
+  return Object.keys(policy).every((key) => ["mode", "selectors", "deny"].includes(key))
+    && typeof policy.mode === "string" && ["implicitAll", "selectors", "none"].includes(policy.mode)
+    && selectors(policy.selectors) && selectors(policy.deny)
+    && (policy.mode === "selectors" || policy.selectors.length === 0);
+}
 
 export type SubagentStatus = SubagentSessionStatus;
 export type SubagentScope = "builtin" | "global" | "workspace" | "project";
@@ -31,6 +52,8 @@ export interface SubagentProfile {
   disallowedExtensionTools?: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  skills?: SubagentResourceSelection;
+  extensions?: SubagentResourceSelection;
   model?: string;
   thinking?: ThinkingLevel;
   maxTurns?: number;
@@ -60,22 +83,25 @@ export interface SubagentMetadata {
   worktreeBranch?: string;
 }
 
-export interface SubagentResourceSnapshot {
-  version: 1;
+export type SubagentResourceSnapshot = SubagentResourceSnapshotBase & (
+  | { version: 1; tools: string[] }
+  | { version: 2; builtinTools: string[]; toolPolicy: SubagentToolPolicy }
+);
+
+interface SubagentResourceSnapshotBase {
   appendSystemPrompt: string[];
-  tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  skills?: SubagentResourceSelection;
+  extensions?: SubagentResourceSelection;
   exactSystemPrompt?: string;
 }
 
-export interface SubagentSessionResources {
-  appendSystemPrompt: string[];
-  tools: string[];
-  loadSkills: boolean;
-  loadExtensions: boolean;
-  exactSystemPrompt?: string;
-}
+/** Legacy reads retain their unversioned shape; only v2 carries predicate authority. */
+export type SubagentSessionResources = SubagentResourceSnapshotBase & { tools: string[] } & (
+  | { version?: undefined; builtinTools?: never; toolPolicy?: never }
+  | { version: 2; builtinTools: string[]; toolPolicy: SubagentToolPolicy }
+);
 
 export interface SubagentResultMetadata {
   version: 1;
@@ -112,9 +138,9 @@ export interface SubagentRunInfo {
   resumed?: boolean;
 }
 
-const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-const BUILTIN_TOOLS = new Set(DEFAULT_TOOLS);
-const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
+const DEFAULT_TOOLS = SUBAGENT_BUILTIN_TOOL_NAMES.filter((name) => name !== "powershell");
+// Preserve the original profile/v1 shell vocabulary; v2 freezes resolved shell names.
+const BUILTIN_TOOLS = new Set<string>(DEFAULT_TOOLS);
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 /**
@@ -143,13 +169,6 @@ const MANAGED_FRONTMATTER_KEYS = new Set([
 ]);
 
 const FRONTMATTER_OPEN_RE = /^(?:\uFEFF)?---[ \t]*(?:\r\n|\n|\r)/;
-
-/**
- * The UI exposes two booleans (`load_skills` / `load_extensions`); pi-subagents reads
- * the aliases `skills` / `extensions`, which also accept a whitelist. Aliases are
- * carried through by `unmanagedFrontmatter` and only rewritten once we own them.
- */
-const OWNED_ALIAS_VALUES = new Set(["none", "all", "true", "false"]);
 
 const BUILTIN_PROFILES: SubagentProfile[] = [
   {
@@ -202,11 +221,6 @@ function stringValue(value: unknown): string | undefined {
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
-}
-
-function resourceBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === "boolean") return value;
-  return Array.isArray(value) || typeof value === "string" ? true : fallback;
 }
 
 function stringList(value: unknown): string[] {
@@ -265,21 +279,16 @@ function composeToolsField(tools: string[], storedTools: unknown): string {
   return combined.length > 0 ? combined.join(", ") : "none";
 }
 
-/**
- * Keep the alias in step with the boolean the UI owns. A boolean (or a "none" /
- * "all" spelling) is ours to rewrite; a whitelist such as `extensions:
- * pi-advisor-flow` expresses scoping the UI cannot show, so it stays as authored.
- */
-function syncFlagAlias(
-  frontmatter: Record<string, unknown>,
-  alias: string,
-  storedValue: unknown,
-  flag: boolean,
-): void {
-  const owned = storedValue === undefined
-    || typeof storedValue === "boolean"
-    || (typeof storedValue === "string" && OWNED_ALIAS_VALUES.has(storedValue.trim().toLowerCase()));
-  if (owned) frontmatter[alias] = flag;
+/** Keep unchanged CSV/array values, including a dormant list behind load_*: false. */
+function saveResourceAlias(stored: Record<string, unknown>, alias: "skills" | "extensions", selection: SubagentResourceSelection | undefined, flag: boolean): unknown {
+  const raw = stored[alias];
+  if (selection === undefined) {
+    // Old boolean clients can disable/re-enable but cannot edit a stored list.
+    if (Array.isArray(raw) || (typeof raw === "string" && !["all", "none", "true", "false"].includes(raw.trim().toLowerCase()))) return raw;
+    return flag;
+  }
+  if ((Array.isArray(raw) || (typeof raw === "string" && !["all", "none", "true", "false"].includes(raw.trim().toLowerCase()))) && sameResourceSelection(selection, profileResourceSelection(raw, stored[`load_${alias}`]))) return raw;
+  return selection;
 }
 function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfile | null {
   try {
@@ -291,31 +300,23 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
     const maxTurnsValue = typeof data?.max_turns === "number" ? Math.floor(data.max_turns) : undefined;
     const tools = parseTools(data?.tools, DEFAULT_TOOLS);
     const disallowedTools = new Set(parseTools(data?.disallowed_tools, []));
-    // The deny list is also handed to the runtime, which resolves both sides against the
-    // loaded extensions. This parse-time filter is only the cheap literal fast path: it
-    // cannot see extension aliases (`ext:codegraph` vs `ext:@scope/pi-codegraph`), so it
-    // must never be the only gate.
+    // Keep raw allow intent: cancelling every explicit selector must never become All.
+    // Alias-aware deny precedence is resolved against the loaded roster at execution time.
     const disallowedExtensionTools = parseExtensionToolSelectors(data?.disallowed_tools);
-    const deniedKeys = new Set(
-      disallowedExtensionTools.map((tool) => normalizeExtensionSelector(tool).toLowerCase()),
-    );
-    const extensionTools = parseExtensionToolSelectors(data?.tools)
-      .filter((tool) => {
-        const allowed = normalizeExtensionSelector(tool).toLowerCase();
-        return ![...deniedKeys].some((denied) => (
-          denied === "*" || allowed === denied || allowed.startsWith(`${denied}/`)
-        ));
-      });
+    const extensionTools = parseExtensionToolSelectors(data?.tools);
+    const explicitNone = rawToolValues(data?.tools).some((tool) => tool.toLowerCase() === "none");
     return {
       name,
       displayName: stringValue(data?.display_name) ?? name,
       description: stringValue(data?.description) ?? name,
       systemPrompt: rest.trim(),
       tools: tools.filter((tool) => !disallowedTools.has(tool)),
-      ...(extensionTools.length > 0 ? { extensionTools } : {}),
+      ...(extensionTools.length > 0 || explicitNone ? { extensionTools: explicitNone ? [] : extensionTools } : {}),
       ...(disallowedExtensionTools.length > 0 ? { disallowedExtensionTools } : {}),
-      loadSkills: resourceBoolean(data?.load_skills ?? data?.skills, false),
-      loadExtensions: resourceBoolean(data?.load_extensions ?? data?.extensions, extensionTools.length > 0),
+      skills: profileResourceSelection(data?.skills, data?.load_skills),
+      extensions: profileResourceSelection(data?.extensions, data?.load_extensions, extensionTools.length > 0),
+      loadSkills: resourceSelectionEnabled(profileResourceSelection(data?.skills, data?.load_skills)),
+      loadExtensions: resourceSelectionEnabled(profileResourceSelection(data?.extensions, data?.load_extensions, extensionTools.length > 0)),
       ...(stringValue(data?.model) ? { model: stringValue(data?.model) } : {}),
       ...(thinkingValue && THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
@@ -426,6 +427,7 @@ export function saveSubagentProfile(
   cwd: string,
   scope: SubagentWritableScope,
   profile: Omit<SubagentProfile, "scope" | "filePath">,
+  cloneFrom?: Pick<SubagentProfile, "filePath">,
 ): SubagentProfile {
   const name = assertProfileName(profile.name);
   const tools = [...new Set(profile.tools.filter((tool) => BUILTIN_TOOLS.has(tool)))];
@@ -443,8 +445,11 @@ export function saveSubagentProfile(
   const description = profile.description.trim() || name;
   const systemPrompt = profile.systemPrompt.trim();
   const model = profile.model?.trim() || undefined;
-  const loadSkills = profile.loadSkills === true;
-  const loadExtensions = profile.loadExtensions === true;
+  for (const selection of [profile.skills, profile.extensions]) {
+    if (selection !== undefined && typeof selection !== "boolean" && !(Array.isArray(selection) && selection.every((entry) => typeof entry === "string"))) throw new Error("skills/extensions must be boolean or string[]");
+  }
+  const loadSkills = profile.skills !== undefined ? resourceSelectionEnabled(profile.skills) : profile.loadSkills === true;
+  const loadExtensions = profile.extensions !== undefined ? resourceSelectionEnabled(profile.extensions) : profile.loadExtensions === true;
   const promptMode = profile.promptMode === "replace" ? "replace" : "append";
   const dir = assertWritableProfileDirectory(cwd, scope);
   mkdirSync(dir, { recursive: true });
@@ -452,7 +457,9 @@ export function saveSubagentProfile(
     throw new Error("Agent profile directory is outside the project root");
   }
   const filePath = join(dir, `${name}.md`);
-  const stored = readStoredFrontmatter(filePath);
+  if (cloneFrom && existsSync(filePath)) throw new Error("Cannot clone over an existing profile");
+  const stored = readStoredFrontmatter(cloneFrom?.filePath ?? filePath);
+  if (cloneFrom?.filePath && stored.name !== undefined) stored.name = name;
   const managed: Record<string, unknown> = {
     description,
     display_name: displayName,
@@ -464,8 +471,8 @@ export function saveSubagentProfile(
     run_in_background: profile.runInBackground,
     prompt_mode: promptMode,
   };
-  syncFlagAlias(managed, "skills", stored.skills, loadSkills);
-  syncFlagAlias(managed, "extensions", stored.extensions, loadExtensions);
+  managed.skills = saveResourceAlias(stored, "skills", profile.skills, loadSkills);
+  managed.extensions = saveResourceAlias(stored, "extensions", profile.extensions, loadExtensions);
   if (model) managed.model = model;
   if (profile.thinking) managed.thinking = profile.thinking;
   if (maxTurns) managed.max_turns = maxTurns;
@@ -481,6 +488,8 @@ export function saveSubagentProfile(
   writePrivateFileAtomicSync(filePath, `---\n${yaml}\n---\n\n${systemPrompt}\n`);
   return {
     ...profile,
+    skills: profileResourceSelection(managed.skills, loadSkills),
+    extensions: profileResourceSelection(managed.extensions, loadExtensions),
     name,
     displayName,
     description,
@@ -541,9 +550,30 @@ export function readSubagentSessionResources(
   const snapshot = data.resourceSnapshot;
   const loadSkills = isRecord(snapshot) && snapshot.loadSkills === true;
   const loadExtensions = isRecord(snapshot) && snapshot.loadExtensions === true;
+  if (isRecord(snapshot) && snapshot.version === 2) {
+    if (typeof snapshot.loadSkills !== "boolean" || typeof snapshot.loadExtensions !== "boolean"
+      || ![snapshot.skills, snapshot.extensions].every((value) => value === undefined || typeof value === "boolean" || (Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry.trim().length > 0)))
+      || !Array.isArray(snapshot.appendSystemPrompt) || !snapshot.appendSystemPrompt.every((item) => typeof item === "string")
+      || !Array.isArray(snapshot.builtinTools) || !snapshot.builtinTools.every((item) => typeof item === "string" && SUBAGENT_BUILTIN_TOOLS.has(item))
+      || !isSubagentToolPolicy(snapshot.toolPolicy)
+      || (!loadExtensions && snapshot.toolPolicy.mode !== "none")
+      || (snapshot.exactSystemPrompt !== undefined && typeof snapshot.exactSystemPrompt !== "string")) return null;
+    return {
+      version: 2,
+      builtinTools: [...new Set(snapshot.builtinTools as string[])],
+      tools: [...new Set(snapshot.builtinTools as string[])],
+      toolPolicy: structuredClone(snapshot.toolPolicy),
+      appendSystemPrompt: [...snapshot.appendSystemPrompt],
+      loadSkills, loadExtensions,
+      ...(snapshot.skills !== undefined ? { skills: profileResourceSelection(snapshot.skills, loadSkills) } : {}),
+      ...(snapshot.extensions !== undefined ? { extensions: profileResourceSelection(snapshot.extensions, loadExtensions) } : {}),
+      ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
+    };
+  }
   if (
     isRecord(snapshot)
     && snapshot.version === 1
+    && [snapshot.skills, snapshot.extensions].every((value) => value === undefined || typeof value === "boolean" || (Array.isArray(value) && value.every((entry) => typeof entry === "string")))
     && Array.isArray(snapshot.appendSystemPrompt)
     && snapshot.appendSystemPrompt.every((item) => typeof item === "string")
     && Array.isArray(snapshot.tools)
@@ -559,6 +589,8 @@ export function readSubagentSessionResources(
       tools: [...new Set(snapshot.tools)],
       loadSkills,
       loadExtensions,
+      ...(snapshot.skills !== undefined ? { skills: profileResourceSelection(snapshot.skills, snapshot.loadSkills) } : {}),
+      ...(snapshot.extensions !== undefined ? { extensions: profileResourceSelection(snapshot.extensions, snapshot.loadExtensions) } : {}),
       ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
     };
   }

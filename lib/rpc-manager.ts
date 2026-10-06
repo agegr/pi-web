@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type AgentSession } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -14,6 +14,8 @@ import {
 } from "./project-command-env";
 import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
+import { createSubagentSessionServices } from "./subagent-resources";
+import { reconcileSubagentActiveTools, subagentToolExclusions } from "./subagent-tool-policy";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
@@ -36,6 +38,8 @@ import {
   readSubagentRun,
   readSubagentSessionResources,
   SUBAGENT_CONTROL_TOOL_NAMES,
+  SUBAGENT_META_TYPE,
+  type SubagentSessionResources,
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
@@ -121,6 +125,8 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /** Validated creation snapshot, supplied by child registration/cold restore; never a live profile. */
+  subagentResources?: SubagentSessionResources | null;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
   mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
 };
@@ -300,6 +306,7 @@ export class AgentSessionWrapper {
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
+  private readonly subagentResources?: SubagentSessionResources;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
@@ -327,6 +334,7 @@ export class AgentSessionWrapper {
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
+    this.subagentResources = options.subagentResources ? structuredClone(options.subagentResources) : undefined;
     this.mcpHost = options.mcpHost;
   }
 
@@ -481,6 +489,8 @@ export class AgentSessionWrapper {
       } else {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
+      // bindExtensions also awaits resources_discover, which runs AFTER session_start.
+      this.reconcileSubagentToolPolicy();
       this.extensionsBound = true;
       console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
@@ -489,6 +499,17 @@ export class AgentSessionWrapper {
     });
 
     return this.extensionBindingPromise;
+  }
+
+  private reconcileSubagentToolPolicy(): void {
+    const resources = this.subagentResources;
+    if (resources?.version !== 2) return; // Normal sessions and v1 retain their existing loadout rules.
+    const sdk = this.inner as unknown as Pick<AgentSession, "getAllTools" | "getActiveToolNames" | "setActiveToolsByName" | "resourceLoader">;
+    reconcileSubagentActiveTools({
+      getActiveTools: () => sdk.getActiveToolNames(),
+      getAllTools: () => sdk.getAllTools(),
+      setActiveTools: (names) => sdk.setActiveToolsByName(names),
+    }, resources.builtinTools, resources.toolPolicy, () => sdk.resourceLoader.getExtensions().extensions);
   }
 
   private async waitForExtensionsBound(): Promise<void> {
@@ -522,6 +543,7 @@ export class AgentSessionWrapper {
       || type === "steer"
       || type === "follow_up"
       || type === "get_commands"
+      || type === "get_tools"
       || type === "get_state";
   }
 
@@ -864,6 +886,7 @@ export class AgentSessionWrapper {
         }
 
       case "get_state": {
+        this.reconcileSubagentToolPolicy();
         const model = this.inner.model;
         const contextUsage = this.inner.getContextUsage();
         return {
@@ -894,6 +917,7 @@ export class AgentSessionWrapper {
           // per-run changes again once the run ends.
           systemPrompt: this.exactSystemPrompt?.() ?? (this.inner.agent.state?.systemPrompt || this.inner.systemPrompt || ""),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+          activeToolNames: this.inner.getActiveToolNames(),
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
         };
@@ -1092,6 +1116,7 @@ export class AgentSessionWrapper {
       }
 
       case "get_tools": {
+        this.reconcileSubagentToolPolicy();
         // A hidden tool is withdrawn: pi ignores it when setting the active tools.
         const all: ToolInfo[] = this.inner.getAllTools().filter((t) => t.exposure !== "hidden");
         const active = new Set<string>(this.inner.getActiveToolNames());
@@ -1161,6 +1186,7 @@ export class AgentSessionWrapper {
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
+        this.reconcileSubagentToolPolicy();
         invalidateModelsCache();
         return { success: true };
       }
@@ -1903,6 +1929,7 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
           },
         });
+        this.reconcileSubagentToolPolicy();
       },
     };
   }
@@ -1968,9 +1995,11 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         ? { exactSystemPrompt: () => options.exactSystemPrompt! }
         : {}),
       chatOnly: options?.chatOnly,
+      subagentResources: readSubagentSessionResources(inner.sessionManager.getEntries() as unknown as SessionEntry[]),
       suppressCompletionNotifications: true,
     });
     registerRpcWrapper(wrapper);
+    return wrapper.waitUntilReady();
   },
   reopenSession: async (sessionId, sessionFile) =>
     (await startRpcSession(sessionId, sessionFile, undefined)).session,
@@ -2305,6 +2334,9 @@ export async function startRpcSession(
         sessionManager.getEntries() as unknown as SessionEntry[],
       )
     : null;
+  if (sessionFile && !subagentResources && sessionManager.getEntries().some((entry) => entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE)) {
+    throw new Error("Cannot restore subagent: missing or invalid resource snapshot");
+  }
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
@@ -2324,7 +2356,7 @@ export async function startRpcSession(
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
-    let toolsOption: string[] | undefined = subagentResources?.tools;
+    let toolsOption: string[] | undefined = subagentResources?.version === 2 ? undefined : subagentResources?.tools;
     if (!subagentResources && selectedToolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
@@ -2347,7 +2379,7 @@ export async function startRpcSession(
       : chatOnly
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
-    const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    const settingsManager = SettingsManager.create(sessionCwd, agentDir, subagentResources ? { projectTrusted: getProjectTrustStatus(sessionCwd, agentDir).trusted } : undefined);
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
@@ -2360,7 +2392,10 @@ export async function startRpcSession(
     const builtins = subagentResources || chatOnly
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
-    const services = await createAgentSessionServices({
+    const createServices = subagentResources
+      ? (options: Parameters<typeof createSubagentSessionServices>[0]) => createSubagentSessionServices(options, subagentResources)
+      : createAgentSessionServices;
+    const services = await createServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
@@ -2438,8 +2473,14 @@ export async function startRpcSession(
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
-      ...(subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
+      ...(subagentResources?.version === 2
+        ? { noTools: "builtin", excludeTools: subagentToolExclusions(subagentResources.builtinTools) }
+        : subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
     });
+
+    if (subagentResources?.version === 2) {
+      inner.setActiveToolsByName([...new Set([...subagentResources.builtinTools, ...inner.getActiveToolNames()])]);
+    }
 
     // A pinned selection replaces only the coding tools of the SDK's initial loadout, which
     // already holds the extension tools pi activates on registration and whatever
@@ -2469,6 +2510,7 @@ export async function startRpcSession(
         });
       },
       suppressCompletionNotifications: Boolean(subagentResources),
+      subagentResources,
       ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
     });
     const realSessionId = inner.sessionId as string;

@@ -44,8 +44,10 @@ function describeDecision(
  * unreadable `trust.json` before, and callers that only need `trusted` still
  * must not, so that failure is reported in `decisionError` instead.
  */
-export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTrustStatus {
-  const requiresTrust = Boolean(cwd) && hasTrustRequiringProjectResources(cwd);
+export function getProjectTrustStatus(cwd: string, agentDir: string, options: { additionalProjectResources?: boolean } = {}): ProjectTrustStatus {
+  // Explicit subagent project extensions need the same decision as SDK-discovered resources.
+  // Callers without additional resources retain the existing clean-folder semantics.
+  const requiresTrust = Boolean(cwd) && (options.additionalProjectResources === true || hasTrustRequiringProjectResources(cwd));
   const trustStore = new ProjectTrustStore(agentDir);
   if (!requiresTrust) {
     if (!cwd) return { requiresTrust: false, trusted: true, decision: null, inherited: false };
