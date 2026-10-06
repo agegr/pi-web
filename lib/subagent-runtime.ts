@@ -46,6 +46,8 @@ interface HostSession {
   isAlive(): boolean;
   isRunning(): boolean;
   waitUntilReady(): Promise<void>;
+  promptDelegated?(message: string, signal?: AbortSignal): Promise<void>;
+  abortDelegated?(): Promise<void>;
 }
 
 export interface SubagentRuntimeDependencies {
@@ -72,7 +74,19 @@ type StoredSubagentExecution = {
   completion: Promise<SubagentRunInfo>;
   abortRequested: boolean;
   cancelQueued?: () => boolean;
+  promptController?: AbortController;
 };
+
+async function promptDelegated(wrapper: HostSession | undefined, inner: AgentSessionLike, message: string, stored: StoredSubagentExecution): Promise<void> {
+  throwIfSubagentCancelled(stored);
+  if (wrapper?.promptDelegated) return wrapper.promptDelegated(message, (stored.promptController ??= new AbortController()).signal);
+  await inner.prompt(message, { source: "rpc" });
+}
+
+function abortDelegated(wrapper: HostSession | undefined, inner: AgentSessionLike, stored?: StoredSubagentExecution): Promise<void> {
+  stored?.promptController?.abort();
+  return wrapper?.abortDelegated ? wrapper.abortDelegated() : inner.abort();
+}
 
 /** Check admission after every readiness await; aborting an idle SDK session alone cannot stop a later prompt. */
 function throwIfSubagentCancelled(stored: StoredSubagentExecution, signal?: AbortSignal): void {
@@ -372,7 +386,7 @@ export function createSubagentController(
       const handleParentAbort = () => {
         stored.abortRequested = true;
         if (stored.run.status === "queued") stored.cancelQueued?.();
-        else void inner.abort();
+        else void abortDelegated(dependencies.getSession(inner.sessionId), inner, stored);
       };
       if (!runInBackground) request.signal?.addEventListener("abort", handleParentAbort, { once: true });
 
@@ -389,7 +403,7 @@ export function createSubagentController(
           if (!registration.ok) throw registration.error;
           await dependencies.getSession(inner.sessionId)?.waitUntilReady?.();
           throwIfSubagentCancelled(stored, runInBackground ? undefined : request.signal);
-          await inner.prompt(delegatedTask, { source: "rpc" });
+          await promptDelegated(dependencies.getSession(inner.sessionId), inner, delegatedTask, stored);
           const text = inner.getLastAssistantText()?.trim();
           const aborted = stored.abortRequested && !maxTurnsReached;
           const providerError = aborted ? undefined : lastAssistantError(sessionManager);
@@ -520,7 +534,7 @@ export function createSubagentController(
     const handleParentAbort = () => {
       stored.abortRequested = true;
       if (stored.run.status === "queued") stored.cancelQueued?.();
-      else void wrapper!.inner.abort();
+      else void abortDelegated(wrapper, wrapper!.inner, stored);
     };
     if (!runInBackground) request.signal?.addEventListener("abort", handleParentAbort, { once: true });
 
@@ -533,7 +547,7 @@ export function createSubagentController(
         throwIfSubagentCancelled(stored, runInBackground ? undefined : request.signal);
         await wrapper!.waitUntilReady();
         throwIfSubagentCancelled(stored, runInBackground ? undefined : request.signal);
-        await wrapper!.inner.prompt(request.task, { source: "rpc" });
+        await promptDelegated(wrapper, wrapper!.inner, request.task, stored);
         const text = wrapper!.inner.getLastAssistantText()?.trim();
         const providerError = stored.abortRequested ? undefined : lastAssistantError(manager);
         result = {
@@ -656,7 +670,7 @@ export function createSubagentController(
     // The controller owns a running slot while binding, before the SDK is streaming.
     if (!wrapper?.isAlive() || (!wrapper.isRunning() && stored?.run.status !== "running")) throw new Error("Subagent is not running");
     if (stored) stored.abortRequested = true;
-    await wrapper.inner.abort();
+    await abortDelegated(wrapper, wrapper.inner, stored);
   }
 
   return {

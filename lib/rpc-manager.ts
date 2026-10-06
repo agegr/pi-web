@@ -501,6 +501,63 @@ export class AgentSessionWrapper {
     return this.extensionBindingPromise;
   }
 
+  private resetExtensionUiForPrompt(): void {
+    if (this.extensionUiAbortController.signal.aborted) this.extensionUiAbortController = new AbortController();
+  }
+
+  /** Complete delegated run, not the send() preflight acknowledgement. One bind only. */
+  async promptDelegated(message: string, signal?: AbortSignal): Promise<void> {
+    await this.waitUntilReady();
+    const check = () => {
+      if (signal?.aborted || !this.isAlive()) throw new Error("Subagent cancelled before prompting");
+    };
+    check();
+    const releaseAdmission = await this.acquirePromptAdmission();
+    try {
+      check();
+      if (this.isRunning()) throw new Error("Subagent is already running");
+      this.resetExtensionUiForPrompt();
+      this.pendingPromptCount += 1;
+      const cancel = () => {
+        this.mcpPromptWait?.controller.abort();
+        if (this.inner.isStreaming) void this.inner.abort();
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
+      try {
+        check();
+        await this.prepareMcpPrompt(message);
+        check();
+        this.reconcileSubagentToolPolicy();
+        this.agentRunNeedsCompletion = true;
+        await this.inner.prompt(message, { source: "rpc" });
+      } finally {
+        signal?.removeEventListener("abort", cancel);
+        this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
+        this.resetIdleTimer();
+        this.notifyAgentRunCompleteIfIdle();
+      }
+    } finally { releaseAdmission(); }
+  }
+
+  async abortDelegated(): Promise<void> { await this.send({ type: "abort" }); }
+
+  private async prepareMcpPrompt(message: string): Promise<void> {
+    const preparation = this.mcpHost && !this.inner.isStreaming
+      ? mcpPromptPreparation(message, this.extensionCommandCandidates()) : "none";
+    if (!this.mcpHost || preparation === "none") return;
+    const controller = new AbortController();
+    const waited = this.mcpHost.prepareForPrompt(controller.signal, { wait: preparation === "wait" })
+      .catch((error: unknown) => {
+        console.error("[pi-web] MCP servers could not be prepared:", error instanceof Error ? error.message : error);
+      }).then(() => {
+        if (controller.signal.aborted) throw new Error(MCP_WAIT_STOPPED_MESSAGE);
+      });
+    const wait = { controller, done: waited.then(() => undefined, () => undefined) };
+    this.mcpPromptWait = wait;
+    try { await waited; }
+    finally { if (this.mcpPromptWait === wait) this.mcpPromptWait = null; }
+  }
+
   private reconcileSubagentToolPolicy(): void {
     const resources = this.subagentResources;
     if (resources?.version !== 2) return; // Normal sessions and v1 retain their existing loadout rules.
@@ -753,9 +810,7 @@ export class AgentSessionWrapper {
           if (this.inner.isBashRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
-          if (this.extensionUiAbortController.signal.aborted) {
-            this.extensionUiAbortController = new AbortController();
-          }
+          this.resetExtensionUiForPrompt();
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
           let preflightAccepted = false;
@@ -793,28 +848,8 @@ export class AgentSessionWrapper {
           // extension command before anything else and starts no run for it: another
           // extension's command skips this, and the built-in `/mcp`, which acts on the
           // registered servers, registers them without waiting (`mcpPromptPreparation()`).
-          const mcpPreparation = this.mcpHost && !this.inner.isStreaming
-            ? mcpPromptPreparation(typeof command.message === "string" ? command.message : "", this.extensionCommandCandidates())
-            : "none";
-          if (this.mcpHost && mcpPreparation !== "none") {
-            const controller = new AbortController();
-            const waited = this.mcpHost.prepareForPrompt(controller.signal, { wait: mcpPreparation === "wait" })
-              .catch((error: unknown) => {
-                console.error("[pi-web] MCP servers could not be prepared:", error instanceof Error ? error.message : error);
-              })
-              .then(() => {
-                if (!controller.signal.aborted) return;
-                finishPrompt();
-                throw new Error(MCP_WAIT_STOPPED_MESSAGE);
-              });
-            const wait = { controller, done: waited.then(() => undefined, () => undefined) };
-            this.mcpPromptWait = wait;
-            try {
-              await waited;
-            } finally {
-              if (this.mcpPromptWait === wait) this.mcpPromptWait = null;
-            }
-          }
+          try { await this.prepareMcpPrompt(typeof command.message === "string" ? command.message : ""); }
+          catch (error) { finishPrompt(); throw error; }
           let prompt: Promise<void>;
           try {
             prompt = this.inner.prompt(command.message as string, {
