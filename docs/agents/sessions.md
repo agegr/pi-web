@@ -53,3 +53,8 @@ On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state
 
 ## Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then makes the generated HTML's recursive tree helpers iterative, so very deep linear sessions do not overflow the browser call stack.
+
+## Deleting the selected session outlives the delete click (`components/AppShell.tsx`)
+- `SessionItem.performDelete` captures `onDeleted` at the delete click, and `handleSessionDeleted` is a `useCallback` whose `selectedSession` closure is from that same render. The DELETE request can complete **after** the user has switched sessions, so the captured selection still names the session being deleted.
+- The empty-composer fallback therefore guards on the latest selection read from a render-synced ref (`selectedSessionRef.current`), not the captured state, and takes the fallback cwd from that ref too: a user who navigated away stays on their new chat, and a user who lands on the deleting session in flight still gets a fresh composer in its cwd.
+- `setRefreshKey()` and `invalidateWorkspaceRestore()` run unconditionally, so the sidebar list and any pending workspace restore never resurrect the deleted session.
