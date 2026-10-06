@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -63,6 +63,33 @@ test("profile PUT validates scoped MCP fields and old clients preserve stored ro
   response = await PUT(jsonRequest("PUT", { cwd, scope: "project", profile: profile({ codeMode: false, loadMcp: false, mcpServers: [] }) }));
   assert.equal(response.status, 200); const disabled = (await response.json()).profile;
   assert.equal(disabled.codeMode, false); assert.equal(disabled.loadMcp, false); assert.deepEqual(disabled.mcpServers, []);
+});
+
+test("model override permission defaults off, survives old PUT/clone/PATCH and rejects non-booleans", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-profile-model-permission-")); allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const put = (draft, extra = {}) => PUT(jsonRequest("PUT", { cwd, scope: "project", profile: draft, ...extra }));
+  let response = await put(profile());
+  assert.equal((await response.json()).profile.allowParentModelOverride, false);
+  response = await put(profile({ allowParentModelOverride: true }));
+  assert.equal((await response.json()).profile.allowParentModelOverride, true);
+  const path = join(cwd, ".pi", "agents", "api-test-agent.md");
+  await writeFile(path, (await readFile(path, "utf8")).replace("---\n", "---\nforeign_model_note: keep\n"));
+  response = await put(profile({ description: "old client omits the field" }));
+  assert.equal(response.status, 200); assert.equal((await response.json()).profile.allowParentModelOverride, true);
+  response = await put(profile({ name: "model-copy" }), { cloneFrom: { scope: "project", name: "api-test-agent" } });
+  assert.equal(response.status, 200); assert.equal((await response.json()).profile.allowParentModelOverride, true);
+  response = await PATCH(jsonRequest("PATCH", { cwd, scope: "project", name: "api-test-agent", enabled: false }));
+  assert.equal(response.status, 200); assert.equal((await response.json()).profile.allowParentModelOverride, true);
+  for (const invalid of ["true", null, 1, {}]) {
+    response = await put(profile({ allowParentModelOverride: invalid })); assert.equal(response.status, 400);
+  }
+  response = await put(profile({ allowParentModelOverride: false }));
+  assert.equal(response.status, 200); assert.equal((await response.json()).profile.allowParentModelOverride, false);
+  assert.match(await readFile(path, "utf8"), /foreign_model_note: keep/);
+  assert.match(await readFile(path, "utf8"), /allow_parent_model_override: false/);
+  const builtin = (await (await GET(new Request(`http://localhost/api/subagents/profiles?cwd=${encodeURIComponent(cwd)}`))).json()).profiles.find((item) => item.scope === "builtin");
+  assert.equal(builtin.allowParentModelOverride, false);
 });
 
 test("profiles route creates, lists, and deletes a project profile", async (t) => {

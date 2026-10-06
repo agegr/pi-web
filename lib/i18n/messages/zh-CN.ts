@@ -130,6 +130,8 @@ export const zhCNLocale: LocalePlugin = {
     "agents.loadSkills": "加载技能",
     "agents.loadExtensions": "加载扩展",
     "agents.model": "指定模型",
+    "agents.allowParentModelOverride": "允许父会话指定其他模型",
+    "agents.allowParentModelOverrideInherited": "未指定模型时，仍允许父会话选择或继承模型。",
     "agents.modelsLoading": "正在加载模型...",
     "agents.modelUnavailable": "{model}（不可用）",
     "agents.thinking": "思考级别",

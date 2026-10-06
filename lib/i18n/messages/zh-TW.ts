@@ -130,6 +130,8 @@ export const zhTWLocale: LocalePlugin = {
     "agents.loadSkills": "載入技能",
     "agents.loadExtensions": "載入擴充功能",
     "agents.model": "指定模型",
+    "agents.allowParentModelOverride": "允許父會話指定其他模型",
+    "agents.allowParentModelOverrideInherited": "未指定模型時，仍允許父會話選擇或繼承模型。",
     "agents.modelsLoading": "正在載入模型...",
     "agents.modelUnavailable": "{model}（無法使用）",
     "agents.thinking": "思考層級",

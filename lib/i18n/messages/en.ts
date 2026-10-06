@@ -129,6 +129,8 @@ export const enLocale: LocalePlugin = {
     "agents.loadSkills": "Load skills",
     "agents.loadExtensions": "Load extensions",
     "agents.model": "Model override",
+    "agents.allowParentModelOverride": "Allow parent model override",
+    "agents.allowParentModelOverrideInherited": "No model specified: the parent can choose or inherit its model.",
     "agents.modelsLoading": "Loading models...",
     "agents.modelUnavailable": "{model} (unavailable)",
     "agents.thinking": "Thinking",

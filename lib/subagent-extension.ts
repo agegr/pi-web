@@ -181,7 +181,7 @@ export function createSubagentExtension(
           })),
           description: Type.String({ description: "Short activity label shown in the UI." }),
           run_in_background: Type.Optional(Type.Boolean({ description: "Return immediately and notify this session when complete." })),
-          model: Type.Optional(Type.String({ description: "Optional provider/modelId override." })),
+          model: Type.Optional(Type.String({ description: "Optional provider/modelId for new sessions. Ignored when the role specifies a model and disallows parent overrides; that role model is used instead. Ignored with resume, which retains the child's current model." })),
           thinking: Type.Optional(Type.String({ description: "Optional thinking level override." })),
           max_turns: Type.Optional(Type.Number({ description: "Optional positive agent turn limit." })),
           inherit_context: Type.Optional(Type.Boolean({ description: "Include the parent session's active conversation context." })),

@@ -62,6 +62,7 @@ export interface SubagentProfile {
   loadExtensions: boolean;
   codeMode?: boolean;
   loadMcp?: boolean;
+  allowParentModelOverride?: boolean;
   mcpServers?: SubagentMcpServerRef[];
   skills?: SubagentResourceSelection;
   extensions?: SubagentResourceSelection;
@@ -171,6 +172,7 @@ const MANAGED_FRONTMATTER_KEYS = new Set([
   "load_extensions",
   "code_mode",
   "load_mcp",
+  "allow_parent_model_override",
   "mcp_servers",
   "enabled",
   "inherit_context",
@@ -338,6 +340,7 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
       codeMode: booleanValue(data?.code_mode, false),
       loadMcp: booleanValue(data?.load_mcp, false),
+      allowParentModelOverride: booleanValue(data?.allow_parent_model_override, false),
       mcpServers: isSubagentMcpServerRefs(data?.mcp_servers) ? structuredClone(data.mcp_servers) : [],
       inheritContext: booleanValue(data?.inherit_context, false),
       runInBackground: booleanValue(data?.run_in_background, false),
@@ -386,6 +389,8 @@ function builtInProfiles(): SubagentProfile[] {
   return BUILTIN_PROFILES.map((profile) => ({
     ...profile,
     tools: [...profile.tools],
+    // Built-ins ship no frontmatter: a missing override flag is the default, false.
+    allowParentModelOverride: profile.allowParentModelOverride ?? false,
     enabled: !disabled.has(profile.name.toLowerCase()),
   }));
 }
@@ -467,7 +472,7 @@ export function saveSubagentProfile(
   for (const selection of [profile.skills, profile.extensions]) {
     if (selection !== undefined && typeof selection !== "boolean" && !(Array.isArray(selection) && selection.every((entry) => typeof entry === "string"))) throw new Error("skills/extensions must be boolean or string[]");
   }
-  for (const key of ["codeMode", "loadMcp"] as const) {
+  for (const key of ["codeMode", "loadMcp", "allowParentModelOverride"] as const) {
     if (profile[key] !== undefined && typeof profile[key] !== "boolean") throw new Error(`${key} must be boolean`);
   }
   if (profile.mcpServers !== undefined && !isSubagentMcpServerRefs(profile.mcpServers)) throw new Error("mcpServers must be scoped server references");
@@ -491,6 +496,7 @@ export function saveSubagentProfile(
     load_extensions: loadExtensions,
     code_mode: profile.codeMode ?? booleanValue(stored.code_mode, false),
     load_mcp: profile.loadMcp ?? booleanValue(stored.load_mcp, false),
+    allow_parent_model_override: profile.allowParentModelOverride ?? booleanValue(stored.allow_parent_model_override, false),
     mcp_servers: profile.mcpServers ?? (isSubagentMcpServerRefs(stored.mcp_servers) ? stored.mcp_servers : []),
     enabled: profile.enabled,
     inherit_context: profile.inheritContext,
@@ -516,6 +522,7 @@ export function saveSubagentProfile(
     ...profile,
     codeMode: managed.code_mode === true,
     loadMcp: managed.load_mcp === true,
+    allowParentModelOverride: managed.allow_parent_model_override === true,
     mcpServers: structuredClone(managed.mcp_servers as SubagentMcpServerRef[]),
     skills: profileResourceSelection(managed.skills, loadSkills),
     extensions: profileResourceSelection(managed.extensions, loadExtensions),

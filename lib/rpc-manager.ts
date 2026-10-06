@@ -2490,13 +2490,18 @@ export async function startRpcSession(
     const branch = sessionManager.getBranch();
     // System messages carry the prompt and tool loadout, not a conversation.
     const hasExistingMessages = branch.some((entry) => entry.type === "message" && entry.message.role !== "system");
-    const savedModel = hasExistingMessages
+    // Child setup already records its selected model, even before its first conversation.
+    const savedModel = hasExistingMessages || subagentResources
       ? getLatestModelChange(branch as unknown as SessionEntry[])
       : null;
     const restoredModel = savedModel
       ? services.modelRuntime.getModel(savedModel.provider, savedModel.modelId)
       : undefined;
-    const initial = hasExistingMessages ? null : selectInitialModelScope(scope, {
+    if (subagentResources && savedModel
+      && (!restoredModel || !services.modelRuntime.hasConfiguredAuth(restoredModel.provider))) {
+      throw new Error(`Cannot restore subagent model ${savedModel.provider}/${savedModel.modelId}: model or authentication is unavailable`);
+    }
+    const initial = hasExistingMessages || (subagentResources && savedModel) ? null : selectInitialModelScope(scope, {
         ...(effectiveInitialModel ? { requestedModel: effectiveInitialModel } : {}),
         ...(defaultProvider && defaultModelId
           ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }

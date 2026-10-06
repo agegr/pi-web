@@ -24,6 +24,7 @@ import {
   SUBAGENT_STATUS_TYPE,
   SUBAGENT_RESULT_TYPE,
   type SubagentMetadata,
+  type SubagentProfile,
   type SubagentResultMetadata,
   type SubagentRunInfo,
 } from "./subagents";
@@ -192,6 +193,18 @@ function parseSubagentModel(runtime: ModelRuntime, value: string | undefined) {
   throw new Error(`Subagent model is ambiguous; use provider/modelId: ${requested}`);
 }
 
+/** A protected role ignores the parent's model parameter, even if that parameter is invalid. */
+function resolveSubagentModel(
+  runtime: ModelRuntime,
+  profile: Pick<SubagentProfile, "model" | "allowParentModelOverride">,
+  requestModel: string | undefined,
+): ReturnType<ModelRuntime["getModel"]> {
+  if (profile.model?.trim() && profile.allowParentModelOverride !== true) {
+    return parseSubagentModel(runtime, profile.model);
+  }
+  return parseSubagentModel(runtime, requestModel) ?? parseSubagentModel(runtime, profile.model);
+}
+
 function parentContextText(parent: HostSession): string {
   const messages = parent.inner.sessionManager.buildSessionContext().messages;
   const serialized = JSON.stringify(messages);
@@ -228,6 +241,10 @@ export function createSubagentController(
       const profile = resolveSubagentProfile(parent.cwd, request.profile);
       if (!profile) throw new Error(`Unknown or disabled subagent profile: ${request.profile}`);
 
+      // Resolve before creating child resources; an unavailable selected model must not leave an orphan.
+      const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
+      const requestedModel = resolveSubagentModel(parentModelRuntime, profile, request.model);
+
       const runInBackground = request.runInBackground ?? profile.runInBackground;
       const isolation = profile.isolation === "off" ? undefined : request.isolation ?? profile.isolation;
       if (isolation === "worktree") {
@@ -246,7 +263,6 @@ export function createSubagentController(
       }
 
       const agentDir = getAgentDir();
-      const parentModelRuntime = (parent.inner as unknown as { modelRuntime: ModelRuntime }).modelRuntime;
       const settingsManager = SettingsManager.create(childCwd, agentDir, { projectTrusted: getProjectTrustStatus(childCwd, agentDir).trusted });
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
@@ -328,7 +344,6 @@ export function createSubagentController(
       sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
       sessionManager.appendSessionInfo(metadata.description);
 
-      const requestedModel = parseSubagentModel(parentModelRuntime, request.model ?? profile.model);
       const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
       const { session: inner } = await createAgentSessionFromServices({
         services,

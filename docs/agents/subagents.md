@@ -1,5 +1,12 @@
 # Built-in subagents
 
+## Role model selection
+
+- Profiles use `allow_parent_model_override` (API `allowParentModelOverride`), default false. Saves, copies and enabled PATCH preserve it; an old PUT omitting it retains the stored value.
+- For a role with a specified model, create uses that model and ignores parent `Agent.model` unless this switch is on, including unknown or ambiguous ignored parameters. The selected role model must still resolve; it is not silently replaced when unavailable. With no specified model, parent selection or inheritance remains unchanged. An allowed explicit override is per-call, never a profile write.
+- The checkbox sits beside the model field and uses the existing draft/Save flow. No-model drafts keep the intent but disable the checkbox with a visible explanation; built-in forms stay read-only.
+- Resume retains the child's current model and ignores any attached `Agent.model`, without rejecting or retrying the task. Parent or profile edits do not reassign an existing child, and manual child `set_model` remains available. Cold restoration follows the saved-model rules in [models.md](models.md); no new resource snapshot version or override-permission store is introduced.
+
 ## Built-in subagents
 - The global `builtInEnabled` in `~/.pi/agent/agents/settings.json` is off when the file or field is absent and when the file is malformed (fail closed); writes are atomic and keep unknown fields. The inline extension factory is always present, so a reload can apply the switch, but registers no tools while off; after changing it the user must reload the session explicitly, and `Agent` dispatch re-checks the setting so a stale call cannot start a subagent. When on, only a recognized legacy `pi-subagents` extension registering a reserved tool (`Agent`, `get_subagent_result`, `steer_subagent`) is removed, along with the conflict errors it caused; unrelated extensions stay. ADR 0003.
 - The three tools register with `exposure: "model-only"`, so `ctx.executeTool()` (a codemode script) cannot start, collect or steer a subagent: a script-started run would record the nested call id (`<codemode call>/<n>`) as its `parentToolCallId`, which no transcript entry carries, and the chat would lose its link to the child session. `lib/subagent-extension.integration.test.mjs` pins this against a real `AgentSession`.

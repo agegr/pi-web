@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ProjectTrustStatus, SubagentProfilesResponse, SubagentSettingsResponse } from "@/lib/api-types";
@@ -58,6 +58,7 @@ const EMPTY_PROFILE: EditableProfile = {
   codeMode: false,
   loadMcp: false,
   mcpServers: [],
+  allowParentModelOverride: false,
   promptMode: "append",
   inheritContext: false,
   runInBackground: false,
@@ -103,6 +104,7 @@ export function editableProfile(profile: SubagentProfile): EditableProfile {
     isolation: profile.isolation,
     persistSession: profile.persistSession,
     promptMode: profile.promptMode,
+    allowParentModelOverride: profile.allowParentModelOverride ?? false,
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.thinking ? { thinking: profile.thinking } : {}),
     ...(profile.maxTurns ? { maxTurns: profile.maxTurns } : {}),
@@ -145,14 +147,14 @@ function displayProfilePath(profile: SubagentProfile, cwd: string): string | nul
     : shortenPath(profile.filePath);
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return <ConfigField label={label}>{children}</ConfigField>;
 }
 
-function Toggle({ checked, disabled, label, onChange }: { checked: boolean; disabled: boolean; label: string; onChange: (checked: boolean) => void }) {
+function Toggle({ checked, disabled, label, onChange, describedBy }: { checked: boolean; disabled: boolean; label: string; onChange: (checked: boolean) => void; describedBy?: string }) {
   return (
     <label style={{ display: "flex", alignItems: "center", gap: 7, color: disabled ? "var(--text-dim)" : "var(--text-muted)", fontSize: 12, cursor: disabled ? "default" : "pointer" }}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} aria-describedby={describedBy} onChange={(event) => onChange(event.target.checked)} />
       {label}
     </label>
   );
@@ -176,6 +178,7 @@ export function AgentsConfig({
 }) {
   const isMobile = useIsMobile();
   const { t } = useI18n();
+  const modelOverrideHintId = useId();
   const [profiles, setProfiles] = useState<SubagentProfile[]>([]);
   const [modelOptions, setModelOptions] = useState<ModelsData["modelList"]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -645,7 +648,16 @@ export function AgentsConfig({
                   </Field>
 
                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.5fr) minmax(120px, 0.75fr) minmax(100px, 0.5fr)", gap: 12 }}>
-                    <Field label={t("agents.model")}>
+                    <Field label={<span style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "5px 12px" }}>
+                      <span>{t("agents.model")}</span>
+                      <Toggle
+                        label={t("agents.allowParentModelOverride")}
+                        checked={draft.allowParentModelOverride ?? false}
+                        disabled={disabled || !draft.model}
+                        describedBy={!draft.model ? modelOverrideHintId : undefined}
+                        onChange={(checked) => update("allowParentModelOverride", checked)}
+                      />
+                    </span>}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <ModelSelector
                           options={modelSelectorOptions}
@@ -659,6 +671,7 @@ export function AgentsConfig({
                           variant="field"
                           placement="auto"
                         />
+                        {!draft.model && <span id={modelOverrideHintId} style={{ color: "var(--text-dim)", fontSize: 10 }}>{t("agents.allowParentModelOverrideInherited")}</span>}
                         {modelsError && <span style={{ color: "#ef4444", fontSize: 10 }}>{modelsError}</span>}
                       </div>
                     </Field>

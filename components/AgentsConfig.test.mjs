@@ -186,6 +186,41 @@ test("round-trips Code mode and dormant scoped MCP refs through selected and clo
   assert.match(source, /onServersChange=\{\(refs\) => update\("mcpServers", refs\)\}/);
 });
 
+test("round-trips model override intent through selection, copies and temporary model clearing", () => {
+  const profile = {
+    name: "fixture", displayName: "Fixture", description: "", systemPrompt: "",
+    tools: [], loadSkills: false, loadExtensions: false, promptMode: "append",
+    inheritContext: false, runInBackground: false, enabled: true, scope: "builtin",
+    model: "fixture/pinned", allowParentModelOverride: true,
+  };
+  const selected = editableProfile(profile);
+  const copied = { ...editableProfile(profile), name: "fixture-copy" };
+  for (const draft of [selected, copied]) {
+    assert.equal(JSON.parse(JSON.stringify(draft)).allowParentModelOverride, true);
+    assert.equal(draft.model, profile.model);
+    const cleared = editableProfile({ ...draft, scope: "global", model: undefined });
+    assert.equal(cleared.allowParentModelOverride, true, "clearing a model must not erase dormant intent");
+    assert.equal(cleared.model, undefined);
+  }
+  const legacy = { ...profile };
+  delete legacy.allowParentModelOverride;
+  assert.equal(editableProfile(legacy).allowParentModelOverride, false);
+  assert.equal(editableProfile({ ...profile, allowParentModelOverride: false }).allowParentModelOverride, false);
+  assert.match(source, /const EMPTY_PROFILE[\s\S]*?allowParentModelOverride: false/);
+});
+
+test("places a draft-only override checkbox beside the model label with a visible inherited-model reason", () => {
+  const modelField = source.slice(source.indexOf('<Field label={<span'), source.indexOf('<Field label={t("agents.thinking")}'));
+  assert.match(modelField, /t\("agents\.model"\)[\s\S]*?<Toggle[\s\S]*?t\("agents\.allowParentModelOverride"\)[\s\S]*?<ModelSelector/);
+  assert.match(modelField, /checked=\{draft\.allowParentModelOverride \?\? false\}/);
+  assert.match(modelField, /disabled=\{disabled \|\| !draft\.model\}/);
+  assert.match(modelField, /onChange=\{\(checked\) => update\("allowParentModelOverride", checked\)\}/);
+  assert.match(modelField, /describedBy=\{!draft\.model \? modelOverrideHintId : undefined\}/);
+  assert.match(modelField, /!draft\.model && <span id=\{modelOverrideHintId\}[\s\S]*?agents\.allowParentModelOverrideInherited/);
+  assert.match(source, /aria-describedby=\{describedBy\}/);
+  assert.doesNotMatch(modelField, /fetch\(|void save\(|update\("thinking"/);
+});
+
 test("confirms deletion and limits it to writable profiles", () => {
   assert.match(source, /window\.confirm\(t\("agents\.deleteConfirm", \{ name: selected\.displayName \}\)\)/);
   assert.match(source, /selected && isWritableScope\(selected\.scope\) && mode === "edit"/);
