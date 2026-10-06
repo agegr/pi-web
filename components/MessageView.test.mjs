@@ -35,6 +35,18 @@ test("updates a reused message when its written files change", () => {
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
 });
 
+test("shows only an accessible plus icon for the message new-session action", () => {
+  const html = renderMessage({ role: "user", content: "Fork this conversation" }, {
+    entryId: "entry-1",
+    onFork() {},
+  });
+
+  assert.match(html, /<button[^>]*aria-label="New session[^>]*><svg[^>]*aria-hidden="true"><path d="M12 5v14M5 12h14"><\/path><\/svg><\/button>/);
+  assert.doesNotMatch(html, />New session<\//);
+  assert.match(html, /position:fixed[^>]*touch-action:none/);
+  assert.match(html, /data-message-role="user"/);
+});
+
 test("matches response model aliases and otherwise includes the provider", () => {
   const names = {
     "gateway:claude-sonnet-5": "Sonnet 5",

@@ -36,6 +36,47 @@ import type {
 } from "@/lib/types";
 
 // CJK chars ~1 token each (GLM/DeepSeek/GPT-o200k); other chars ~4 chars/token.
+const FORK_BUTTON_POSITION_KEY = "pi-web:fork-button-position";
+const FORK_BUTTON_SIZE = 22;
+const FORK_BUTTON_GAP = 8;
+
+function getForkButtonBounds(root: HTMLElement) {
+  const chat = root.closest(".chat-content");
+  const scroll = chat?.querySelector<HTMLElement>("[data-chat-scroll-container]");
+  const scrollRect = scroll?.getBoundingClientRect();
+  const minTop = Math.max(8, (scrollRect?.top ?? 0) + FORK_BUTTON_GAP);
+  const visibleBubbles = scroll
+    ? Array.from(scroll.querySelectorAll<HTMLElement>('[data-message-role="user"], [data-message-role="assistant"]'))
+        .map((element) => element.getBoundingClientRect())
+        .filter((rect) => rect.bottom > (scrollRect?.top ?? 0) && rect.top < (scrollRect?.bottom ?? window.innerHeight))
+    : [];
+  const bottomBubbleTop = visibleBubbles.reduce((bottom, rect) => Math.max(bottom, rect.top), scrollRect?.bottom ?? window.innerHeight);
+  const maxTop = Math.min(
+    (scrollRect?.bottom ?? window.innerHeight) - FORK_BUTTON_SIZE - FORK_BUTTON_GAP,
+    bottomBubbleTop - FORK_BUTTON_SIZE - FORK_BUTTON_GAP,
+  );
+  const rootRect = root.getBoundingClientRect();
+  const right = Math.max(8, window.innerWidth - rootRect.right + FORK_BUTTON_GAP);
+  return { minTop, maxTop, right };
+}
+
+function readForkButtonFraction(): number | null {
+  try {
+    const value = Number(window.localStorage.getItem(FORK_BUTTON_POSITION_KEY));
+    return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveForkButtonFraction(top: number, minTop: number, maxTop: number) {
+  try {
+    const fraction = maxTop > minTop ? (top - minTop) / (maxTop - minTop) : 0;
+    window.localStorage.setItem(FORK_BUTTON_POSITION_KEY, String(Math.max(0, Math.min(1, fraction))));
+  } catch {
+    // Position persistence is best-effort; dragging still works for this render.
+  }
+}
 const CJK_PATTERN = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\uac00-\ud7af]/u;
 function estimateTokens(text: string): number {
   let cjk = 0;
@@ -339,6 +380,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const messageRootRef = useRef<HTMLDivElement | null>(null);
+  const forkButtonRef = useRef<HTMLButtonElement | null>(null);
+  const forkHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const forkPointerStartYRef = useRef<number | null>(null);
+  const forkDraggedRef = useRef(false);
+  const forkDraggingRef = useRef(false);
+  const [forkButtonTop, setForkButtonTop] = useState<number | null>(null);
+  const [forkDragging, setForkDragging] = useState(false);
 
   // Session files can hold `\r\n` or lone `\r` line endings (#680). Chrome renders
   // a lone `\r` as a space even in the pre-wrap command-args and raw-text views.
@@ -400,6 +449,35 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const canEdit = !!entryId && !!onEditContent;
   const canCancelEdit = !!isEditing && !!onCancelEdit;
 
+  useEffect(() => {
+    if (!hovered || !canFork || !messageRootRef.current) {
+      setForkButtonTop(null);
+      return;
+    }
+
+    const root = messageRootRef.current;
+    const chat = root.closest(".chat-content");
+    const scroll = chat?.querySelector<HTMLElement>("[data-chat-scroll-container]");
+    const updatePosition = () => {
+      if (!messageRootRef.current) return;
+      const { minTop, maxTop } = getForkButtonBounds(messageRootRef.current);
+      if (maxTop < minTop) {
+        setForkButtonTop(null);
+        return;
+      }
+      const fraction = readForkButtonFraction() ?? 0.5;
+      setForkButtonTop(minTop + (maxTop - minTop) * fraction);
+    };
+
+    updatePosition();
+    scroll?.addEventListener("scroll", updatePosition, { passive: true });
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      scroll?.removeEventListener("scroll", updatePosition);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [hovered, canFork]);
+
   const copyContent = () => {
     copyText(copyTarget).then(() => {
       setCopied(true);
@@ -409,9 +487,18 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 
   return (
     <div
+      ref={messageRootRef}
+      data-message-role="user"
       style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        if (forkHideTimerRef.current) clearTimeout(forkHideTimerRef.current);
+        setHovered(true);
+      }}
+      onMouseLeave={() => {
+        forkHideTimerRef.current = setTimeout(() => {
+          if (!forkDraggingRef.current) setHovered(false);
+        }, 700);
+      }}
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
@@ -599,30 +686,97 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               )}
               {canFork && (
                 <button
-                  onClick={() => { onFork!(entryId!); }}
-                  disabled={forking}
-                   title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: forking ? "var(--accent)" : "var(--text-dim)",
-                    cursor: forking ? "not-allowed" : "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
+                  ref={forkButtonRef}
+                  onClick={() => {
+                    if (forkDraggedRef.current) {
+                      forkDraggedRef.current = false;
+                      return;
+                    }
+                    onFork!(entryId!);
                   }}
-                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
+                  onFocus={() => setHovered(true)}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    if (forkHideTimerRef.current) clearTimeout(forkHideTimerRef.current);
+                    forkPointerStartYRef.current = event.clientY;
+                    forkDraggedRef.current = false;
+                    forkDraggingRef.current = true;
+                    setForkDragging(true);
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    if (forkButtonTop === null) {
+                      const bounds = messageRootRef.current && getForkButtonBounds(messageRootRef.current);
+                      if (bounds && bounds.maxTop >= bounds.minTop) setForkButtonTop(bounds.minTop + (bounds.maxTop - bounds.minTop) / 2);
+                    }
+                  }}
+                  onPointerMove={(event) => {
+                    if (!forkDraggingRef.current || !messageRootRef.current) return;
+                    const { minTop, maxTop } = getForkButtonBounds(messageRootRef.current);
+                    if (maxTop < minTop) return;
+                    const top = Math.max(minTop, Math.min(maxTop, event.clientY - FORK_BUTTON_SIZE / 2));
+                    if (forkPointerStartYRef.current !== null && Math.abs(event.clientY - forkPointerStartYRef.current) > 4) forkDraggedRef.current = true;
+                    setForkButtonTop(top);
+                  }}
+                  onPointerUp={(event) => {
+                    if (!forkDraggingRef.current) return;
+                    forkDraggingRef.current = false;
+                    setForkDragging(false);
+                    if (messageRootRef.current) {
+                      const { minTop, maxTop } = getForkButtonBounds(messageRootRef.current);
+                      const top = Math.max(minTop, Math.min(maxTop, event.clientY - FORK_BUTTON_SIZE / 2));
+                      if (maxTop >= minTop) {
+                        setForkButtonTop(top);
+                        saveForkButtonFraction(top, minTop, maxTop);
+                      }
+                    }
+                    forkPointerStartYRef.current = null;
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                    forkHideTimerRef.current = setTimeout(() => setHovered(false), 700);
+                  }}
+                  onPointerCancel={() => {
+                    forkDraggingRef.current = false;
+                    setForkDragging(false);
+                    forkPointerStartYRef.current = null;
+                  }}
+                  onMouseEnter={() => {
+                    if (forkHideTimerRef.current) clearTimeout(forkHideTimerRef.current);
+                    setHovered(true);
+                  }}
+                  onMouseLeave={() => {
+                    if (forkDraggingRef.current) return;
+                    forkHideTimerRef.current = setTimeout(() => setHovered(false), 700);
+                  }}
+                  disabled={forking}
+                  type="button"
+                  title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
+                  aria-label={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: FORK_BUTTON_SIZE, height: FORK_BUTTON_SIZE, padding: 0,
+                    position: "fixed",
+                    top: forkButtonTop ?? -FORK_BUTTON_SIZE - FORK_BUTTON_GAP,
+                    right: messageRootRef.current ? getForkButtonBounds(messageRootRef.current).right : FORK_BUTTON_GAP,
+                    zIndex: 45,
+                    opacity: hovered || forkDragging ? 1 : 0,
+                    pointerEvents: hovered || forkDragging ? "auto" : "none",
+                    visibility: (hovered || forkDragging) && canFork && forkButtonTop === null ? "hidden" : "visible",
+                    touchAction: "none",
+                    userSelect: "none",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 7,
+                    color: forking ? "var(--accent)" : "var(--text-dim)",
+                    cursor: forking ? "not-allowed" : forkDragging ? "grabbing" : "grab",
+                    boxShadow: hovered ? "0 2px 8px rgba(0,0,0,0.16)" : "none",
+                    transition: forkDragging ? "none" : "opacity 0.12s, color 0.12s, background 0.12s",
+                  }}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseOver={(event) => { if (!forking) event.currentTarget.style.color = "var(--accent)"; }}
+                  onMouseOut={(event) => { if (!forking) event.currentTarget.style.color = "var(--text-dim)"; }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
                   </svg>
-                   {forking ? t("i18n.creating") : t("i18n.newSession")}
                 </button>
               )}
             </div>
