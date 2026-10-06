@@ -1780,6 +1780,178 @@
   font-size: 12px;
 }
 
+.agents-resources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.agents-resources-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  min-width: 0;
+}
+.agents-resource-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+.agents-resource-summary-label {
+  flex: 1 1 90px;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+.agents-resource-summary-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  min-width: 0;
+}
+.agents-resource-count { color: var(--text-muted); white-space: nowrap; }
+.agents-resource-wildcard-mark {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg-selected);
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.agents-resource-warning { color: #d97706; font-weight: 600; }
+.agents-resource-choose { margin-left: auto; }
+
+/* The Resources picker overlay (portal). It is anchored to the active Choose button and
+   sits outside the settings scroll container, so it is never clipped or pushes
+   the rest of the profile editor down; it only scrolls its own list. */
+.agents-resource-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+.agents-resource-picker:focus { outline: none; }
+.agents-resource-picker-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.agents-resource-picker-header strong { min-width: 0; color: var(--text); font-size: 12px; }
+.agents-resource-picker-count { margin-left: auto; min-width: 0; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.agents-resource-picker-close {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.agents-resource-picker-close:hover { background: var(--bg-hover); color: var(--text); }
+/* The picker's master bulk control: a tri-state checkbox-styled toggle that
+   selects every enabled row or clears them, without a second text button. */
+.agents-resource-picker-bulk {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.agents-resource-picker-bulk:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.agents-resource-picker-bulk:disabled { opacity: 0.45; cursor: default; }
+.agents-resource-bulk-box { fill: none; stroke: currentColor; stroke-width: 1.3; }
+.agents-resource-bulk-check { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.agents-resource-bulk-dash { fill: currentColor; }
+.agents-resource-picker-bulk[data-state="all"] { color: var(--accent); }
+.agents-resource-picker-bulk[data-state="all"] .agents-resource-bulk-box { fill: var(--accent); stroke: var(--accent); }
+.agents-resource-picker-bulk[data-state="all"] .agents-resource-bulk-check { stroke: var(--bg); }
+.agents-resource-picker-bulk[data-state="partial"] { color: var(--accent); }
+.agents-resource-picker-bulk[data-state="partial"] .agents-resource-bulk-dash { fill: var(--accent); }
+.agents-resource-picker-search { flex-shrink: 0; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.agents-resource-picker-search input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+.agents-resource-picker-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 0; }
+.agents-resource-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; padding: 5px 10px; }
+.agents-resource-row + .agents-resource-row { border-top: 1px solid var(--border); }
+.agents-resource-row-main { display: flex; flex: 1 1 140px; align-items: center; gap: 7px; min-width: 0; cursor: pointer; }
+.agents-resource-row-main:has(input:disabled) { cursor: default; color: var(--text-dim); }
+.agents-resource-row-main input { flex-shrink: 0; margin: 0; }
+.agents-resource-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-resource-expand {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+}
+.agents-resource-expand:hover { background: var(--bg-hover); color: var(--text); }
+.agents-resource-detail {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 0 2px 21px;
+}
+.agents-resource-detail-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; }
+.agents-resource-detail-label { flex-shrink: 0; color: var(--text-dim); font-size: 10px; }
+.agents-resource-source, .agents-resource-path {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-dim);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.agents-resource-unknown-note { flex: 1 1 100%; color: #d97706; font-size: 10px; }
+.agents-resource-row.is-unknown { color: #d97706; }
+.agents-resource-row.is-wildcard .agents-resource-name { color: var(--text-muted); }
+@media (max-width: 640px) { .agents-resources-grid { grid-template-columns: minmax(0, 1fr); } }
+
 .settings-general-error {
   margin: 8px 0 0;
   color: #ef4444;

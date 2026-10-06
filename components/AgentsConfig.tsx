@@ -37,6 +37,7 @@ import {
   ConfigSwitch,
 } from "./SettingsUi";
 import { ModelSelector } from "./ModelSelector";
+import { AgentResourceControls } from "./AgentResourceControls";
 import { projectTrustReloadKey } from "./settings-ui-helpers";
 
 const TOOL_OPTIONS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -87,6 +88,13 @@ function editableProfile(profile: SubagentProfile): EditableProfile {
     tools: [...profile.tools],
     loadSkills: profile.loadSkills,
     loadExtensions: profile.loadExtensions,
+    skills: profile.skills ?? profile.loadSkills,
+    extensions: profile.extensions ?? profile.loadExtensions,
+    extensionTools: profile.extensionTools ? [...profile.extensionTools] : undefined,
+    disallowedExtensionTools: profile.disallowedExtensionTools ? [...profile.disallowedExtensionTools] : undefined,
+    color: profile.color,
+    isolation: profile.isolation,
+    persistSession: profile.persistSession,
     promptMode: profile.promptMode,
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.thinking ? { thinking: profile.thinking } : {}),
@@ -168,6 +176,7 @@ export function AgentsConfig({
   const [selectedKey, setSelectedKey] = useState<string | null>(() => getLastSettingsSelection("agents", cwd));
   const [draft, setDraft] = useState<EditableProfile>(EMPTY_PROFILE);
   const [mode, setMode] = useState<EditorMode>("view");
+  const [cloneFrom, setCloneFrom] = useState<Pick<SubagentProfile, "name" | "scope"> | null>(null);
   const [targetScope, setTargetScope] = useState<SubagentWritableScope>("global");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -282,6 +291,7 @@ export function AgentsConfig({
   }, [cwd, trustKey]);
 
   const selectProfile = (profile: SubagentProfile) => {
+    setCloneFrom(null);
     setSelectedKey(profileKey(profile));
     setDraft(editableProfile(profile));
     setMode(isWritableScope(profile.scope) ? "edit" : "view");
@@ -290,6 +300,7 @@ export function AgentsConfig({
   };
 
   const beginCreate = () => {
+    setCloneFrom(null);
     let name = "custom-agent";
     let suffix = 2;
     while (profiles.some((profile) => profile.name === name)) name = `custom-agent-${suffix++}`;
@@ -303,6 +314,7 @@ export function AgentsConfig({
   const beginDuplicate = () => {
     if (!selected) return;
     const name = duplicateProfileName(selected.name, profiles);
+    setCloneFrom({ name: selected.name, scope: selected.scope });
     setSelectedKey(null);
     setDraft({
       ...editableProfile(selected),
@@ -322,7 +334,7 @@ export function AgentsConfig({
       const response = await fetch("/api/subagents/profiles", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd, scope: targetScope, profile: draft }),
+        body: JSON.stringify({ cwd, scope: targetScope, profile: draft, ...(creating && cloneFrom ? { cloneFrom } : {}) }),
       });
       const data = await response.json() as { profile?: SubagentProfile; error?: string };
       if (!response.ok || data.error || !data.profile) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -607,10 +619,14 @@ export function AgentsConfig({
                   </Field>
 
                   <Field label={t("agents.resources")}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
-                      <Toggle label={t("agents.loadSkills")} disabled={disabled} checked={draft.loadSkills} onChange={(checked) => update("loadSkills", checked)} />
-                      <Toggle label={t("agents.loadExtensions")} disabled={disabled} checked={draft.loadExtensions} onChange={(checked) => update("loadExtensions", checked)} />
-                    </div>
+                    <AgentResourceControls
+                      cwd={cwd} trustKey={trustKey}
+                      profileKey={selectedKey ?? "create"}
+                      skills={draft.skills ?? draft.loadSkills}
+                      extensions={draft.extensions ?? draft.loadExtensions}
+                      disabled={disabled}
+                      onChange={(kind, value) => setDraft((current) => ({ ...current, [kind]: value, [kind === "skills" ? "loadSkills" : "loadExtensions"]: value !== false }))}
+                    />
                   </Field>
 
                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.5fr) minmax(120px, 0.75fr) minmax(100px, 0.5fr)", gap: 12 }}>

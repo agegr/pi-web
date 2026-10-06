@@ -31,6 +31,18 @@ The wrapper reconciles unauthorized active tools after its single bind, after bo
 
 **SDK limitation:** there is no public registration-policy hook. Denied tools may remain in `getAllTools()` or briefly become active between boundaries, but execution is guarded. This is not hard registry filtering or a sandbox for trusted extension JavaScript. No private registry mutation or duplicate bind is used.
 
+## Resource picker UI
+
+Settings › Sub-agents uses shared `SettingsUi` blocks and the existing profile draft/Save flow. Built-in profiles remain read-only. Each resource row shows All enabled, Disabled or a selected count, with a Choose button and visible unknown/ambiguous warnings; there is no mode dropdown or always-expanded list.
+
+- One checkbox picker opens beside the current button. Search filters the view, not the selection. Source/path details expand on demand, and packaged skills keep their effective SDK names.
+- The header has one tri-state bulk toggle. Selecting all writes explicit paths for the complete enabled catalog, preserving unknown/ambiguous entries; clearing writes `false`. It never converts a complete list into future-enabled `true`/`*`. Loading, unavailable and read-only catalogs disable bulk editing.
+- Unchecking one item from All or `*` narrows the draft to explicit current entries. Opening, searching, retrying and closing never change or save the draft.
+- Escape and the close button restore the visible current trigger. Outside interaction, native Tab leaving the picker, hidden sections, offscreen anchors and profile/cwd/trust changes close without stealing focus. Both summary buttons remain available for one-click kind switching.
+- Fixed positioning uses layout-viewport coordinates and clamps to the visual viewport, including its offsets. It flips above near the lower edge. Initial focus follows the pointer type: search for a fine pointer, panel for a coarse pointer; viewport resize does not refocus the picker.
+
+Component tests cover draft and matching rules, bulk scope, dismissal, positioning and focus policy. Browser acceptance uses isolated catalogs and in-memory storage; no real profile write is needed.
+
 ## Regression coverage
 
 - Resource integration tests use temporary HOME/agentDir/cwd and separate module/factory markers to verify pre-import exclusion, scope preservation, trust transitions, dynamic skills and cold restoration. Rejecting npm fixtures prohibit installation and remote commands.
