@@ -985,11 +985,6 @@ pre, code {
   color: var(--text-muted);
   font-size: 12px;
 }
-.compaction-file-details summary {
-  cursor: pointer;
-  font-weight: 600;
-  line-height: 1.4;
-}
 .compaction-file-section {
   margin-top: 8px;
 }

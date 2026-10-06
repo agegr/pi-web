@@ -63,7 +63,7 @@ test("previews the first thinking line and reveals the full text with the saved 
       assert.match(html, new RegExp(`aria-expanded="${expanded}"`));
       assert.equal((html.match(/>[^<]*Independent reasoning[^<]*</g) ?? []).length, 1);
       assert.equal(html.includes("Detailed second line."), expanded);
-      assert.match(html, /aria-label="Thinking: /);
+      assert.match(html, /aria-label="Thinking"/);
       assert.match(html, /3s/);
     }
   } finally {

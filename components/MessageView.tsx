@@ -1,15 +1,13 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
-import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { CollapseTopBar, CollapseBottomBar } from "./CollapseBars";
 import { ImagePreview } from "./ImagePreview";
-import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock } from "@/lib/message-display";
+import { formatCompactNumber, formatElapsed, getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
@@ -1048,60 +1046,37 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
 
   return (
     <div style={{
-      display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0,
+      display: "flex", flexDirection: "column", minWidth: 0,
       border: "1px solid var(--border)",
       borderRadius: 7,
-      padding: "6px 10px",
       background: "var(--bg)",
       fontFamily: "var(--font-mono)",
       fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
       lineHeight: 1.5,
+      overflow: "hidden",
     }}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-label={`${t("i18n.thinking")}${preview ? `: ${preview}` : ""}`}
-        title={t("i18n.thinking")}
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          width: expanded ? 14 : "100%",
-          flexShrink: expanded ? 0 : 1,
-          minWidth: 0,
-          minHeight: "1.5em",
-          padding: 0,
-          background: "transparent",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          font: "inherit",
-          textAlign: "left",
-        }}
-      >
-        <ThinkingIcon active={expanded} />
-        {!expanded && (
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {preview ? <ReactMarkdown allowedElements={[]} unwrapDisallowed skipHtml>{preview}</ReactMarkdown> : "..."}
-          </span>
-        )}
-      </button>
+      <CollapseTopBar
+        expanded={expanded}
+        onToggle={() => setExpanded((v) => !v)}
+        label={
+          preview && !expanded ? (
+            <>
+              {t("i18n.thinking")} <span style={{ color: "var(--text-dim)" }}>{preview}</span>
+            </>
+          ) : (
+            t("i18n.thinking")
+          )
+        }
+        meta={duration !== undefined ? `${duration}s` : undefined}
+        ariaLabel={t("i18n.thinking")}
+      />
       {expanded && (
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            color: error ? "#f87171" : "var(--text-muted)",
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-        >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
-        </div>
-      )}
-      {duration !== undefined && (
-        <span style={{ flexShrink: 0, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+        <>
+          <div style={{ padding: "6px 10px", color: error ? "#f87171" : "var(--text-muted)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+          </div>
+          <CollapseBottomBar onCollapse={() => setExpanded(false)} />
+        </>
       )}
     </div>
   );
@@ -1278,6 +1253,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
           />
         )
       )}
+      {expanded && <CollapseBottomBar onCollapse={toggleExpanded} />}
     </div>
   );
 }
@@ -1634,11 +1610,26 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const { t } = useI18n();
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
-  const time = formatTime(message.timestamp);
-  const details = message.details as { tokensBefore?: unknown } | undefined;
+  const details = message.details as {
+    tokensBefore?: unknown;
+    estimatedTokensAfter?: unknown;
+    elapsedMs?: unknown;
+  } | undefined;
   const tokensBefore = typeof details?.tokensBefore === "number" ? details.tokensBefore : undefined;
+  const tokensAfter = typeof details?.estimatedTokensAfter === "number" ? details.estimatedTokensAfter : undefined;
+  const elapsedMs = typeof details?.elapsedMs === "number" ? details.elapsedMs : undefined;
   const bodyChars = parsedSummary.body.length;
   const [summaryExpanded, setSummaryExpanded] = useState(false);
+
+  const parts: string[] = [];
+  if (bodyChars > 0) parts.push(formatMessageBytes(bodyChars));
+  if (typeof tokensBefore === "number") {
+    parts.push(
+      typeof tokensAfter === "number"
+        ? t("i18n.compactionTokenRange", { before: formatCompactNumber(tokensBefore), after: formatCompactNumber(tokensAfter) })
+        : t("i18n.compactionTokens", { count: formatCompactNumber(tokensBefore) }),
+    );
+  }
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1647,57 +1638,33 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           border: "1px solid var(--border)",
           borderRadius: 8,
           overflow: "hidden",
-          background: "var(--bg)",
+          background: "var(--bg-panel)",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "7px 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: "var(--text-muted)",
-          }}
-        >
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            compaction
-          </span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
-        </div>
-
-        <div style={{ padding: "11px 13px 12px" }}>
-          <div style={{ color: "var(--text)", fontSize: "calc(15px + var(--chat-font-size-offset, 0px))", fontWeight: 700, lineHeight: 1.35 }}>
-             {t("i18n.conversationCompacted")}
-          </div>
-          {typeof tokensBefore === "number" && (
-            <div style={{ marginTop: 3, color: "var(--text-muted)", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.4 }}>
-              {t("i18n.tokensBefore", { count: tokensBefore.toLocaleString() })}
-            </div>
-          )}
-          {bodyChars > 0 ? (
-            <>
-              <CollapseTopBar
-                expanded={summaryExpanded}
-                onToggle={() => setSummaryExpanded((v) => !v)}
-                label={t("i18n.showSummary", { size: formatMessageBytes(bodyChars) })}
-                style={{ marginTop: 10 }}
-              />
-              {summaryExpanded && (
-                <>
-                  <div style={{ marginTop: 8 }}>
-                    <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
-                  </div>
-                  <CollapseBottomBar onCollapse={() => setSummaryExpanded(false)} />
-                </>
+        <CollapseTopBar
+          expanded={summaryExpanded}
+          onToggle={() => setSummaryExpanded((v) => !v)}
+          label={t("i18n.compaction")}
+          meta={(() => {
+            const metaItems = [...parts];
+            if (typeof elapsedMs === "number" && elapsedMs > 0) metaItems.push(formatElapsed(elapsedMs));
+            return metaItems.length > 0 ? metaItems.join(" \u00b7 ") : null;
+          })()}
+          ariaLabel={t("i18n.compaction")}
+                />
+        {summaryExpanded && (
+          <>
+            <div style={{ padding: "11px 13px 0" }}>
+              {bodyChars > 0 ? (
+                <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+              ) : (
+                <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
               )}
-            </>
-          ) : (
-             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
-          )}
-          <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
-        </div>
+            </div>
+            <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
+            <CollapseBottomBar onCollapse={() => setSummaryExpanded(false)} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -1706,6 +1673,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
 function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: string[]; modifiedFiles: string[] }) {
   const { t } = useI18n();
   const total = readFiles.length + modifiedFiles.length;
+  const [expanded, setExpanded] = useState(false);
   if (total === 0) return null;
 
   const parts = [];
@@ -1713,11 +1681,20 @@ function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: strin
   if (modifiedFiles.length > 0) parts.push(`${modifiedFiles.length} modified`);
 
   return (
-    <details className="compaction-file-details">
-       <summary>{t("i18n.fileContext", { details: parts.join(", ") })}</summary>
-       {modifiedFiles.length > 0 && <CompactionFileList title={t("i18n.modifiedFiles")} files={modifiedFiles} />}
-       {readFiles.length > 0 && <CompactionFileList title={t("i18n.readFiles")} files={readFiles} />}
-    </details>
+    <div className="compaction-file-details">
+      <CollapseTopBar
+        expanded={expanded}
+        onToggle={() => setExpanded((v) => !v)}
+        label={t("i18n.fileContext", { details: parts.join(", ") })}
+      />
+      {expanded && (
+        <>
+          {modifiedFiles.length > 0 && <CompactionFileList title={t("i18n.modifiedFiles")} files={modifiedFiles} />}
+          {readFiles.length > 0 && <CompactionFileList title={t("i18n.readFiles")} files={readFiles} />}
+          <CollapseBottomBar onCollapse={() => setExpanded(false)} />
+        </>
+      )}
+    </div>
   );
 }
 

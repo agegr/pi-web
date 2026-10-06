@@ -79,3 +79,29 @@ export function splitFinalAssistantBlocks(
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
 }
+
+/**
+ * Render a millisecond duration compactly: empty for none, `45s` under a
+ * minute, otherwise `3m 12s`.
+ */
+/** Render a token count compactly: 21851 -> "21.9k", 3201 -> "3.2k". */
+export function formatCompactNumber(value: number): string {
+  const n = Math.round(value);
+  const abs = Math.abs(n);
+  if (abs < 1_000) return String(n);
+  if (abs < 1_000_000) {
+    const k = n / 1000;
+    return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : String(Math.round(k))}k`;
+  }
+  const m = n / 1_000_000;
+  return `${m < 10 ? m.toFixed(1).replace(/\.0$/, "") : String(Math.round(m))}M`;
+}
+
+export function formatElapsed(ms: number | undefined | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "";
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
