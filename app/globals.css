@@ -933,20 +933,51 @@ pre, code {
   margin: 6px 0;
 }
 
-.compaction-summary-details {
-  margin-top: 10px;
+/* Unified collapse bars for every collapsible chat section (thinking,
+   process details, compaction summary). The top bar toggles expansion;
+   the bottom bar is only visible while expanded and collapses. */
+.collapse-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
-}
-.compaction-summary-details summary {
   cursor: pointer;
-  font-weight: 600;
-  line-height: 1.4;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
 }
-.compaction-summary-details .markdown-compaction-message {
-  margin-top: 8px;
+.collapse-bar:hover {
+  color: var(--text);
 }
-
+.collapse-bar-static {
+  cursor: default;
+}
+.collapse-bar-static:hover {
+  color: var(--text-muted);
+}
+.collapse-bar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collapse-bar-meta {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.collapse-bar-bottom {
+  justify-content: center;
+  cursor: pointer;
+}
 .compaction-file-details {
   margin-top: 10px;
   padding-top: 8px;

@@ -3,6 +3,7 @@
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
+import { CollapseTopBar, CollapseBottomBar } from "./CollapseBars";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
@@ -1637,6 +1638,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const details = message.details as { tokensBefore?: unknown } | undefined;
   const tokensBefore = typeof details?.tokensBefore === "number" ? details.tokensBefore : undefined;
   const bodyChars = parsedSummary.body.length;
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1675,10 +1677,22 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
             </div>
           )}
           {bodyChars > 0 ? (
-            <details className="compaction-summary-details">
-              <summary>{t("i18n.showSummary", { size: formatMessageBytes(bodyChars) })}</summary>
-              <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
-            </details>
+            <>
+              <CollapseTopBar
+                expanded={summaryExpanded}
+                onToggle={() => setSummaryExpanded((v) => !v)}
+                label={t("i18n.showSummary", { size: formatMessageBytes(bodyChars) })}
+                style={{ marginTop: 10 }}
+              />
+              {summaryExpanded && (
+                <>
+                  <div style={{ marginTop: 8 }}>
+                    <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+                  </div>
+                  <CollapseBottomBar onCollapse={() => setSummaryExpanded(false)} />
+                </>
+              )}
+            </>
           ) : (
              <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
           )}
