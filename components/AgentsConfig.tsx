@@ -38,6 +38,7 @@ import {
 } from "./SettingsUi";
 import { ModelSelector } from "./ModelSelector";
 import { AgentResourceControls } from "./AgentResourceControls";
+import { AgentMcpControls } from "./AgentMcpControls";
 import { projectTrustReloadKey } from "./settings-ui-helpers";
 
 const TOOL_OPTIONS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -54,6 +55,9 @@ const EMPTY_PROFILE: EditableProfile = {
   tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
   loadSkills: false,
   loadExtensions: false,
+  codeMode: false,
+  loadMcp: false,
+  mcpServers: [],
   promptMode: "append",
   inheritContext: false,
   runInBackground: false,
@@ -79,7 +83,7 @@ const disabledInputStyle: CSSProperties = {
   cursor: "default",
 };
 
-function editableProfile(profile: SubagentProfile): EditableProfile {
+export function editableProfile(profile: SubagentProfile): EditableProfile {
   return {
     name: profile.name,
     displayName: profile.displayName,
@@ -88,6 +92,9 @@ function editableProfile(profile: SubagentProfile): EditableProfile {
     tools: [...profile.tools],
     loadSkills: profile.loadSkills,
     loadExtensions: profile.loadExtensions,
+    codeMode: profile.codeMode ?? false,
+    loadMcp: profile.loadMcp ?? false,
+    mcpServers: (profile.mcpServers ?? []).map((ref) => ({ ...ref })),
     skills: profile.skills ?? profile.loadSkills,
     extensions: profile.extensions ?? profile.loadExtensions,
     extensionTools: profile.extensionTools ? [...profile.extensionTools] : undefined,
@@ -626,6 +633,14 @@ export function AgentsConfig({
                       extensions={draft.extensions ?? draft.loadExtensions}
                       disabled={disabled}
                       onChange={(kind, value) => setDraft((current) => ({ ...current, [kind]: value, [kind === "skills" ? "loadSkills" : "loadExtensions"]: value !== false }))}
+                    />
+                    <AgentMcpControls
+                      cwd={cwd} trustKey={trustKey} profileKey={selectedKey ?? draft.name}
+                      codeMode={draft.codeMode ?? false} loadMcp={draft.loadMcp ?? false}
+                      mcpServers={draft.mcpServers ?? []} disabled={disabled}
+                      onCodeModeChange={(value) => update("codeMode", value)}
+                      onLoadMcpChange={(value) => update("loadMcp", value)}
+                      onServersChange={(refs) => update("mcpServers", refs)}
                     />
                   </Field>
 

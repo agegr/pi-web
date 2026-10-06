@@ -1947,6 +1947,9 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
+.agents-mcp-name { min-width: 0; overflow-wrap: anywhere; }
+.agents-mcp-row-note { flex: 1 1 100%; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.agents-mcp-notice { flex-shrink: 0; padding: 6px 10px; font-size: 11px; overflow-wrap: anywhere; }
 .agents-resource-unknown-note { flex: 1 1 100%; color: #d97706; font-size: 10px; }
 .agents-resource-row.is-unknown { color: #d97706; }
 .agents-resource-row.is-wildcard .agents-resource-name { color: var(--text-muted); }

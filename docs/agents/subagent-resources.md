@@ -45,7 +45,7 @@ Profiles add `code_mode` / `load_mcp` booleans and `mcp_servers: [{scope: "globa
 
 ## Resource picker UI
 
-Settings › Sub-agents uses shared `SettingsUi` blocks and the existing profile draft/Save flow. Built-in profiles remain read-only. Each resource row shows All enabled, Disabled or a selected count, with a Choose button and visible unknown/ambiguous warnings; there is no mode dropdown or always-expanded list.
+Settings › Sub-agents uses shared `SettingsUi` blocks and the existing profile draft/Save flow. Built-in profiles remain read-only. Skills/extensions summaries and the independent Code mode/MCP switches share the Resources field's compact two-column cards, stacking on narrow screens. Each resource row shows All enabled, Disabled or a selected count, with a Choose button and visible unknown/ambiguous warnings; there is no mode dropdown or always-expanded list. MCP chooses scoped identities from files-only `GET /api/mcp`, never writes server configuration, enables a server or runs Test/Sign-in.
 
 - One checkbox picker opens beside the current button. Search filters the view, not the selection. Source/path details expand on demand, and packaged skills keep their effective SDK names.
 - The header has one tri-state bulk toggle. Selecting all writes explicit paths for the complete enabled catalog, preserving unknown/ambiguous entries; clearing writes `false`. It never converts a complete list into future-enabled `true`/`*`. Loading, unavailable and read-only catalogs disable bulk editing.

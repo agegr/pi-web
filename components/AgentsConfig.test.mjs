@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
+const { editableProfile } = await jiti.import("./AgentsConfig.tsx");
 
 const source = await readFile(new URL("./AgentsConfig.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
@@ -147,6 +151,39 @@ test("duplicates any selected profile through the existing create flow", () => {
 
 test("places duplicate and delete immediately before the enabled switch", () => {
   assert.match(source, /onClick=\{beginDuplicate\}[\s\S]*?onClick=\{\(\) => void remove\(\)\}[\s\S]*?<ConfigSwitch checked=\{draft\.enabled\}/);
+});
+
+test("round-trips Code mode and dormant scoped MCP refs through selected and cloned drafts", () => {
+  const profile = {
+    name: "fixture", displayName: "Fixture", description: "", systemPrompt: "",
+    tools: ["read"], loadSkills: false, loadExtensions: false, skills: false, extensions: false,
+    promptMode: "replace", inheritContext: false, runInBackground: false, enabled: true,
+    scope: "builtin", codeMode: true, loadMcp: false,
+    mcpServers: [{ scope: "global", name: "a-b" }, { scope: "project", name: "a-b" }, { scope: "project", name: "missing" }],
+  };
+  const selectedDraft = editableProfile(profile);
+  const clonedDraft = { ...editableProfile(profile), name: "fixture-copy" };
+  for (const draft of [selectedDraft, clonedDraft]) {
+    const payload = JSON.parse(JSON.stringify({ cwd: "/fixture", scope: "global", profile: draft }));
+    assert.equal(payload.profile.codeMode, true);
+    assert.equal(payload.profile.loadMcp, false);
+    assert.deepEqual(payload.profile.mcpServers, profile.mcpServers);
+    assert.notEqual(draft.mcpServers, profile.mcpServers);
+    assert.notEqual(draft.mcpServers[0], profile.mcpServers[0]);
+    assert.equal("scope" in payload.profile, false);
+    assert.equal("filePath" in payload.profile, false);
+  }
+  const legacy = { ...profile };
+  for (const field of ["codeMode", "loadMcp", "mcpServers"]) delete legacy[field];
+  const legacyDraft = editableProfile(legacy);
+  assert.equal(legacyDraft.codeMode, false);
+  assert.equal(legacyDraft.loadMcp, false);
+  assert.deepEqual(legacyDraft.mcpServers, []);
+  assert.match(source, /const EMPTY_PROFILE[\s\S]*?codeMode: false,[\s\S]*?loadMcp: false,[\s\S]*?mcpServers: \[\]/);
+  assert.match(source, /setDraft\(editableProfile\(chosen\)\)/);
+  assert.match(source, /setDraft\(editableProfile\(profile\)\)/);
+  assert.match(source, /<AgentMcpControls[\s\S]*?disabled=\{disabled\}[\s\S]*?onCodeModeChange=\{\(value\) => update\("codeMode", value\)\}/);
+  assert.match(source, /onServersChange=\{\(refs\) => update\("mcpServers", refs\)\}/);
 });
 
 test("confirms deletion and limits it to writable profiles", () => {
