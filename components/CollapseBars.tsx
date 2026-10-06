@@ -4,8 +4,9 @@ import type { CSSProperties, ReactNode } from "react";
  * Shared collapse-bar primitives. Every collapsible section in the chat
  * (thinking blocks, process details, compaction summaries) uses the same
  * pattern: a top bar that toggles expansion and, while expanded, a bottom
- * bar that collapses. Both bars show a chevron that rotates with the state
- * so the section's status and interactivity are visible on either edge.
+ * bar that collapses. The top bar's chevron sits on the right (like the
+ * tool-call headers) and rotates with the state; the bottom bar's chevron
+ * points up, signalling that it collapses the section upward.
  */
 
 export function CollapseChevron({ expanded, size = 12 }: { expanded: boolean; size?: number }) {
@@ -26,6 +27,24 @@ export function CollapseChevron({ expanded, size = 12 }: { expanded: boolean; si
   );
 }
 
+export function CollapseUpChevron({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+    >
+      <polyline points="3 8 6 4.5 9 8" />
+    </svg>
+  );
+}
+
 export function CollapseTopBar({ expanded, onToggle, label, meta, ariaLabel, title, style }: {
   expanded: boolean;
   /** Omit for sections with nothing to expand — rendered as a static header. */
@@ -38,9 +57,9 @@ export function CollapseTopBar({ expanded, onToggle, label, meta, ariaLabel, tit
 }) {
   const inner = (
     <>
-      <CollapseChevron expanded={expanded} />
       <span className="collapse-bar-label">{label}</span>
       {meta != null && <span className="collapse-bar-meta">{meta}</span>}
+      <CollapseChevron expanded={expanded} />
     </>
   );
   if (!onToggle) {
@@ -79,7 +98,7 @@ export function CollapseBottomBar({ onCollapse, label, title, style }: {
       title={title}
       style={style}
     >
-      <CollapseChevron expanded />
+      <CollapseUpChevron />
       {label != null && <span className="collapse-bar-label">{label}</span>}
     </button>
   );
