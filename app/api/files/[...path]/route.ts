@@ -19,7 +19,7 @@ import {
   getVideoMime,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
-import { getFileTreeVisibility } from "@/lib/file-tree-visibility";
+import { getFileTreeHiddenReasons } from "@/lib/file-tree-visibility";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import {
@@ -658,17 +658,22 @@ export async function GET(
       return NextResponse.json({ error: "Not a directory" }, { status: 400 });
     }
 
+    // `hidden=1` (the explorer's "show hidden" switch) also lists what Git
+    // ignores and what the name list hides, marked with the reason; `.git`
+    // and `.DS_Store` stay out either way.
+    const showHidden = request.nextUrl.searchParams.get("hidden") === "1";
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
     const dirents = fs.readdirSync(filePath, { withFileTypes: true });
-    const isVisible = await getFileTreeVisibility(filePath, dirents.map((d) => d.name));
+    const hiddenReason = await getFileTreeHiddenReasons(filePath, dirents.map((d) => d.name));
     const entries = dirents
-      .filter((d) => isVisible(d.name))
       .flatMap((d) => {
+        const hidden = hiddenReason(d.name);
+        if (hidden === "always" || (hidden && !showHidden)) return [];
         const isDir = resolveDirentIsDirectory(d, path.join(filePath, d.name));
-        return isDir === null
-          ? []
-          : [{ name: d.name, isDir, size: 0, modified: "" }];
+        if (isDir === null) return [];
+        const entry = { name: d.name, isDir, size: 0, modified: "" };
+        return [hidden ? { ...entry, hidden } : entry];
       })
       .sort((a, b) => {
         // Dirs first, then files, both alphabetically

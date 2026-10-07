@@ -10,8 +10,18 @@ import { execFile } from "child_process";
 // are hidden either way, as in VS Code's default excludes.
 //
 // This is visibility only. Hidden entries stay readable through /api/files,
-// which authorizes by allowed root and never consults this module.
+// which authorizes by allowed root and never consults this module. The
+// explorer's "show hidden" switch lists the Git-ignored and name-list entries
+// with their reason; `.git` and `.DS_Store` stay out either way.
 // ============================================================================
+
+/**
+ * Why an entry is left out of the default listing:
+ * - `ignored`: the Git work tree ignores it.
+ * - `excluded`: the name list, where Git has no view of the directory.
+ * - `always`: `.git` and `.DS_Store`, never listed.
+ */
+export type FileTreeHiddenReason = "ignored" | "excluded" | "always";
 
 const HIDDEN_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -145,13 +155,25 @@ export async function readGitIgnoredNames(
   return new Set(matched.filter((name) => !tracked.has(name)));
 }
 
+/** Build the test of why an entry of one listing of `directory` is hidden; null when it is shown. */
+export async function getFileTreeHiddenReasons(
+  directory: string,
+  names: readonly string[],
+): Promise<(name: string) => FileTreeHiddenReason | null> {
+  const candidates = names.filter((name) => !ALWAYS_HIDDEN_NAMES.has(name));
+  const ignored = candidates.length > 0 ? await readGitIgnoredNames(directory, candidates) : null;
+  return (name) => {
+    if (ALWAYS_HIDDEN_NAMES.has(name)) return "always";
+    if (!ignored) return isHiddenOutsideGit(name) ? "excluded" : null;
+    return ignored.has(name) ? "ignored" : null;
+  };
+}
+
 /** Build the visibility test for one listing of `directory`. */
 export async function getFileTreeVisibility(
   directory: string,
   names: readonly string[],
 ): Promise<(name: string) => boolean> {
-  const candidates = names.filter((name) => !ALWAYS_HIDDEN_NAMES.has(name));
-  const ignored = candidates.length > 0 ? await readGitIgnoredNames(directory, candidates) : null;
-  if (!ignored) return (name) => !isHiddenOutsideGit(name);
-  return (name) => !ALWAYS_HIDDEN_NAMES.has(name) && !ignored.has(name);
+  const hiddenReason = await getFileTreeHiddenReasons(directory, names);
+  return (name) => hiddenReason(name) === null;
 }

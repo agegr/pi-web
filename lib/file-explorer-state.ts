@@ -34,3 +34,27 @@ export function saveExplorerOpen(
     // Persistence is best-effort; privacy mode and storage quotas must not break the explorer.
   }
 }
+
+const SHOW_HIDDEN_STORAGE_KEY = "pi-web:file-explorer:show-hidden";
+
+/** The explorer's "show hidden files" switch; off unless the browser saved it on. */
+export function loadExplorerShowHidden(storage: StorageLike | null = getBrowserStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(SHOW_HIDDEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveExplorerShowHidden(
+  show: boolean,
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(SHOW_HIDDEN_STORAGE_KEY, String(show));
+  } catch {
+    // Best-effort, as for the open state.
+  }
+}

@@ -70,3 +70,34 @@ test("keeps the name list for a directory outside Git", async () => {
 
   assert.deepEqual(await listNames(plain), ["src"]);
 });
+
+test("hidden=1 also lists ignored and name-list entries with their reason, never .git", async () => {
+  const repo = path.join(root, "repo-hidden");
+  write(path.join(repo, ".gitignore"), "dist/\n");
+  write(path.join(repo, "dist/bundle.js"));
+  write(path.join(repo, "src/main.ts"));
+  execFileSync("git", ["-C", repo, "init", "-q"]);
+  execFileSync("git", ["-C", repo, "add", ".gitignore", "src"]);
+
+  const response = await request(repo, "list&hidden=1");
+  assert.equal(response.status, 200);
+  const { entries } = await response.json();
+  assert.deepEqual(
+    entries.map(({ name, hidden }) => ({ name, hidden })),
+    [
+      { name: "dist", hidden: "ignored" },
+      { name: "src", hidden: undefined },
+      { name: ".gitignore", hidden: undefined },
+    ],
+  );
+
+  const plain = path.join(root, "plain-hidden");
+  write(path.join(plain, "node_modules/pkg/index.js"));
+  write(path.join(plain, "src/main.ts"));
+  const plainResponse = await request(plain, "list&hidden=1");
+  const plainEntries = (await plainResponse.json()).entries;
+  assert.deepEqual(
+    plainEntries.map(({ name, hidden }) => ({ name, hidden })),
+    [{ name: "node_modules", hidden: "excluded" }, { name: "src", hidden: undefined }],
+  );
+});

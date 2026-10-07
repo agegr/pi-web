@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
-import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import { loadExplorerOpen, loadExplorerShowHidden, saveExplorerOpen, saveExplorerShowHidden } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
@@ -430,6 +430,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
+  const [explorerShowHidden, setExplorerShowHidden] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
@@ -598,6 +599,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // preference after hydration so a collapsed explorer stays collapsed on reload.
   useEffect(() => {
     setExplorerOpen(loadExplorerOpen());
+    setExplorerShowHidden(loadExplorerShowHidden());
   }, []);
 
   // Only the server can raise a file-manager window, and only when the browser
@@ -2031,6 +2033,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             )}
             {explorerOpen && (
               <ToolbarIconButton
+                onClick={() => setExplorerShowHidden((show) => {
+                  const next = !show;
+                  saveExplorerShowHidden(next);
+                  return next;
+                })}
+                title={t(explorerShowHidden ? "sidebar.hideIgnoredFiles" : "sidebar.showIgnoredFiles")}
+                ariaPressed={explorerShowHidden}
+                color={explorerShowHidden ? "var(--accent)" : "var(--text-dim)"}
+                background={explorerShowHidden ? "var(--bg-selected)" : "none"}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                  <circle cx="12" cy="12" r="3" />
+                  {!explorerShowHidden && <path d="m3 3 18 18" />}
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {explorerOpen && (
+              <ToolbarIconButton
                 onClick={() => fileExplorerRef.current?.openUploadPicker()}
                 disabled={explorerUploadBusy}
                 title={t("sidebar.uploadFilesTitle")}
@@ -2089,6 +2110,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onChangesCountChange={setChangesCount}
                 fileSearchOpen={fileSearchOpen}
                 onFileSearchOpenChange={setFileSearchOpen}
+                showHidden={explorerShowHidden}
               />
             </div>
           )}
