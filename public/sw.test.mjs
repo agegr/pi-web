@@ -157,13 +157,15 @@ function installOfflineStub() {
 
 function dispatchFetch(url, { mode = "cors", method = "GET" } = {}) {
   let pending;
+  const background = [];
   const request = new Request(url, { method });
   Object.defineProperty(request, "mode", { value: mode });
   listeners.get("fetch")({
     request,
     respondWith: (promise) => { pending = promise; },
+    waitUntil: (promise) => { background.push(promise); },
   });
-  return pending;
+  return { pending, background };
 }
 
 /** fetch() that never settles until the signal it was handed is aborted. */
@@ -191,7 +193,7 @@ test("a stalled navigation falls back to offline.html", async () => {
 
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    const pending = dispatchFetch("https://pi.test/", { mode: "navigate" });
+    const { pending } = dispatchFetch("https://pi.test/", { mode: "navigate" });
     await flushMicrotasks();
     mock.timers.tick(8000);
     const response = await pending;
@@ -209,7 +211,7 @@ test("a stalled static asset request is bounded as well", async () => {
 
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    const pending = dispatchFetch("https://pi.test/_next/static/chunks/app.js");
+    const { pending } = dispatchFetch("https://pi.test/_next/static/chunks/app.js");
     // cacheFirst awaits the cache lookup before it reaches the network.
     await flushMicrotasks();
     mock.timers.tick(8000);
@@ -219,6 +221,47 @@ test("a stalled static asset request is bounded as well", async () => {
   } finally {
     mock.timers.reset();
   }
+});
+
+test("a cache miss responds before the cache write finishes", async () => {
+  let releaseWrite;
+  let writeStarted = false;
+  globalThis.caches = {
+    match: async () => undefined,
+    open: async () => ({
+      put: () => {
+        writeStarted = true;
+        return new Promise((resolve) => { releaseWrite = resolve; });
+      },
+    }),
+  };
+  // fetch() to a same-origin URL yields type "basic"; a constructed Response
+  // defaults to "default", which cacheFirst deliberately skips.
+  globalThis.fetch = async () => {
+    const response = new Response("chunk", {
+      status: 200,
+      headers: { "Content-Type": "text/javascript" },
+    });
+    Object.defineProperty(response, "type", { value: "basic" });
+    return response;
+  };
+
+  const { pending, background } = dispatchFetch("https://pi.test/_next/static/chunks/app.js");
+  const response = await pending;
+
+  // The regression this guards: the SW script URL is versioned, so a version
+  // bump leaves the cache cold and every chunk misses at once. Awaiting each
+  // write held the responses behind Cache Storage I/O, which pushed
+  // navigations past the offline-fallback budget even though the server was
+  // healthy. The response must never wait for the write.
+  assert.equal(await response.text(), "chunk");
+
+  await flushMicrotasks();
+  assert.equal(writeStarted, true, "the write must still happen");
+  assert.equal(background.length, 1, "the write must be kept alive with waitUntil");
+
+  releaseWrite();
+  await background[0];
 });
 
 test("a response that arrives in time is not cut off mid-stream", async () => {
@@ -234,7 +277,8 @@ test("a response that arrives in time is not cut off mid-stream", async () => {
 
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
-    const response = await dispatchFetch("https://pi.test/", { mode: "navigate" });
+    const { pending } = dispatchFetch("https://pi.test/", { mode: "navigate" });
+    const response = await pending;
     // The budget only covers time to first byte: a long-lived body keeps
     // streaming past it (Next.js streams its SSR payload).
     mock.timers.tick(60000);
