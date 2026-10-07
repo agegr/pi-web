@@ -67,3 +67,33 @@ test("shows how many extension requests wait behind the one on screen", () => {
   assert.match(customCollapsed, /<ExtensionWaitingCount count=\{waitingCount\} \/>\s+<span[^>]*>\s+\{t\("chat\.extensionExpand"\)\}/);
   assert.match(customExpanded, /chat\.extensionPanel"\)\}<\/div>\s+<div[^>]*>\s+<ExtensionWaitingCount count=\{waitingCount\} \/>/);
 });
+
+test("fits dialogs to their code blocks and lets the user maximize them (#947)", () => {
+  const dialogOnly = dialogSource.slice(0, dialogSource.indexOf("function ExtensionCustomPanel"));
+  // Plain pi compatibility: nothing about size travels in the request or comes from an extension.
+  assert.doesNotMatch(source, /dialogSize/);
+
+  // A dialog opens at the historical 560px and only grows through the measured fit.
+  assert.match(
+    dialogOnly,
+    /width: full \? "100%" : `min\(\$\{fitWidth \?\? EXTENSION_DIALOG_BASE_WIDTH\}px, 100%\)`,\s+maxHeight: full \? "100%" : "min\(760px, 100%\)"/,
+  );
+  // Only blocks that scroll sideways count, and the fit never shrinks again while it is read.
+  assert.match(dialogOnly, /querySelectorAll<HTMLElement>\("pre, \.markdown-table-wrap"\)/);
+  assert.match(dialogOnly, /block\.scrollWidth - block\.clientWidth/);
+  assert.match(dialogOnly, /prev !== null && prev >= needed \? prev : needed/);
+  // Highlighted code swaps in after the first paint, so the fit watches the body.
+  assert.match(dialogOnly, /new MutationObserver\(fit\)[\s\S]*?observe\(body, \{ childList: true, subtree: true, characterData: true \}\)/);
+
+  // The maximize/restore button sits next to the collapse chevron and only affects this dialog.
+  const header = dialogOnly.slice(dialogOnly.indexOf('role="dialog"'), dialogOnly.indexOf("{request.method === \"confirm\""));
+  assert.match(header, /onClick=\{toggleFull\}[\s\S]*?t\("chat\.extensionMaximize"\)[\s\S]*?t\("chat\.extensionRestoreSize"\)[\s\S]*?<ExtensionSizeIcon expanded=\{full\} \/>[\s\S]*?onClick=\{\(\) => setCollapsed\(true\)\}/);
+  assert.doesNotMatch(source, /localStorage|pi-extension-/);
+});
+
+test("shows a custom panel's lines whole instead of scrolling when they are wider than 920px (#947)", () => {
+  // The extension wraps its lines to the width it asked for, so the panel only has to be
+  // as wide as the widest of them, capped to the content region.
+  assert.match(customSource, /width: "max-content",\s+minWidth: "min\(920px, 100%\)",\s+maxWidth: "100%"/);
+  assert.doesNotMatch(customSource.slice(0, customSource.indexOf("\n}\n")), /toggleFull|extensionMaximize/);
+});

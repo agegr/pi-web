@@ -174,7 +174,7 @@ export function createSubagentExtension(
         parameters: Type.Object({
           subagent_type: Type.Optional(Type.String({ description: `Configured agent profile. Available types: ${availableTypes}. Default: general-purpose.` })),
           prompt: Type.String({ description: "The complete task for the subagent." }),
-          resume: Type.Optional(Type.String({ description: "Existing subagent session ID to continue instead of creating a new session." })),
+          resume: Type.Optional(Type.String({ description: "Existing session ID to continue with its current profile, model, thinking, and context. Omit new-session options." })),
           input_files: Type.Optional(Type.Array(Type.String(), {
             description: "UTF-8 text files under the session cwd to include with the task.",
             maxItems: MAX_SUBAGENT_INPUT_FILES,
@@ -190,6 +190,19 @@ export function createSubagentExtension(
         async execute(toolCallId, params, signal, onUpdate, ctx) {
           try {
             const resume = params.resume?.trim();
+            if (resume) {
+              const creationOptions = [
+                params.model?.trim() && "model",
+                params.thinking?.trim() && "thinking",
+                params.max_turns && "max_turns",
+                params.inherit_context && "inherit_context",
+                params.input_files?.length && "input_files",
+                params.isolation?.trim() && "isolation",
+              ].filter(Boolean);
+              if (creationOptions.length > 0) {
+                throw new Error(`${creationOptions.join(", ")} only apply to new subagents. Omit them to resume the existing session, or start a new subagent.`);
+              }
+            }
             const execution = resume
               ? await runtime.resume({
                   parentContext: ctx,

@@ -86,7 +86,9 @@ function editableProfile(profile: SubagentProfile): EditableProfile {
     systemPrompt: profile.systemPrompt,
     tools: [...profile.tools],
     loadSkills: profile.loadSkills,
+    ...(profile.skills !== undefined ? { skills: [...profile.skills] } : {}),
     loadExtensions: profile.loadExtensions,
+    ...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
     promptMode: profile.promptMode,
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.thinking ? { thinking: profile.thinking } : {}),
@@ -611,6 +613,21 @@ export function AgentsConfig({
                       <Toggle label={t("agents.loadSkills")} disabled={disabled} checked={draft.loadSkills} onChange={(checked) => update("loadSkills", checked)} />
                       <Toggle label={t("agents.loadExtensions")} disabled={disabled} checked={draft.loadExtensions} onChange={(checked) => update("loadExtensions", checked)} />
                     </div>
+                    {/* `skills:` and `extensions:` lists are edited in the profile file; show what they load. */}
+                    {draft.loadSkills && draft.skills !== undefined && (
+                      <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+                        {draft.skills.length > 0
+                          ? t("agents.skillsOnly", { skills: draft.skills.join(", ") })
+                          : t("agents.skillsNone")}
+                      </span>
+                    )}
+                    {draft.loadExtensions && draft.extensions !== undefined && (
+                      <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+                        {draft.extensions.length > 0
+                          ? t("agents.extensionsOnly", { extensions: draft.extensions.join(", ") })
+                          : t("agents.extensionsNone")}
+                      </span>
+                    )}
                   </Field>
 
                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.5fr) minmax(120px, 0.75fr) minmax(100px, 0.5fr)", gap: 12 }}>

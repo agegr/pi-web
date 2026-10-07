@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
+import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasAssistantAnswer, isAssistantTruncated, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
@@ -1491,6 +1492,17 @@ function getExtensionDialogSummary(request: ExtensionDialogRequest): string | un
   return undefined;
 }
 
+/** Corner brackets pointing outward; when expanded they point inward (restore). */
+function ExtensionSizeIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {expanded
+        ? <path d="M3.5 1v2.5H1M6.5 1v2.5H9M6.5 9v-2.5H9M3.5 9v-2.5H1" />
+        : <path d="M1 3.5V1h2.5M6.5 1H9v2.5M9 6.5V9H6.5M3.5 9H1V6.5" />}
+    </svg>
+  );
+}
+
 function ExtensionDialog({
   request,
   onRespond,
@@ -1501,12 +1513,49 @@ function ExtensionDialog({
   const { t } = useI18n();
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
   const [collapsed, setCollapsed] = useState(false);
+  // Dialogs open at the historical width and grow only when their own content cannot
+  // fit (a code block or table that would scroll sideways), so no extension has to ask
+  // for room. The maximize button is the user's own override for this dialog (#947).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [fitWidth, setFitWidth] = useState<number | null>(null);
+  const [full, setFull] = useState(false);
+  const toggleFull = useCallback(() => setFull((prev) => !prev), []);
   const [now, setNow] = useState(() => Date.now());
   const focusFirstOption = useCallback((element: HTMLDivElement | null) => element?.focus(), []);
   const summary = getExtensionDialogSummary(request);
   const remainingSeconds = request.expiresAt === undefined
     ? null
     : Math.max(0, Math.ceil((request.expiresAt - now) / 1000));
+
+  useLayoutEffect(() => {
+    if (collapsed) return;
+    const dialog = dialogRef.current;
+    const body = bodyRef.current;
+    if (!dialog || !body) return;
+    let disposed = false;
+    const fit = () => {
+      if (disposed) return;
+      const blocks = body.querySelectorAll<HTMLElement>("pre, .markdown-table-wrap");
+      if (blocks.length === 0) return;
+      const needed = fitExtensionDialogWidth(
+        dialog.offsetWidth,
+        Array.from(blocks, (block) => block.scrollWidth - block.clientWidth),
+      );
+      // Only ever grow: shrinking again would make the dialog jump while it is read.
+      if (needed !== null) setFitWidth((prev) => (prev !== null && prev >= needed ? prev : needed));
+    };
+    fit();
+    // Highlighted code replaces its plain fallback after the first paint, and a web
+    // font can change glyph widths once it arrives.
+    const mutations = new MutationObserver(fit);
+    mutations.observe(body, { childList: true, subtree: true, characterData: true });
+    void document.fonts?.ready.then(fit);
+    return () => {
+      disposed = true;
+      mutations.disconnect();
+    };
+  }, [collapsed]);
 
   useEffect(() => {
     if (request.expiresAt === undefined) return;
@@ -1588,12 +1637,15 @@ function ExtensionDialog({
         </button>
       ) : (
       <div
+        ref={dialogRef}
         role="dialog"
         aria-label={request.title}
         style={{
           pointerEvents: "auto",
-          width: "min(560px, 100%)",
-          maxHeight: "min(760px, 100%)",
+          // "Full" fills the content region above the composer: the overlay is inset:0 with
+          // 20px padding, so 100% keeps that breathing room without covering the input.
+          width: full ? "100%" : `min(${fitWidth ?? EXTENSION_DIALOG_BASE_WIDTH}px, 100%)`,
+          maxHeight: full ? "100%" : "min(760px, 100%)",
           display: "flex",
           flexDirection: "column",
           border: "1px solid var(--border)",
@@ -1613,6 +1665,26 @@ function ExtensionDialog({
               {countdown}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={toggleFull}
+            title={full ? t("chat.extensionRestoreSize") : t("chat.extensionMaximize")}
+            aria-label={full ? t("chat.extensionRestoreSize") : t("chat.extensionMaximize")}
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <ExtensionSizeIcon expanded={full} />
+          </button>
           <button
             type="button"
             onClick={() => setCollapsed(true)}
@@ -1639,6 +1711,7 @@ function ExtensionDialog({
         </div>
 
         <div
+          ref={bodyRef}
           style={{
             padding: 14,
             flex: "1 1 auto", minHeight: 0, overflowY: "auto",
@@ -1878,7 +1951,11 @@ function ExtensionCustomPanel({
         style={{
           pointerEvents: "auto",
           position: "relative",
-          width: "min(920px, 100%)",
+          // The extension already wrapped its lines to the width it asked for; show them
+          // whole when that is wider than the usual 920px instead of scrolling sideways.
+          width: "max-content",
+          minWidth: "min(920px, 100%)",
+          maxWidth: "100%",
           maxHeight: "min(760px, 100%)",
           display: "flex",
           flexDirection: "column",
