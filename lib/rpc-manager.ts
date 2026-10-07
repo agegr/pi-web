@@ -19,7 +19,6 @@ import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type {
-  ExtensionDialogSize,
   ExtensionUiRequest,
   ExtensionUiResponse,
   ExtensionWidgetItem,
@@ -106,23 +105,6 @@ type ExtensionUiRequestBody = Record<string, unknown> & {
   timeout?: number;
   expiresAt?: number;
 };
-
-const EXTENSION_DIALOG_SIZES: readonly ExtensionDialogSize[] = ["sm", "md", "lg", "full"];
-
-/**
- * Extensions are plain JavaScript, so an unknown `dialogSize` must degrade to the
- * default dialog instead of poisoning the request (#947).
- */
-function parseDialogSize(value: unknown): ExtensionDialogSize | undefined {
-  return EXTENSION_DIALOG_SIZES.includes(value as ExtensionDialogSize)
-    ? (value as ExtensionDialogSize)
-    : undefined;
-}
-
-function dialogSizeField(value: unknown): { dialogSize?: ExtensionDialogSize } {
-  const size = parseDialogSize(value);
-  return size ? { dialogSize: size } : {};
-}
 
 type ExtensionCommandContextActionsLike = {
   waitForIdle: () => Promise<void>;
@@ -1728,28 +1710,28 @@ export class AgentSessionWrapper {
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
       select: (title, options, opts) => this.requestExtensionUi(
-        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}), ...dialogSizeField(opts?.dialogSize) },
+        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       confirm: (title, message, opts) => this.requestExtensionUi(
-        { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}), ...dialogSizeField(opts?.dialogSize) },
+        { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         false,
         (response) => "confirmed" in response ? response.confirmed : false,
         opts?.timeout,
         opts?.signal,
       ),
       input: (title, placeholder, opts) => this.requestExtensionUi(
-        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}), ...dialogSizeField(opts?.dialogSize) },
+        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       editor: (title, prefill, opts) => this.requestExtensionUi(
-        { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}), ...dialogSizeField(opts?.dialogSize) },
+        { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,

@@ -131,13 +131,6 @@ export interface SystemMessage {
 /** Any message a `message` entry can store, including transcript system messages. */
 export type SessionMessage = AgentMessage | SystemMessage;
 
-/**
- * Optional size hint an extension attaches to a blocking dialog request (#947).
- * `sm` is the historical 560px dialog; `full` fills the content region above the
- * composer. The client also keeps a user-side maximize toggle next to this hint.
- */
-export type ExtensionDialogSize = "sm" | "md" | "lg" | "full";
-
 export type ExtensionUiRequest =
   | {
       type: "extension_ui_request";
@@ -147,7 +140,6 @@ export type ExtensionUiRequest =
       options: string[];
       timeout?: number;
       expiresAt?: number;
-      dialogSize?: ExtensionDialogSize;
     }
   | {
       type: "extension_ui_request";
@@ -157,7 +149,6 @@ export type ExtensionUiRequest =
       message: string;
       timeout?: number;
       expiresAt?: number;
-      dialogSize?: ExtensionDialogSize;
     }
   | {
       type: "extension_ui_request";
@@ -167,7 +158,6 @@ export type ExtensionUiRequest =
       placeholder?: string;
       timeout?: number;
       expiresAt?: number;
-      dialogSize?: ExtensionDialogSize;
     }
   | {
       type: "extension_ui_request";
@@ -177,7 +167,6 @@ export type ExtensionUiRequest =
       prefill?: string;
       timeout?: number;
       expiresAt?: number;
-      dialogSize?: ExtensionDialogSize;
     }
   | {
       type: "extension_ui_request";
