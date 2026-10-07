@@ -18,7 +18,7 @@ function setup() {
   const requests = [];
   const context = createContext({
     sessionHookMountedRef: { current: true }, sessionIdRef: { current: "a" },
-    promptRunIdRef: { current: 1 }, contextUsageRequestIdRef: { current: 0 },
+    promptRunIdRef: { current: 1 }, contextUsageRequestIdRef: { current: 0 }, contextUsageAppliedIdRef: { current: 0 },
     agentRunningRef: { current: true }, sdkAgentActiveRef: { current: true }, rpcPromptPendingRef: { current: true },
     setContextUsage: (value) => writes.push(value),
     fetch: (url) => { const request = Promise.withResolvers(); requests.push({ ...request, url }); return request.promise; },
@@ -51,12 +51,21 @@ test("a newer assistant usage read wins over a delayed poll", async () => {
   assert.deepEqual(state.writes, [usage(200)]);
 });
 
+test("a failed newer read does not discard an older poll's usage", async () => {
+  const state = setup();
+  const poll = state.context.reconcileAgentState("a");
+  const refresh = state.context.refreshContextUsage("a");
+  state.requests[1].resolve(new Response("Unavailable", { status: 503 })); await refresh;
+  state.reply(0, usage(100)); await poll;
+  assert.deepEqual(state.writes, [usage(100)]);
+});
+
 test("usage replies from an old run, another session or an unmounted hook are ignored", async () => {
   for (const invalidate of [
     (ctx) => { ctx.promptRunIdRef.current++; },
     (ctx) => { ctx.sessionIdRef.current = "b"; },
     (ctx) => { ctx.sessionHookMountedRef.current = false; },
-    (ctx) => { ctx.contextUsageRequestIdRef.current++; },
+    (ctx) => { ctx.contextUsageAppliedIdRef.current = ctx.contextUsageRequestIdRef.current; },
   ]) {
     const state = setup();
     const pending = state.context.refreshContextUsage("a");

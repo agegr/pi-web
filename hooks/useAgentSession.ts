@@ -351,6 +351,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const contextUsageRequestIdRef = useRef(0);
+  // Highest request id whose reply was applied. A reply applies only when it
+  // is newer, so a failed newer read never discards an older good one.
+  const contextUsageAppliedIdRef = useRef(0);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
@@ -578,7 +581,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const applyContextUsage = useCallback((state: AgentStateResponse | undefined, sid: string, runId: number, requestId: number) => {
     if (!sessionHookMountedRef.current || sessionIdRef.current !== sid
-      || promptRunIdRef.current !== runId || contextUsageRequestIdRef.current !== requestId) return;
+      || promptRunIdRef.current !== runId || requestId <= contextUsageAppliedIdRef.current) return;
+    contextUsageAppliedIdRef.current = requestId;
     if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
   }, []);
 
@@ -2427,6 +2431,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
+    // Usage reads started before a remount are stale.
+    contextUsageAppliedIdRef.current = contextUsageRequestIdRef.current;
     if (session) {
       sessionIdRef.current = session.id;
       // Snapshot fast path: show the cached history window immediately, then
@@ -2491,7 +2497,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     return () => {
       sessionHookMountedRef.current = false;
-      contextUsageRequestIdRef.current += 1;
       const abandonedDraftKey = isNew ? newSessionDraftKey : null;
       if (abandonedDraftKey) {
         queueMicrotask(() => {
