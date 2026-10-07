@@ -9,6 +9,7 @@ import type {
   SkillsResponse,
   SkillToggleResult,
   SkillUpdateResult,
+  ProjectTrustStatus,
 } from "@/lib/api-types";
 import { displayPathWithin, shortenPath } from "@/lib/display-path";
 import {
@@ -16,19 +17,19 @@ import {
   setLastSettingsSelection,
 } from "@/lib/settings-navigation";
 import {
+  ConfigAddSourceHeading,
   ConfigButton,
   ConfigDetail,
   ConfigDetailActions,
   ConfigDetailHeader,
   ConfigDetailHeaderInfo,
   ConfigDetailStack,
-  ConfigDetailTitle,
   ConfigEmptyState,
   ConfigField,
   ConfigFooter,
   ConfigListAction,
   ConfigPanelShell,
-  ConfigScopeSwitch,
+  ConfigSaveTarget,
   ConfigScopeTag,
   ConfigSidebar,
   ConfigSidebarGroupLabel,
@@ -42,7 +43,7 @@ import {
   ConfigSwitch,
   ConfigTrustNotice,
 } from "./SettingsUi";
-import { itemsToSwitch } from "./settings-ui-helpers";
+import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
 
 type SkillScope = "global" | "project" | "path";
 type Translate = ReturnType<typeof useI18n>["t"];
@@ -339,8 +340,6 @@ function AddSkillPanel({
     scope === "global"
       ? "~/.pi/agent/skills/"
       : `${shortenPath(cwd)}/.pi/skills/`;
-  // The link sits inside the sentence, so each language places it with {site}.
-  const [discoverBefore, discoverAfter = ""] = t("skills.discoverHint").split("{site}");
 
   return (
     <ConfigDetailStack className="is-full-height">
@@ -353,7 +352,23 @@ function AddSkillPanel({
           marginBottom: 20,
         }}
       >
-        <ConfigDetailTitle>{t("i18n.addSkill")}</ConfigDetailTitle>
+        <ConfigAddSourceHeading
+          title={t("i18n.addSkill")}
+          catalogs={[{ href: "https://skills.sh", label: "skills.sh" }]}
+          target={
+            <ConfigSaveTarget
+              value={scope}
+              label={t("config.saveTo")}
+              options={[
+                { value: "global", label: scopeLabel("global", t) },
+                { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+              ]}
+              path={installPath}
+              disabledReason={t("trust.projectScopeUnavailable")}
+              onChange={setScope}
+            />
+          }
+        />
 
         {/* Search row */}
         <div style={{ display: "flex", gap: 8 }}>
@@ -385,35 +400,6 @@ function AddSkillPanel({
           </ConfigButton>
         </div>
 
-        {/* Scope + install path row */}
-        <ConfigScopeSwitch
-          size="small"
-          value={scope}
-          label={t("config.scope")}
-          options={[
-            { value: "global", label: scopeLabel("global", t) },
-            { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-          ]}
-          disabledReason={t("trust.projectScopeUnavailable")}
-          onChange={setScope}
-        >
-          {/* A zero basis keeps a long path on the switch's line, cut short. */}
-          <span
-            style={{
-              flex: "1 1 0",
-              minWidth: 0,
-              fontSize: 12,
-              color: "var(--text-dim)",
-              fontFamily: "var(--font-mono)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            → {installPath}
-          </span>
-        </ConfigScopeSwitch>
-
         {/* Errors */}
         {searchError && (
           <div style={{ fontSize: 12, color: "#f87171" }}>{searchError}</div>
@@ -428,7 +414,7 @@ function AddSkillPanel({
       </div>
 
       {/* ── Results list ── */}
-      {results.length > 0 ? (
+      {results.length > 0 && (
         <div style={{ flex: 1, overflowY: "auto" }}>
           {results.map((r) => {
             const isInstalled =
@@ -531,24 +517,6 @@ function AddSkillPanel({
             );
           })}
         </div>
-      ) : (
-        !searchError &&
-        !searching && (
-          <div
-            style={{ fontSize: 13, color: "var(--text-dim)", lineHeight: 1.8 }}
-          >
-            {discoverBefore}
-            <a
-              href="https://skills.sh"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: "var(--accent)", textDecoration: "none" }}
-            >
-              skills.sh
-            </a>
-            {discoverAfter}
-          </div>
-        )
       )}
     </ConfigDetailStack>
   );
@@ -558,10 +526,13 @@ export function SkillsConfig({
   cwd,
   onClose,
   embedded = false,
+  trust,
 }: {
   cwd: string;
   onClose: () => void;
   embedded?: boolean;
+  /** The page's trust status for `cwd`; a new decision loads the list again. */
+  trust?: ProjectTrustStatus | null;
 }) {
   const { t } = useI18n();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -610,6 +581,18 @@ export function SkillsConfig({
     setUpdateError(null);
     void loadSkills();
   }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Whether the project's skills load follows its trust, which can change while
+  // this section stays mounted (hidden) in Settings: trusting from Settings ›
+  // MCP. A new decision loads the list again in place, keeping the selection and
+  // any update checks; the first load is the effect above.
+  const trustKey = projectTrustReloadKey(trust);
+  const loadedTrustKeyRef = useRef(trustKey);
+  useEffect(() => {
+    if (loadedTrustKeyRef.current === trustKey) return;
+    loadedTrustKeyRef.current = trustKey;
+    void loadSkills();
+  }, [trustKey, loadSkills]);
 
   useEffect(() => {
     if (selected) setLastSettingsSelection("skills", selected, cwd);

@@ -11,7 +11,7 @@ import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
-import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
+import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -19,7 +19,7 @@ import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
-import { CodemodeCallList, CodemodeScript } from "./CodemodeToolView";
+import { CodemodeCallList } from "./CodemodeToolView";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import type {
   AgentMessage,
@@ -1120,7 +1120,7 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
     setToolCallExpanded(block.toolCallId, next);
     setExpanded(next);
   };
-  const inputStr = getToolCallInputText(block);
+  const inputStr = getWrittenFileText(block) ?? getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
@@ -1221,14 +1221,8 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
         )}
       </div>
 
-      {/* ── Expanded: codemode script and the calls it made ── */}
-      {expanded && codemode && <CodemodeScript code={codemode.code} isError={isError} />}
-      {expanded && codemode && (
-        <CodemodeCallList calls={codemode.calls} omitted={codemode.omitted} isError={isError} />
-      )}
-
-      {/* ── Expanded: input args (only when no richer view exists) ── */}
-      {expanded && !codemode && (isStreamingInput || !isEditTool) && !patchFiles && (
+      {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
+      {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
         <pre
           style={{
             margin: 0,
@@ -1243,8 +1237,13 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             wordBreak: "break-all",
           }}
         >
-          {inputStr}
+          {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
         </pre>
+      )}
+
+      {/* ── Expanded: the calls a codemode script made ── */}
+      {expanded && codemode && (
+        <CodemodeCallList calls={codemode.calls} omitted={codemode.omitted} isError={isError} />
       )}
 
       {/* ── Result images — always visible, independent of the collapsed details ── */}
@@ -1910,6 +1909,18 @@ function safeJson(value: unknown): string {
 
 export function getToolCallInputText(block: ToolCallContent): string {
   return block.rawInput ?? JSON.stringify(block.input, null, 2);
+}
+
+const WRITE_VIEW_KEYS = new Set(["path", "file_path", "content"]);
+
+// A write's file text in place of its JSON. Streamed input is still incomplete
+// JSON, and any other argument (a mode, a title) would vanish from this view,
+// so those calls, and an empty file, keep the generic view.
+function getWrittenFileText(block: ToolCallContent): string | null {
+  if (block.rawInput !== undefined || !isWriteToolName(block.toolName)) return null;
+  const { content } = block.input;
+  if (typeof content !== "string" || content === "") return null;
+  return Object.keys(block.input).every((key) => WRITE_VIEW_KEYS.has(key)) ? content : null;
 }
 
 function formatCustomType(type: string): string {

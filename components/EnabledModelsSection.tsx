@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { EnabledModelsView } from "@/lib/enabled-models";
 import {
@@ -237,29 +237,34 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
  *
  * Such a provider has no rows of its own — the panel edits its models directly
  * — so this switch is the whole control, and it is checked only while every one
- * of those models is enabled. Why it cannot move is a tooltip, not a paragraph.
+ * of those models is enabled. Why it cannot move is the note under the detail
+ * header (`EnabledModelsProviderSwitchNote`), which the switch points at: a
+ * tooltip alone never shows on a touch screen.
  */
 export function EnabledModelsProviderSwitch({
   providerId,
   controller,
+  noteId,
 }: {
   providerId: string;
   controller: EnabledModelsController;
+  /** The id `EnabledModelsProviderSwitchNote` renders under the header. */
+  noteId: string;
 }) {
   const { t } = useI18n();
   const { view, loading, pending, failure } = controller;
   const provider = findProviderView(view, providerId);
   const message = failure ? (failure.messageKey ? t(failure.messageKey) : failure.message) : null;
+  const describedBy = providerSwitchBlockKey(controller, providerId) ? noteId : undefined;
 
   if (loading && !view) return null;
-  // Missing from the runtime: edits not saved yet, no models, or a key that
-  // does not work — never a sign-in, so do not send the user looking for one.
   if (!provider) {
     return (
       <ConfigSwitch
         checked={false}
         disabled
-        label={t("models.enabledCustomEmpty")}
+        label={t("models.enabledProviderToggle", { provider: providerId })}
+        describedBy={describedBy}
         onChange={() => {}}
       />
     );
@@ -273,13 +278,39 @@ export function EnabledModelsProviderSwitch({
         checked={toggle.checked}
         loading={pending === `provider:${provider.id}`}
         disabled={pending !== null || toggle.blocked}
-        label={toggle.reason
-          ? t(FAILURE_KEYS[toggle.reason])
-          : t("models.enabledProviderToggle", { provider: provider.name })}
+        label={t("models.enabledProviderToggle", { provider: provider.name })}
+        describedBy={describedBy}
         onChange={(checked) => controller.setProvider(provider.id, checked)}
       />
     </>
   );
+}
+
+/** Why a models.json provider's switch cannot move, as a message key, or null while it can or is not shown. */
+function providerSwitchBlockKey(controller: EnabledModelsController, providerId: string): string | null {
+  const { view, loading } = controller;
+  if (loading && !view) return null;
+  const provider = findProviderView(view, providerId);
+  // Missing from the runtime: edits not saved yet, no models, or a key that
+  // does not work — never a sign-in, so do not send the user looking for one.
+  if (!provider) return "models.enabledCustomEmpty";
+  const { reason } = enabledModelsProviderToggle(view, provider);
+  return reason ? FAILURE_KEYS[reason] : null;
+}
+
+/** The note under a models.json provider's detail header saying why its switch cannot move. */
+export function EnabledModelsProviderSwitchNote({
+  providerId,
+  controller,
+  id,
+}: {
+  providerId: string;
+  controller: EnabledModelsController;
+  id: string;
+}) {
+  const { t } = useI18n();
+  const key = providerSwitchBlockKey(controller, providerId);
+  return key ? <div id={id} className="config-detail-heading-note">{t(key)}</div> : null;
 }
 
 /** Per-model switches for a provider that owns its own model list. */
@@ -339,6 +370,7 @@ export function EnabledModelsSection({
   const { view, loading, pending, failure } = controller;
   const provider = findProviderView(view, providerId);
   const catalog = useCatalogRefresh(providerId, controller.refresh);
+  const noteId = useId();
 
   useEffect(() => setQuery(""), [providerId]);
 
@@ -356,6 +388,12 @@ export function EnabledModelsSection({
   const filtered = shown.length !== provider.models.length;
   const busy = pending !== null;
   const bulkKey = `provider:${provider.id}`;
+  // Why switches cannot move is visible text they point at: a tooltip never shows on a touch screen.
+  const editable = view?.editable === true;
+  const scopeNoteId = `${noteId}-scope`;
+  const lastModelNoteId = `${noteId}-last`;
+  const disableBlockedByLastModel = editable && !bulk.canDisable && bulk.disableRefs.length > 0;
+  const showLastModelNote = disableBlockedByLastModel || (editable && shown.some((model) => isLastEnabledModel(view, model)));
   // A provider-wide action is resolved server-side so models the browser has
   // not seen yet follow it too; a filtered action names its rows explicitly.
   const runBulk = (enabled: boolean, refs: string[]) => {
@@ -373,6 +411,7 @@ export function EnabledModelsSection({
         <ConfigButton
           size="small"
           disabled={busy || !bulk.canEnable}
+          aria-describedby={editable ? undefined : scopeNoteId}
           onClick={() => runBulk(true, bulk.enableRefs)}
         >
           {filtered ? t("models.enableShown") : t("models.enableAll")}
@@ -380,7 +419,7 @@ export function EnabledModelsSection({
         <ConfigButton
           size="small"
           disabled={busy || !bulk.canDisable}
-          title={!bulk.canDisable && bulk.disableRefs.length > 0 ? t("models.enabledLastModel") : undefined}
+          aria-describedby={!editable ? scopeNoteId : disableBlockedByLastModel ? lastModelNoteId : undefined}
           onClick={() => runBulk(false, bulk.disableRefs)}
         >
           {filtered ? t("models.disableShown") : t("models.disableAll")}
@@ -397,7 +436,8 @@ export function EnabledModelsSection({
 
       {catalog.note && <div className="enabled-models-note">{t(catalog.note)}</div>}
 
-      {!view?.editable && <div className="enabled-models-note">{t("models.enabledProjectScope")}</div>}
+      {!editable && <div id={scopeNoteId} className="enabled-models-note">{t("models.enabledProjectScope")}</div>}
+      {showLastModelNote && <div id={lastModelNoteId} className="enabled-models-note">{t("models.enabledLastModel")}</div>}
       {failure && (
         <div className="enabled-models-error">
           {failure.messageKey ? t(failure.messageKey) : failure.message}
@@ -433,9 +473,8 @@ export function EnabledModelsSection({
                 checked={model.enabled}
                 loading={pending === model.ref}
                 disabled={busy || !view?.editable || lastOne}
-                label={lastOne
-                  ? t("models.enabledLastModel")
-                  : t("models.enabledToggle", { model: model.name })}
+                label={t("models.enabledToggle", { model: model.name })}
+                describedBy={!editable ? scopeNoteId : lastOne ? lastModelNoteId : undefined}
                 onChange={(checked) => controller.setModels(model.ref, [model.ref], checked)}
               />
             </div>

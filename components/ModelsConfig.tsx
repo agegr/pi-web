@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useId, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
@@ -45,6 +45,7 @@ import {
 import {
   EnabledModelsBanner,
   EnabledModelsProviderSwitch,
+  EnabledModelsProviderSwitchNote,
   EnabledModelsSection,
   useEnabledModels,
   type EnabledModelsController,
@@ -317,6 +318,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
   const discoveryRequestIdRef = useRef(0);
   const selectShownRef = useRef<HTMLInputElement>(null);
+  const switchNoteId = useId();
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
 
   useEffect(() => {
@@ -399,15 +401,18 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <ConfigDetailHeader>
-        <ConfigDetailHeaderInfo>
-          <SectionTitle>{t("i18n.provider")}</SectionTitle>
-        </ConfigDetailHeaderInfo>
-        <ConfigDetailActions>
-          <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} />
-          <ConfigButton variant="danger" size="small" onClick={onDelete}>{t("i18n.delete")}</ConfigButton>
-        </ConfigDetailActions>
-      </ConfigDetailHeader>
+      <div className="config-detail-heading">
+        <ConfigDetailHeader>
+          <ConfigDetailHeaderInfo>
+            <SectionTitle>{t("i18n.provider")}</SectionTitle>
+          </ConfigDetailHeaderInfo>
+          <ConfigDetailActions>
+            <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} noteId={switchNoteId} />
+            <ConfigButton variant="danger" size="small" onClick={onDelete}>{t("i18n.delete")}</ConfigButton>
+          </ConfigDetailActions>
+        </ConfigDetailHeader>
+        <EnabledModelsProviderSwitchNote providerId={name} controller={enabledModels} id={switchNoteId} />
+      </div>
 
        <Field label={t("i18n.providerName")}>
         <TextInput value={editingName} onChange={onEditingNameChange} placeholder="provider-name" mono />

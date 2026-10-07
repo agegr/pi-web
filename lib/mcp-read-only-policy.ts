@@ -1,4 +1,5 @@
 import type { InlineExtension, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { MCP_EXTENSION_PATH } from "./mcp-command";
 import { readSessionToolSelection } from "./session-tool-selection";
 import type { SessionEntry } from "./types";
 
@@ -10,7 +11,6 @@ import type { SessionEntry } from "./types";
 // a tool by mistake, it does not defend against a malicious server.
 
 const WRITE_CAPABLE_TOOLS = new Set(["bash", "powershell", "edit", "write"]);
-const MCP_EXTENSION_PATH = "builtin:mcp";
 const MCP_TOOL_PREFIX = "mcp__";
 
 export const READ_ONLY_MCP_POLICY_EXTENSION_NAME = "pi-web-read-only-mcp";

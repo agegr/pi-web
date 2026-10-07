@@ -18,6 +18,7 @@ const {
 } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
+const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
@@ -126,6 +127,50 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.doesNotMatch(html, /secret-stream-fragment/);
   assert.equal(getToolCallInputText(block), block.rawInput);
   assert.equal(getTokenEstimateText(block), block.rawInput);
+});
+
+test("renders write tool content as readable file text", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-file",
+    toolName: "write",
+    input: { path: "src/example.ts", content: "first line\nsecond line\n" },
+  };
+  clearExpandedToolCalls();
+  setToolCallExpanded(block.toolCallId, true);
+  try {
+    const html = renderMessage({
+      role: "assistant",
+      provider: "anthropic",
+      model: "claude-test",
+      content: [block],
+    });
+
+    assert.ok(html.includes("src/example.ts"));
+    assert.match(html, /first line\nsecond line\n/);
+    assert.doesNotMatch(html, /"content":/);
+  } finally {
+    clearExpandedToolCalls();
+  }
+});
+
+test("keeps the input JSON for a write with another argument, an empty file or streamed input", () => {
+  const cases = [
+    { id: "call-write-mode", input: { path: "notes.md", content: "text", mode: "append" } },
+    { id: "call-write-empty", input: { path: "empty.txt", content: "" } },
+    { id: "call-write-streaming", input: {}, rawInput: "{\"path\":\"a.ts\",\"content\":\"one\\ntwo" },
+  ];
+  for (const { id, input, rawInput } of cases) {
+    const block = { type: "toolCall", toolCallId: id, toolName: "write", input, ...(rawInput === undefined ? {} : { rawInput }) };
+    clearExpandedToolCalls();
+    setToolCallExpanded(id, true);
+    try {
+      const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+      assert.equal(textOf(html).includes(getToolCallInputText(block)), true, id);
+    } finally {
+      clearExpandedToolCalls();
+    }
+  }
 });
 
 test("renders subagents as standard tool calls with only an extra session button", () => {
@@ -454,8 +499,6 @@ test("uses the unanswered truncation notice for an empty length reply", () => {
   assert.doesNotMatch(html, /follow-up/i);
 });
 
-const { setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
-
 function textOf(html) {
   return html.replace(/<[^>]+>/g, "").replace(/&quot;/g, "\"").replace(/&amp;/g, "&").replace(/&#x27;/g, "'");
 }
@@ -526,9 +569,9 @@ test("expands a codemode call into its script, its calls, and the output without
   });
   const text = textOf(html);
 
-  assert.match(html, /markdown-code-lang">javascript</);
-  assert.match(text, /\/\/ @options: \{"timeoutMs": 5000\}/);
-  assert.match(text, /return files\.length;/);
+  // The script sits in the plain box any tool's input uses, not a highlighted code block.
+  assert.doesNotMatch(html, /markdown-code-block/);
+  assert.equal(textOf(html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)[1]), CODEMODE_SCRIPT);
   assert.match(text, /Tool calls/);
   assert.match(text, /Show 5 earlier calls/);
   // The newest 20 of 25 calls are listed; the 5 oldest are folded.

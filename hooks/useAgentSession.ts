@@ -31,6 +31,8 @@ import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-ev
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
+import { bareMcpOpensSettings } from "@/lib/mcp-command";
+import type { SettingsSection } from "@/lib/settings-navigation";
 import {
   enqueueExtensionUiRequest,
   removeExtensionUiRequest,
@@ -160,7 +162,7 @@ export interface SlashCommandInfo {
 
 export type BuiltinSlashCommandResult =
   | { handled: false }
-  | { handled: true; message?: string; error?: string; action?: "openSessionStats" };
+  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" };
 
 export interface UseAgentSessionOptions {
   session: SessionInfo | null;
@@ -179,6 +181,8 @@ export interface UseAgentSessionOptions {
   /** Registers an action that lazily starts the session and loads its prompt and tools. */
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
   onSessionStatsPanelOpen?: () => void;
+  /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings › MCP. */
+  onOpenSettings?: (section: SettingsSection) => void;
   setToolPreset?: (preset: ToolPreset) => void;
   deferInitialScroll?: boolean;
 }
@@ -312,6 +316,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    onOpenSettings,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
@@ -395,6 +400,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleNavigateRef = useRef<((entryId: string) => Promise<boolean>) | undefined>(undefined);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
+  // The command list as last loaded, and the get_commands request under way, if
+  // any. A bare /mcp reads them to tell whose /mcp it is (handleBuiltinSlashCommand).
+  // The generation moves on with every request and every clear, and only a request
+  // still current writes its answer: one that set_tools outdated (or a newer request)
+  // would otherwise put back the list of a session that is no longer there.
+  const slashCommandsRef = useRef<SlashCommandInfo[]>([]);
+  const slashCommandsLoadRef = useRef<Promise<SlashCommandInfo[] | null> | null>(null);
+  const slashCommandsGenerationRef = useRef(0);
   const newSessionPromotedRef = useRef(false);
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel | null>(null);
@@ -867,26 +880,65 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setSystemPrompt(state.systemPrompt ?? "");
   }, [ensureNewSession, loadTools, syncLiveModel]);
 
-  const loadSlashCommands = useCallback(async () => {
-    const sid = sessionIdRef.current ?? await ensureNewSession();
-    if (!sid) {
-      setSlashCommands([]);
-      return [] as SlashCommandInfo[];
-    }
-    setSlashCommandsLoading(true);
-    try {
-      const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
-      const commands = data?.commands ?? [];
-      setSlashCommands(commands);
-      return commands;
-    } catch (e) {
-      console.error("Failed to load slash commands:", e);
-      setSlashCommands([]);
-      return [] as SlashCommandInfo[];
-    } finally {
-      setSlashCommandsLoading(false);
-    }
-  }, [ensureNewSession]);
+  const replaceSlashCommands = useCallback((commands: SlashCommandInfo[]) => {
+    slashCommandsRef.current = commands;
+    setSlashCommands(commands);
+  }, []);
+
+  // The session's tools changed (set_tools may have rebuilt it as Chat only): forget the
+  // list and the request under way, so the next reader asks the session as it is now.
+  const clearSlashCommands = useCallback(() => {
+    slashCommandsGenerationRef.current += 1;
+    slashCommandsLoadRef.current = null;
+    replaceSlashCommands([]);
+  }, [replaceSlashCommands]);
+
+  // Null when get_commands failed, which an empty list (a Chat-only session's) must not be mistaken for.
+  const requestSlashCommands = useCallback((): Promise<SlashCommandInfo[] | null> => {
+    const generation = ++slashCommandsGenerationRef.current;
+    const current = () => slashCommandsGenerationRef.current === generation;
+    const load = (async () => {
+      const sid = sessionIdRef.current ?? await ensureNewSession();
+      if (!sid) {
+        if (current()) replaceSlashCommands([]);
+        return [] as SlashCommandInfo[];
+      }
+      setSlashCommandsLoading(true);
+      try {
+        const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
+        const commands = data?.commands ?? [];
+        if (current()) replaceSlashCommands(commands);
+        return commands;
+      } catch (e) {
+        console.error("Failed to load slash commands:", e);
+        if (current()) replaceSlashCommands([]);
+        return null;
+      } finally {
+        // A newer request under way keeps the palette's "Loading" until it answers.
+        if (current() || !slashCommandsLoadRef.current) setSlashCommandsLoading(false);
+      }
+    })();
+    slashCommandsLoadRef.current = load;
+    const settle = () => {
+      if (slashCommandsLoadRef.current === load) slashCommandsLoadRef.current = null;
+    };
+    load.then(settle, settle);
+    return load;
+  }, [ensureNewSession, replaceSlashCommands]);
+
+  const loadSlashCommands = useCallback(async () => (await requestSlashCommands()) ?? [], [requestSlashCommands]);
+
+  // The list a bare /mcp is decided by: the request under way (the palette starts
+  // one as "/mcp" is typed, often still unanswered at Enter), else the list already
+  // loaded, else a new request. Null when it cannot be read: guessing would either
+  // swallow another extension's /mcp or send one Settings should have taken.
+  const slashCommandsForMcp = useCallback(async (): Promise<SlashCommandInfo[] | null> => {
+    const pending = slashCommandsLoadRef.current;
+    const known = slashCommandsRef.current;
+    if (!pending && known.length > 0) return known;
+    const loaded = await (pending ?? requestSlashCommands()).catch(() => null);
+    return loaded ?? (known.length > 0 ? known : null);
+  }, [requestSlashCommands]);
 
   const cancelEventStreamGrace = useCallback(() => {
     eventStreamGraceGenerationRef.current += 1;
@@ -1980,7 +2032,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!result.handled) return result;
       if (result.error) {
         addNotice({ type: "error", message: result.error });
-      } else if (result.action !== "openSessionStats") {
+      } else if (!result.action) {
+        // A command that opens a panel says nothing: the panel is the answer.
         addNotice({ type: "success", message: result.message ?? "Command completed" });
       }
       return result;
@@ -2051,6 +2104,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, action: "openSessionStats" });
         }
 
+        case "mcp": {
+          // Only a bare /mcp, and only when pi's built-in MCP extension owns it or
+          // nothing does (lib/mcp-command.ts): another extension's /mcp is sent as
+          // before, and so is every subcommand, since `/mcp login`, `logout` and
+          // `reconnect` act on this session's own connections. Returning before
+          // onSend leaves no "/mcp" bubble and no sidebar row for a new chat; a
+          // streaming run is not touched.
+          if (args || !onOpenSettings) return { handled: false };
+          const commands = await slashCommandsForMcp();
+          if (!commands || !bareMcpOpensSettings(commands)) return { handled: false };
+          onOpenSettings("mcp");
+          return complete({ handled: true, action: "openSettings" });
+        }
+
         case "copy": {
           if (!sid) return complete({ handled: true, error: "No active session" });
           const data = await sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" });
@@ -2085,7 +2152,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
+  }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, slashCommandsForMcp]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2243,7 +2310,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           maintainEventsConnected(activeSessionId);
         }
       }
-      setSlashCommands([]);
+      clearSlashCommands();
       setExtensionStatuses([]);
       setExtensionWidgets([]);
       const [state] = await Promise.all([
@@ -2257,7 +2324,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
-  }, [cancelEventStreamGrace, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
+  }, [cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
 
   const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
     const container = scrollContainerRef.current;

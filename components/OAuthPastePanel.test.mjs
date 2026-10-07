@@ -9,7 +9,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { OAuthPastePanel } = await jiti.import("./OAuthPastePanel.tsx");
+const { OAuthPastePanel, oauthPasteKeySubmits } = await jiti.import("./OAuthPastePanel.tsx");
 const modelsSource = await readFile(new URL("./ModelsConfig.tsx", import.meta.url), "utf8");
 
 function render(props) {
@@ -49,4 +49,28 @@ test("the Models subscription sign-in uses the shared paste panel", () => {
   );
   assert.match(oauthDetail, /<OAuthPastePanel[\s\S]*?inputRef=\{inputRef\}[\s\S]*?onSubmit=\{\(\) => void submitCode\(loginState\.token, inputValue\)\}/);
   assert.doesNotMatch(oauthDetail, /<input\b/);
+});
+
+test("the box can carry an accessible name, and waits with its button while a value is checked", () => {
+  const named = render({ value: "http://x/?code=1", inputLabel: "Address the browser landed on" });
+  assert.match(named, /<input class="oauth-paste-input" placeholder="[^"]*" aria-label="Address the browser landed on" value="http:\/\/x\/\?code=1"\/>/);
+  const waiting = render({ value: "http://x/?code=1", disabled: true });
+  assert.match(waiting, /<input class="oauth-paste-input" placeholder="[^"]*" disabled="" value="http:\/\/x\/\?code=1"\/>/);
+  assert.match(waiting, /<button type="button" class="oauth-paste-submit" disabled="">Submit<\/button>/);
+});
+
+test("Enter submits, never while an input method composes; without plainEnterSubmits only Cmd/Ctrl+Enter does", () => {
+  const key = (overrides = {}) => ({ key: "Enter", metaKey: false, ctrlKey: false, isComposing: false, keyCode: 13, ...overrides });
+  assert.equal(oauthPasteKeySubmits(key(), true), true);
+  assert.equal(oauthPasteKeySubmits(key(), false), false);
+  assert.equal(oauthPasteKeySubmits(key({ metaKey: true }), false), true);
+  assert.equal(oauthPasteKeySubmits(key({ ctrlKey: true }), false), true);
+  // An Enter that commits an input method's text (zh-CN / zh-TW) submits nothing, whichever flag tells.
+  for (const plain of [true, false]) {
+    assert.equal(oauthPasteKeySubmits(key({ isComposing: true, metaKey: true }), plain), false);
+    assert.equal(oauthPasteKeySubmits(key({ keyCode: 229, ctrlKey: true }), plain), false);
+  }
+  assert.equal(oauthPasteKeySubmits(key({ key: "a", metaKey: true }), true), false);
+  // The Models subscription box keeps plain Enter.
+  assert.doesNotMatch(modelsSource, /plainEnterSubmits/);
 });

@@ -15,10 +15,10 @@ test("keeps System and Tools in separate adjacent toolbar actions", () => {
   assert.doesNotMatch(panelSource, /tool-definitions-heading/);
 });
 
-test("renders active tool definitions in a selectable master-detail layout", () => {
-  assert.match(panelSource, /tools\?\.filter\(\(tool\) => tool\.active\)/);
+test("renders declared tool definitions in a selectable master-detail layout", () => {
+  assert.match(panelSource, /tools\?\.filter\(\(tool\) => tool\.active && !tool\.declarationHidden\)/);
   assert.match(panelSource, /setSelectedToolName\(tool\.name\)/);
-  assert.match(panelSource, /activeTools\?\.some\(\(tool\) => tool\.name === current\)/);
+  assert.match(panelSource, /declaredTools\?\.some\(\(tool\) => tool\.name === current\)/);
   assert.match(panelSource, /className="tool-definitions-sidebar"/);
   assert.match(panelSource, /className="tool-definition-detail"/);
   assert.match(panelSource, /grid-template-columns: clamp\(112px, 26%, 220px\) minmax\(0, 1fr\)/);

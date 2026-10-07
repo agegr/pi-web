@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type {
   PluginPackageInfo,
@@ -8,6 +8,7 @@ import type {
   PluginUpdateResult,
   PluginsBulkResponse,
   PluginsResponse,
+  ProjectTrustStatus,
 } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 import { shortenPath } from "@/lib/display-path";
@@ -31,7 +32,7 @@ import {
   ConfigFooterStatus,
   ConfigListAction,
   ConfigPanelShell,
-  ConfigScopeSwitch,
+  ConfigSaveTarget,
   ConfigScopeTag,
   ConfigSidebar,
   ConfigSidebarGroupLabel,
@@ -46,7 +47,7 @@ import {
   ConfigSwitch,
   ConfigTrustNotice,
 } from "./SettingsUi";
-import { itemsToSwitch } from "./settings-ui-helpers";
+import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
@@ -129,9 +130,10 @@ function versionSummary(pkg: PluginPackageInfo, t: Translate): string {
   return parts.length ? parts.join(" · ") : t("i18n.unknown");
 }
 
+/** Where pi installs a package of this scope (`DefaultPackageManager`'s npm and git roots). */
 function installLocation(scope: PluginScope, cwd: string): string {
   return scope === "project"
-    ? `${shortenPath(cwd)}/.pi/agent/{npm,git}`
+    ? `${shortenPath(cwd)}/.pi/{npm,git}`
     : "~/.pi/agent/{npm,git}";
 }
 
@@ -269,19 +271,33 @@ function AddPluginPanel({
   return (
     <ConfigAddSourcePanel
       title={t("i18n.addPlugin")}
-      catalogHref="https://pi.dev/packages"
-      catalogLabel="pi.dev/packages"
-      catalogIcon={
-        <svg width="28" height="28" viewBox="0 0 800 800" aria-hidden="true" focusable="false">
-          <path
-            fill="#000"
-            fillRule="evenodd"
-            d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
-          />
-          <path fill="#000" d="M517.36 400H634.72V634.72H517.36Z" />
-        </svg>
+      catalogs={[{
+        href: "https://pi.dev/packages",
+        label: "pi.dev/packages",
+        icon: (
+          <svg width="28" height="28" viewBox="0 0 800 800" aria-hidden="true" focusable="false">
+            <path
+              fill="#000"
+              fillRule="evenodd"
+              d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
+            />
+            <path fill="#000" d="M517.36 400H634.72V634.72H517.36Z" />
+          </svg>
+        ),
+      }]}
+      target={
+        <ConfigSaveTarget
+          value={scope}
+          label={t("config.saveTo")}
+          options={[
+            { value: "global", label: scopeLabel("global", t) },
+            { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
+          ]}
+          path={installLocation(scope, cwd)}
+          disabledReason={t("trust.projectScopeUnavailable")}
+          onChange={onScopeChange}
+        />
       }
-      location={installLocation(scope, cwd)}
       inputLabel={t("config.source")}
       inputId="plugin-source"
       placeholder="npm:@scope/package"
@@ -294,25 +310,14 @@ function AddPluginPanel({
       examples={PLUGIN_SOURCE_EXAMPLES}
       error={actionError}
     >
-      <ConfigScopeSwitch
-        value={scope}
-        label={t("config.scope")}
-        options={[
-          { value: "global", label: scopeLabel("global", t) },
-          { value: "project", label: scopeLabel("project", t), disabled: !projectResourcesLoaded },
-        ]}
-        disabledReason={t("trust.projectScopeUnavailable")}
-        onChange={onScopeChange}
+      <ConfigButton
+        variant="primary"
+        onClick={onInstall}
+        disabled={busy || !source.trim()}
+        className="is-pushed-right"
       >
-        <ConfigButton
-          variant="primary"
-          onClick={onInstall}
-          disabled={busy || !source.trim()}
-          className="is-pushed-right"
-        >
-          {busy ? t("i18n.installing") : t("i18n.install")}
-        </ConfigButton>
-      </ConfigScopeSwitch>
+        {busy ? t("i18n.installing") : t("i18n.install")}
+      </ConfigButton>
     </ConfigAddSourcePanel>
   );
 }
@@ -564,12 +569,15 @@ export function PluginsConfig({
   onClose,
   onReloaded,
   embedded = false,
+  trust,
 }: {
   cwd: string;
   sessionId: string | null;
   onClose: () => void;
   onReloaded?: () => void;
   embedded?: boolean;
+  /** The page's trust status for `cwd`; a new decision loads the list again. */
+  trust?: ProjectTrustStatus | null;
 }) {
   const { t } = useI18n();
   const [data, setData] = useState<PluginsResponse | null>(null);
@@ -635,6 +643,19 @@ export function PluginsConfig({
     setUpdateError(null);
     void loadPlugins();
   }, [cwd]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Whether project packages load, and the Project scope can be chosen, follows
+  // the folder's trust, which can change while this section stays mounted
+  // (hidden) in Settings: trusting from Settings › MCP. A new decision loads the
+  // list again in place, keeping the selection and any update checks; the first
+  // load is the effect above.
+  const trustKey = projectTrustReloadKey(trust);
+  const loadedTrustKeyRef = useRef(trustKey);
+  useEffect(() => {
+    if (loadedTrustKeyRef.current === trustKey) return;
+    loadedTrustKeyRef.current = trustKey;
+    void loadPlugins();
+  }, [trustKey, loadPlugins]);
 
   useEffect(() => {
     if (selected) setLastSettingsSelection("plugins", selected, cwd);

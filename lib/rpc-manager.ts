@@ -44,6 +44,7 @@ import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./c
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import { createPiWebBuiltinExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
+import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import {
@@ -120,8 +121,8 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
-  /** Connects the session's MCP servers before a prompt starts a run (lib/mcp-host.ts). */
-  mcpHost?: Pick<McpHost, "prepareForPrompt">;
+  /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
+  mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
 };
 
 export const MCP_WAIT_STOPPED_MESSAGE = "Stopped while MCP servers were connecting; the message was not sent.";
@@ -299,7 +300,8 @@ export class AgentSessionWrapper {
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
-  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt">;
+  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -499,6 +501,19 @@ export class AgentSessionWrapper {
       throw this.extensionBindingError instanceof Error
         ? this.extensionBindingError
         : new Error(String(this.extensionBindingError));
+    }
+  }
+
+  /** The session's extension commands as pi looks them up: by invocation name, with the extension's path. */
+  private extensionCommandCandidates(): McpCommandCandidate[] {
+    try {
+      return this.inner.extensionRunner.getRegisteredCommands().map((command) => ({
+        name: command.invocationName,
+        sourceInfo: command.sourceInfo,
+      }));
+    } catch {
+      // Unreadable: treat the prompt as one that may start a run, as before.
+      return [];
     }
   }
 
@@ -749,13 +764,19 @@ export class AgentSessionWrapper {
           };
 
           this.pendingPromptCount += 1;
-          // A prompt that starts a run first connects the session's MCP servers and waits
-          // for the ones still connecting. The SDK runs before_agent_start before a run has
-          // an abort signal, so Stop is honoured here: it ends the wait, and the message is
-          // rejected unsent, which returns it to the composer.
-          if (this.mcpHost && !this.inner.isStreaming) {
+          // A prompt that may start a run first connects the session's MCP servers and
+          // waits for the ones still connecting. The SDK runs before_agent_start before a
+          // run has an abort signal, so Stop is honoured here: it ends the wait, and the
+          // message is rejected unsent, which returns it to the composer. pi runs an
+          // extension command before anything else and starts no run for it: another
+          // extension's command skips this, and the built-in `/mcp`, which acts on the
+          // registered servers, registers them without waiting (`mcpPromptPreparation()`).
+          const mcpPreparation = this.mcpHost && !this.inner.isStreaming
+            ? mcpPromptPreparation(typeof command.message === "string" ? command.message : "", this.extensionCommandCandidates())
+            : "none";
+          if (this.mcpHost && mcpPreparation !== "none") {
             const controller = new AbortController();
-            const waited = this.mcpHost.prepareForPrompt(controller.signal)
+            const waited = this.mcpHost.prepareForPrompt(controller.signal, { wait: mcpPreparation === "wait" })
               .catch((error: unknown) => {
                 console.error("[pi-web] MCP servers could not be prepared:", error instanceof Error ? error.message : error);
               })
@@ -1074,9 +1095,18 @@ export class AgentSessionWrapper {
         // A hidden tool is withdrawn: pi ignores it when setting the active tools.
         const all: ToolInfo[] = this.inner.getAllTools().filter((t) => t.exposure !== "hidden");
         const active = new Set<string>(this.inner.getActiveToolNames());
+        // The definition's description is not always what the model gets: `prepareLoadout`
+        // hooks rewrite the declared ones (codemode lists its nested tools and the MCP types).
+        const declared = new Map((this.inner.agent.state?.tools ?? []).map((t) => [t.name, t.description]));
+        // Active and callable, but requests leave the declaration out: codemode's "only" mode
+        // does this to active `direct` tools. The set is private to pi 0.99's AgentSession.
+        const hiddenDeclarations: unknown = Reflect.get(this.inner, "_hiddenDeclarations");
+        const hidden = hiddenDeclarations instanceof Set ? hiddenDeclarations : new Set<unknown>();
         return all.map((t) => ({
           ...t,
+          description: declared.get(t.name) ?? t.description,
           active: active.has(t.name),
+          declarationHidden: hidden.has(t.name),
         }));
       }
 
@@ -1194,9 +1224,25 @@ export class AgentSessionWrapper {
     }
   }
 
+  /**
+   * Once, as closing starts and before extensions hear session_shutdown: the
+   * MCP host's own handler runs after every other extension's, and one that
+   * never returns would leave its records behind (lib/mcp-host.ts).
+   */
+  private disposeMcpHost(): void {
+    if (this.mcpHostDisposed) return;
+    this.mcpHostDisposed = true;
+    try {
+      this.mcpHost?.dispose();
+    } catch (error) {
+      console.error("[pi-web] MCP host dispose failed:", error instanceof Error ? error.message : error);
+    }
+  }
+
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    this.disposeMcpHost();
     // Tell attached SSE listeners to drop this instance so the browser
     // EventSource errors and reconnects instead of staying OPEN on a dead wrapper.
     this.emit({ type: "session_shutdown" });
@@ -1261,6 +1307,8 @@ export class AgentSessionWrapper {
             error instanceof Error ? error.message : error,
           );
         }
+        // After binding, so the host's session_start has run and finds nothing to record later.
+        this.disposeMcpHost();
         if (!this.sessionShutdownEmitted) {
           this.sessionShutdownEmitted = true;
           const emit = this.inner.extensionRunner?.emit;
@@ -1957,7 +2005,9 @@ const closingSessionWaits = new WeakMap<AgentSessionWrapper, { done: boolean; pr
  * extension's session_shutdown may append to the file, which a replacement opened earlier
  * would branch away from, and dispose() releases provider resources (a Codex websocket) by
  * session id, which the replacement shares. The wait is bounded so a shutdown stuck in
- * extension binding cannot keep the session from starting again.
+ * extension binding cannot keep the session from starting again. One wait per closing
+ * wrapper: its bound runs from the first caller and later callers share it, so a
+ * shutdown still binding extensions can be overtaken.
  */
 function closingRpcSessionWait(sessionId: string): Promise<void> | null {
   const closing = getRegistry().get(sessionId);

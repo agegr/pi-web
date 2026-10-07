@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted. Amended 2026-10-02: why a switch cannot move is visible text, not a
+tooltip (see "Chrome is a tooltip").
 
 ## Context
 
@@ -134,6 +135,14 @@ question the sentence did not — where the panel just wrote. The path comes fro
 the route (`settingsPath`), because only the server knows the agent directory
 and whether a project file shadows it, and it is the part that truncates: the
 key and the counts never shrink.
+
+> **Update (2026-10-02).** Reversed for why a switch cannot move: a `title`
+> never shows on a touch screen, and Settings shows why a control is
+> unavailable as visible text everywhere (`docs/agents/settings-ui.md`). The
+> models.json provider switch's reason, a missing provider included, is a note
+> under its detail header, and a built-in provider's rows and Disable all point
+> at the section's scope and last-model notes, each through
+> `aria-describedby`. The banner is unchanged.
 
 ## Consequences
 

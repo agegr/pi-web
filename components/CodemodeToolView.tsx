@@ -9,11 +9,10 @@ import {
   type CodemodeCallStatus,
   type CodemodeCallView,
 } from "@/lib/codemode-view";
-import { CodeBlock } from "./MermaidBlock";
 
-// The parts of a codemode tool card: the script the model wrote, and the tool
-// calls it made. Those calls never reach the model as tool calls of their own,
-// so they are rows inside this card, not separate cards (as in pi's TUI).
+// The tool calls a codemode script made, listed under the script in its card.
+// Those calls never reach the model as tool calls of their own, so they are
+// rows inside this card, not separate cards (as in pi's TUI).
 
 /** Calls shown before the rest are folded behind a button; the newest stay visible. */
 export const CODEMODE_VISIBLE_CALLS = 20;
@@ -24,17 +23,6 @@ const STATUS_STYLE: Record<CodemodeCallStatus, { icon: string; color: string }> 
   error: { icon: "✗", color: "#f87171" },
   cancelled: { icon: "⊘", color: "var(--text-dim)" },
 };
-
-export function CodemodeScript({ code, isError }: { code: string; isError: boolean }) {
-  return (
-    <div
-      className="tool-codemode-script"
-      style={{ borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)" }}
-    >
-      <CodeBlock code={code.replace(/\r/g, "").trimEnd()} lang="javascript" />
-    </div>
-  );
-}
 
 function CallRow({ call }: { call: CodemodeCallView }) {
   const { t } = useI18n();

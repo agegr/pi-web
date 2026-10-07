@@ -169,6 +169,8 @@ export interface McpServerConnectionOptions {
   cwd: string;
   createTransport: McpTransportFactory;
   credentials: McpOAuthCredentialStore;
+  /** The current token of a pi provider, for servers with `auth.provider`. */
+  providerToken?: (provider: string) => Promise<string | undefined>;
   onTools: (connection: McpServerConnection) => void;
   /** Called when `state`, `error`, or `tools` change. */
   onChange?: (connection: McpServerConnection) => void;
