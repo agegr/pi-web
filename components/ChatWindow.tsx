@@ -845,15 +845,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
-  // Extension action chips: statuses whose key is "chip:<command>" render as
-  // clickable chips in the composer footer (left of the reasoning control)
-  // instead of the bottom status shelf. Clicking sends the command as a prompt;
-  // extension commands execute immediately and are not recorded as user messages.
-  const extensionChips = extensionStatuses
-    .filter((item) => item.key.startsWith("chip:"))
-    .map((item) => ({ command: item.key.slice(5), text: item.text }));
-  const shelfStatuses = extensionStatuses.filter((item) => !item.key.startsWith("chip:"));
-
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -883,8 +874,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       thinkingLevel={thinkingLevel}
       isAutoThinkingSelection={isAutoThinkingSelection}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
-      extensionChips={extensionChips}
-      onExtensionChipActivate={handleSend}
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       savedDefaultThinkingLevel={savedDefaultThinkingLevel}
@@ -1382,7 +1371,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           </div>
         )}
         {chatInputElement}
-        <ExtensionStatusBar statuses={shelfStatuses} widgets={extensionWidgets} />
+        <ExtensionStatusBar
+          statuses={extensionStatuses}
+          widgets={extensionWidgets}
+          onCommand={handleSend}
+          commandsDisabled={sessionBusy}
+        />
       </div>
       {isEmptyNew && <div className="min-h-0 flex-1" />}
     </div>

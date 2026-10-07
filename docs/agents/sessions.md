@@ -51,5 +51,11 @@ On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state
 - Prompt runs carry a monotonic run id; late SSE or reconciliation answers from an old run must be ignored, or they resurrect stale streaming bubbles.
 - Every SSE (re)connection is gated on `sessionHookMountedRef`. Under React Strict Mode (`next dev`) the mount-only effect's cleanup clears it and restores it only after the warm-session effect re-runs, so that effect must re-assert it before `maintainEventsConnected()`, or a dev tab never opens its stream.
 
+## Extension status bar and command buttons (`components/ExtensionStatusBar.tsx`, `ExtensionWidgets.tsx`)
+- `ctx.ui.setStatus(key, text)` lands in the wrapper's `extensionStatuses` map, reaches the page as an `extension_ui_request` (`setStatus`), and is restored from `GET /api/agent/[id]` state after a reload. The shelf under the composer shows one cell per status in key order (like Pi's footer), separated by vertical rules. The widget triggers share one `extension-status-row` with the status line so the row scrolls sideways as a whole; the expanded widget panel stays above it, outside the scroll.
+- A key `command:/name args` makes its cell a button that sends that slash command through `handleSend` (disabled while the session is busy). The command lives in the key because `setStatus` has no room for it, and Pi's own footer prints only the text, so the same status is plain text there. Only `/…` commands qualify: anything else would reach the model, and `!` would run a shell command.
+- A status with nothing visible (empty after stripping ANSI) gets no cell. Touch screens get 44px cells (widget triggers included) only when the bar has a command button.
+- Statuses exist only while the session's wrapper is alive, so a fresh chat or a session nobody has prompted yet shows no cells (and no buttons) until its first message.
+
 ## Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then makes the generated HTML's recursive tree helpers iterative, so very deep linear sessions do not overflow the browser call stack.

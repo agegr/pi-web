@@ -547,26 +547,32 @@ html.dark .web-login-error {
   white-space: nowrap;
 }
 
-.extension-widget-triggers {
+/* The widget triggers and the status line are one row that scrolls sideways as a
+   whole. The expanded panel sits above it and stays put. */
+.extension-status-row {
   display: flex;
   flex: 1 1 100%;
   align-items: stretch;
   min-width: 0;
-  height: 35px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
 
-.extension-widget-triggers::-webkit-scrollbar {
-  display: none;
+.extension-widget-triggers {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  height: 35px;
 }
 
 .extension-status-shelf.has-widgets.has-status .extension-widget-triggers {
-  flex: 0 0 auto;
-  max-width: 70%;
   border-right: 1px solid var(--border);
+}
+
+.extension-status-row > .extension-status-line {
+  flex: 0 0 auto;
 }
 
 .extension-widget-trigger {
@@ -694,7 +700,7 @@ button.extension-widget-trigger:focus-visible {
   min-width: 0;
   min-height: 35px;
   max-height: min(144px, 18dvh);
-  padding: 8px 12px;
+  padding: 0;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -702,13 +708,71 @@ button.extension-widget-trigger:focus-visible {
 }
 
 .extension-status-text {
+  display: flex;
   flex: 1;
+  align-items: stretch;
   min-width: 0;
+  min-height: 35px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.45;
   white-space: pre;
+}
+
+/* Every status is a cell of the status line, told apart from its neighbours by a
+   vertical rule like the widget triggers. A `command:` status is a button cell, as
+   tall as the line, so the whole cell can be clicked. */
+.extension-status-item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 8px 12px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.extension-status-item:last-child {
+  border-right: 0;
+}
+
+.extension-status-command {
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.extension-status-command:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.extension-status-command:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.extension-status-command:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Touch screens get taller cells when there is something to tap, widget triggers
+   included, so the row stays level. */
+@media (pointer: coarse) {
+  .extension-status-shelf.has-commands .extension-status-text {
+    min-height: 44px;
+  }
+
+  .extension-status-shelf.has-commands .extension-widget-triggers,
+  .extension-status-shelf.has-commands .extension-widget-trigger {
+    height: 44px;
+  }
 }
 
 :root {
