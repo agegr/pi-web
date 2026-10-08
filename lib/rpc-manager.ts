@@ -735,6 +735,13 @@ export class AgentSessionWrapper {
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
       }
+      // A session whose folder was deleted outside pi-web stays readable, but a
+      // run there would reach the model only for its tools to fail (and `write`
+      // to recreate the folder). The pi CLI does not resume such a session
+      // either; refuse as /api/agent/new does. (A `!` command already refuses.)
+      if (type === "prompt" && !existsSync(this.cwd)) {
+        throw new Error(`Directory does not exist: ${this.cwd}`);
+      }
 
       switch (type) {
       case "prompt": {

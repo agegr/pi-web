@@ -120,6 +120,19 @@ test("new-session promotion rekeys drafts before publishing the real session", (
   assert.match(chatWindowSource, /draftKey=\{session\?\.id \?\? newSessionDraftKey \?\? undefined\}/);
 });
 
+test("a refused new session reports the server's reason, not a bare status (#1061)", () => {
+  const ensureSource = source.slice(
+    source.indexOf("  const ensureNewSession = useCallback"),
+    source.indexOf("  const loadSystemInfo = useCallback"),
+  );
+
+  assert.match(
+    ensureSource,
+    /if \(!res\.ok\) \{[\s\S]*?await res\.json\(\)\.catch\(\(\) => null\)[\s\S]*?typeof body\?\.error === "string" \? body\.error : `HTTP \$\{res\.status\}`/,
+  );
+  assert.doesNotMatch(ensureSource, /if \(!res\.ok\) throw new Error\(`HTTP \$\{res\.status\}`\)/);
+});
+
 test("fresh sessions use the preference while persisted and live sessions restore their selection", () => {
   const preferenceSource = source.slice(
     source.indexOf("  const setToolPresetState"),
