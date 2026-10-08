@@ -1383,7 +1383,9 @@
 .settings-dialog-surface {
   display: flex;
   flex-direction: column;
-  width: 1080px;
+  /* Wide enough for the seven section tabs on one line; `max-width` still
+     clamps it on a smaller screen, and the tabs shrink before anything wraps. */
+  width: 1200px;
   max-width: calc(100vw - 16px);
   height: 84vh;
   max-height: calc(100dvh - 16px);
@@ -1413,25 +1415,42 @@
 
 .settings-section-tabs {
   display: flex;
+  flex: 1 1 auto;
   align-items: stretch;
+  justify-content: flex-start;
   gap: 2px;
   min-width: 0;
   height: 50px;
   margin-left: 22px;
   overflow-x: auto;
   overflow-y: hidden;
+  /* The header keeps a 52px right pad for the close button; without this the
+     tabs would run under it as they grow. */
+  margin-right: 8px;
+  /* A scrollbar under the tabs reads as a layout bug, so hide it: the tabs are
+     sized to fit, and the phone layout swaps in a picker instead. */
+  scrollbar-width: none;
+}
+
+.settings-section-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-section-tab {
   position: relative;
   display: flex;
-  flex: 0 0 96px;
+  /* Tabs share the header evenly so no tab is left with a wider neighbour. They
+     grow into spare width up to a comfortable reading width and stop; when the
+     header is narrow they shrink together instead of overflowing, and the label
+     ellipsises at the floor rather than being clipped. */
+  flex: 1 1 auto;
+  max-width: 128px;
+  min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  width: 96px;
   height: 100%;
-  padding: 0 2px;
+  padding: 0 8px;
   border: 0;
   outline: none;
   background: transparent;
@@ -1440,6 +1459,8 @@
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color 0.15s ease;
 }
 

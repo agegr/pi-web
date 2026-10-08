@@ -2572,6 +2572,12 @@ export function AppShell() {
           setModelsRefreshKey((key) => key + 1);
         }}
         onSessionReloaded={() => setSessionKey((key) => key + 1)}
+        onOpenSession={(sessionId) => {
+          // Close Settings first: the session opens behind it, and leaving the
+          // dialog up would hide the run the user just asked to see.
+          setSettingsSection(null);
+          void handleOpenSession(sessionId);
+        }}
         projectTrust={projectTrust}
         onOpenTrustDialog={openProjectTrustDialog}
         onProjectTrustChanged={handleProjectTrustChanged}
