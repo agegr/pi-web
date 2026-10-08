@@ -210,6 +210,16 @@ export function ChangesIcon(props: SidebarIconProps) {
   );
 }
 
+/** What the file tree lists: the files tab's ignored-files switch. */
+export function EyeIcon(props: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props}>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </SidebarIcon>
+  );
+}
+
 export function MessageIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></SidebarIcon>;
 }

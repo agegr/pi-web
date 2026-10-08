@@ -306,7 +306,6 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.uploadFiles": "上傳檔案",
     "sidebar.refreshExplorer": "重新整理檔案列表",
     "sidebar.showIgnoredFiles": "顯示被忽略的檔案",
-    "sidebar.hideIgnoredFiles": "隱藏被忽略的檔案",
     "sidebar.openInExplorer": "在檔案總管中開啟",
     "sidebar.openInFinder": "在 Finder 中開啟",
     "sidebar.openInFileManager": "在檔案管理員中開啟",

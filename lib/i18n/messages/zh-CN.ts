@@ -306,7 +306,6 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.uploadFiles": "上传文件",
     "sidebar.refreshExplorer": "刷新文件列表",
     "sidebar.showIgnoredFiles": "显示被忽略的文件",
-    "sidebar.hideIgnoredFiles": "隐藏被忽略的文件",
     "sidebar.openInExplorer": "在资源管理器中打开",
     "sidebar.openInFinder": "在访达中打开",
     "sidebar.openInFileManager": "在文件管理器中打开",

@@ -179,7 +179,7 @@ test("sessions and files are two tabs of one sidebar, both kept mounted", () => 
   assert.doesNotMatch(globalStyles, /sidebar-section-resize-handle/);
 });
 
-test("the files tab's head holds the picker and its five buttons, always the same ones in the same places", () => {
+test("the files tab's head holds the picker and its six buttons, always the same ones in the same places", () => {
   const html = render({ selectedCwd: "/work/alpha", onOpenTerminal: noop });
   const panel = html.slice(html.indexOf('id="session-sidebar-panel-files"'));
   const head = panel.slice(panel.indexOf('<div class="sidebar-files-head">'), panel.indexOf('<div class="sidebar-files-scroll'));
@@ -189,9 +189,10 @@ test("the files tab's head holds the picker and its five buttons, always the sam
   assert.ok(pickerEnd > 0);
   assert.equal((head.slice(0, pickerEnd).match(/class="sidebar-tool-button/g) ?? []).length, 0);
   assert.match(head.slice(pickerEnd), /^<div class="sidebar-files-actions" role="group" aria-label="File actions">/);
-  // The folder's actions, then the tree's changes view (its search is the
-  // header's). The changes view is there without changes too, disabled, so
-  // nothing moves as an agent edits files and commits; its count is the tab's.
+  // The folder's actions, then the tree's two views: what it lists and its
+  // changes (its search is the header's). The changes view is there without
+  // changes too, disabled, so nothing moves as an agent edits files and
+  // commits; its count is the tab's.
   const labels = [...head.slice(pickerEnd).matchAll(/<button type="button"( disabled="")? title="([^"]+)" aria-label="\2"( aria-pressed="(true|false)")? class="([^"]+)"/g)]
     .map((match) => `${match[2]}${match[1] ? " (disabled)" : ""}${match[4] ? ` pressed=${match[4]}` : ""}`);
   assert.deepEqual(labels, [
@@ -199,8 +200,16 @@ test("the files tab's head holds the picker and its five buttons, always the sam
     "Open in file manager",
     "Upload files to project root",
     "Refresh file list",
+    "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",
   ]);
+  assert.match(head, /<button type="button" title="Show ignored files" aria-label="Show ignored files" aria-pressed="false" class="sidebar-tool-button sidebar-files-views-start">/);
+  // The ignored-files switch is the browser's, restored after hydration like
+  // the tab, and it is what the explorer lists.
+  assert.match(source, /if \(loadShowIgnoredFiles\(\)\) setShowIgnoredFiles\(true\);/);
+  assert.match(source, /const next = !showIgnoredFiles;\s*setShowIgnoredFiles\(next\);\s*saveShowIgnoredFiles\(next\);/);
+  assert.match(source, /title=\{t\("sidebar\.showIgnoredFiles"\)\}\s*pressed=\{showIgnoredFiles\}/);
+  assert.match(source, /showHidden=\{showIgnoredFiles\}/);
   assert.doesNotMatch(head, /Search files/);
   assert.match(source, /disabled=\{changesCount === 0\}\s*title=\{t\("sidebar\.changedFiles", \{ count: changesCount \}\)\}\s*pressed=\{changesCount > 0 && !changesCollapsed\}/);
   assert.doesNotMatch(source, /changesCount > 0 && \(\s*<ToolbarIconButton/);
@@ -221,14 +230,17 @@ test("the files tab's head holds the picker and its five buttons, always the sam
   // No box of its own: the head sits flat under the toolbar row's line and
   // a line of its own parts it from the tree. None between the boxes and the
   // keys: square, borderless and dim, the folder's four from the left, the
-  // changes view at the right end, the row's edges on the boxes'.
+  // tree's two views at the right end, the row's edges on the boxes'. At the
+  // sidebar's 180px minimum (160px inside the head's padding) all six fit:
+  // six 21px keys and five 6px gaps.
   assert.match(sidebarStyles, /\.sidebar-files-head \{\s*display: flex;\s*flex: none;\s*flex-direction: column;\s*padding: 10px 10px 4px;\s*border-bottom: 1px solid var\(--border\);\s*\}/);
   assert.match(source, /<div className="sidebar-files-head">/);
   assert.doesNotMatch(source, /explorerScrolled|is-scrolled/);
   assert.doesNotMatch(sidebarStyles, /sidebar-files-card|sidebar-files-actions::before|sidebar-tabs\.is-files|sidebar-icon-button|is-scrolled/);
   assert.match(sidebarStyles, /\.sidebar-files-actions \{\s*display: flex;\s*align-items: center;\s*gap: 6px;\s*margin-top: 4px;\s*\}/);
-  assert.match(sidebarStyles, /\.sidebar-tool-button:last-child \{\s*margin-left: auto;\s*\}/);
-  assert.match(sidebarStyles, /\.sidebar-tool-button \{\s*display: flex;\s*flex: 0 1 32px;\s*align-items: center;\s*justify-content: center;\s*min-width: 26px;\s*height: 32px;\s*padding: 0;\s*border: 0;\s*border-radius: 7px;\s*background: transparent;\s*color: var\(--text-dim\);/);
+  assert.match(sidebarStyles, /\.sidebar-files-views-start \{\s*margin-left: auto;\s*\}/);
+  assert.doesNotMatch(sidebarStyles, /\.sidebar-tool-button:last-child/);
+  assert.match(sidebarStyles, /\.sidebar-tool-button \{\s*display: flex;\s*flex: 0 1 32px;\s*align-items: center;\s*justify-content: center;\s*min-width: 21px;\s*height: 32px;\s*padding: 0;\s*border: 0;\s*border-radius: 7px;\s*background: transparent;\s*color: var\(--text-dim\);/);
   assert.match(sidebarStyles, /\.sidebar-tool-button:not\(:disabled\):hover \{\s*background: var\(--bg-selected\);\s*color: var\(--text\);/);
   assert.match(sidebarStyles, /@media \(pointer: coarse\) \{[\s\S]*?\.sidebar-tool-button \{\s*flex-basis: 36px;\s*height: 36px;\s*\}/);
   // Little room above and below the keys: 4px to the boxes, 4px to the line,
@@ -269,6 +281,7 @@ test("the tab chosen last is shown again after hydration, not in the first rende
     "pi-web:sidebar-tab": "files",
     "pi-web:sidebar-groups": JSON.stringify({ "/work/alpha": false }),
     "pi-web:sidebar-pins-collapsed": "true",
+    "pi-web:sidebar-files-show-ignored": "true",
   };
   const previous = globalThis.window;
   globalThis.window = {
@@ -288,14 +301,16 @@ test("the tab chosen last is shown again after hydration, not in the first rende
   assert.match(openingTag(clientHtml, "session-sidebar-panel-files"), /hidden=""/);
   assert.match(clientHtml, /<div class="sidebar-header"><div class="sidebar-tabs-list" role="tablist"/);
 
-  // The saved tab, group choices and pinned section come back in a mount effect.
+  // The saved tab, group choices, pinned section and ignored-files switch come
+  // back in a mount effect.
   assert.match(source, /const \[sidebarTab, setSidebarTab\] = useState<SidebarTab>\("sessions"\);/);
   assert.match(source, /const \[groupExpansion, setGroupExpansion\] = useState<Readonly<Record<string, boolean>>>\(\{\}\);/);
   assert.match(source, /const \[pinnedCollapsed, setPinnedCollapsed\] = useState\(false\);/);
-  assert.doesNotMatch(source, /useState[^;\n]*\(\(\) => load(?:SidebarTab|GroupExpansion|PinnedCollapsed)\(\)\)/);
+  assert.match(source, /const \[showIgnoredFiles, setShowIgnoredFiles\] = useState\(false\);/);
+  assert.doesNotMatch(source, /useState[^;\n]*\(\(\) => load(?:SidebarTab|GroupExpansion|PinnedCollapsed|ShowIgnoredFiles)\(\)\)/);
   assert.match(
     source,
-    /useEffect\(\(\) => \{\s*const tab = loadSidebarTab\(\);\s*if \(tab !== "sessions"\) setSidebarTab\(tab\);\s*const groups = loadGroupExpansion\(\);\s*if \(Object\.keys\(groups\)\.length > 0\) setGroupExpansion\(groups\);\s*if \(loadPinnedCollapsed\(\)\) setPinnedCollapsed\(true\);\s*forgetRetiredSidebarKeys\(\);\s*\}, \[\]\);/,
+    /useEffect\(\(\) => \{\s*const tab = loadSidebarTab\(\);\s*if \(tab !== "sessions"\) setSidebarTab\(tab\);\s*const groups = loadGroupExpansion\(\);\s*if \(Object\.keys\(groups\)\.length > 0\) setGroupExpansion\(groups\);\s*if \(loadPinnedCollapsed\(\)\) setPinnedCollapsed\(true\);\s*if \(loadShowIgnoredFiles\(\)\) setShowIgnoredFiles\(true\);\s*forgetRetiredSidebarKeys\(\);\s*\}, \[\]\);/,
   );
 });
 

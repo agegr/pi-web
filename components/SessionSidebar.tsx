@@ -25,9 +25,11 @@ import {
   forgetRetiredSidebarKeys,
   loadGroupExpansion,
   loadPinnedCollapsed,
+  loadShowIgnoredFiles,
   loadSidebarTab,
   saveGroupExpansion,
   savePinnedCollapsed,
+  saveShowIgnoredFiles,
   saveSidebarTab,
   type SidebarTab,
 } from "@/lib/sidebar-prefs";
@@ -69,6 +71,7 @@ import {
   ChevronIcon,
   DotIcon,
   DotOutlineIcon,
+  EyeIcon,
   FolderIcon,
   MessageIcon,
   ForkIcon,
@@ -111,6 +114,7 @@ function ToolbarIconButton({
   disabled,
   pressed,
   done,
+  className,
   children,
 }: {
   onClick: () => void;
@@ -120,6 +124,7 @@ function ToolbarIconButton({
   pressed?: boolean;
   /** Brief confirmation after an action (refresh). */
   done?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
@@ -130,7 +135,7 @@ function ToolbarIconButton({
       title={title}
       aria-label={title}
       aria-pressed={pressed}
-      className={`sidebar-tool-button${pressed ? " is-active" : ""}${done ? " is-done" : ""}`}
+      className={`sidebar-tool-button${pressed ? " is-active" : ""}${done ? " is-done" : ""}${className ? ` ${className}` : ""}`}
     >
       {children}
     </button>
@@ -415,6 +420,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  const [showIgnoredFiles, setShowIgnoredFiles] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [fileManager, setFileManager] = useState<FileManagerAvailability | null>(null);
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
@@ -515,6 +521,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const groups = loadGroupExpansion();
     if (Object.keys(groups).length > 0) setGroupExpansion(groups);
     if (loadPinnedCollapsed()) setPinnedCollapsed(true);
+    if (loadShowIgnoredFiles()) setShowIgnoredFiles(true);
     forgetRetiredSidebarKeys();
   }, []);
 
@@ -2178,8 +2185,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           {/* Always the same buttons in the same places: the changes view
               stays (disabled) while there is nothing changed, so nothing
               moves as an agent edits files and commits. The folder's
-              actions first, the tree's changes view last; its search is the
-              header's search button. */}
+              actions first, the tree's two views last (what it lists, then
+              its changes); its search is the header's search button. */}
           {explorerCwd && (
             <div className="sidebar-files-actions" role="group" aria-label={t("sidebar.fileActions")}>
               {onOpenTerminal && (
@@ -2220,6 +2227,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 {explorerRefreshDone ? <CheckIcon size={14} /> : <RefreshIcon size={14} />}
               </ToolbarIconButton>
               <ToolbarIconButton
+                onClick={() => {
+                  const next = !showIgnoredFiles;
+                  setShowIgnoredFiles(next);
+                  saveShowIgnoredFiles(next);
+                }}
+                title={t("sidebar.showIgnoredFiles")}
+                pressed={showIgnoredFiles}
+                className="sidebar-files-views-start"
+              >
+                <EyeIcon size={14} />
+              </ToolbarIconButton>
+              <ToolbarIconButton
                 onClick={() => setChangesCollapsed((v) => !v)}
                 disabled={changesCount === 0}
                 title={t("sidebar.changedFiles", { count: changesCount })}
@@ -2253,6 +2272,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               onChangesCountChange={setChangesCount}
               fileSearchOpen={fileSearchOpen}
               onFileSearchOpenChange={setFileSearchOpen}
+              showHidden={showIgnoredFiles}
             />
           )}
         </div>

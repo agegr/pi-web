@@ -1,13 +1,15 @@
 /**
  * Per-browser sidebar preferences: the active tab (sessions or files), the
- * user's explicit project group expand/collapse choices, and whether the
- * pinned section is collapsed. Best-effort localStorage, like the other
- * sidebar memories: privacy mode or quota errors fall back to defaults.
+ * user's explicit project group expand/collapse choices, whether the pinned
+ * section is collapsed, and whether the files tab lists ignored files.
+ * Best-effort localStorage, like the other sidebar memories: privacy mode or
+ * quota errors fall back to defaults.
  */
 
 const SIDEBAR_TAB_STORAGE_KEY = "pi-web:sidebar-tab";
 const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
+const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
 /** What the sessions/explorer split, which the two tabs replaced, kept: nothing reads them now. */
 const RETIRED_STORAGE_KEYS = ["pi-web:file-explorer:open", "pi-web:sidebar-session-pane-height"];
 
@@ -106,6 +108,28 @@ export function savePinnedCollapsed(
   if (!storage) return;
   try {
     storage.setItem(PINNED_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Persistence is best-effort.
+  }
+}
+
+/** The files tab's ignored-files switch; off unless the browser saved it on. */
+export function loadShowIgnoredFiles(storage: StorageLike | null = getBrowserStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(SHOW_IGNORED_FILES_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveShowIgnoredFiles(
+  show: boolean,
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(SHOW_IGNORED_FILES_STORAGE_KEY, String(show));
   } catch {
     // Persistence is best-effort.
   }

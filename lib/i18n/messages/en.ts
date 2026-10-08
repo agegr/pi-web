@@ -306,7 +306,6 @@ export const enLocale: LocalePlugin = {
     "sidebar.uploadFiles": "Upload files",
     "sidebar.refreshExplorer": "Refresh file list",
     "sidebar.showIgnoredFiles": "Show ignored files",
-    "sidebar.hideIgnoredFiles": "Hide ignored files",
     "sidebar.openInExplorer": "Open in Explorer",
     "sidebar.openInFinder": "Open in Finder",
     "sidebar.openInFileManager": "Open in file manager",

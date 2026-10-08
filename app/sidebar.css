@@ -1038,18 +1038,24 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* The head's last row: the actions on that folder and the tree's changes
-   view, used often enough to stay in view (its search is the toolbar
-   row's). The folder's four from the left, the tree's view at the right
-   end, the row's edges on the boxes'. Always the same five (the changes
-   view is disabled, not gone, without changes), so nothing moves as the
-   count flips. At the sidebar's 180px minimum they give way together and
-   the gap before the view closes. */
+/* The head's last row: the actions on that folder and the tree's two
+   views, used often enough to stay in view (its search is the toolbar
+   row's). The folder's four from the left, the tree's views (ignored files,
+   changes) at the right end, the row's edges on the boxes'. Always the same
+   six (the changes view is disabled, not gone, without changes), so nothing
+   moves as the count flips. At the sidebar's 180px minimum they give way
+   together, down to 21px wide, and the gap before the views closes. */
 .sidebar-files-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-top: 4px;
+}
+
+/* The first of the tree's views. A wrapper around the two would be sized
+   by their icons, not their 32px basis, and squeeze them at any width. */
+.sidebar-files-views-start {
+  margin-left: auto;
 }
 
 /* Square keys, borderless and dim: their box shows on hover. */
@@ -1058,7 +1064,7 @@
   flex: 0 1 32px;
   align-items: center;
   justify-content: center;
-  min-width: 26px;
+  min-width: 21px;
   height: 32px;
   padding: 0;
   border: 0;
@@ -1067,10 +1073,6 @@
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.12s, background 0.12s;
-}
-
-.sidebar-tool-button:last-child {
-  margin-left: auto;
 }
 
 .sidebar-tool-button:not(:disabled):hover {
