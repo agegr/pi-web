@@ -570,6 +570,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.tokensSaved": "节省 {saved}",
     "chatMinimap.locateAssistant": "定位助手消息",
     "chatMinimap.toolCalls": "本轮 {count} 次工具调用",
+    "chatMinimap.lockPreview": "锁定：悬停时不展开预览",
+    "chatMinimap.unlockPreview": "解锁悬停预览",
     "i18n.close": "关闭",
     "i18n.copy": "复制",
     "i18n.copied": "已复制",

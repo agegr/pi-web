@@ -252,6 +252,7 @@ export function ChatMinimap({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
   const [minimapHovered, setMinimapHovered] = useState(false);
+  const [locked, setLocked] = useState(false);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -550,9 +551,20 @@ export function ChatMinimap({
   }, []);
 
   const showPreview = useCallback(() => {
+    if (locked) return;
     cancelPreviewHide();
     setMinimapHovered(true);
-  }, [cancelPreviewHide]);
+  }, [cancelPreviewHide, locked]);
+
+  const toggleLock = useCallback(() => {
+    const next = !locked;
+    setLocked(next);
+    if (next) {
+      cancelPreviewHide();
+      setMinimapHovered(false);
+      setMouseYRatio(null);
+    }
+  }, [cancelPreviewHide, locked]);
 
   const schedulePreviewHide = useCallback(() => {
     cancelPreviewHide();
@@ -687,6 +699,39 @@ export function ChatMinimap({
           </div>
         );
       })}
+
+      <button
+        type="button"
+        className={styles.lock}
+        data-minimap-lock={locked ? "on" : "off"}
+        aria-pressed={locked}
+        title={t(locked ? "chatMinimap.unlockPreview" : "chatMinimap.lockPreview")}
+        aria-label={t(locked ? "chatMinimap.unlockPreview" : "chatMinimap.lockPreview")}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleLock();
+        }}
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="4" y="11" width="16" height="10" rx="2" />
+          {locked ? (
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          ) : (
+            <path d="M8 11V7a4 4 0 0 1 7.9-.9" />
+          )}
+        </svg>
+      </button>
 
       {minimapHovered && allNodes.length > 0 && (
         <div
