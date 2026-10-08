@@ -130,6 +130,17 @@ export function cycleListIndex(index: number, length: number, delta: number): nu
   return ((index + delta) % length + length) % length;
 }
 
+// Plain replacement for when execCommand is unavailable or refuses: no undo
+// entry, but the mention still lands and React's onChange still fires.
+function setTextareaRange(textarea: HTMLTextAreaElement, start: number, end: number, text: string): void {
+  textarea.setRangeText(text, start, end, "end");
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+// Replace [start, end) with `text` as native edits so the textarea's own
+// undo/redo history records them. With a collapsed caret inside the range the
+// typed prefix is deleted and the tail forward-deleted, so undo returns to
+// what the user had typed.
 export function replaceTextareaRange(
   textarea: HTMLTextAreaElement,
   start: number,
@@ -144,15 +155,19 @@ export function replaceTextareaRange(
   if (selectionStart === selectionEnd && start <= selectionStart && end >= selectionEnd) {
     const finalLength = textarea.value.length - (end - start) + text.length;
     for (let edits = selectionStart - start; edits > 0 && textarea.selectionStart > start; edits--) {
-      document.execCommand("delete");
+      if (!document.execCommand("delete")) break;
     }
-    document.execCommand("insertText", false, text);
-    for (let edits = end - selectionEnd; edits > 0 && textarea.value.length > finalLength; edits--) {
-      document.execCommand("forwardDelete");
+    if (document.execCommand("insertText", false, text)) {
+      for (let edits = end - selectionEnd; edits > 0 && textarea.value.length > finalLength; edits--) {
+        if (!document.execCommand("forwardDelete")) break;
+      }
+    } else {
+      // Whatever prefix the deletes left is still in [start, caret); the tail is untouched.
+      setTextareaRange(textarea, start, textarea.selectionStart + (end - selectionEnd), text);
     }
   } else {
     textarea.setSelectionRange(start, end);
-    document.execCommand("insertText", false, text);
+    if (!document.execCommand("insertText", false, text)) setTextareaRange(textarea, start, end, text);
   }
 
   if (cursorOffset !== text.length) {
