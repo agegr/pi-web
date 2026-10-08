@@ -81,6 +81,20 @@ test("stacked: main's two boxes, the project's whole path and the worktree's bra
   assert.doesNotMatch(html, /style=/, "no inline styles");
 });
 
+test("a project the user named shows that name in its box, as plain text, the path as the tooltip", () => {
+  const named = { ...context, project: { ...context.project, alias: "Thermal <b>Models</b>" } };
+  for (const layout of ["stacked", "inline"]) {
+    const html = render({ layout, homeDir: "/home/me", context: named });
+    assert.match(html, /<button type="button" class="project-picker-button is-project" title="\/home\/me\/work\/app" aria-haspopup="menu" aria-expanded="false"><span class="project-picker-label is-alias">Thermal &lt;b&gt;Models&lt;\/b&gt;<\/span><\/button>/);
+    assert.doesNotMatch(html, /~\/work\/app<\/span>/);
+  }
+  // In the menus a named project shows its name, its folder as the note, on a desktop too.
+  const projects = between("const projectItems", "const worktreeItems");
+  assert.match(projects, /title: choice\.root,/);
+  const rules = css.slice(css.indexOf("/* The project and worktree picker (ProjectWorktreePicker)"), css.indexOf(".file-viewer-icon-button {"));
+  assert.match(rules, /\.project-picker-label\.is-alias \{\s*color: var\(--text\);\s*\}/);
+});
+
 test("stacked: activity elsewhere shows a dot; the project in use does not count", () => {
   const elsewhere = render({ projectActivity: new Map([["lib-key", { running: 0, unread: 2 }]]) });
   assert.match(elsewhere, /<span class="project-picker-activity" role="img" title="New activity" aria-label="New activity"><\/span><\/button>/);
@@ -163,7 +177,9 @@ test("a removal that needs an answer becomes the menu's body; a removed checkout
 test("the menus on a desktop are main's: whole paths, Custom path, the form under the list, the question in its row", () => {
   assert.match(source, /const classic = !mobile;/);
   const projects = between("const projectItems", "const worktreeItems");
-  assert.match(projects, /label: classic \? displayPath\(choice\.root, homeDir\) : name,\s*note: classic \? undefined : note \?\? undefined,\s*mono: classic,\s*path: classic,/);
+  // The whole path, unless the user named the project.
+  assert.match(projects, /const wholePath = classic && choice\.alias === undefined;/);
+  assert.match(projects, /label: wholePath \? displayPath\(choice\.root, homeDir\) : name,\s*note: wholePath \? undefined : note \?\? undefined,\s*mono: wholePath,\s*path: wholePath,/);
   assert.match(projects, /icon: classic \? <PlusIcon size=\{13\} \/> : <FolderPlusIcon size=\{13\} \/>,/);
   const worktrees = between("const worktreeItems", "const body = ");
   // A dirty checkout's question takes its row; the others show their branch, or their path.

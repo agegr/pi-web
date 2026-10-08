@@ -533,7 +533,9 @@ test("the bar hears of the sidebar's cwd only when something it shows changed", 
   assert.match(snapshot, /worktrees: listed \? worktreeState\.worktrees\.map\(\(\{ path, branch, isMain \}\) => \(\{ path, branch, isMain \}\)\) : null,/);
   assert.match(snapshot, /currentWorktreePath: listed \? currentWorktreePath : null,/);
   assert.match(snapshot, /projects: projectChoiceList,/);
-  assert.match(source, /const projectChoiceList = useMemo\(\(\) => mergeProjectChoices\(model\.projects, recentProjects\), \[model\.projects, recentProjects\]\);/);
+  // With the names the user gave projects, the bar's project too.
+  assert.match(source, /const projectChoiceList = useMemo\(\s*\(\) => mergeProjectChoices\(model\.projects, recentProjects, projectNames\),\s*\[model\.projects, recentProjects, projectNames\],\s*\);/);
+  assert.match(snapshot, /project: withProjectAlias\(selectedProject, projectNames\),/);
   assert.match(snapshot, /const newSessionContextSignature = newSessionContextKey\(newSessionContext\);/);
   assert.match(snapshot, /useEffect\(\(\) => \{\s*onNewSessionContextChange\?\.\(newSessionContextRef\.current\);\s*\}, \[newSessionContextSignature, onNewSessionContextChange\]\);/);
 });
@@ -770,5 +772,27 @@ test("a project moves next to another of its band, its band's unsaved projects f
   assert.ok(items.indexOf('id: "open-in-files"') < items.indexOf('id: "collapse-others"'));
   assert.ok(items.indexOf('id: "expand-all"') < items.indexOf('id: "view-archived"'));
   assert.doesNotMatch(source, /viewMenuItems|kind: "view"|sidebar\.viewOptions/);
-  assert.match(source, /menuItems = groupMenuItems\(projectByKey\.get\(menu\.project\.key\) \?\? menu\.project, menu\.olderCount\);/);
+  assert.match(source, /const project = projectByKey\.get\(menu\.project\.key\) \?\? menu\.project;\s*menuTitle = project\.name;\s*menuLabel = t\("sidebar\.projectActions", \{ name: project\.name \}\);\s*menuItems = groupMenuItems\(project, menu\.olderCount\);/);
+});
+
+test("a project's Rename… and Reset name change its display name only, from its group menu", () => {
+  const items = between("const groupMenuItems = ", "let menuTitle");
+  // Rename… always, Reset name while the project has a name of its own, right after Pin.
+  assert.match(items, /const nameItems = projectNameMenuEntries\(project\)\.map\(/);
+  assert.match(items, /label: t\("sidebar\.renameProject"\),\s*icon: <PencilIcon \/>,\s*onSelect: \(\) => startProjectRename\(project\),/);
+  assert.match(items, /label: t\("sidebar\.resetProjectName"\),\s*icon: <RestoreIcon \/>,\s*onSelect: \(\) => \{ void applyUiState\(\{ action: "rename-project", projectKey: project\.key, name: null \}\); \},/);
+  assert.ok(items.indexOf('id: "pin-project"') < items.indexOf("...nameItems,") && items.indexOf("...nameItems,") < items.indexOf('id: "move-up"'));
+  // Saving goes through the UI state alone (a refused save rolls back with a
+  // toast): no cwd, selection, order, pin or expansion change.
+  const commit = callbackBody("commitProjectRename");
+  assert.match(commit, /endProjectRename\(project\.key\);\s*const request = projectRenameRequest\(project, value\);\s*if \(request\) void applyUiState\(request\);/);
+  const start = callbackBody("startProjectRename");
+  const end = callbackBody("endProjectRename");
+  for (const body of [commit, start, end]) {
+    assert.doesNotMatch(body, /setSelectedCwd|onSelectSession|setGroupExpansion|moveProject|pin-project|setMenu/);
+  }
+  // The field goes, and the header's toggle takes the focus if it fell to the page.
+  assert.match(end, /setRenamingProjectKey\(\(current\) => \(current === projectKey \? null : current\)\);\s*focusAfterCommit\(\(\) => groupHeaderButton\(projectKey\)\);/);
+  assert.match(source, /renamingProjectKey,\n/);
+  assert.match(source, /onRenameProjectCommit: commitProjectRename,\s*onRenameProjectCancel: \(\) => \{ if \(renamingProjectKey\) endProjectRename\(renamingProjectKey\); \},/);
 });

@@ -19,6 +19,8 @@ export interface WorktreeChoice {
 export interface ProjectChoice {
   key: string;
   root: string;
+  /** The display name the user gave it (a group menu's Rename…), shown in place of its path or folder name. */
+  alias?: string;
 }
 
 /** Where a new session starts: the header "+", a group's "+", the composer's bar. */
@@ -96,9 +98,12 @@ export function contextForCwd(
     };
   }
   const projects = context?.projects ?? [];
+  const project = moved?.project ?? projects.find((choice) => choice.root === cwd) ?? { key: cwd, root: cwd };
+  // A move names its project by key and root: its display name is the list's.
+  const alias = project.alias ?? projects.find((choice) => choice.key === project.key)?.alias;
   return {
     cwd,
-    project: moved?.project ?? projects.find((project) => project.root === cwd) ?? { key: cwd, root: cwd },
+    project: alias === undefined ? project : { ...project, alias },
     worktrees: null,
     currentWorktreePath: null,
     projects,
@@ -113,14 +118,25 @@ export function projectChoices(context: ProjectWorktreeContext): ProjectChoice[]
     : [current, ...context.projects];
 }
 
-/** `first` in order, then whatever of `more` it does not list yet (by key). */
-export function mergeProjectChoices(first: readonly ProjectChoice[], more: readonly ProjectChoice[]): ProjectChoice[] {
+/** `choice` as a picker takes it: its key and root, and the display name `names` holds for its key. */
+export function withProjectAlias(choice: ProjectChoice, names: Readonly<Record<string, string>> | undefined): ProjectChoice {
+  const { key, root } = choice;
+  const alias = names && Object.hasOwn(names, key) ? names[key] : undefined;
+  return alias === undefined ? { key, root } : { key, root, alias };
+}
+
+/** `first` in order, then whatever of `more` it does not list yet (by key), each with its display name from `names`. */
+export function mergeProjectChoices(
+  first: readonly ProjectChoice[],
+  more: readonly ProjectChoice[],
+  names?: Readonly<Record<string, string>>,
+): ProjectChoice[] {
   const seen = new Set<string>();
   const merged: ProjectChoice[] = [];
-  for (const { key, root } of [...first, ...more]) {
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push({ key, root });
+  for (const choice of [...first, ...more]) {
+    if (seen.has(choice.key)) continue;
+    seen.add(choice.key);
+    merged.push(withProjectAlias(choice, names));
   }
   return merged;
 }
@@ -134,16 +150,18 @@ function parentFolderName(root: string): string | null {
 /**
  * Each choice's folder name, and its parent folder's name as a note only
  * where two choices share a name: a full path would be cut at its tail, the
- * part that tells them apart.
+ * part that tells them apart. A project the user named shows that name, with
+ * its folder's name as the note.
  */
 export function describeProjectChoices(choices: readonly ProjectChoice[]): Array<{ choice: ProjectChoice; name: string; note: string | null }> {
-  const named = choices.map((choice) => ({ choice, name: projectNameOf(choice.root) }));
+  const named = choices.map((choice) => ({ choice, name: choice.alias ?? projectNameOf(choice.root) }));
   const counts = new Map<string, number>();
   for (const { name } of named) counts.set(name, (counts.get(name) ?? 0) + 1);
   return named.map(({ choice, name }) => ({
     choice,
     name,
-    note: (counts.get(name) ?? 0) > 1 ? parentFolderName(choice.root) : null,
+    note: choice.alias !== undefined ? projectNameOf(choice.root)
+      : (counts.get(name) ?? 0) > 1 ? parentFolderName(choice.root) : null,
   }));
 }
 
@@ -166,8 +184,9 @@ export function newSessionContextKey(context: NewSessionContext | null): string 
     context.cwd,
     context.project.key,
     context.project.root,
+    context.project.alias ?? null,
     context.currentWorktreePath,
     context.worktrees?.map((worktree) => [worktree.path, worktree.branch, worktree.isMain]) ?? null,
-    context.projects.map((project) => [project.key, project.root]),
+    context.projects.map((project) => [project.key, project.root, project.alias ?? null]),
   ]);
 }

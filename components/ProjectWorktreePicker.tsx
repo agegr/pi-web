@@ -337,13 +337,16 @@ export function ProjectWorktreePicker({
   const projectItems = (): SidebarMenuItem[] => {
     const choices = describeProjectChoices(projectChoices(context)).map(({ choice, name, note }): SidebarMenuItem => {
       const activity = projectActivity?.get(choice.key);
+      // A desktop shows the whole path, unless the user named the project:
+      // then its name, with its folder as the note, as on a phone.
+      const wholePath = classic && choice.alias === undefined;
       return {
         type: "item",
         id: `project:${choice.key}`,
-        label: classic ? displayPath(choice.root, homeDir) : name,
-        note: classic ? undefined : note ?? undefined,
-        mono: classic,
-        path: classic,
+        label: wholePath ? displayPath(choice.root, homeDir) : name,
+        note: wholePath ? undefined : note ?? undefined,
+        mono: wholePath,
+        path: wholePath,
         title: choice.root,
         checked: choice.key === project?.key,
         badge: activity ? <ActivitySummary running={activity.running} unread={activity.unread} t={t} /> : undefined,
@@ -503,8 +506,11 @@ export function ProjectWorktreePicker({
         onClick={(event) => openMenu("project", event.currentTarget)}
       >
         {/* The whole path, cut at its left: the folder name at its end is
-            what tells paths apart. No icon and no chevron: the path is the box. */}
-        {project ? (
+            what tells paths apart. No icon and no chevron: the path is the box.
+            A project the user named shows that name; the tooltip keeps the path. */}
+        {project?.alias !== undefined ? (
+          <span className="project-picker-label is-alias">{project.alias}</span>
+        ) : project ? (
           <span className="project-picker-path"><span>{displayPath(project.root, homeDir)}</span></span>
         ) : (
           <span className="project-picker-label">{placeholder}</span>
