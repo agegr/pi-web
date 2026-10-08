@@ -30,3 +30,13 @@ test("resets process details when the turn gains or loses its final answer", () 
     /<ProcessDetailsGroup key=\{finalAnswerMessage \? "answered" : "unanswered"\}[\s\S]*?defaultExpanded=\{!finalAnswerMessage\}/,
   );
 });
+
+test("passes a grouped turn's MessageViews the same copies on every render (#1005)", () => {
+  // Fresh copies per render re-ran every visible answer's markdown on each
+  // chat update, e.g. on every key typed into an extension's custom panel.
+  assert.doesNotMatch(source, /withAssistantBlocks\(/);
+  assert.match(source, /const finalAnswerViewCache = useMemo\(\(\) => new WeakMap<AssistantMessage, FinalAnswerViews>\(\), \[\]\)/);
+  assert.match(source, /const finalViews = getFinalAnswerViews\(finalAnswerViewCache, messages\[finalAssistantIdx\] as AssistantMessage\)/);
+  assert.match(source, /processIdx === finalAssistantIdx \? finalViews\.process : processMessage/);
+  assert.match(source, /keepWrittenFiles\(finalViews, extractTurnWrittenFiles\(/);
+});
