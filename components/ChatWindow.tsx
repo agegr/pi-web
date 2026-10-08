@@ -728,7 +728,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   // Images attach to the prompt. Other files go through the file explorer's
   // upload into the working directory, never replacing a file already there,
-  // and come back as @mentions.
+  // and come back as @mentions. The composer's attach button takes the same
+  // path, for phones that cannot drop files.
   const uploadDroppedFiles = useCallback(async (files: File[]) => {
     const cwd = session?.cwd ?? newSessionCwd;
     if (!cwd) {
@@ -765,6 +766,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     }
     if (files.length > 0) void uploadDroppedFiles(files);
   }, [addNotice, chatInputRef, t, uploadDroppedFiles]);
+
+  const onAttachFiles = useCallback((files: File[]) => {
+    onDrop(files.map((file) => ({ kind: "file", file })));
+  }, [onDrop]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -955,6 +960,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onAudioUnlock={unlockAudio}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
+      onAttachFiles={onAttachFiles}
     />
   );
 

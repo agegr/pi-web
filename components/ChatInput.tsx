@@ -96,6 +96,8 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** Files picked with the attach button, handled like files dropped onto the chat. Without it the button takes images only. */
+  onAttachFiles?: (files: File[]) => void;
 }
 
 export interface ChatInputHandle {
@@ -643,6 +645,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  onAttachFiles,
   compact = false,
 }: Props, ref) {
   const { t } = useI18n();
@@ -905,6 +908,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       pendingImageCountRef.current -= imageFiles.length;
     }
   }, [compact]);
+
+  const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    // Clearing the value lets the same file be picked again.
+    e.target.value = "";
+    if (onAttachFiles) onAttachFiles(files);
+    else processImageFiles(files);
+  }, [onAttachFiles, processImageFiles]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -1685,18 +1696,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         transition: "opacity 0.15s",
       }}
     >
-      {/* Hidden file input */}
+      {/* Hidden file input. No `capture`: phones still offer the photo library and camera. */}
       {!compact && <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={onAttachFiles ? undefined : "image/*"}
         multiple
         style={{ display: "none" }}
-        onChange={(e) => {
-          const files = Array.from(e.target.files ?? []);
-          processImageFiles(files);
-          e.target.value = "";
-        }}
+        onChange={handleFilePick}
       />}
       <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
@@ -2379,7 +2386,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachImage")}
+             title={t("chat.attachFiles")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
