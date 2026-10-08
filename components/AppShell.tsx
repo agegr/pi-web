@@ -72,6 +72,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
+import { getFileEditDraft, hasFileEditDrafts, setFileEditDraft } from "@/lib/file-edit-drafts";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
@@ -1169,6 +1170,13 @@ export function AppShell() {
       setTerminalTabs((tabs) => tabs.map((tab) => tab.id === tabId && !tab.closing ? { ...tab, closing: "close" } : tab));
       return;
     }
+    // Closing a file with unsaved edits discards them; forgetting the draft
+    // first keeps the unmounting viewer from parking it again.
+    const closingTab = fileTabs.find((tab) => tab.id === tabId);
+    if (closingTab && !closingTab.kind && getFileEditDraft(closingTab.filePath)) {
+      if (!window.confirm(translate("files.discardUnsavedConfirm", { name: closingTab.label }))) return;
+      setFileEditDraft(closingTab.filePath, null);
+    }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
       if (next.length === 0 && terminalTabs.length === 0) setRightPanelOpen(false);
@@ -1179,7 +1187,18 @@ export function AppShell() {
       const remaining = fileTabs.filter((t) => t.id !== tabId);
       return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? null;
     });
-  }, [fileTabs, terminalTabs]);
+  }, [fileTabs, terminalTabs, translate]);
+
+  // Unsaved file edits live only in this page: ask before it unloads.
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasFileEditDrafts()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -2646,6 +2665,7 @@ export function AppShell() {
               initialPage={activeFileTab.page}
               initialState={activeFileTab.viewerState}
               watchEnabled={rightPanelOpen}
+              onFileSaved={handleExplorerRefresh}
               onStateChange={(viewerState) => handleFileViewerStateChange(
                 activeFileTab.id,
                 activeFileTab.viewerRevision ?? 0,

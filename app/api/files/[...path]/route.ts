@@ -17,6 +17,7 @@ import {
   getFileExt,
   getImageMime,
   getVideoMime,
+  TEXT_EDIT_MAX_BYTES,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { getFileTreeHiddenReasons } from "@/lib/file-tree-visibility";
@@ -28,10 +29,11 @@ import {
   replaceUploadFile,
   validateUploadFileNames,
 } from "@/lib/file-upload";
-import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import { parseFormDataWithinLimit, readTextWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
+import { isTextFileHash, readTextFileForEditing, saveTextFile } from "@/lib/file-edit";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -40,6 +42,9 @@ const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
+// JSON escapes a character in at most 6 bytes (`\u0001`); the save checks the
+// decoded content against TEXT_EDIT_MAX_BYTES again.
+const MAX_SAVE_REQUEST_BYTES = TEXT_EDIT_MAX_BYTES * 6 + 1024;
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
@@ -133,6 +138,34 @@ async function allowLinkedDirectory(
   return NextResponse.json({ path: approval.target });
 }
 
+// Save from the file viewer's editor. Only the allowed roots authorize a
+// write: a file readable because a session mentions it stays read-only.
+async function saveEditedFile(request: NextRequest, segments: string[]): Promise<NextResponse> {
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+  let body: { content?: unknown; baseHash?: unknown } | null;
+  try {
+    body = JSON.parse(await readTextWithinLimit(request, MAX_SAVE_REQUEST_BYTES)) as typeof body;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return NextResponse.json({ error: "Files larger than 2MB cannot be saved from the editor" }, { status: 413 });
+    }
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  if (typeof body?.content !== "string" || !isTextFileHash(body.baseHash)) {
+    return NextResponse.json({ error: "content must be a string and baseHash a SHA-256 hex digest" }, { status: 400 });
+  }
+  const result = await saveTextFile(
+    filePathFromApiSegments(segments),
+    body.content,
+    body.baseHash,
+    await getAllowedFileRoots(),
+  );
+  const { status, ...payload } = result;
+  return NextResponse.json(payload, { status });
+}
+
 function parseUploadFileNames(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
   return value;
@@ -150,6 +183,7 @@ export async function POST(
     const { path: segments } = await params;
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
     if (type === "allow-link") return allowLinkedDirectory(request, segments);
+    if (type === "save") return saveEditedFile(request, segments);
 
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
@@ -516,9 +550,23 @@ export async function GET(
       if (!Number.isSafeInteger(offset) || offset > stat.size) {
         return NextResponse.json({ error: "Invalid text preview offset" }, { status: 400 });
       }
-      const chunk = readTextPreviewChunk(filePath, stat.size, offset);
       const language = getLanguage(filePath);
-      return NextResponse.json({ ...chunk, language, size: stat.size });
+      // `edit=1` asks for the whole file and its hash, for the editor. A file
+      // above the edit limit falls back to the chunked, read-only preview.
+      const forEditing = request.nextUrl.searchParams.get("edit") === "1";
+      if (forEditing && rawOffset === null) {
+        const editable = readTextFileForEditing(filePath, allowedByRoot);
+        if (editable) {
+          return NextResponse.json({ ...editable, language, nextOffset: editable.size, truncated: false });
+        }
+      }
+      const chunk = readTextPreviewChunk(filePath, stat.size, offset);
+      return NextResponse.json({
+        ...chunk,
+        language,
+        size: stat.size,
+        ...(forEditing ? { editable: false, readOnlyReason: "too-large" } : {}),
+      });
     }
 
     if (type === "download") {

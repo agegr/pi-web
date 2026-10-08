@@ -1438,6 +1438,80 @@ pre, code {
   filter: brightness(1.08);
 }
 
+.file-viewer-dirty-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 7px;
+  background: var(--accent);
+}
+
+.file-viewer-save-button {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-viewer-save-button:disabled {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.file-viewer-save-button:focus-visible,
+.file-viewer-notice-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.file-viewer-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.file-viewer-notice.is-error {
+  color: #f87171;
+}
+
+.file-viewer-notice-text {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.file-viewer-notice-button {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-viewer-notice-button:hover {
+  background: var(--bg-hover);
+}
+
 .file-viewer-load-more {
   position: absolute;
   z-index: 2;

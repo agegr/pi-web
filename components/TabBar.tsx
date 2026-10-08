@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
+import { getDirtyFilePaths, getServerDirtyFilePaths, subscribeFileEditDrafts } from "@/lib/file-edit-drafts";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
 
 export interface Tab {
@@ -29,6 +30,7 @@ interface Props {
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+  const dirtyPaths = useSyncExternalStore(subscribeFileEditDrafts, getDirtyFilePaths, getServerDirtyFilePaths);
 
   return (
     <div
@@ -44,6 +46,10 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
     >
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
+        // A file with unsaved edits shows a dot in place of the close cross
+        // until the pointer reaches it, as in desktop editors.
+        const isDirty = !tab.kind && dirtyPaths.has(tab.filePath);
+        const showDirtyDot = isDirty && hoveredClose !== tab.id;
         return (
           <div
             key={tab.id}
@@ -130,13 +136,17 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
-               title={t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
-               aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${tab.label}`}
+               title={isDirty ? t("files.unsavedChanges") : t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
+               aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${tab.label}${isDirty ? ` (${t("files.unsavedChanges")})` : ""}`}
             >
-              <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                <line x1="2" y1="2" x2="8" y2="8" />
-                <line x1="8" y1="2" x2="2" y2="8" />
-              </svg>
+              {showDirtyDot ? (
+                <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }} />
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                  <line x1="2" y1="2" x2="8" y2="8" />
+                  <line x1="8" y1="2" x2="2" y2="8" />
+                </svg>
+              )}
             </button>
           </div>
         );

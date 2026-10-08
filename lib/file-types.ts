@@ -1,4 +1,16 @@
 export const TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
+/** Text files up to this size load whole and can be edited in the file viewer. */
+export const TEXT_EDIT_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Why the file viewer shows a text file read-only (`GET ?type=read&edit=1`). */
+export type TextFileReadOnlyReason =
+  | "too-large"
+  | "binary"
+  | "encoding"
+  | "line-endings"
+  | "outside-roots"
+  | "symlink"
+  | "permission";
 export const IMAGE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 export const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
