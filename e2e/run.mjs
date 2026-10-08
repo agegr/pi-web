@@ -10,8 +10,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { checkFilePanel, filePanelFixture } from "./file-panel.mjs";
-import { checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
+import { checkExtensionDialogSizing, checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
 import { checkChatAppearance } from "./chat-appearance.mjs";
+import { checkCodeBackground } from "./code-background.mjs";
+import { checkModelDiscovery } from "./model-discovery.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -32,6 +34,7 @@ const BRANCH = "e2e-branch-session";
 const RICH = "e2e-rich-session";
 const COMPACTED = "e2e-compacted-session";
 const APPEND = "e2e-external-append-session";
+const CODE_BACKGROUND = "e2e-code-background";
 const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
 const ids = (start, end) => Array.from({ length: end - start }, (_, i) => `e${start + i}`);
 
@@ -91,6 +94,14 @@ try {
       { type: "thinking", thinking: "E2E final reasoning\nFinal thinking details." },
       { type: "text", text:
         "E2E final answer\n```js\nconsole.log('E2E code');\n```\n\n"
+        + "| Kind | " + "Long headings should wrap without stretching the table. ".repeat(8) + " |\n| --- | --- |\n"
+        + "| Text | " + "Long sentences should wrap while wide tables keep their natural column widths. ".repeat(8) + " |\n"
+        + "| 中文 | " + "表格中的长句应该自然换行，多列表格仍然可以横向滚动。".repeat(12) + " |\n"
+        + "| URL | https://example.invalid/" + "long-path-segment".repeat(24) + " |\n"
+        + "| Code | `" + "long_identifier_".repeat(24) + "` |\n\n"
+        + "| " + Array.from({ length: 8 }, (_, i) => `Column ${i + 1}`).join(" | ") + " |\n"
+        + "| " + Array(8).fill("---").join(" | ") + " |\n"
+        + "| " + Array.from({ length: 8 }, (_, i) => `release-20260901-${String(i + 1).padStart(6, "0")}`).join(" | ") + " |\n\n"
         + "E2E answer paragraph.\n\n".repeat(20)
         + "## E2E reading position\n\n"
         + "E2E answer paragraph.\n\n".repeat(20),
@@ -99,6 +110,12 @@ try {
   ];
   Object.assign(richEntries.at(-1).message, { provider: "test", model: "E2E Model" });
   writeSession(RICH, richEntries);
+  writeSession(CODE_BACKGROUND, [
+    message("user", null, "user", "E2E code background"),
+    message("answer", "user", "assistant", [{ type: "text", text:
+      "```js\nconst x = 1;\n```\n\n```mermaid\ngraph TD\n A --> B\n```",
+    }]),
+  ]);
   // The default page is 50 *visible* messages (user / assistant / compaction).
   // toolResults ride along free after #810, so 48 tool-call assistants + the
   // final answer + the divider fill that window; the user prompt is the 51st
@@ -166,7 +183,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND, CODE_BACKGROUND].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -295,6 +312,29 @@ try {
     assert.equal(await processDetails.count(), 1);
     assert.equal(await thinking.count(), 0, "All thinking stays inside process details");
     const finalMessage = page.locator("[data-entry-id='answer']");
+    const tables = finalMessage.last().locator(".markdown-table-wrap");
+    assert.equal(await tables.count(), 2);
+    await tables.first().scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.fonts.ready);
+    const tableLayout = await tables.evaluateAll(([prose, wide]) => {
+      const wraps = (cell) => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        return range.getBoundingClientRect().height > parseFloat(getComputedStyle(cell).lineHeight);
+      };
+      return {
+        proseFits: prose.scrollWidth <= prose.clientWidth + 1,
+        longCellsWrap: [...prose.querySelectorAll("tr > :last-child")].every(wraps),
+        wideScrolls: wide.scrollWidth > wide.clientWidth + 1,
+        wideCellsStayOnOneLine: [...wide.querySelectorAll("tbody td")].every((cell) => !wraps(cell)),
+      };
+    });
+    assert.ok(tableLayout.proseFits, "Long table cells must not stretch a two-column table beyond the chat");
+    assert.ok(tableLayout.longCellsWrap, "Long headings, sentences, URLs, and inline code must wrap");
+    assert.ok(tableLayout.wideScrolls, "Wide tables must retain horizontal scrolling");
+    assert.ok(tableLayout.wideCellsStayOnOneLine, "Wide tables must not squeeze ordinary values into narrow columns");
+    await page.screenshot({ path: join(artifacts, `markdown-tables-${viewport.width}.png`) });
+    console.log(`PASS: ${viewport.width}px wrapping long table cells and scrolling wide tables`);
     assert.equal(await finalMessage.getByRole("button", { name: /^Thinking/ }).count(), 0);
     assert.equal(await finalMessage.getByText("test/E2E Model", { exact: true }).count(), 1);
     assert.equal(thinkingRequests.length, 0);
@@ -400,11 +440,23 @@ try {
     await page.locator(".markdown-code-block pre").waitFor();
     await checkFilePanel(page, previewFile);
     await checkExtensionDialogs(page, artifacts, viewport.width);
+    await checkExtensionDialogSizing(page, viewport.width);
     if (viewport.width > 600) {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
+      await page.setViewportSize(viewport);
+      // Returning from the mobile breakpoint restores the desktop sidebar preference in an effect, so wait for the toggle to settle.
+      const hideSidebar = page.getByRole("button", { name: "Hide sidebar", exact: true });
+      const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
+      await hideSidebar.or(showSidebar).waitFor({ state: "visible" });
+      if (await showSidebar.isVisible()) await showSidebar.click();
+      await hideSidebar.waitFor({ state: "visible" });
+      await checkModelDiscovery(page);
     }
+    await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });
+    await page.locator(".markdown-code-block pre").waitFor();
+    await checkCodeBackground(page);
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
     await context.tracing.stop();

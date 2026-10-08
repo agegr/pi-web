@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { AnsiText } from "@/components/AnsiText";
 import type { ExtensionWidgetItem } from "@/lib/types";
@@ -46,7 +46,11 @@ export function getNextExpandedWidgetKey(
   return currentKey === requestedKey ? null : requestedKey;
 }
 
-export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }) {
+/**
+ * `children` (the status line) joins the triggers in one row, so the whole row
+ * scrolls sideways together; the expanded panel stays above it, out of the scroll.
+ */
+export function ExtensionWidgets({ widgets, children }: { widgets: ExtensionWidgetItem[]; children?: ReactNode }) {
   const { t } = useI18n();
   const idPrefix = useId();
   const previousContentsRef = useRef<Map<string, string[]> | null>(null);
@@ -138,70 +142,73 @@ export function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }
           })()}
         </div>
       )}
-      <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
-        {widgets.map((widget, index) => {
-          const expandable = widget.lines.length > 0;
-          const expanded = expandable && widget.key === expandedWidget?.key;
-          const updating = updatingWidgetKeys.has(widget.key);
-          const lineCountLabel = t(
-            widget.lines.length === 1 ? "chat.extensionWidgetLine" : "chat.extensionWidgetLines",
-            { count: widget.lines.length },
-          );
-          const placementLabel = t(
-            widget.placement === "belowEditor"
-              ? "chat.extensionWidgetBelow"
-              : "chat.extensionWidgetAbove",
-          );
-          const triggerId = `${idPrefix}-trigger-${index}`;
-          const panelId = `${idPrefix}-panel-${index}`;
-          const content = (
-            <>
-              <span className="extension-widget-update-pulse" aria-hidden="true" />
-              <span className="extension-widget-placement" aria-hidden="true">
-                <svg
-                  className="extension-widget-placement-icon"
-                  viewBox="0 0 8 6"
-                  width="8"
-                  height="6"
-                  data-direction={widget.placement === "belowEditor" ? "down" : "up"}
-                  focusable="false"
-                >
-                  <path
-                    d={widget.placement === "belowEditor"
-                      ? "M0 0h8L4 6z"
-                      : "M4 0l4 6H0z"}
-                  />
-                </svg>
-              </span>
-              <span className="extension-widget-key">{widget.key}</span>
-            </>
-          );
+      <div className="extension-status-row">
+        <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
+          {widgets.map((widget, index) => {
+            const expandable = widget.lines.length > 0;
+            const expanded = expandable && widget.key === expandedWidget?.key;
+            const updating = updatingWidgetKeys.has(widget.key);
+            const lineCountLabel = t(
+              widget.lines.length === 1 ? "chat.extensionWidgetLine" : "chat.extensionWidgetLines",
+              { count: widget.lines.length },
+            );
+            const placementLabel = t(
+              widget.placement === "belowEditor"
+                ? "chat.extensionWidgetBelow"
+                : "chat.extensionWidgetAbove",
+            );
+            const triggerId = `${idPrefix}-trigger-${index}`;
+            const panelId = `${idPrefix}-panel-${index}`;
+            const content = (
+              <>
+                <span className="extension-widget-update-pulse" aria-hidden="true" />
+                <span className="extension-widget-placement" aria-hidden="true">
+                  <svg
+                    className="extension-widget-placement-icon"
+                    viewBox="0 0 8 6"
+                    width="8"
+                    height="6"
+                    data-direction={widget.placement === "belowEditor" ? "down" : "up"}
+                    focusable="false"
+                  >
+                    <path
+                      d={widget.placement === "belowEditor"
+                        ? "M0 0h8L4 6z"
+                        : "M4 0l4 6H0z"}
+                    />
+                  </svg>
+                </span>
+                <span className="extension-widget-key">{widget.key}</span>
+              </>
+            );
 
-          return expandable ? (
-            <button
-              key={widget.key}
-              id={triggerId}
-              type="button"
-              className={`extension-widget-trigger${expanded ? " is-expanded" : ""}${updating ? " is-updating" : ""}`}
-              aria-controls={panelId}
-              aria-expanded={expanded}
-              aria-label={`${placementLabel}: ${widget.key}, ${lineCountLabel}`}
-              title={`${widget.key} - ${placementLabel} - ${expanded ? t("i18n.collapse") : t("i18n.expand")}`}
-              onClick={() => toggleWidget(widget)}
-            >
-              {content}
-            </button>
-          ) : (
-            <div
-              key={widget.key}
-              className={`extension-widget-trigger${updating ? " is-updating" : ""}`}
-              aria-label={`${placementLabel}: ${widget.key}, ${lineCountLabel}`}
-              title={`${widget.key} - ${placementLabel}`}
-            >
-              {content}
-            </div>
-          );
-        })}
+            return expandable ? (
+              <button
+                key={widget.key}
+                id={triggerId}
+                type="button"
+                className={`extension-widget-trigger${expanded ? " is-expanded" : ""}${updating ? " is-updating" : ""}`}
+                aria-controls={panelId}
+                aria-expanded={expanded}
+                aria-label={`${placementLabel}: ${widget.key}, ${lineCountLabel}`}
+                title={`${widget.key} - ${placementLabel} - ${expanded ? t("i18n.collapse") : t("i18n.expand")}`}
+                onClick={() => toggleWidget(widget)}
+              >
+                {content}
+              </button>
+            ) : (
+              <div
+                key={widget.key}
+                className={`extension-widget-trigger${updating ? " is-updating" : ""}`}
+                aria-label={`${placementLabel}: ${widget.key}, ${lineCountLabel}`}
+                title={`${widget.key} - ${placementLabel}`}
+              >
+                {content}
+              </div>
+            );
+          })}
+        </div>
+        {children}
       </div>
     </>
   );

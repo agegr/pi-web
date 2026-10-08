@@ -24,6 +24,7 @@ The Models panel edits it only through `/api/models/enabled`, never with pattern
 
 ## Auth and model config
 - `ModelsConfig` combines `~/.pi/agent/models.json` with provider auth status from pi's `ModelRuntime` (`/api/auth/providers`, through `createModelRuntimeWithExtensions()`).
+- Keep an omitted provider `api` unset in the editor and discovery request: pi resolves the protocol for built-in providers. Opening a provider must not persist a guessed protocol. New custom providers still start with an explicit `openai-completions` default.
 - Provider listing is capability-driven, never id-driven: `lib/provider-listing.ts` decides membership from `auth.apiKey.login` / `auth.oauth` plus the stored credential type, so a dual-auth provider (anthropic, github-copilot and others; the set changes between SDK releases) appears exactly once. `lib/provider-listing-runtime.ts` adapts `ModelRuntime` to it.
 - auth.json holds **one** credential per provider and `ModelRuntime.logout()` deletes whichever it is, so the delete routes use `removeStoredCredentialIfType()`, which compares and deletes under pi's auth-file lock. After any auth change `ModelsConfig` refreshes *both* provider lists, or a dual-auth provider renders twice.
 - OAuth/device-code/manual-code flows stream from `GET /api/auth/login/[provider]`; a manual code POSTs back with a short-lived token kept in `globalThis.__piLoginCallbacks`.
