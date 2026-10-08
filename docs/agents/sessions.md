@@ -51,6 +51,7 @@ On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state
 - `listSessionsIncremental()` must keep `SessionManager.listAll()`'s order: newest mtime first, then reverse filename, stable for equal activity time.
 
 ## Turn grouping and custom messages in the chat (`ChatWindow`, `lib/message-display.ts`)
+- A turn runs from one anchor (`isMessageGroupAnchor()`) to the next; its last assistant answer shows, everything before it folds into Process details. Anchors: user messages, the compaction summary, and background subagent completions, which arrive as a follow-up that triggers a new run after the answer: pi-web's `pi-web:subagent-notification` and `@tintinweb/pi-subagents`' bare `subagent-notification` (#891, #1075). Without the anchor, the reply to the notification becomes the turn's answer and the real one folds away.
 - A custom message without `display` (`display: false` keeps it for the model alone) stays in `messages` and `entryIds`, from the reader and from `message_end`, but renders nothing, as in pi's TUI: `isHiddenCustomMessage()` makes `renderMessage()` return null, keeps it out of the Process details count, and it never anchors a turn. An extension may send one on every `session_start`, i.e. on each idle restart (#1043).
 
 ## Running state polling + reconciliation
