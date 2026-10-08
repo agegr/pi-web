@@ -37,6 +37,7 @@ import {
   readSubagentRun,
   readSubagentSessionResources,
   subagentExtensionLoaderOptions,
+  subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
 import { createSubagentController } from "./subagent-runtime";
@@ -2341,7 +2342,8 @@ export async function startRpcSession(
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
-    let toolsOption: string[] | undefined = subagentResources?.tools;
+    // A subagent's tools come from its snapshot (subagentToolOptions() below).
+    let toolsOption: string[] | undefined;
     if (!subagentResources && selectedToolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
@@ -2468,8 +2470,9 @@ export async function startRpcSession(
       ...(startupModel ? { model: startupModel } : {}),
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
-      ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
-      ...(subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
+      ...(subagentResources
+        ? subagentToolOptions(subagentResources)
+        : toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
     // A pinned selection replaces only the coding tools of the SDK's initial loadout, which
