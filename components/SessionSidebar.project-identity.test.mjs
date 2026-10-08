@@ -25,10 +25,21 @@ test("custom cwd selection remembers the last validated path for the picker", ()
 
 test("default cwd is selected through the same validation as a custom path", () => {
   const defaultStart = source.indexOf("const handleDefaultCwd = useCallback");
-  const defaultEnd = source.indexOf("const handleCreateWorktree", defaultStart);
+  const defaultEnd = source.indexOf("const handleDefaultCwdRef", defaultStart);
   const defaultSource = source.slice(defaultStart, defaultEnd);
   assert.notEqual(defaultStart, -1);
-  assert.match(defaultSource, /commitCustomPath\(data\.cwd, \{ remember: false \}\)/);
+  assert.match(defaultSource, /commitCustomPath\(data\.cwd, \{ remember: false, purpose \}\)/);
+  // The files tab's by default; the composer's bar names its own purpose.
+  assert.match(defaultSource, /const handleDefaultCwd = useCallback\(async \(purpose: "files" \| "new-session" = "files"\) => \{/);
   assert.doesNotMatch(defaultSource, /setSelectedCwd\(/);
   assert.match(customPathSource, /if \(remember\) \{\s*saveLastCustomCwd\(data\.cwd\)/);
+});
+
+test("the files tab is the picker's default purpose; the composer's bar opens it for itself", () => {
+  assert.match(source, /useState<false \| "files" \| "new-session">\(false\)/);
+  assert.match(source, /const handleCustomPathClick = useCallback\(\(\) => \{\s*setCustomPathOpen\("files"\);/);
+  assert.doesNotMatch(source, /setCustomPathOpen\(true\)/);
+  // Validation runs for both; only the files tab's pick moves the sidebar's cwd here.
+  const newSession = customPathSource.indexOf('if (purpose === "new-session")');
+  assert.ok(newSession >= 0 && newSession < customPathSource.indexOf("setValidatedProject("));
 });

@@ -9,6 +9,9 @@ export const filePanelFixture = `<!doctype html><html><body style="margin:20px;m
 export async function checkFilePanel(page, filePath) {
   const showSidebar = page.getByRole("button", { name: "Show sidebar", exact: true });
   if (await showSidebar.isVisible()) await showSidebar.click();
+  // The explorer lives in the sidebar's Files tab.
+  const filesTab = page.getByRole("tab", { name: "Files", exact: true });
+  if (await filesTab.getAttribute("aria-selected") !== "true") await filesTab.click();
   // The DOM title normalizes Windows paths to forward slashes
   // (lib/file-paths.ts normalizeFilePathSlashes), so match in that form.
   await page.getByTitle(filePath.replace(/\\/g, "/"), { exact: true }).click();

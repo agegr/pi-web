@@ -26,9 +26,11 @@ worktree 切换器决定 Pi Web 接下来使用哪个 checkout。
 
 已有会话仍然按同一个 project root 分组。点击一个已有会话时，侧边栏会回到这个会话原本所在的 checkout。
 
+新会话也可以直接在输入框上方选 checkout。新会话还没发消息时，输入框上方有一个小栏，显示它所在的项目；在仓库根目录时还会显示 worktree。选另一个项目或 worktree，新会话就会移过去，已经输入的文字、附加的图片和选好的模型、思考强度都会保留（如果另一个项目不提供这个模型，就回到自动选择）。它的项目和 worktree 菜单和侧边栏「文件」标签页里的一样，项目菜单里也有 `使用默认目录` 和 `打开其他项目…`，可以选任意文件夹；只有「文件」标签页可以移除 worktree。侧边栏里项目旁的 `+` 会在这个项目当前使用的 worktree 里新建会话（其他项目则用 main checkout）；要换 worktree，就用输入框上方的小栏。
+
 ## 新建 Worktree
 
-在 worktree 菜单里选择 `New worktree...`，输入 branch name。
+在 worktree 菜单里选择 `New worktree...`，输入 branch name。如果是在新会话输入框上方的小栏里创建的，新会话会直接移到新的 worktree 里。
 
 Pi Web 会把 checkout 放在：
 
@@ -52,7 +54,7 @@ Pi Web 会把 checkout 放在：
 
 ## 删除 Worktree
 
-非 main worktree 右侧有删除按钮。它删除的是这个 checkout 目录。
+在「文件」标签页的 worktree 菜单里，非 main worktree 右侧有删除按钮。它删除的是这个 checkout 目录。
 
 删除 worktree 不会删除：
 

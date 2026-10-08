@@ -6,12 +6,14 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import type { SessionInfo } from "@/lib/types";
 import type { SessionSearchResponse } from "@/lib/session-search";
 
-export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession }: {
+export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, archivedSessionIds }: {
   open: boolean;
   query: string;
   children: ReactNode;
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, entryId?: string, blockIndex?: number) => void;
+  /** Ids of every session in an archived family: their results are tagged, not hidden. */
+  archivedSessionIds?: ReadonlySet<string>;
 }) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<{ query: string; response?: SessionSearchResponse; failed?: boolean }>({ query: "" });
@@ -61,7 +63,12 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           aria-current={session.id === selectedSessionId ? "true" : undefined}
           className={`block w-full cursor-pointer border-b border-border px-3 py-2 text-left hover:bg-bg-hover focus-visible:outline-2 focus-visible:outline-accent ${session.id === selectedSessionId ? "bg-bg-selected" : ""}`}
         >
-          <span className="block truncate text-xs font-medium text-text">{session.name || session.firstMessage}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-xs font-medium text-text">{session.name || session.firstMessage}</span>
+            {archivedSessionIds?.has(session.id) && (
+              <span className="shrink-0 rounded-[4px] border border-border px-1 text-[10px] leading-[14px] text-text-dim">{t("sidebar.archived")}</span>
+            )}
+          </span>
           <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-text-dim">
             <span className="min-w-0 flex-1 truncate" title={session.cwd}>{session.cwd}</span>
             <span className="shrink-0">{formatRelativeTime(session.modified, locale)}</span>

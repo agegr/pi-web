@@ -64,7 +64,7 @@ self.addEventListener("fetch", (event) => {
     PRECACHE_URLS.includes(url.pathname);
 
   if (isStaticAsset) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(cacheFirst(request, event));
   }
 });
 
@@ -151,14 +151,30 @@ async function fetchWithTimeout(request, timeoutMs) {
   }
 }
 
-async function cacheFirst(request) {
+async function cacheFirst(request, event) {
   const cached = await caches.match(request);
   if (cached) return cached;
 
   const response = await fetchWithTimeout(request, ASSET_TIMEOUT_MS);
   if (response.ok && response.type === "basic") {
-    const cache = await caches.open(STATIC_CACHE);
-    await cache.put(request, response.clone());
+    // Deliberately NOT awaited before returning the response.
+    //
+    // The SW script URL is versioned (?v=<app version>), so every upgrade
+    // starts a fresh cache: the first load after an upgrade misses on every
+    // chunk and writes them all at once. Awaiting each write here held every
+    // response behind Cache Storage I/O, which stalled navigations past
+    // NAVIGATION_TIMEOUT_MS — the browser showed the offline page while the
+    // local server was perfectly healthy. waitUntil keeps this worker alive
+    // until the write finishes without blocking the response.
+    const copy = response.clone();
+    event.waitUntil(
+      caches
+        .open(STATIC_CACHE)
+        .then((cache) => cache.put(request, copy))
+        .catch(() => {
+          // A failed write only costs one network re-fetch next time.
+        }),
+    );
   }
   return response;
 }

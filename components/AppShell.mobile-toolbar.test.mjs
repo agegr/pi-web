@@ -109,3 +109,8 @@ test("closes top-bar dropdowns when the file panel expands to full width", () =>
   assert.match(source, /onClick=\{handleRightPanelExpandToggle\}/);
   assert.match(source, /if \(rightPanelFullWidth\) setActiveTopPanel\(null\);/);
 });
+
+test("a sidebar pick closes the phone's drawer unless it asks to stay open (the sidebar's Fork)", () => {
+  assert.match(source, /const handleSelectSession = useCallback\(\(session: SessionInfo, isRestore = false, entryId\?: string, blockIndex\?: number, options\?: SelectSessionOptions\) => \{/);
+  assert.match(source, /if \(isMobile && !isRestore && !options\?\.keepSidebarOpen\) setSidebarOpen\(false\);/);
+});

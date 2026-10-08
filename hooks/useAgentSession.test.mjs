@@ -147,6 +147,19 @@ test("fresh sessions use the preference while persisted and live sessions restor
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
 
+test("a fresh composer starts from carried model picks and reports its own", () => {
+  assert.match(source, /const initialChoices = isNew \? opts\.initialNewSessionChoices \?\? null : null;/);
+  assert.match(source, /useState<SelectedModel \| null>\(\(\) => initialChoices\?\.model \?\? null\)/);
+  assert.match(source, /useState<ConcreteThinkingLevel \| null>\(\(\) => initialChoices\?\.thinkingLevel \?\? null\)/);
+  // What ensureNewSession sends is the same carried pick, not just what the selector shows.
+  assert.match(source, /const newSessionModelOverrideRef = useRef<SelectedModel \| null>\(initialChoices\?\.model \?\? null\);/);
+  assert.match(source, /const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel \| null>\(initialChoices\?\.thinkingLevel \?\? null\);/);
+  assert.match(source, /useEffect\(\(\) => \{\s*if \(isNew\) onNewSessionChoicesChange\?\.\(\{ model: newSessionModel, thinkingLevel: newSessionThinkingLevel \}\);\s*\}, \[isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange\]\);/);
+  assert.match(chatWindowSource, /newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd,/);
+  // The tool preset needs no carrying: every fresh composer starts from the stored pick.
+  assert.match(source, /setToolPresetState\(getPreferredToolPreset\(\)\)/);
+});
+
 test("sessions the user never overrode follow pi's configured defaultTools (#700)", () => {
   const ensureSource = source.slice(
     source.indexOf("  const ensureNewSession = useCallback"),

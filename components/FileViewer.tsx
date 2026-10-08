@@ -69,9 +69,23 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 
 const FILE_CODE_STYLE: CSSProperties = {
   fontFamily: "var(--font-mono)",
+  fontWeight: "var(--font-mono-weight)",
   fontSize: 13,
   lineHeight: 1.6,
 };
+
+// Prism's light theme colors <pre> with backgroundColor, its dark theme with
+// the background shorthand. The source view sets backgroundColor itself and the
+// dark theme's shorthand is dropped, as CodeBlock does: a theme switch then never
+// makes React remove one beside the other (it warned, and the view lost its
+// background).
+const fileViewerDarkTheme = {
+  ...vscDarkPlus,
+  'pre[class*="language-"]': {
+    ...vscDarkPlus['pre[class*="language-"]'],
+  },
+};
+delete fileViewerDarkTheme['pre[class*="language-"]'].background;
 
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   width: 48,
@@ -82,6 +96,7 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   background: "var(--bg-panel)",
   borderRight: "1px solid var(--border)",
   fontFamily: "var(--font-mono)",
+  fontWeight: "var(--font-mono-weight)",
   fontSize: 11,
   fontStyle: "normal",
   fontVariantNumeric: "tabular-nums",
@@ -1383,7 +1398,7 @@ function TextFileViewer({
       <SyntaxHighlighter
         className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
         language={language === "text" ? "plaintext" : language}
-        style={isDark ? vscDarkPlus : vs}
+        style={isDark ? fileViewerDarkTheme : vs}
         showLineNumbers
         lineNumberStyle={{
           ...FILE_LINE_NUMBER_STYLE,
@@ -1392,7 +1407,7 @@ function TextFileViewer({
           margin: 0,
           padding: 0,
           border: 0,
-          background: "var(--bg)",
+          backgroundColor: "var(--bg)",
           ...FILE_CODE_STYLE,
           width: wrapLines ? "100%" : "max-content",
           minWidth: "100%",
@@ -1402,6 +1417,7 @@ function TextFileViewer({
         codeTagProps={{
           style: {
             fontFamily: "var(--font-mono)",
+            fontWeight: "var(--font-mono-weight)",
             overflowWrap: wrapLines ? "anywhere" : "normal",
           },
         }}

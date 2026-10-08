@@ -10,6 +10,7 @@ import {
 } from "@/lib/default-preferences";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { resolveVisibleModels } from "@/lib/model-scope";
+import { withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 
@@ -95,7 +96,7 @@ export async function PUT(req: Request) {
     if (edit.model) {
       // Only a model the selector can offer is a default that actually takes
       // effect: startup falls back to the first scoped model otherwise.
-      const scope = await resolveVisibleModels(services.modelRuntime, settingsManager.getEnabledModels());
+      const scope = await resolveVisibleModels(withDeferredProviderModels(services.modelRuntime), settingsManager.getEnabledModels());
       const { provider, modelId } = edit.model;
       if (!scope.visible.some((model) => model.provider === provider && model.id === modelId)) {
         return Response.json({ error: `Model not available: ${provider}/${modelId}` }, { status: 404 });

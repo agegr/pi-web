@@ -11,6 +11,7 @@ import {
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
+import { rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
 
 export const dynamic = "force-dynamic";
 
@@ -44,10 +45,11 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   });
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
+  await rememberProviderModels(services.modelRuntime);
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
   const scope = await resolveVisibleModels(
-    services.modelRuntime,
+    withDeferredProviderModels(services.modelRuntime),
     settings.getEnabledModels(),
   );
   const { visible, thinkingLevelPins, warnings } = scope;

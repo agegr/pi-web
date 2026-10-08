@@ -377,8 +377,18 @@ try {
       });
       await page.screenshot({ path: join(artifacts, "compaction-minimap.png") });
 
+      // A session row of the sidebar's Sessions tab, found by its visible title
+      // (the row's tooltip adds message count and time, so no exact title match).
+      const sessionRow = (title) => page.locator("#session-sidebar-panel-sessions .session-tree-session").filter({
+        has: page.locator(".session-tree-title", { hasText: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }),
+      });
+      const clickSessionRow = async (title) => {
+        const sessionsTab = page.getByRole("tab", { name: "Sessions", exact: true });
+        if (await sessionsTab.getAttribute("aria-selected") !== "true") await sessionsTab.click();
+        await sessionRow(title).locator(".session-tree-main").click();
+      };
       const selectSession = async (title, entryId) => {
-        await page.locator(`[title="${title}"]`).click();
+        await clickSessionRow(title);
         await page.locator(`[data-entry-id="${entryId}"]:not([data-message-role])`).waitFor({ state: "visible" });
       };
       const readingOffset = (target) => target.evaluate((element) => (
@@ -421,7 +431,7 @@ try {
       await page.route(agentRoute, (route) => route.fulfill({ json: {} }));
       try {
         const pendingHistory = page.waitForRequest((request) => request.url().includes(`/api/sessions/${LONG}/context?`) && new URL(request.url()).searchParams.has("before"));
-        await page.locator(`[title="${text(0)}"]`).click();
+        await clickSessionRow(text(0));
         await pendingHistory;
         await page.getByRole("button", { name: "Branches", exact: true }).click();
         await page.getByText("E2E alternate history branch", { exact: true }).click();

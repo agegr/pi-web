@@ -1604,6 +1604,69 @@
   overflow-wrap: anywhere;
 }
 
+.settings-font-rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto 28px;
+  gap: 12px 8px;
+}
+
+.settings-font-rows > .settings-font-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: max-content minmax(0, 1fr) auto 28px;
+  grid-template-columns: subgrid;
+  row-gap: 0;
+}
+
+.settings-font-rows > .settings-font-row > input[type="range"] {
+  grid-column: 1 / -1;
+}
+
+.settings-chat-range-header.settings-font-header {
+  grid-column: 1 / -1;
+  grid-template-columns: max-content minmax(0, 1fr) auto 28px;
+  grid-template-columns: subgrid;
+}
+
+.settings-chat-range-header.settings-font-header label {
+  padding-right: 4px;
+}
+
+/* Drawn in the font it names: the live preview. */
+.settings-chat-range-option .settings-font-input {
+  height: 26px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-weight: var(--font-ui-weight);
+  font-size: 12px;
+}
+
+.settings-chat-range-option .settings-font-input.is-mono {
+  font-family: var(--font-mono);
+  font-weight: var(--font-mono-weight);
+}
+
+.settings-font-input::placeholder {
+  color: var(--text-dim);
+}
+
+.settings-font-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 640px) {
+  /* Phones get 16px form text (no focus zoom), so the name field needs the height. */
+  .settings-chat-range-option .settings-font-input {
+    height: 32px;
+  }
+}
+
 .settings-chat-options {
   display: flex;
   flex-direction: column;

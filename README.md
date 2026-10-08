@@ -121,9 +121,12 @@ window.addEventListener("pi-web:session-row-contextmenu", (event) => {
 
 The detail object contains `id`, `path`, `cwd`, optional `name`, pointer
 coordinates, and a `refresh()` callback for actions that change the session
-list. If no listener cancels the extension event, Pi Web preserves the
-browser's native context menu. This hook is browser-side and independent of
-Pi agent extensions.
+list. If no listener cancels the extension event, Pi Web opens its built-in
+session menu (pin, rename, fork, mark read or unread, archive, delete) at the
+pointer instead of the browser's native context menu. The row's `⋯` button
+always opens the built-in menu and does not dispatch the event. Sessions not
+yet saved to disk get no built-in menu, so the native one still appears for
+them. This hook is browser-side and independent of Pi agent extensions.
 
 ### Extension Session Liveness
 

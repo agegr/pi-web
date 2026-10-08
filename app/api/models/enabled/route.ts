@@ -23,6 +23,7 @@ import {
 } from "@/lib/enabled-models-runtime";
 import type { EnabledModelsInput } from "@/lib/enabled-models";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
+import { withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
@@ -37,7 +38,7 @@ interface RequestContext {
 }
 
 async function loadContext(cwd: string): Promise<RequestContext> {
-  const modelRuntime = await createModelRuntimeWithExtensions();
+  const modelRuntime = withDeferredProviderModels(await createModelRuntimeWithExtensions());
   const agentDir = getAgentDir();
   return {
     modelRuntime,

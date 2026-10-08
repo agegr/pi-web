@@ -69,6 +69,12 @@ try {
     });
     const ready = () => page.locator(".terminal-panel:visible .is-ready").waitFor();
     const text = () => page.locator(".terminal-panel:visible .xterm-rows").innerText();
+    // xterm replaces its character spans asynchronously after a font change/refit.
+    const expectFontWeight = (weight, bold = false) => page.waitForFunction(({ weight, bold }) => {
+      const panel = [...document.querySelectorAll(".terminal-panel")].find((element) => element.getBoundingClientRect().width > 0);
+      const character = panel?.querySelector(`.xterm-rows span${bold ? ".xterm-bold" : ":not(.xterm-bold)"}`);
+      return character && getComputedStyle(character).fontWeight === String(weight);
+    }, { weight, bold });
     const run = async (command) => {
       await page.locator(".terminal-panel:visible .xterm-helper-textarea").focus();
       await page.keyboard.type(command);
@@ -82,6 +88,12 @@ try {
       const button = page.getByRole("button", { name: "Show sidebar", exact: true });
       if (await button.count()) await button.click();
     };
+    // The explorer and its terminal button are in the Files tab, the session rows in the Sessions tab.
+    const showTab = async (name) => {
+      const tab = page.getByRole("tab", { name, exact: true });
+      if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
+    };
+    const filesPanel = page.getByRole("tabpanel", { name: "Files", exact: true });
     const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
     const hidePanel = async () => {
       const button = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true, includeHidden: true });
@@ -91,6 +103,7 @@ try {
       await page.goto(`${base}/?session=terminal-a1`);
       await page.getByText("Terminal session one message", { exact: true }).waitFor();
       await showSidebar();
+      await showTab("Files");
       await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
       await run("export PR695_TOKEN=alive; printf '\\nTOKEN:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
@@ -99,8 +112,35 @@ try {
       const [id] = created;
       assert.equal(created.size, 1);
 
+      // A font change refits an existing xterm without restarting its shell or SSE.
+      const fontConnections = [];
+      const trackFontConnections = (request) => {
+        if (/\/api\/terminal(?:$|\/[^/]+\/events)/.test(new URL(request.url()).pathname)) fontConnections.push(request.url());
+      };
+      page.on("request", trackFontConnections);
       await hidePanel();
       await showSidebar();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("textbox", { name: "Monospace font", exact: true }).fill("monospace");
+      await page.getByRole("slider", { name: "Monospace font weight", exact: true }).fill("600");
+      await page.keyboard.press("Escape");
+      if (viewport.width <= 640) {
+        await page.locator(".sidebar-overlay-backdrop").click({ position: { x: viewport.width - 5, y: 100 } });
+      }
+      await showPanel();
+      await ready();
+      assert.match(await page.locator(".terminal-panel:visible .xterm-rows").evaluate((el) => getComputedStyle(el).fontFamily), /^monospace,/);
+      await expectFontWeight(600);
+      await run("printf '\\nFONT:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
+      await waitOutput(`FONT:alive:${pid}`);
+      await run("printf '\\033[1mBOLD_FONT\\033[0m\\n'");
+      await expectFontWeight(700, true);
+      page.off("request", trackFontConnections);
+      assert.deepEqual(fontConnections, [], "Font changes must not recreate terminals or reconnect streams");
+
+      await hidePanel();
+      await showSidebar();
+      await showTab("Files");
       await page.getByText("note.txt", { exact: true }).click();
       await page.getByText("File viewer fixture", { exact: true }).waitFor();
       assert.equal(await page.locator(".terminal-panel").count(), 1);
@@ -109,6 +149,7 @@ try {
       await ready();
       await hidePanel();
       await showSidebar();
+      await showTab("Sessions");
       await page.getByText("Terminal session two", { exact: true }).click();
       await showPanel();
       await run("printf '\\nSESSION:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
@@ -116,6 +157,7 @@ try {
 
       await page.reload();
       await ready();
+      await expectFontWeight(600);
       await run("printf '\\nREFRESH:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`REFRESH:alive:${pid}`);
       assert.equal(created.size, 1, "refresh must reconnect, not create");
@@ -160,6 +202,7 @@ try {
       });
       await hidePanel();
       await showSidebar();
+      await showTab("Files");
       await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await page.getByRole("button", { name: "Terminate terminal workspace-a", exact: true }).click();
       releaseCreation();
@@ -168,14 +211,18 @@ try {
       for (const terminalId of created) assert.equal((await fetch(`${base}/api/terminal/${terminalId}`)).status, 404);
 
       await showSidebar();
+      await showTab("Files");
       await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
       await run("export PR695_WORKSPACE=retained");
       await hidePanel();
       await showSidebar();
-      await page.getByRole("button").and(page.getByTitle(workspace, { exact: true })).first().click();
-      await page.getByRole("button").and(page.getByTitle(otherWorkspace, { exact: true })).click();
-      await page.getByText("Other workspace session", { exact: true }).waitFor();
+      // Switch projects with the Files tab's project menu (its button and items carry the root as title;
+      // the menu is portaled to the body, outside the panel).
+      await showTab("Files");
+      await filesPanel.getByRole("button").and(page.getByTitle(workspace, { exact: true })).first().click();
+      await page.getByRole("menuitemradio").and(page.getByTitle(otherWorkspace, { exact: true })).click();
+      await page.waitForFunction((root) => document.querySelector("#session-sidebar-panel-files .project-picker-button.is-project")?.title === root, otherWorkspace);
       await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
       const workspaceTabs = await page.evaluate(() => JSON.parse(sessionStorage.getItem("pi-web:terminal-tabs")).tabs);

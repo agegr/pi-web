@@ -185,7 +185,8 @@ html, body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
+  font-weight: var(--font-ui-weight);
   font-size: 14px;
   overscroll-behavior: none;
 }
@@ -776,11 +777,22 @@ button.extension-widget-trigger:focus-visible {
 }
 
 :root {
-  --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  --font-ui-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono-default: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  --font-ui: var(--font-ui-default);
+  --font-mono: var(--font-mono-default);
+  --font-ui-weight: 400;
+  --font-mono-weight: 400;
 }
 
 pre, code {
   font-family: var(--font-mono);
+  font-weight: var(--font-mono-weight);
+}
+
+/* Inline code inside a heading or emphasis keeps that surrounding emphasis. */
+.markdown-body :is(h1, h2, h3, h4, h5, h6, strong, b) code {
+  font-weight: inherit;
 }
 
 /* react-markdown output styles */
@@ -1503,6 +1515,276 @@ pre, code {
   }
 }
 
+/* The empty new-session page's header above the composer (ChatWindow): the
+   brand, then the project and worktree (NewSessionContextBar), as inline
+   boxes that wrap, and the versions floated right of the first line. The bar
+   stays beside the brand while its boxes fit there whole, path and branch
+   included, and otherwise drops to a line of its own under it (a phone, a
+   chat squeezed between the sidebar and the file panel, a long path): the room
+   they need decides, not the viewport. Below the float, that line has the
+   whole width. Every box is 40px tall with its vertical margins, the float
+   too, so the first line is 40px whatever it holds and the next one starts
+   where the float ends. */
+.new-session-hero {
+  margin-bottom: 8px;
+}
+
+.new-session-hero-row {
+  margin: 0 auto;
+  line-height: 0;
+}
+
+.new-session-versions {
+  display: flex;
+  float: right;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 2px;
+  height: 40px;
+  margin-left: 14px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.new-session-version {
+  color: var(--text);
+}
+
+/* Never pushed under the versions: an inline box that cannot sit beside a
+   float moves below it, leaving a line of versions only. It gives way
+   beside them instead (120px: the versions, their margin, its own), the
+   update link's version first (its ellipsis), as the brand did before. */
+.new-session-brand {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: calc(100% - 120px);
+  margin: 4px 20px 4px 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.new-session-brand-name {
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Under the brand, the first box's path lines up with the logo; beside it,
+   the box's own padding makes up the gap. 29px boxes on the row's 40px. */
+.new-session-context {
+  display: inline-block;
+  max-width: calc(100% + 10px);
+  margin: 5px 0 6px -10px;
+  vertical-align: middle;
+}
+
+/* The project and worktree picker (ProjectWorktreePicker), as the sidebar
+   drew it on main, in both places: two grey boxes in the header buttons'
+   material, 11px, the project's whole path and the worktree's branch in code
+   type, cut at their left. Side by side above a fresh composer (inline,
+   without the box until hovered), one under the other in the sidebar's
+   files tab (stacked). No icon and no chevron on the project: its path is
+   the box. */
+.project-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+/* Each box as wide as what it shows. */
+.project-picker-button {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 29px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+/* Above a fresh composer a long path gives way at about the width main's
+   sidebar box had, so the bar can stay beside the brand, and on a narrow
+   row the path gives way first: the worktree box keeps its icon, notes and
+   chevron (a long branch is cut inside it). Widths of their own, not shares
+   of the bar's: the bar is as wide as its boxes. */
+.project-picker.is-inline .project-picker-button.is-project {
+  max-width: 280px;
+}
+
+.project-picker.is-inline .project-picker-button:not(.is-project) {
+  flex: none;
+  max-width: 200px;
+}
+
+/* Above a fresh composer the boxes draw no box until hovered or open: text
+   on the page beside the brand. */
+.project-picker.is-inline .project-picker-button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.project-picker.is-inline .project-picker-button:hover,
+.project-picker.is-inline .project-picker-button[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.project-picker-button:hover,
+.project-picker-button[aria-expanded="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.project-picker-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.project-picker-icon,
+.project-picker-chevron {
+  flex-shrink: 0;
+}
+
+.project-picker-icon {
+  color: var(--text-dim);
+}
+
+.project-picker-button:hover .project-picker-icon,
+.project-picker-button[aria-expanded="true"] .project-picker-icon {
+  color: var(--text-muted);
+}
+
+/* A linked checkout's branch, not the main one's. */
+.project-picker-icon.is-linked,
+.project-picker-button:hover .project-picker-icon.is-linked,
+.project-picker-button[aria-expanded="true"] .project-picker-icon.is-linked {
+  color: var(--accent);
+}
+
+.project-picker-chevron {
+  color: var(--text-dim);
+}
+
+.project-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A path or a branch, cut at its left (rtl), the text itself kept left to
+   right: the end is what tells them apart. */
+.project-picker-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.project-picker-path > span {
+  unicode-bidi: plaintext;
+}
+
+/* Clipped text keeps its descenders: at the picker's line-height of 1 its
+   box would cut g, p and y. Centred in a fixed-height button, the taller box
+   moves no glyph. */
+.project-picker-label,
+.project-picker-path {
+  line-height: normal;
+}
+
+.project-picker-note {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* Something runs or waits in another project (the files tab). */
+.project-picker-activity {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* No project yet: the box invites the first pick. */
+.project-picker-button.is-empty {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* No worktree list here (the files tab): a box that says why, and does nothing. */
+.project-picker-button.is-inactive,
+.project-picker-button.is-inactive:hover {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  cursor: default;
+  opacity: 0.82;
+}
+
+.project-picker-button.is-inactive:hover .project-picker-icon {
+  color: var(--text-dim);
+}
+
+/* The files tab: full width, one under the other, at the top of its head
+   (.sidebar-files-head, app/sidebar.css); the path or branch takes the room
+   before the notes. */
+.project-picker.is-stacked {
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.project-picker.is-stacked .project-picker-button {
+  width: 100%;
+}
+
+.project-picker.is-stacked .project-picker-label,
+.project-picker.is-stacked .project-picker-path {
+  flex: 1 1 0;
+}
+
+@media (pointer: coarse) {
+  .project-picker-button {
+    min-height: 36px;
+  }
+
+  /* Still 40px with the taller boxes. */
+  .new-session-context {
+    margin-top: 2px;
+    margin-bottom: 2px;
+  }
+}
+
 .file-viewer-icon-button {
   display: inline-flex;
   align-items: center;
@@ -1691,26 +1973,6 @@ span.token.table {
   to { transform: rotate(360deg); }
 }
 
-/* Compositor-friendly ping for the unread-activity ring: animating only
-   opacity keeps the ripple on the compositor thread, unlike SMIL <animate>
-   on geometry attributes (r / opacity inside SVG), which forces a main-
-   thread repaint of the whole page every frame while it runs. */
-@keyframes unread-ping {
-  0%, 100% { opacity: 0.28; }
-  50% { opacity: 0.04; }
-}
-
-.unread-ping {
-  animation: unread-ping 1.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .unread-ping {
-    animation: none;
-    opacity: 0.16;
-  }
-}
-
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -1783,25 +2045,6 @@ span.token.table {
 .panel-resize-handle:hover::after,
 .panel-resize-handle:focus-visible::after,
 .panel-resize-handle.is-resizing::after {
-  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
-}
-.sidebar-section-resize-handle {
-  outline: none;
-}
-.sidebar-section-resize-handle::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 5px;
-  height: 1px;
-  pointer-events: none;
-  background: transparent;
-  transition: background 0.12s ease;
-}
-.sidebar-section-resize-handle:hover::after,
-.sidebar-section-resize-handle:focus-visible::after,
-.sidebar-section-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
 .right-panel-overlay-backdrop {
@@ -2026,11 +2269,12 @@ span.token.table {
 
 /* While the software keyboard is up (set by useViewportHeight), only a few
    hundred pixels remain above it. Hand them to the conversation: collapse the
-   model/controls row and the extension status shelf, and drop the home
-   indicator inset the keyboard already covers. Both come back when the
-   keyboard closes. Phone landscape is wider than the mobile breakpoint but
-   leaves the least room of all, so short touch screens opt in too; tablets
-   keep their controls because the keyboard leaves them enough height. */
+   model/controls row, the extension status shelf and a fresh composer's
+   project bar, and drop the home indicator inset the keyboard already
+   covers. They come back when the keyboard closes. Phone landscape is wider
+   than the mobile breakpoint but leaves the least room of all, so short
+   touch screens opt in too; tablets keep their controls because the keyboard
+   leaves them enough height. */
 @media (max-width: 640px), (pointer: coarse) and (max-height: 500px) {
   html[data-keyboard-open] .chat-input-controls,
   html[data-keyboard-open] .extension-status-shelf {
@@ -2041,5 +2285,9 @@ span.token.table {
   }
   html[data-keyboard-open] .chat-input-shell {
     padding-bottom: 6px !important;
+  }
+  /* Tapping it would close the keyboard anyway. */
+  html[data-keyboard-open] .new-session-context {
+    display: none !important;
   }
 }

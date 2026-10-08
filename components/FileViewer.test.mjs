@@ -32,6 +32,18 @@ test("large source previews bypass the per-line syntax highlighter", () => {
   assert.notEqual(source.indexOf("highlightedSource", branchStart), -1);
 });
 
+test("the highlighted source view owns its <pre> background without a competing shorthand", () => {
+  // vs colors <pre> with backgroundColor and vscDarkPlus with background; mixing
+  // them across a theme switch warned and dropped the view's background.
+  assert.match(source, /const fileViewerDarkTheme = \{\s*\.\.\.vscDarkPlus,\s*'pre\[class\*="language-"\]': \{\s*\.\.\.vscDarkPlus\['pre\[class\*="language-"\]'\],\s*\},\s*\};\ndelete fileViewerDarkTheme\['pre\[class\*="language-"\]'\]\.background;/);
+  const start = source.indexOf("const highlightedSource = useMemo(");
+  const element = source.slice(start, source.indexOf("</SyntaxHighlighter>", start));
+  assert.match(element, /style=\{isDark \? fileViewerDarkTheme : vs\}/);
+  const customStyle = element.slice(element.indexOf("customStyle={{"), element.indexOf("codeTagProps={{"));
+  assert.match(customStyle, /backgroundColor: "var\(--bg\)"/);
+  assert.doesNotMatch(customStyle, /\bbackground:/);
+});
+
 test("lightweight source rows are skipped for highlighted, diff, and preview views", () => {
   // Execute the source-view calculations without mounting the file-fetching component.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

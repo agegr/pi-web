@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkFontPreferences } from "./font-preferences.mjs";
 
 export async function checkChatAppearanceReset(page) {
   const width = page.getByRole("slider", { name: "Chat content width", exact: true });
@@ -82,6 +83,7 @@ export async function checkChatAppearance(page) {
   assert.equal(await width.inputValue(), "2000");
   assert.equal(await fontSize.inputValue(), "18");
   await checkChatAppearanceReset(page);
+  await checkFontPreferences(page);
   for (const viewport of [{ width: 1280, height: 600 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(viewport);
     await page.locator(".settings-general").evaluate((el) => { el.scrollTop = el.scrollHeight; });

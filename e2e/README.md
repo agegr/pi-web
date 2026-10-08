@@ -31,6 +31,9 @@ Coverage:
 - Markdown, code blocks, and real tool-call/tool-result blocks render.
 - Chat width and font size persist, existing drafts resize, and short settings
   panels keep every language option reachable on desktop and mobile.
+- Interface/chat and monospace font lists and weights apply live, survive
+  refresh, sync between tabs and reset independently without changing width or
+  font size. Headings and Markdown emphasis retain their weights.
 - Unknown sessions and paths outside the fixture project are rejected.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.

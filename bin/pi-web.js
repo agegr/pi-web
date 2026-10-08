@@ -21,6 +21,8 @@ const { getHelpText, parseLaunchOptions } = require("./pi-web-options");
 const { getNextNodeArgs } = require("./pi-web-node-args");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { rotatePreviewSecrets, getRotationWarning } = require("./rotate-preview-secrets");
 
 let launchOptions;
 try {
@@ -64,6 +66,14 @@ const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
   process.exit(1);
+}
+
+// Replace the published preview-mode secrets with fresh random values so the
+// previewModeId baked into the npm tarball cannot be used to skip the proxy
+// (via the x-prerender-revalidate header). Must happen before `next start`.
+const rotation = rotatePreviewSecrets(nextDir);
+if (!rotation.ok) {
+  console.warn(getRotationWarning(rotation.reason));
 }
 
 if (!loopbackHostnames.has(hostname)) {
