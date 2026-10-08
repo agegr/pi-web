@@ -260,14 +260,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
+  transform: translateX(-50%);
   transition: color 100ms ease, background 100ms ease;
 }
 
@@ -276,8 +277,13 @@
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
+/* A locked padlock is gold. */
 .lock[aria-pressed="true"] {
-  color: var(--text);
+  color: #d4af37;
+}
+
+.lock[aria-pressed="true"]:hover {
+  color: #e6c65a;
 }
 
 .lock:focus-visible {
