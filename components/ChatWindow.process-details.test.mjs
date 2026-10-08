@@ -16,9 +16,12 @@ test("groups the leading segment when the history page starts mid-turn", () => {
 
 test("expands process details when a completed turn has no final answer", () => {
   assert.match(source, /const \[expanded, setExpanded\] = useState\(defaultExpanded\)/);
+  // An error or truncation notice alone is no answer: the turn's earlier text
+  // sits in Process details and must stay visible (#906).
+  assert.match(source, /const answered = collapsesProcessDetails\(finalAnswerMessage\);/);
   assert.match(
     source,
-    /<ProcessDetailsGroup[\s\S]*?defaultExpanded=\{!finalAnswerMessage\}/,
+    /<ProcessDetailsGroup[\s\S]*?defaultExpanded=\{!answered\}/,
   );
 });
 
@@ -27,6 +30,6 @@ test("resets process details when the turn gains or loses its final answer", () 
   // makes an answered turn start collapsed even if it first rendered unanswered.
   assert.match(
     source,
-    /<ProcessDetailsGroup key=\{finalAnswerMessage \? "answered" : "unanswered"\}[\s\S]*?defaultExpanded=\{!finalAnswerMessage\}/,
+    /<ProcessDetailsGroup key=\{answered \? "answered" : "unanswered"\}[\s\S]*?defaultExpanded=\{!answered\}/,
   );
 });

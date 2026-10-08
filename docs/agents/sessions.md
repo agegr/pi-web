@@ -37,6 +37,9 @@ On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state
 ## Compaction SSE events
 `handleAgentEvent` accepts `compaction_start` / `compaction_end` and the older `auto_compaction_*` pair to keep `isCompacting` in sync. Manual compact is a blocking POST: `isCompacting` holds until it returns, the button meanwhile Stop compaction (`abort_compaction`).
 
+## Process details start open without an answer (`ProcessDetailsGroup`, `components/ChatWindow.tsx`)
+A grouped turn's Process details start collapsed only when the answer shown under them has text or an image (`collapsesProcessDetails()`, `lib/message-display.ts`). A turn that ends on an error or truncation notice alone, e.g. empty `stopReason: "error"` replies after text and a trailing tool call, still shows that notice but keeps them open: the earlier text is inside them (#906). The group is keyed on this decision, so a leaf switch that changes it resets the group; a search hit inside opens it (`reveal`).
+
 ## Tool execution events on the SSE stream
 - Calls made through `ctx.executeTool()` (a codemode script's) emit `tool_execution_*` with `parentToolCallId` and ids `<parent>/<n>`. `toClientAgentEvent()` sends their start and end slim and drops their updates; test for nesting *before* rebuilding an update, which keeps only `toolCallId`, `toolName` and `partialResult` (a nested update would reach the browser as a top-level tool). `handleAgentEvent` keeps them out of the running-tools phase; `AgentSessionWrapper` never records them for replay, a parent's end forgets every id under `<parent>/`, and `agent_end` clears the replay set.
 - `tool_execution_end` never carries `result` (up to 1 MiB of bash output): the browser renders the tool result message that follows. `entry_appended` is omitted. A codemode update's `details.calls` keeps the newest 200, `omittedCalls` counting the rest.
