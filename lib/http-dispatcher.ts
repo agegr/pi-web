@@ -68,6 +68,11 @@ export function configureHttpDispatcher(
   const dispatcher = withUndiciErrorListener(
     new undici.EnvHttpProxyAgent({
       allowH2: false,
+      // Keep HTTP origins on CONNECT tunnels, as @earendil-works/pi-coding-agent
+      // does. Undici 8.7 moved them to absolute-form requests instead, and that
+      // path ignores bodyTimeout and headersTimeout: through a proxy, a stalled
+      // provider response then stays open instead of being aborted.
+      proxyTunnel: true,
       bodyTimeout: normalizedTimeoutMs,
       headersTimeout: normalizedTimeoutMs,
       clientFactory: createUndiciClient,
