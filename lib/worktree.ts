@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, realpathSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
@@ -11,9 +11,10 @@ const execFileAsync = promisify(execFile);
 // Project resolution: cwd → { projectRoot, branch }
 //
 // A worktree's `git rev-parse --git-common-dir` points at the *main* repo's
-// .git directory, so its parent is the project root shared by all worktrees.
-// Non-git directories resolve to themselves. Results are cached on globalThis
-// (hot-reload safe) with a short TTL; add/remove worktree invalidates eagerly.
+// .git directory, so its parent is the project root shared by all worktrees
+// (a bare clone is its own root). Non-git directories resolve to themselves.
+// Results are cached on globalThis (hot-reload safe) with a short TTL;
+// add/remove worktree invalidates eagerly.
 // ============================================================================
 
 export interface ProjectInfo {
@@ -73,6 +74,25 @@ function realPathOrSelf(filePath: string): string {
 }
 
 /**
+ * The folder a repository's worktrees group under, from its common git dir.
+ * A checkout's `.git` stands in that folder, and so does a bare repo that a
+ * `.git` file beside it points at (`project/.bare`). Any other bare clone
+ * (`parent/repo.git`) is its own root: its parent may hold other repositories,
+ * whose worktrees would otherwise all land in one project.
+ */
+function repoRootFromCommonDir(commonDir: string): string {
+  const parent = dirname(commonDir);
+  if (basename(commonDir) === ".git") return parent;
+  try {
+    const match = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(join(parent, ".git"), "utf8"));
+    if (match && samePath(realPathOrSelf(resolve(parent, match[1])), realPathOrSelf(commonDir))) return parent;
+  } catch {
+    // No `.git` file beside it (a `.git` directory belongs to another repo).
+  }
+  return commonDir;
+}
+
+/**
  * addWorktree() places worktrees in `<repoRoot>-worktrees/<dir>`. When such a
  * directory no longer exists (worktree removed), group its sessions back
  * under the main repo instead of letting them dangle as a phantom project.
@@ -82,7 +102,11 @@ function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   const parent = dirname(cwd);
   if (!parent.endsWith("-worktrees")) return null;
   const repoRoot = parent.slice(0, -"-worktrees".length);
-  if (!repoRoot || !existsSync(join(repoRoot, ".git"))) return null;
+  if (!repoRoot) return null;
+  // A bare clone has no `.git`; git takes HEAD, objects/ and refs/ for a git dir.
+  const isRepo = existsSync(join(repoRoot, ".git"))
+    || ["HEAD", "objects", "refs"].every((name) => existsSync(join(repoRoot, name)));
+  if (!isRepo) return null;
   return { projectRoot: realPathOrSelf(repoRoot), branch: basename(cwd), isWorktree: true, isTopLevel: true };
 }
 
@@ -157,7 +181,7 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
     // worktree switcher.
     const isTopLevel = samePath(toplevel, realCwd);
     const isWorktreeTopLevel = !samePath(gitDir, commonDir) && isTopLevel;
-    const topLevelProjectRoot = isWorktreeTopLevel ? dirname(commonDir) : toplevel;
+    const topLevelProjectRoot = isWorktreeTopLevel ? repoRootFromCommonDir(commonDir) : toplevel;
     info = {
       projectRoot: isTopLevel ? realPathOrSelf(topLevelProjectRoot) : cwd,
       branch: ref && ref !== "HEAD" ? ref : null,
@@ -179,10 +203,10 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
 // common dir, so callers can pass session cwds directly.
 // ============================================================================
 
-/** Main repo root (parent of the shared .git dir), or throws for non-git dirs */
+/** Main repo root (parent of the shared .git dir, or a bare clone), or throws for non-git dirs */
 async function getRepoRoot(cwd: string): Promise<string> {
   const commonDir = await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  return realPathOrSelf(dirname(toNativePath(commonDir)));
+  return realPathOrSelf(repoRootFromCommonDir(toNativePath(commonDir)));
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
