@@ -50,6 +50,9 @@ On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state
 - `context_edit` entries omit or replace an earlier entry's model context without changing raw history; the UI ignores them. A retain-none compaction stores its own id in `firstKeptEntryId`.
 - `listSessionsIncremental()` must keep `SessionManager.listAll()`'s order: newest mtime first, then reverse filename, stable for equal activity time.
 
+## Turn grouping and custom messages in the chat (`ChatWindow`, `lib/message-display.ts`)
+- A custom message without `display` (`display: false` keeps it for the model alone) stays in `messages` and `entryIds`, from the reader and from `message_end`, but renders nothing, as in pi's TUI: `isHiddenCustomMessage()` makes `renderMessage()` return null, keeps it out of the Process details count, and it never anchors a turn. An extension may send one on every `session_start`, i.e. on each idle restart (#1043).
+
 ## Running state polling + reconciliation
 - The sidebar polls `/api/agent/running` every 2.5 s while the tab is visible; the session-list response is the initial fallback.
 - `invalidateSessionListCache()` bumps the generation but **keeps** the previous scan, fresh only while its generation matches. Callers needing only metadata (search hits to sidebar rows) pass `listAllSessions({ allowStale: true })` to read it while it rebuilds in the background, accepting that a seconds-old session is missing.
