@@ -9,3 +9,9 @@ test("does not autofocus the model filter on mobile", () => {
   assert.match(source, /aria-label=\{t\("chat\.filterModels"\)\}[\s\S]*?autoFocus=\{!isMobile\}/);
   assert.doesNotMatch(source, /^\s*autoFocus\s*$/m);
 });
+
+test("keeps the server's model order (#783)", () => {
+  // /api/models already returns pi's /model order; sorting by name here would
+  // scatter a models.json provider's hand-ordered models again.
+  assert.doesNotMatch(source, /\.sort\(/);
+});
