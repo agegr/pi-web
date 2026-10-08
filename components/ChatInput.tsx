@@ -130,6 +130,36 @@ export function cycleListIndex(index: number, length: number, delta: number): nu
   return ((index + delta) % length + length) % length;
 }
 
+export function replaceTextareaRange(
+  textarea: HTMLTextAreaElement,
+  start: number,
+  end: number,
+  text: string,
+  cursorOffset = text.length,
+): void {
+  const selectionStart = textarea.selectionStart;
+  const selectionEnd = textarea.selectionEnd;
+  textarea.focus();
+
+  if (selectionStart === selectionEnd && start <= selectionStart && end >= selectionEnd) {
+    const finalLength = textarea.value.length - (end - start) + text.length;
+    for (let edits = selectionStart - start; edits > 0 && textarea.selectionStart > start; edits--) {
+      document.execCommand("delete");
+    }
+    document.execCommand("insertText", false, text);
+    for (let edits = end - selectionEnd; edits > 0 && textarea.value.length > finalLength; edits--) {
+      document.execCommand("forwardDelete");
+    }
+  } else {
+    textarea.setSelectionRange(start, end);
+    document.execCommand("insertText", false, text);
+  }
+
+  if (cursorOffset !== text.length) {
+    textarea.setSelectionRange(start + cursorOffset, start + cursorOffset);
+  }
+}
+
 export function replaceLinksWithMarkdown(
   text: string,
   links: Iterable<{ label: string; href: string; occurrence: number }>,
@@ -820,20 +850,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const start = ta.selectionStart ?? ta.value.length;
       const end = ta.selectionEnd ?? ta.value.length;
       const before = ta.value.slice(0, start);
-      const after = ta.value.slice(end);
       const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
-      const newVal = before + sep + text + after;
-      valueRef.current = newVal;
-      setValue(newVal);
+      replaceTextareaRange(ta, start, end, sep + text);
       setAtQuery(null);
-      requestAnimationFrame(() => {
-        if (!ta) return;
-        const pos = start + sep.length + text.length;
-        ta.setSelectionRange(pos, pos);
-        ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
-      });
     },
     addImages(files: File[]) {
       processImageFiles(files);
@@ -1150,32 +1169,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const applyAtCompletion = useCallback((entry: FileIndexEntry) => {
     if (!atQuery) return;
     const ta = textareaRef.current;
-    const cursor = ta?.selectionStart ?? value.length;
-    const before = value.slice(0, atQuery.start);
-    let after = value.slice(cursor);
+    if (!ta) return;
+    const cursor = ta.selectionStart ?? ta.value.length;
     // Completing inside a quoted token (@"my dir/… with the caret before the
-    // closing quote): the replacement carries its own closing quote, so drop
-    // the old one right after the caret (mirrors the TUI's applyCompletion).
-    if (atQuery.quoted && after.startsWith('"')) {
-      after = after.slice(1);
-    }
+    // closing quote): replace that old quote too, since the insertion has one.
+    const replaceEnd = cursor + (atQuery.quoted && ta.value[cursor] === '"' ? 1 : 0);
     const insert = buildAtInsertText(entry.path, entry.isDir, atQuery.quoted);
-    const newValue = before + insert.text + after;
-    const newPos = before.length + insert.cursorOffset;
-    setValue(newValue);
-    // setValue alone does not fire onChange — re-derive the token here. Files
-    // end with a space (token closes, menu hides); directories end with "/"
-    // before the caret (token stays open for drill-down into the directory).
-    setAtQuery(extractAtQuery(newValue.slice(0, newPos)));
-    requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(newPos, newPos);
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-    });
-  }, [atQuery, value]);
+    const newPos = atQuery.start + insert.cursorOffset;
+    replaceTextareaRange(ta, atQuery.start, replaceEnd, insert.text, insert.cursorOffset);
+    // The native input event updates the controlled value. Re-derive using the
+    // adjusted caret because quoted directories place it before the last quote.
+    setAtQuery(extractAtQuery(ta.value.slice(0, newPos)));
+  }, [atQuery]);
 
   useEffect(() => {
     if (atActiveIndex >= atMatches.length) {
