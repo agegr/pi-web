@@ -240,7 +240,9 @@ function formatTime(ts?: number): string | null {
   const isToday = d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // Fixed 24-hour clock: the locale-derived formatter yields AM/PM for
+  // en-US style locales, and hour12:false still renders midnight as 24:00.
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   if (isToday) return time;
   const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
