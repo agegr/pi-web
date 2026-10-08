@@ -21,6 +21,7 @@ import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
+import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import type {
   AgentMessage,
   UserMessage,
@@ -680,7 +681,10 @@ function AssistantMessageView({
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const streamStartRef = useRef<number | null>(null);
+  const streamStartRef = useRef<StreamRateStart | null>(null);
+  const rateKey = streamRateKey(message);
+  const streamRateKeyRef = useRef(rateKey);
+  streamRateKeyRef.current = rateKey;
   const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
@@ -789,9 +793,9 @@ function AssistantMessageView({
 
       const tokens = estimatedTokensRef.current;
       if (tokens === 0) return;
-      if (streamStartRef.current === null) streamStartRef.current = now;
-      const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed > 0.5) setTps(tokens / elapsed);
+      streamStartRef.current ??= streamRateStart(streamRateKeyRef.current, tokens, now);
+      const rate = streamTokensPerSecond(streamStartRef.current, tokens, now);
+      if (rate !== null) setTps(rate);
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
