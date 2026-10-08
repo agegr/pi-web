@@ -10,6 +10,17 @@ import remarkMath from "remark-math";
 import type { Plugin } from "unified";
 import type { Extension } from "micromark-util-types";
 
+// Link schemes of desktop apps that open a note, a file or a meeting (#1108).
+// A fixed list, not "any scheme but javascript:": the text comes from the model
+// and from repository files, and OS handlers such as ms-msdt: or search-ms:
+// have been exploited through a clicked link.
+const appLinkSchemes = [
+  "obsidian", "logseq", "notion",
+  "vscode", "vscode-insiders", "cursor", "zed", "jetbrains",
+  "zoommtg", "zoomus", "msteams", "slack",
+];
+const appLinkPattern = new RegExp(`^(?:${appLinkSchemes.join("|")}):`, "i");
+
 const markdownSanitizeSchema = {
   ...defaultSchema,
   attributes: {
@@ -18,13 +29,24 @@ const markdownSanitizeSchema = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "file"],
+    href: [...(defaultSchema.protocols?.href ?? []), "file", ...appLinkSchemes],
   },
   strip: [...(defaultSchema.strip || []), "iframe", "object", "style", "form"],
 };
 
+/** react-markdown's URL filter, plus links to the apps above. */
+export function markdownAppUrlTransform(value: string): string {
+  return appLinkPattern.test(value) ? value : defaultUrlTransform(value);
+}
+
+/** Also keeps `file:` links, for renderers that open local files in the app. */
 export function markdownUrlTransform(value: string): string {
-  return /^file:/i.test(value) ? value : defaultUrlTransform(value);
+  return /^file:/i.test(value) ? value : markdownAppUrlTransform(value);
+}
+
+/** A link that leaves the page: it names a scheme or another host. */
+export function isExternalMarkdownHref(href: string | undefined): boolean {
+  return Boolean(href && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href));
 }
 
 /**
