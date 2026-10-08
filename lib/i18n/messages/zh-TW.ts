@@ -1382,6 +1382,7 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.noOutput": "（無輸出）",
     "i18n.noSummary": "（無摘要）",
     "i18n.conversationCompacted": "對話已壓縮",
+    "i18n.compactedFromTokens": "壓縮前 {tokens} Token",
     "i18n.compactionDescription": "此處之前的對話紀錄已壓縮為以下摘要：",
     "i18n.fileContext": "檔案上下文：{details}",
     "i18n.readFiles": "讀取的檔案",

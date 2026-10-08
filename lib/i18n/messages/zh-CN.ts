@@ -1382,6 +1382,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.noOutput": "（无输出）",
     "i18n.noSummary": "（无摘要）",
     "i18n.conversationCompacted": "会话已压缩",
+    "i18n.compactedFromTokens": "压缩前 {tokens} Token",
     "i18n.compactionDescription": "此处之前的会话历史已压缩为以下摘要：",
     "i18n.fileContext": "文件上下文：{details}",
     "i18n.readFiles": "读取的文件",
