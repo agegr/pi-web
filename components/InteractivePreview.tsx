@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
-import { interactivePreviewDocument, interactivePreviewHeight } from "@/lib/interactive-preview";
+import { interactivePreviewDocument, interactivePreviewError, interactivePreviewHeight, type InteractivePreviewError } from "@/lib/interactive-preview";
 import { useI18n } from "@/hooks/useI18n";
 import { CloseIcon, EyeIcon, RefreshIcon, SpinnerIcon } from "./SidebarIcons";
 import { CodeBlock } from "./MermaidBlock";
@@ -16,8 +16,8 @@ export function InteractivePreview({ code, isStreaming, complete }: {
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [run, setRun] = useState(0);
-  const [failed, setFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [errors, setErrors] = useState<InteractivePreviewError[]>([]);
+  const [copied, setCopied] = useState<"source" | "errors" | null>(null);
   const [frameHeight, setFrameHeight] = useState(320);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -47,7 +47,12 @@ export function InteractivePreview({ code, isStreaming, complete }: {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
-      if (event.data?.type === "pi-html:error") setFailed(true);
+      if (event.data?.type === "pi-html:error") {
+        const error = interactivePreviewError(event.data);
+        if (error) setErrors((previous) => previous.length >= 5 || previous.some((item) =>
+          item.kind === error.kind && item.message === error.message && item.line === error.line && item.column === error.column)
+          ? previous : [...previous, error]);
+      }
       if (event.data?.type === "pi-html:escape") setExpanded(false);
       if (event.data?.type === "pi-html:resize" && !expanded) {
         const height = interactivePreviewHeight(event.data.height);
@@ -75,14 +80,22 @@ export function InteractivePreview({ code, isStreaming, complete }: {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  const copy = async () => {
+  const errorText = errors.map((error) => {
+    const kind = t(error.kind === "promise" ? "chat.previewPromiseError" : "chat.previewRuntimeError");
+    const location = error.line === undefined ? "" : `\n${t("chat.previewErrorLocation", {
+      line: error.line, column: error.column ?? "?",
+    })}`;
+    return `${kind}: ${error.message || t("chat.previewUnknownError")}${location}`;
+  }).join("\n\n");
+
+  const copy = async (value: string, target: "source" | "errors") => {
     try {
-      await copyText(code);
-      setCopied(true);
+      await copyText(value);
+      setCopied(target);
       clearTimeout(copyTimer.current);
-      copyTimer.current = setTimeout(() => setCopied(false), 1500);
+      copyTimer.current = setTimeout(() => setCopied(null), 1500);
     } catch {
-      setCopied(false);
+      setCopied(null);
     }
   };
 
@@ -118,7 +131,9 @@ export function InteractivePreview({ code, isStreaming, complete }: {
           </button>
           <button type="button" className="interactive-preview-action" disabled={!ready}
             title={t("chat.restartPreview")} aria-label={t("chat.restartPreview")}
-            onClick={() => { setFailed(false); setRun((value) => value + 1); }}>
+            onClick={() => {
+              setErrors([]); setCopied(null); clearTimeout(copyTimer.current); setRun((value) => value + 1);
+            }}>
             <RefreshIcon size={15} />
           </button>
           <button type="button" className="interactive-preview-action" title={t("i18n.downloadFile")}
@@ -126,9 +141,9 @@ export function InteractivePreview({ code, isStreaming, complete }: {
             <PreviewIcon kind="download" />
           </button>
           <button type="button" className="interactive-preview-action"
-            title={copied ? t("i18n.copied") : t("i18n.copy")} aria-label={copied ? t("i18n.copied") : t("i18n.copy")}
-            onClick={() => void copy()}>
-            <PreviewIcon kind={copied ? "check" : "copy"} />
+            title={copied === "source" ? t("i18n.copied") : t("i18n.copy")} aria-label={copied === "source" ? t("i18n.copied") : t("i18n.copy")}
+            onClick={() => void copy(code, "source")}>
+            <PreviewIcon kind={copied === "source" ? "check" : "copy"} />
           </button>
           <button ref={expandRef} type="button" className="interactive-preview-action" disabled={!ready}
             title={expanded ? t("i18n.close") : t("i18n.expand")}
@@ -138,7 +153,21 @@ export function InteractivePreview({ code, isStreaming, complete }: {
           </button>
         </div>
       </div>
-      {failed && <div className="interactive-preview-error" role="status">{t("chat.previewError")}</div>}
+      {errors.length > 0 && <div className="interactive-preview-error">
+        <div className="interactive-preview-error-heading">
+          <span role="status">{t("chat.previewError")}</span>
+          <button type="button" className="interactive-preview-action"
+            title={copied === "errors" ? t("i18n.copied") : t("chat.copyPreviewErrors")}
+            aria-label={copied === "errors" ? t("i18n.copied") : t("chat.copyPreviewErrors")}
+            onClick={() => void copy(`pi-html\n${errorText}`, "errors")}>
+            <PreviewIcon kind={copied === "errors" ? "check" : "copy"} />
+          </button>
+        </div>
+        <details>
+          <summary>{t("chat.previewErrorDetails")}</summary>
+          <pre>{errorText}</pre>
+        </details>
+      </div>}
       <div className="interactive-preview-source" hidden={!sourceVisible}>
         {sourceVisible && <CodeBlock code={code} lang="html" hideHeader isStreaming={isStreaming} />}
       </div>

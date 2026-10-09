@@ -100,6 +100,19 @@ export async function checkInteractivePreview(page, artifacts, width) {
   await page.waitForFunction(() => Number.parseInt(document.querySelector('.interactive-preview-frame').style.height) > 160);
   await frame.locator('#fail').click();
   await preview.getByRole('status').waitFor();
+  assert.equal(await preview.locator('details').getAttribute('open'), null, 'Error details start folded');
+  await preview.locator('summary').click();
+  const errorLine = interactivePreviewFixture.split('\n').findIndex((line) => line.includes("throw new Error('fixture error')")) + 1;
+  await preview.locator('.interactive-preview-error pre').getByText('fixture error', { exact: false }).waitFor();
+  assert.match(await preview.locator('.interactive-preview-error pre').textContent(), new RegExp(`HTML line ${errorLine}, column \\d+`));
+  // Exercise copying without depending on OS clipboard permissions.
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+    writeText: async (text) => { window.__copiedPreviewText = text; },
+  } }));
+  await preview.getByRole('button', { name: 'Copy errors', exact: true }).click();
+  await page.waitForFunction(() => window.__copiedPreviewText?.includes('fixture error'));
+  assert.match(await page.evaluate(() => window.__copiedPreviewText), /^pi-html\nRuntime error:/);
+  await preview.getByRole('button', { name: 'Copied', exact: true }).waitFor();
   await preview.getByRole('button', { name: 'Restart preview', exact: true }).click();
   await frame.locator('#result').getByText('$40.00', { exact: true }).waitFor();
   assert.equal(await preview.getByRole('status').count(), 0);
@@ -120,6 +133,58 @@ export async function checkInteractivePreview(page, artifacts, width) {
   await frame.locator('#result').getByText('$40.00', { exact: true }).waitFor();
   await checkNaturalSizing(page, artifacts, width);
   console.log(`PASS: ${width}px interactive preview, state retention, download, isolation, errors and reload`);
+}
+
+export async function checkPreviewErrors(page, artifacts, width) {
+  await page.evaluate(() => window.__previewSetRunning(true));
+  const documents = [
+    '<!doctype html>\n<script>\nconst broken = ;\n</script>',
+    '<!doctype html>\n<script>\nthrow new Error("<img src=x onerror=alert(1)>runtime fixture");\n</script>',
+    '<!doctype html>\n<script>\nPromise.reject(new Error("promise fixture"));\n</script>',
+  ];
+  const text = documents.map((html) => `\`\`\`pi-html\n${html}\n\`\`\``).join('\n\n');
+  await page.evaluate((text) => {
+    const source = window.__previewEventSource;
+    source.emit({ type: 'agent_start' });
+    const message = { role: 'assistant', content: [{ type: 'text', text }], provider: 'test', model: 'test', stopReason: 'stop', timestamp: Date.now() };
+    source.emit({ type: 'message_start', message });
+    source.emit({ type: 'message_end', message });
+  }, text);
+  const all = page.locator('.interactive-preview');
+  await page.waitForFunction(() => document.querySelectorAll('.interactive-preview').length === 4);
+  const syntax = all.nth(1);
+  const runtime = all.nth(2);
+  const promise = all.nth(3);
+  for (const preview of [syntax, runtime, promise]) {
+    await preview.getByRole('status').waitFor();
+    await preview.locator('summary').click();
+    assert.match(await preview.locator('.interactive-preview-error pre').textContent(), /HTML line 3, column \d+/);
+  }
+  assert.match(await syntax.locator('.interactive-preview-error pre').textContent(), /SyntaxError/);
+  assert.match(await runtime.locator('.interactive-preview-error pre').textContent(), /<img src=x onerror=alert\(1\)>runtime fixture/);
+  assert.equal(await runtime.locator('.interactive-preview-error img, .interactive-preview-error script').count(), 0, 'Error content stays inert plain text');
+  assert.match(await promise.locator('.interactive-preview-error pre').textContent(), /Unhandled promise rejection: promise fixture/);
+  assert.equal(await all.first().getByRole('status').count(), 0, 'Errors do not leak to sibling previews');
+
+  const frame = runtime.frameLocator('iframe');
+  await frame.locator('body').evaluate(() => {
+    parent.postMessage({ type: 'pi-html:error', kind: 'invalid', message: 'ignored' }, '*');
+    for (let index = 0; index < 20; index++) parent.postMessage({ type: 'pi-html:error', kind: 'runtime', message: 'bounded-' + index + 'x'.repeat(2000) }, '*');
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.interactive-preview-error pre')[1]?.textContent.includes('bounded-3'));
+  const bounded = await runtime.locator('.interactive-preview-error pre').textContent();
+  assert.equal((bounded.match(/Runtime error:/g) || []).length, 5);
+  assert.ok(bounded.length < 5500);
+  assert.doesNotMatch(bounded, /ignored|bounded-4/);
+  await runtime.scrollIntoViewIfNeeded();
+  await runtime.screenshot({ path: join(artifacts, `interactive-preview-errors-${width}.png`) });
+  await runtime.getByRole('button', { name: 'Restart preview', exact: true }).click();
+  await runtime.getByRole('status').waitFor();
+  await runtime.locator('summary').click();
+  const restarted = await runtime.locator('.interactive-preview-error pre').textContent();
+  assert.match(restarted, /runtime fixture/);
+  assert.doesNotMatch(restarted, /bounded-/);
+  console.log('PASS: syntax/runtime/promise details, HTML line numbers, inert bounded messages, sibling isolation and fresh errors on restart');
 }
 
 async function checkNaturalSizing(page, artifacts, width) {

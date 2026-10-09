@@ -1199,6 +1199,28 @@ pre, code {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
+.interactive-preview-error-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.interactive-preview-error summary {
+  cursor: pointer;
+  width: fit-content;
+  padding: 4px 0;
+}
+.interactive-preview-error pre {
+  max-height: 160px;
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 8px;
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: var(--bg);
+}
 .interactive-preview.is-expanded {
   position: fixed;
   inset: 0;

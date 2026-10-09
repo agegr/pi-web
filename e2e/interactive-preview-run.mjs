@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { checkInteractivePreview, interactivePreviewFixture } from "./interactive-preview.mjs";
+import { checkInteractivePreview, checkPreviewErrors, interactivePreviewFixture } from "./interactive-preview.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const existingServer = process.env.PI_WEB_TEST_BASE_URL;
@@ -59,10 +59,15 @@ try {
     if (existingServer) await mockPreviewSession(page);
     page.setDefaultTimeout(30_000);
     const errors = [];
-    page.on('pageerror', (error) => { if (error.message !== 'fixture error') errors.push(error.message); });
+    page.on('pageerror', (error) => {
+      if (!['fixture error', "Unexpected token ';'", '<img src=x onerror=alert(1)>runtime fixture', 'promise fixture'].includes(error.message)) errors.push(error.message);
+    });
     await page.goto(`${baseUrl}/?session=${id}`, { waitUntil: 'domcontentloaded' });
     await checkInteractivePreview(page, artifacts, viewport.width);
-    if (existingServer) await checkStreamingSource(page, viewport.width);
+    if (existingServer) {
+      await checkPreviewErrors(page, artifacts, viewport.width);
+      await checkStreamingSource(page, viewport.width);
+    }
     assert.deepEqual(errors, []);
     await context.close();
   }
@@ -85,6 +90,9 @@ try {
 async function mockPreviewSession(page) {
   const info = { id, path: join(sessionDir, `${id}.jsonl`), cwd: project, name: 'Preview fixture', created: timestamp, modified: timestamp, messageCount: 2, firstMessage: 'Make a bill splitter.' };
   const state = { isStreaming: false, isPromptRunning: false, queuedMessages: [], toolNames: [] };
+  await page.exposeFunction('__previewSetRunning', (running) => {
+    state.isStreaming = state.isPromptRunning = running;
+  });
   const uiState = { version: 1, revision: 0, sessions: {}, projects: {} };
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());

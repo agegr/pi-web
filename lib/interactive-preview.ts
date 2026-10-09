@@ -6,6 +6,32 @@ export function interactivePreviewHeight(value: unknown): number | null {
   return Math.ceil(value);
 }
 
+export interface InteractivePreviewError {
+  kind: "runtime" | "promise";
+  message: string;
+  line?: number;
+  column?: number;
+}
+
+/** Reports are untrusted even when they originate from the expected frame. */
+export function interactivePreviewError(value: unknown): InteractivePreviewError | null {
+  if (!value || typeof value !== "object") return null;
+  const report = value as Record<string, unknown>;
+  if ((report.kind !== "runtime" && report.kind !== "promise") || typeof report.message !== "string") return null;
+  const message = report.message.slice(0, 1000).replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "").trim();
+  const validPosition = (position: unknown): position is number =>
+    typeof position === "number" && Number.isInteger(position) && position > 0 && position <= 1_000_000;
+  const line = validPosition(report.line) ? report.line - INTERACTIVE_PREVIEW_PREFIX.split("\n").length + 1 : undefined;
+  return {
+    kind: report.kind,
+    message,
+    ...(line !== undefined && line > 0 ? {
+      line,
+      ...(validPosition(report.column) ? { column: report.column } : {}),
+    } : {}),
+  };
+}
+
 /** Use the Markdown parser's source range to require an explicitly closed fence. */
 export function isCompleteInteractiveFence(
   markdown: string,
@@ -35,8 +61,7 @@ export const INTERACTIVE_PREVIEW_CSP = [
   "form-action 'none'",
 ].join("; ");
 
-export function interactivePreviewDocument(code: string): string {
-  return `<!doctype html>
+const INTERACTIVE_PREVIEW_PREFIX = `<!doctype html>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${INTERACTIVE_PREVIEW_CSP}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -46,8 +71,28 @@ export function interactivePreviewDocument(code: string): string {
   img, canvas, svg { max-width: 100%; }
 </style>
 <script>
-  addEventListener('error', function () { parent.postMessage({ type: 'pi-html:error' }, '*'); });
-  addEventListener('unhandledrejection', function () { parent.postMessage({ type: 'pi-html:error' }, '*'); });
+  (function () {
+  var reportedErrors = 0;
+  function reportError(kind, message, line, column) {
+    if (reportedErrors >= 5) return;
+    reportedErrors++;
+    parent.postMessage({ type: 'pi-html:error', kind: kind,
+      message: typeof message === 'string' ? message.slice(0, 1000) : '',
+      line: line, column: column }, '*');
+  }
+  addEventListener('error', function (event) {
+    reportError('runtime', event.message,
+      event.filename === 'about:srcdoc' ? event.lineno : undefined,
+      event.filename === 'about:srcdoc' ? event.colno : undefined);
+  });
+  addEventListener('unhandledrejection', function (event) {
+    var reason = event.reason;
+    var message = typeof reason === 'string' ? reason : reason instanceof Error ? reason.message : '';
+    var position = reason instanceof Error && typeof reason.stack === 'string'
+      ? /about:srcdoc:(\\d+):(\\d+)/.exec(reason.stack) : null;
+    reportError('promise', message, position ? Number(position[1]) : undefined,
+      position ? Number(position[2]) : undefined);
+  });
   addEventListener('keydown', function (event) {
     if (event.key === 'Escape') parent.postMessage({ type: 'pi-html:escape' }, '*');
   });
@@ -81,6 +126,10 @@ export function interactivePreviewDocument(code: string): string {
     });
     measure();
   });
+  })();
 </script>
-${code}`;
+`;
+
+export function interactivePreviewDocument(code: string): string {
+  return INTERACTIVE_PREVIEW_PREFIX + code;
 }
