@@ -210,10 +210,32 @@
   border: 1.4px solid #0891b2;
   border-radius: 50%;
   opacity: 0.35;
-  animation: session-tree-unread-pulse 1.6s ease-in-out infinite;
+  animation: session-tree-status-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes session-tree-unread-pulse {
+/* A run parked on an extension's dialog (select / confirm / input / editor, or
+   an open custom overlay): the same dot and breath as unread, in warning amber,
+   because what it wants is the person, not time. */
+.session-tree-awaiting {
+  position: relative;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d97706;
+}
+
+.session-tree-awaiting::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 1.4px solid #d97706;
+  border-radius: 50%;
+  opacity: 0.35;
+  animation: session-tree-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes session-tree-status-pulse {
   50% {
     transform: scale(1.6);
     opacity: 0;
@@ -779,6 +801,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .session-tree-unread::after {
+    animation: none;
+  }
+
+  .session-tree-awaiting::after {
     animation: none;
   }
 

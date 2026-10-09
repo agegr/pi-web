@@ -552,13 +552,21 @@ const SessionRowView = memo(function SessionRowView({
   const details = root.detailsPending ? "…" : t("sidebar.messagesCount", { count: root.messageCount });
   const tooltip = `${title}\n${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${branch ? ` · ⑂ ${branch}` : ""}`;
 
-  // The right column says the one thing worth knowing: running, else unread,
-  // else when (a pinned row names its project instead, an archived row says
-  // when it was archived). Nothing sits before the title, so it gets the room.
+  // The right column says the one thing worth knowing: awaiting input, else
+  // running, else unread, else when (a pinned row names its project instead, an
+  // archived row says when it was archived). Nothing sits before the title, so it
+  // gets the room.
   let meta: ReactNode;
   let metaState = "";
   let metaTitle: string | undefined;
-  if (status.running) {
+  if (status.awaiting) {
+    // The run is parked on a dialog only the user can answer: the same slot as
+    // the spinner, in the unread dot's shape, in warning amber. The tooltip says
+    // which of the two it is, since the row keeps its running actions.
+    meta = <span className="session-tree-awaiting" role="img" aria-label={t("sidebar.agentAwaitingInput")} />;
+    metaState = " is-awaiting";
+    metaTitle = t("sidebar.agentAwaitingInput");
+  } else if (status.running) {
     meta = <SpinnerIcon size={12} label={t("sidebar.agentRunning")} />;
     metaState = " is-running";
     metaTitle = t("sidebar.agentRunning");

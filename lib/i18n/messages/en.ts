@@ -327,6 +327,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.loading": "Loading...",
     "sidebar.noSessions": "No sessions found",
     "sidebar.agentRunning": "Agent running…",
+    "sidebar.agentAwaitingInput": "Agent waiting for your input",
     "sidebar.newActivity": "New activity",
     "sidebar.newSessionActivity": "New session activity",
     "sidebar.deleteSession": "Delete {title}?",

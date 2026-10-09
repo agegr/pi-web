@@ -56,6 +56,7 @@ function treeInput(overrides = {}) {
     sessions: [],
     uiState: { version: 1, revision: 0, sessions: {}, projects: {} },
     runningIds: new Set(),
+    awaitingIds: new Set(),
     unreadIds: new Set(),
     selectedSessionId: null,
     currentProject: null,
@@ -118,7 +119,7 @@ test("subagents fold into their main session row, which carries their running, u
   }));
   const sessionRows = rows.filter((row) => row.kind === "session");
   assert.deepEqual(sessionRows.map((row) => row.family.root.id), ["main"]);
-  assert.deepEqual(sessionRows[0].status, { running: true, unread: true, selected: true, transient: false });
+  assert.deepEqual(sessionRows[0].status, { running: true, awaiting: false, unread: true, selected: true, transient: false });
   // The sidebar builds that model from the whole catalog, subagents included.
   assert.match(source, /const model = useMemo\(\(\) => buildSessionTree\(\{\s*sessions: allSessions,/);
   assert.doesNotMatch(source, /function SessionItem|function SessionTreeItem|getSessionListIndices/);
@@ -639,6 +640,8 @@ test("the running poll keeps the same Set while the running ids stay the same", 
   assert.equal(sameIdsOr(empty, []), empty);
   // Both places that take a polled list go through it.
   assert.equal((source.match(/setRunningSessionIds\(\(previous\) => sameIdsOr\(previous, data\.runningSessionIds \?\? \[\]\)\);/g) ?? []).length, 2);
+  // The awaiting ids ride the same two sources, through the same helper.
+  assert.equal((source.match(/setAwaitingInputSessionIds\(\(previous\) => sameIdsOr\(previous, data\.awaitingInputSessionIds \?\? \[\]\)\);/g) ?? []).length, 2);
   assert.doesNotMatch(source, /setRunningSessionIds\(new Set/);
 });
 

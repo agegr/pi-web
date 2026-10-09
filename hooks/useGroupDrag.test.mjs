@@ -90,6 +90,7 @@ function model(projects) {
     sessions: projects.map((project, index) => session(`s${index}`, project, BASE - index)),
     uiState: { version: 1, revision: 0, sessions: {}, projects: {}, projectOrder: projects },
     runningIds: new Set(),
+    awaitingIds: new Set(),
     unreadIds: new Set(),
     selectedSessionId: null,
     currentProject: null,
