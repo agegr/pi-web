@@ -67,6 +67,7 @@ export interface SessionData {
     entryIds: string[];
     oldestEntryId: string | null;
     hasMore: boolean;
+    turnsBefore: number;
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   };
@@ -353,6 +354,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [entryIds, setEntryIds] = useState<string[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+  const [earlierTurnCount, setEarlierTurnCount] = useState(0);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
@@ -455,6 +457,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const activeLeafIdRef = useRef<string | null>(null);
   const historyCursorRef = useRef<string | null>(null);
   const hasEarlierMessagesRef = useRef(false);
+  const earlierTurnCountRef = useRef(0);
 
   sessionPropIdRef.current = session?.id ?? null;
   dataRef.current = data;
@@ -463,6 +466,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   activeLeafIdRef.current = activeLeafId;
   historyCursorRef.current = historyCursor;
   hasEarlierMessagesRef.current = hasEarlierMessages;
+  earlierTurnCountRef.current = earlierTurnCount;
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
@@ -648,6 +652,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setEntryIds([]);
           setHistoryCursor(null);
           setHasEarlierMessages(false);
+          setEarlierTurnCount(0);
           setError(null);
         }
         deleteSessionViewSnapshot(sid);
@@ -676,6 +681,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               entryIds: entryIdsRef.current,
               oldestEntryId: historyCursorRef.current,
               hasMore: hasEarlierMessagesRef.current,
+              turnsBefore: earlierTurnCountRef.current,
             },
           }
         : d);
@@ -691,6 +697,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           leafId: d.leafId,
           oldestEntryId: historyCursorRef.current,
           hasMore: hasEarlierMessagesRef.current,
+          turnsBefore: earlierTurnCountRef.current,
           summaryTree: d.tree,
           thinkingLevel: d.context.thinkingLevel,
           model: d.context.model,
@@ -703,6 +710,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setEntryIds(d.context.entryIds ?? []);
         setHistoryCursor(d.context.oldestEntryId);
         setHasEarlierMessages(d.context.hasMore);
+        setEarlierTurnCount(d.context.turnsBefore ?? 0);
       }
       // Tool-preset state is independent of the view cache: it must be applied
       // on every read, cached window or not (#700).
@@ -720,6 +728,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           leafId: d.leafId,
           oldestEntryId: d.context.oldestEntryId,
           hasMore: d.context.hasMore,
+          turnsBefore: d.context.turnsBefore ?? 0,
           summaryTree: d.tree,
           thinkingLevel: d.context.thinkingLevel,
           model: d.context.model,
@@ -794,6 +803,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
+      setEarlierTurnCount(d.context.turnsBefore ?? 0);
       setData((prev) => {
         if (!prev || prev.sessionId !== sid) return prev;
         const context = before ? {
@@ -802,6 +812,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           entryIds: [...d.context.entryIds, ...prev.context.entryIds],
           oldestEntryId: d.context.oldestEntryId,
           hasMore: d.context.hasMore,
+          turnsBefore: d.context.turnsBefore,
         } : d.context;
         return { ...prev, context };
       });
@@ -2507,6 +2518,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             entryIds: cached.entryIds,
             oldestEntryId: cached.oldestEntryId,
             hasMore: cached.hasMore,
+            turnsBefore: cached.turnsBefore,
             thinkingLevel: cached.thinkingLevel,
             model: cached.model,
           },
@@ -2517,6 +2529,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setEntryIds(cached.entryIds);
         setHistoryCursor(cached.oldestEntryId);
         setHasEarlierMessages(cached.hasMore);
+        setEarlierTurnCount(cached.turnsBefore);
         setError(null);
         setLoading(false);
       }
@@ -2578,6 +2591,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             leafId: activeLeafIdRef.current,
             oldestEntryId: historyCursorRef.current,
             hasMore: hasEarlierMessagesRef.current,
+            turnsBefore: earlierTurnCountRef.current,
             summaryTree: currentData.tree,
             thinkingLevel: currentData.context.thinkingLevel,
             model: currentData.context.model,
@@ -2727,7 +2741,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
-    data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,

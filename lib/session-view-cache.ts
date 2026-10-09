@@ -23,6 +23,8 @@ export interface SessionViewSnapshot {
 	/** Oldest entry id currently loaded — the pagination cursor. */
 	oldestEntryId: string | null;
 	hasMore: boolean;
+	/** Turns before `oldestEntryId` (the server's `turnsBefore`). */
+	turnsBefore: number;
 	/** Summary-format branch tree (no bodies) when the server sent one. */
 	summaryTree?: unknown;
 	thinkingLevel: string;

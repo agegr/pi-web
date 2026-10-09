@@ -259,6 +259,28 @@ try {
     const sentinel = page.getByText("Scroll up to load earlier messages", { exact: true });
     await sentinel.waitFor({ state: "attached" });
     assert.equal(await page.getByText(text(4949), { exact: true }).count(), 0);
+    // The minimap numbers turns from the session's first, not the loaded page's (#791):
+    // e0..e4949 hold 2475 user messages, so the turn asking text(4998) is 2500.
+    const readMinimapTurn = async (screenshot) => {
+      const node = page.locator("[data-minimap-node-index='0']");
+      await node.waitFor();
+      const rect = await node.boundingBox();
+      assert.ok(rect);
+      await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      const preview = page.locator("[data-minimap-preview-box]");
+      const turn = preview.locator("[data-minimap-preview-index]").filter({ hasText: text(4998) });
+      const result = {
+        number: await turn.locator("span[aria-hidden='true']").first().textContent(),
+        earlier: await preview.locator("[data-minimap-preview-earlier]").textContent(),
+      };
+      await page.screenshot({ path: join(artifacts, screenshot) });
+      await page.mouse.move(0, 0);
+      await preview.waitFor({ state: "detached" });
+      return result;
+    };
+    if (viewport.width > 600) {
+      assert.deepEqual(await readMinimapTurn("minimap-turns-first-page.png"), { number: "2500", earlier: "Earlier turns not loaded: 2475. Click to load" });
+    }
 
     // Exercise the real IntersectionObserver and prepend path, twice.
     for (let turn = 0; turn < 2; turn++) {
@@ -294,6 +316,12 @@ try {
     // The sidebar also displays the first message as the session title.
     assert.deepEqual(rendered.filter((value) => value !== text(0)),
       Array.from({ length: 5000 - oldest }, (_, i) => text(oldest + i)), "Missing, reordered, or duplicate chat messages");
+    if (viewport.width > 600) {
+      assert.deepEqual(await readMinimapTurn("minimap-turns-paged.png"), {
+        number: "2500",
+        earlier: `Earlier turns not loaded: ${oldest / 2}. Click to load`,
+      }, "Loading older pages must not renumber minimap turns");
+    }
     await page.screenshot({ path: join(artifacts, `history-${viewport.width}.png`) });
 
     await page.goto(`${base}/?session=${BRANCH}`, { waitUntil: "domcontentloaded" });

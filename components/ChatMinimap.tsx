@@ -18,6 +18,8 @@ interface Props {
   scrollContainer: RefObject<HTMLDivElement | null>;
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
   onRevealHistory: () => void;
+  /** Turns of the branch the server has not sent yet: numbers continue from it (#791). */
+  turnsBefore: number;
 }
 
 const MINIMAP_WIDTH = 36;
@@ -245,6 +247,7 @@ export function ChatMinimap({
   scrollContainer,
   messageRefs,
   onRevealHistory,
+  turnsBefore,
 }: Props) {
   const { t } = useI18n();
   const [visible, setVisible] = useState(false);
@@ -636,6 +639,21 @@ export function ChatMinimap({
         overflow: "visible",
       }}
     >
+      {turnsBefore > 0 && (
+        <div
+          data-minimap-earlier=""
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: 0,
+            height: MINIMAP_PADDING,
+            width: 1,
+            background: "repeating-linear-gradient(to bottom, var(--text-dim) 0 2px, transparent 2px 4px)",
+            transform: "translateX(-50%)",
+            zIndex: 0,
+          }}
+        />
+      )}
       <div
         style={{
           position: "absolute",
@@ -697,6 +715,17 @@ export function ChatMinimap({
           onMouseDown={(event) => event.stopPropagation()}
           onMouseMove={(event) => event.stopPropagation()}
         >
+          {turnsBefore > 0 && (
+            <button
+              type="button"
+              className={styles.earlier}
+              data-minimap-preview-earlier=""
+              // The chat's top sentinel pages the older history in.
+              onClick={() => scrollContainer.current?.scrollTo({ top: 0, behavior: "smooth" })}
+            >
+              {t("chatMinimap.earlierTurns", { count: turnsBefore })}
+            </button>
+          )}
           {allNodes.map((node) => {
             const isLocated = nearestNodeIndex === node.index;
             return (
@@ -712,7 +741,7 @@ export function ChatMinimap({
               >
                 <span className={styles.number}>
                   <span aria-hidden="true">
-                    {String(node.index + 1).padStart(2, "0")}
+                    {String(turnsBefore + node.index + 1).padStart(2, "0")}
                   </span>
                   {node.targetTurn.toolCount > 0 && (
                     <span
