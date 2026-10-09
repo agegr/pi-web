@@ -8,11 +8,16 @@ import type {
   ProjectTrustUnreadableResponse,
 } from "@/lib/api-types";
 import { readProjectMcpServers } from "@/lib/mcp-config-read";
-import { isMcpEntryRefusal, validateMcpProject } from "@/lib/mcp-entry-request";
+import {
+  isMcpEntryRefusal,
+  validateMcpProject,
+  type McpRequestProject,
+} from "@/lib/mcp-entry-request";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-manager";
+import { inferRemovedWorktree } from "@/lib/worktree";
 
 export const dynamic = "force-dynamic";
 
@@ -48,20 +53,46 @@ async function listProjectMcpServers(agentDir: string, cwd: string, allowedRoots
   }
 }
 
+/**
+ * The main repo of a worktree that no longer exists, authorized in its own right.
+ *
+ * A finished subagent run removes its isolated worktree, while its session file still
+ * records that worktree as the cwd — and `validateMcpProject()` authorizes a folder by
+ * resolving it, so a path that is gone can only be refused as "Access denied", whichever
+ * root it sits under. Answer for the repo the worktree branched from instead, the project
+ * the session list already groups the session under. The substitution widens nothing: the
+ * repo passes that same check on its own, so it is a folder the caller could already name
+ * directly and that is already listed as this session's project.
+ */
+async function removedWorktreeProject(value: unknown): Promise<McpRequestProject | null> {
+  if (typeof value !== "string") return null;
+  const repoRoot = inferRemovedWorktree(value)?.projectRoot;
+  if (!repoRoot) return null;
+  const result = await validateMcpProject(repoRoot);
+  return isMcpEntryRefusal(result) ? null : result;
+}
+
 // GET /api/project-trust?cwd=<folder>: the trust status, and the servers the
 // project's `.pi/mcp.json` declares, so the trust dialog lists what trusting
 // would connect before anyone trusts the folder (ADR 0006). The listing reads
 // the files only, like GET /api/mcp: no server is spawned, no value resolved,
 // no `!command` run, and env and header values never leave the server.
 export async function GET(req: Request) {
-  const result = await validateCwd(new URL(req.url).searchParams.get("cwd"));
-  if ("response" in result) return result.response;
+  const requested = new URL(req.url).searchParams.get("cwd");
+  const validated = await validateCwd(requested);
+  let project: McpRequestProject | null;
+  if ("response" in validated) {
+    project = await removedWorktreeProject(requested);
+    if (!project) return validated.response;
+  } else {
+    project = validated;
+  }
   const agentDir = getAgentDir();
   // Listed whatever the trust store says: the listing does not depend on it,
   // and a dialog left without one would offer Trust with nothing listed.
-  const listing = await listProjectMcpServers(agentDir, result.cwd, result.allowedRoots);
+  const listing = await listProjectMcpServers(agentDir, project.cwd, project.allowedRoots);
   try {
-    return NextResponse.json({ ...getProjectTrustStatus(result.cwd, agentDir), ...listing } satisfies ProjectTrustResponse);
+    return NextResponse.json({ ...getProjectTrustStatus(project.cwd, agentDir), ...listing } satisfies ProjectTrustResponse);
   } catch (error) {
     // trust.json unparsable, or locked by another process (the pi CLI) past the
     // store's short wait; trusting would fail the same way right now.

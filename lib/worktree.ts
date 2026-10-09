@@ -77,8 +77,15 @@ function realPathOrSelf(filePath: string): string {
  * directory no longer exists (worktree removed), group its sessions back
  * under the main repo instead of letting them dangle as a phantom project.
  * The dir name is the sanitized branch name — close enough for display.
+ *
+ * Inference is by that naming convention and a sibling that is a repository
+ * (`<repoRoot>/.git`), never by `git worktree list`: `git worktree remove` deletes the
+ * directory *and* its admin entry, so nothing survives to ask. It names one folder and
+ * nothing else — the parent of the cwd with a `-worktrees` suffix stripped. Routes that
+ * answer *for* such a cwd (`/api/models`, `GET /api/project-trust`) take the repo as
+ * just another cwd and re-check it against the allowed roots themselves.
  */
-function inferRemovedWorktree(cwd: string): ProjectInfo | null {
+export function inferRemovedWorktree(cwd: string): ProjectInfo | null {
   const parent = dirname(cwd);
   if (!parent.endsWith("-worktrees")) return null;
   const repoRoot = parent.slice(0, -"-worktrees".length);

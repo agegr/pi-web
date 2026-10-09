@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -12,6 +13,7 @@ import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
+import { inferRemovedWorktree } from "@/lib/worktree";
 
 export const dynamic = "force-dynamic";
 
@@ -111,8 +113,16 @@ const EMPTY_MODELS: ModelsData = {
 };
 
 export async function GET(req: Request) {
-  const requestedCwd = new URL(req.url).searchParams.get("cwd") || process.cwd();
-  const cwd = resolve(requestedCwd);
+  const requestedCwd = resolve(new URL(req.url).searchParams.get("cwd") || process.cwd());
+  // A subagent run isolated in a worktree has that worktree removed when the run
+  // finishes, yet its session file still records the worktree as its cwd. Fall back
+  // to the main repo it branched from, so opening a finished subagent resolves the
+  // same models a non-isolated one would. The roots check below runs on the folder
+  // actually answered from, so the fallback reaches no project that was not allowed
+  // by name already.
+  const cwd = existsSync(requestedCwd)
+    ? requestedCwd
+    : inferRemovedWorktree(requestedCwd)?.projectRoot ?? requestedCwd;
 
   let cwdStat;
   try {
