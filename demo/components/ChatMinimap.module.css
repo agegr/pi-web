@@ -249,3 +249,44 @@
   outline: 1px solid color-mix(in srgb, var(--text-muted) 65%, transparent);
   outline-offset: 1px;
 }
+
+/* Lock toggle at the bottom of the rail: while locked, the preview panel
+   does not pop out on hover. */
+.lock {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition: color 100ms ease, background 100ms ease;
+}
+
+.lock:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* A locked padlock is gold. */
+.lock[aria-pressed="true"] {
+  color: #d4af37;
+}
+
+.lock[aria-pressed="true"]:hover {
+  color: #e6c65a;
+}
+
+.lock:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--text-muted) 65%, transparent);
+  outline-offset: 1px;
+}

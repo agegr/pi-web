@@ -101,3 +101,18 @@ test("only completed assistant messages trigger an immediate usage read", () => 
     assert.deepEqual(reads, role === "assistant" ? ["a"] : []);
   }
 });
+
+test("each event stream connection reads usage, since connecting resumes an idle-reaped session", () => {
+  const connected = nodes.find((node) => ts.isCaseClause(node) && node.expression.getText(source) === '"connected"');
+  const script = new Script(ts.transpileModule(`(() => { switch(event.type) { ${connected.getText(source)} } })()`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
+  for (const [sid, isStreaming] of [["a", false], ["a", true], [null, false]]) {
+    const reads = [];
+    script.runInNewContext({
+      event: { type: "connected", sessionId: sid ?? "pending", isStreaming },
+      sessionIdRef: { current: sid }, sdkAgentActiveRef: { current: false }, agentRunningRef: { current: false },
+      dispatch() {}, cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {},
+      refreshContextUsage: (id) => reads.push(id),
+    });
+    assert.deepEqual(reads, sid ? [sid] : []);
+  }
+});

@@ -83,9 +83,10 @@ test("AppShell hosts subagent tabs in the right panel next to file and terminal 
   assert.match(appShell, /<SubagentViewer[\s\S]*?sessionId=\{activeAgentTab\.sessionId\}[\s\S]*?running=\{runningSessionIds\.has\(activeAgentTab\.sessionId\)\}/);
   // Closing the last tab of any kind folds the panel.
   assert.match(appShell, /if \(fileTabs\.length === 0 && terminalTabs\.length === 0 && remainingAgents\.length === 0\) setRightPanelOpen\(false\)/);
-  // Every project switch (cwd change, session pick, new session) drops them with the file tabs.
-  const drops = appShell.match(/setFileTabs\(\[\]\);\s*setAgentTabs\(\[\]\);/g) ?? [];
-  assert.equal(drops.length, 3);
+  // Every project switch (cwd change, session pick, new session) goes through
+  // changeFileWorkspace(), which parks the file tabs and drops the agent tabs.
+  assert.match(appShell, /setFileTabs\(next\.tabs\);[\s\S]{0,120}setAgentTabs\(\[\]\);/);
+  assert.match(appShell, /if \(!activeFileTabId \|\| activeFileId \|\| activeFileTabId\.startsWith\("agent:"\)\) \{/);
   // The "no files open" placeholder must not show behind an active agent tab.
   assert.match(appShell, /!terminalTabs\.some\(\(tab\) => tab\.id === activeFileTabId\) && !activeAgentTab \? \(/);
 });

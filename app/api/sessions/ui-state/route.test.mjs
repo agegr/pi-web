@@ -118,6 +118,35 @@ test("add-projects and move-project keep the project order, and GET reads it bac
   assert.deepEqual(JSON.parse(await readFile(statePath, "utf8")).projectOrder, ["/b", "/c", "/a"]);
 });
 
+test("rename-project names a project, GET reads it back, and null clears it", async () => {
+  await reset();
+  const named = await okState(await post({ action: "rename-project", projectKey: "/repo", name: "  Thermal Models " }));
+  assert.deepEqual(named.projectNames, { "/repo": "Thermal Models" });
+  assert.equal(named.revision, 1);
+  assert.deepEqual((await okState(await GET())).projectNames, { "/repo": "Thermal Models" });
+  const cleared = await okState(await post({ action: "rename-project", projectKey: "/repo", name: null }));
+  assert.equal("projectNames" in cleared, false);
+  assert.equal(cleared.revision, 2);
+});
+
+test("a name with no room left is refused, and nothing is written", async () => {
+  await reset();
+  await mkdir(agentDir, { recursive: true });
+  const projectNames = Object.fromEntries(Array.from({ length: 1000 }, (_, index) => [`/p${index}`, `P${index}`]));
+  await writeFile(statePath, JSON.stringify({ version: 1, revision: 5, sessions: {}, projects: {}, projectNames }));
+  const before = await readFile(statePath, "utf8");
+  const response = await post({ action: "rename-project", projectKey: "/new", name: "New" });
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.reason, "full");
+  assert.equal(typeof body.error, "string");
+  assert.equal(await readFile(statePath, "utf8"), before);
+  // A project that has a name can still change it.
+  const renamed = await okState(await post({ action: "rename-project", projectKey: "/p1", name: "One" }));
+  assert.equal(renamed.projectNames["/p1"], "One");
+  assert.equal(renamed.revision, 6);
+});
+
 test("refuses untrusted, non-JSON and invalid requests without writing", async () => {
   await reset();
   const cases = [
@@ -136,6 +165,9 @@ test("refuses untrusted, non-JSON and invalid requests without writing", async (
     [post({ action: "add-projects", keys: [] }), 400, "invalid-request"],
     [post({ action: "move-project", projectKey: "/a", anchorKey: "/a", position: "before" }), 400, "invalid-request"],
     [post({ action: "move-project", projectKey: "/a", anchorKey: "/b", position: "middle" }), 400, "invalid-request"],
+    [post({ action: "rename-project", projectKey: "/a", name: "x".repeat(81) }), 400, "invalid-request"],
+    [post({ action: "rename-project", projectKey: "/a", name: "two\nlines" }), 400, "invalid-request"],
+    [post({ action: "rename-project", projectKey: "/a" }), 400, "invalid-request"],
     [post({ action: "drop-everything" }), 400, "invalid-request"],
   ];
   for (const [pending, status, reason] of cases) {
