@@ -7,24 +7,26 @@ import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
-import { InteractivePreview } from "./InteractivePreview";
+import { InteractiveArtifact } from "./InteractiveArtifacts";
+import { interactiveFences, type InteractiveFence } from "@/lib/interactive-artifacts";
 import { INTERACTIVE_PREVIEW_LANGUAGE, isCompleteInteractiveFence } from "@/lib/interactive-preview";
 
 const MarkdownLinkContext = createContext(false);
-const MarkdownCodeContext = createContext<{ markdown: string; isStreaming?: boolean; allowInteractive: boolean }>({
-  markdown: "", allowInteractive: false,
+const MarkdownCodeContext = createContext<{ markdown: string; isStreaming?: boolean; allowInteractive: boolean; fences: InteractiveFence[]; sourceKey?: string }>({
+  markdown: "", allowInteractive: false, fences: [],
 });
 
 function MarkdownCode({ className, children, node, ...props }: ComponentProps<"code"> & ExtraProps) {
-  const { markdown, isStreaming, allowInteractive } = useContext(MarkdownCodeContext);
+  const { markdown, isStreaming, allowInteractive, fences, sourceKey } = useContext(MarkdownCodeContext);
   const lang = className?.replace("language-", "").toLowerCase() ?? "";
   const raw = String(children);
   const isBlock = className?.includes("language-") || raw.includes("\n");
   if (!isBlock) return <code className="markdown-inline-code" {...props}>{children}</code>;
   const code = raw.replace(/\n$/, "");
   if (allowInteractive && lang === INTERACTIVE_PREVIEW_LANGUAGE) {
-    return <InteractivePreview code={code} isStreaming={isStreaming}
-      complete={isCompleteInteractiveFence(markdown, node?.position)} />;
+    const fence = fences.find((item) => item.offset === node?.position?.start.offset);
+    return <InteractiveArtifact id={fence?.id} sourceKey={sourceKey && fence ? `${sourceKey}:${fence.ordinal}` : undefined} code={code} isStreaming={isStreaming}
+      complete={fence?.complete ?? isCompleteInteractiveFence(markdown, node?.position, code)} />;
   }
   if (lang === "mermaid") return <MermaidBlock code={code} isStreaming={isStreaming} defaultPreview />;
   return <CodeBlock code={code} lang={lang} isStreaming={isStreaming} />;
@@ -39,6 +41,7 @@ interface MarkdownBodyProps {
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
   allowInteractive?: boolean;
+  interactiveSourceKey?: string;
 }
 
 function MarkdownImage({
@@ -65,10 +68,11 @@ function MarkdownImage({
   );
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks, allowInteractive = false }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks, allowInteractive = false, interactiveSourceKey }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
-  const codeContext = useMemo(() => ({ markdown: normalizedMarkdown, isStreaming, allowInteractive }),
-    [normalizedMarkdown, isStreaming, allowInteractive]);
+  const fences = useMemo(() => allowInteractive ? interactiveFences(normalizedMarkdown) : [], [normalizedMarkdown, allowInteractive]);
+  const codeContext = useMemo(() => ({ markdown: normalizedMarkdown, isStreaming, allowInteractive, fences, sourceKey: interactiveSourceKey }),
+    [normalizedMarkdown, isStreaming, allowInteractive, fences, interactiveSourceKey]);
   // Context updates content without remounting stateful blocks on each streaming delta.
   const components = useMemo<Components>(() => ({
     code: MarkdownCode,

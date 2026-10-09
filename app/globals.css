@@ -1129,6 +1129,8 @@ pre, code {
 }
 .interactive-preview .markdown-code-header {
   flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .interactive-preview-label {
   display: inline-flex;
@@ -1138,6 +1140,60 @@ pre, code {
 }
 .interactive-preview .markdown-code-actions {
   gap: 3px;
+  margin-left: auto;
+}
+.interactive-artifact-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px var(--font-mono);
+}
+.has-artifact-version .interactive-preview-label {
+  flex: 1 1 260px;
+}
+.interactive-preview-label .markdown-code-lang,
+.interactive-preview-label select {
+  flex: none;
+  white-space: nowrap;
+}
+.interactive-preview-label select {
+  max-width: 100px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+}
+.interactive-artifact-history {
+  margin: 6px 0;
+}
+.interactive-artifact-history > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font: 12px/1.5 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.interactive-artifact-notice,
+.interactive-artifact-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+}
+.interactive-artifact-loading {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
 }
 .interactive-preview-action {
   display: inline-flex;

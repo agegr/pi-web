@@ -38,11 +38,13 @@ test("only assistant-enabled, explicitly closed pi-html fences create sandboxed 
   assert.doesNotMatch(html, /allow-same-origin|<script>/);
   assert.doesNotMatch(renderMarkdown(markdown), /<iframe/);
   assert.doesNotMatch(renderMarkdown(markdown.replace("pi-html", "html"), { allowInteractive: true }), /<iframe/);
+  assert.match(renderMarkdown(markdown.replace("pi-html", 'pi-html id="demo"'), { allowInteractive: true }), /<iframe/);
+  assert.doesNotMatch(renderMarkdown(markdown.replace("pi-html", 'pi-html id="demo"')), /<iframe/);
 });
 
 test("streaming, unfinished fences and raw code tags never execute preview scripts", () => {
   const complete = "```pi-html\n<script>throw new Error('not yet')</script>\n```";
-  for (const markdown of [complete.slice(0, -3), complete.replace(/```$/, "~~~"), '<pre><code class="language-pi-html">hi</code></pre>']) {
+  for (const markdown of [complete.slice(0, -3), complete.replace(/```$/, "~~~"), complete.replace(/```$/, "    ```"), '<pre><code class="language-pi-html">hi</code></pre>']) {
     assert.doesNotMatch(renderMarkdown(markdown, { allowInteractive: true }), /<iframe/);
   }
   const streaming = renderMarkdown(complete, { allowInteractive: true, isStreaming: true });

@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { copyText } from "@/lib/clipboard";
 import { interactivePreviewDocument, interactivePreviewError, interactivePreviewHeight, type InteractivePreviewError } from "@/lib/interactive-preview";
 import { useI18n } from "@/hooks/useI18n";
 import { CloseIcon, EyeIcon, RefreshIcon, SpinnerIcon } from "./SidebarIcons";
 import { CodeBlock } from "./MermaidBlock";
 
-export function InteractivePreview({ code, isStreaming, complete }: {
+export function InteractivePreview({ code, isStreaming, complete, headerSlot, notice }: {
   code: string;
   isStreaming?: boolean;
   complete: boolean;
+  headerSlot?: ReactNode;
+  notice?: string;
 }) {
   const { t } = useI18n();
   const [showSource, setShowSource] = useState(false);
@@ -44,7 +46,8 @@ export function InteractivePreview({ code, isStreaming, complete }: {
     };
   }, [expanded]);
 
-  useEffect(() => {
+  // Subscribe during commit so initial iframe failures cannot outrun the listener.
+  useLayoutEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
       if (event.data?.type === "pi-html:error") {
@@ -103,7 +106,7 @@ export function InteractivePreview({ code, isStreaming, complete }: {
     <dialog
       ref={dialogRef}
       open
-      className={`interactive-preview${expanded ? " is-expanded" : ""}`}
+      className={`interactive-preview${headerSlot ? " has-artifact-version" : ""}${expanded ? " is-expanded" : ""}`}
       aria-label={t("chat.interactivePreview")}
       onCancel={(event) => {
         event.preventDefault();
@@ -120,6 +123,7 @@ export function InteractivePreview({ code, isStreaming, complete }: {
       <div className="markdown-code-header">
         <span className="interactive-preview-label">
           <span className="markdown-code-lang">pi-html</span>
+          {headerSlot}
           {isStreaming && <SpinnerIcon size={14} label={t("chat.generatingPreview")} />}
         </span>
         <div className="markdown-code-actions">
@@ -153,6 +157,7 @@ export function InteractivePreview({ code, isStreaming, complete }: {
           </button>
         </div>
       </div>
+      {notice && <div className="interactive-artifact-notice">{notice}</div>}
       {errors.length > 0 && <div className="interactive-preview-error">
         <div className="interactive-preview-error-heading">
           <span role="status">{t("chat.previewError")}</span>
@@ -181,6 +186,7 @@ export function InteractivePreview({ code, isStreaming, complete }: {
           referrerPolicy="no-referrer"
           allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
           title={t("chat.interactivePreview")}
+          onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "pi-html:measure" }, "*")}
         />}
       </div>
     </dialog>

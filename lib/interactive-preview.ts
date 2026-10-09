@@ -35,11 +35,16 @@ export function interactivePreviewError(value: unknown): InteractivePreviewError
 /** Use the Markdown parser's source range to require an explicitly closed fence. */
 export function isCompleteInteractiveFence(
   markdown: string,
-  position?: { start: { offset?: number }; end: { offset?: number } },
+  position?: { start: { offset?: number; line?: number }; end: { offset?: number; line?: number } },
+  code?: string,
 ): boolean {
   if (position?.start.offset === undefined || position.end.offset === undefined) return false;
   const source = markdown.slice(position.start.offset, position.end.offset);
-  const opener = /^(`{3,}|~{3,})pi-html[ \t]*\r?\n/i.exec(source);
+  if (code !== undefined && position.start.line !== undefined && position.end.line !== undefined) {
+    const contentLines = code ? code.split(/\r?\n/).length : 0;
+    if (position.end.line - position.start.line <= contentLines) return false;
+  }
+  const opener = /^(`{3,}|~{3,})pi-html(?:[ \t]+[^\r\n]*)?\r?\n/i.exec(source);
   if (!opener) return false;
   const lastLine = source.slice(source.lastIndexOf("\n") + 1);
   const closer = /(?:^|[\s>])(`{3,}|~{3,})[ \t]*$/.exec(lastLine);
@@ -72,13 +77,14 @@ const INTERACTIVE_PREVIEW_PREFIX = `<!doctype html>
 </style>
 <script>
   (function () {
-  var reportedErrors = 0;
+  var reportedErrors = [];
   function reportError(kind, message, line, column) {
-    if (reportedErrors >= 5) return;
-    reportedErrors++;
-    parent.postMessage({ type: 'pi-html:error', kind: kind,
+    if (reportedErrors.length >= 5) return;
+    var report = { type: 'pi-html:error', kind: kind,
       message: typeof message === 'string' ? message.slice(0, 1000) : '',
-      line: line, column: column }, '*');
+      line: line, column: column };
+    reportedErrors.push(report);
+    parent.postMessage(report, '*');
   }
   addEventListener('error', function (event) {
     reportError('runtime', event.message,
@@ -121,6 +127,7 @@ const INTERACTIVE_PREVIEW_PREFIX = `<!doctype html>
     addEventListener('resize', measure);
     addEventListener('message', function (event) {
       if (event.source !== parent || event.data?.type !== 'pi-html:measure') return;
+      reportedErrors.forEach(function (report) { parent.postMessage(report, '*'); });
       previousHeight = 0;
       measure();
     });

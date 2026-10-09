@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { checkInteractivePreview, checkPreviewErrors, interactivePreviewFixture } from "./interactive-preview.mjs";
+import { checkArtifactVersions } from "./interactive-artifacts.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const existingServer = process.env.PI_WEB_TEST_BASE_URL;
@@ -60,13 +61,14 @@ try {
     page.setDefaultTimeout(30_000);
     const errors = [];
     page.on('pageerror', (error) => {
-      if (!['fixture error', "Unexpected token ';'", '<img src=x onerror=alert(1)>runtime fixture', 'promise fixture'].includes(error.message)) errors.push(error.message);
+      if (!['fixture error', "Unexpected token ';'", '<img src=x onerror=alert(1)>runtime fixture', 'promise fixture', 'version fixture error'].includes(error.message)) errors.push(error.message);
     });
     await page.goto(`${baseUrl}/?session=${id}`, { waitUntil: 'domcontentloaded' });
     await checkInteractivePreview(page, artifacts, viewport.width);
     if (existingServer) {
       await checkPreviewErrors(page, artifacts, viewport.width);
       await checkStreamingSource(page, viewport.width);
+      await checkArtifactVersions(page, artifacts, viewport.width);
     }
     assert.deepEqual(errors, []);
     await context.close();
@@ -90,6 +92,17 @@ try {
 async function mockPreviewSession(page) {
   const info = { id, path: join(sessionDir, `${id}.jsonl`), cwd: project, name: 'Preview fixture', created: timestamp, modified: timestamp, messageCount: 2, firstMessage: 'Make a bill splitter.' };
   const state = { isStreaming: false, isPromptRunning: false, queuedMessages: [], toolNames: [] };
+  let artifactFixture = null;
+  const transcript = { messages: entries.slice(1).map((entry) => entry.message), entryIds: ['user', 'answer'], leafId: 'answer' };
+  let completed = 0;
+  await page.exposeFunction('__previewAppendMessage', (message) => {
+    if (artifactFixture) return;
+    const key = `completed-${++completed}`;
+    transcript.messages.push(message);
+    transcript.entryIds.push(key);
+    transcript.leafId = key;
+  });
+  await page.exposeFunction('__previewSetArtifacts', (fixture) => { artifactFixture = fixture; });
   await page.exposeFunction('__previewSetRunning', (running) => {
     state.isStreaming = state.isPromptRunning = running;
   });
@@ -105,10 +118,21 @@ async function mockPreviewSession(page) {
     else if (url.pathname.startsWith('/api/files/')) body = { entries: [] };
     else if (url.pathname === '/api/sessions/ui-state') body = { state: uiState };
     else if (url.pathname === `/api/sessions/${id}`) body = {
-      sessionId: id, filePath: info.path, info, leafId: 'answer', tree: [], treeFormat: 'summary',
-      context: { messages: entries.slice(1).map((entry) => entry.message), entryIds: ['user', 'answer'], oldestEntryId: 'user', hasMore: false, thinkingLevel: 'off', model: null },
+      sessionId: id, filePath: info.path, info, leafId: artifactFixture?.leafId ?? transcript.leafId, tree: [], treeFormat: 'summary',
+      context: { messages: artifactFixture?.messages ?? transcript.messages, entryIds: artifactFixture?.entryIds ?? transcript.entryIds, oldestEntryId: 'user', hasMore: false, thinkingLevel: 'off', model: null },
       totalActiveMs: 0, toolNames: [],
     };
+    else if (url.pathname === `/api/sessions/${id}/artifacts`) {
+      const key = url.searchParams.get('key');
+      if (key) {
+        const version = artifactFixture?.versions.find((item) => item.key === key);
+        if (artifactFixture?.failCode) return route.fulfill({ status: 500, json: { error: 'Fixture read failure' } });
+        if (!version) return route.fulfill({ status: 404, json: { error: 'Fixture version not found' } });
+        if (artifactFixture?.codeDelay) await delay(artifactFixture.codeDelay);
+        return route.fulfill({ json: { version } }).catch(() => {});
+      }
+      body = { versions: (artifactFixture?.versions ?? []).map(({ id, key, entryId, blockIndex, ordinal }) => ({ id, key, entryId, blockIndex, ordinal })) };
+    }
     else if (url.pathname === `/api/sessions/${id}/state`) body = { running: true, state };
     else if (url.pathname === '/api/agent/running') body = { ids: [id], uiStateRevision: 0 };
     else if (url.pathname === `/api/agent/${id}`) {
@@ -137,7 +161,11 @@ async function mockPreviewSession(page) {
         window.__previewEventSource = this;
         setTimeout(() => this.emit({ type: 'connected', isStreaming: false }), 0);
       }
-      emit(event) { this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(event) })); }
+      emit(event) {
+        const dispatch = () => this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(event) }));
+        if (event.type === 'message_end') return window.__previewAppendMessage(event.message).then(dispatch);
+        dispatch();
+      }
       close() { this.readyState = 2; }
     };
   });
