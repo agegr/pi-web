@@ -1801,13 +1801,13 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               {title}
             </span>
              {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("i18n.hiddenExtensionMessage")}</span>}
+            {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10, flexShrink: 0 }}>{time}</span>}
             {text && (
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: contentExpanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
                 <polyline points="2 3.5 5 6.5 8 3.5" />
               </svg>
             )}
           </button>
-          {time && <span style={{ color: "var(--text-dim)", fontSize: 10, flexShrink: 0 }}>{time}</span>}
         </div>
 
         {contentExpanded ? (
