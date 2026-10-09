@@ -16,7 +16,7 @@ import {
 } from "react";
 import type { SessionFamily } from "@/lib/session-family";
 import { splitForkSuffix } from "@/lib/session-fork-name";
-import type { ProjectMovePosition } from "@/lib/session-ui-state-shared";
+import { MAX_PROJECT_NAME_LENGTH, type ProjectMovePosition } from "@/lib/session-ui-state-shared";
 import {
   PINNED_MORE_KEY,
   SIDEBAR_ROW_HEIGHTS,
@@ -96,6 +96,8 @@ export interface SessionTreeProps {
   loading: boolean;
   error: string | null;
   renamingRootId: string | null;
+  /** The project whose group header is a name field (its menu's Rename…). */
+  renamingProjectKey: string | null;
   confirmDeleteRootId: string | null;
   /** Row whose menu is open: kept mounted, its ⋯ shown pressed. A group row's key works too. */
   activeMenuRowKey: string | null;
@@ -115,6 +117,9 @@ export interface SessionTreeProps {
   /** `value` is the raw input text; the caller trims and skips unchanged titles. */
   onRenameCommit(family: SessionFamily, value: string): void;
   onRenameCancel(): void;
+  /** `value` is the raw input text; the caller decides what it saves. */
+  onRenameProjectCommit(project: SidebarProject, value: string): void;
+  onRenameProjectCancel(): void;
   onDeleteConfirm(family: SessionFamily, event: ReactMouseEvent): void;
   onDeleteCancel(): void;
   /** A group's "+": a new session in that project at once. */
@@ -163,6 +168,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     loading,
     error,
     renamingRootId,
+    renamingProjectKey,
     confirmDeleteRootId,
     activeMenuRowKey,
     reveal,
@@ -274,9 +280,10 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     rows.forEach((row, index) => {
       if (row.key === focusedRowKey || row.key === activeMenuRowKey || row.key === pendingRevealKey || row.key === draggedRowKey) indices.push(index);
       else if (row.kind === "session" && (row.family.root.id === renamingRootId || row.family.root.id === confirmDeleteRootId)) indices.push(index);
+      else if (row.kind === "group" && row.project.key === renamingProjectKey) indices.push(index);
     });
     return indices;
-  }, [rows, focusedRowKey, activeMenuRowKey, pendingRevealKey, draggedRowKey, renamingRootId, confirmDeleteRootId]);
+  }, [rows, focusedRowKey, activeMenuRowKey, pendingRevealKey, draggedRowKey, renamingRootId, renamingProjectKey, confirmDeleteRootId]);
   const visibleIndices = useMemo(
     () => (loading ? [] : getVisibleRowIndices(offsets, scrollTop, viewportHeight, OVERSCAN_PX, keepMounted)),
     [loading, offsets, scrollTop, viewportHeight, keepMounted],
@@ -423,6 +430,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                 );
               }
               if (row.kind === "group") {
+                const renaming = row.project.key === renamingProjectKey;
                 return (
                   <GroupRowView
                     key={row.key}
@@ -430,7 +438,9 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     top={top}
                     height={height}
                     menuOpen={menuOpen}
-                    canDrag={canMoveGroups && groupsPerBand[row.project.pinned ? "pinned" : "other"] > 1}
+                    renaming={renaming}
+                    // A header that is a name field is no handle to drag.
+                    canDrag={canMoveGroups && !renaming && groupsPerBand[row.project.pinned ? "pinned" : "other"] > 1}
                     dragPhase={dragView?.projectKey === row.project.key ? dragView.phase : null}
                     drag={groupDrag.handlers}
                     handlers={handlersRef}
@@ -552,13 +562,21 @@ const SessionRowView = memo(function SessionRowView({
   const details = root.detailsPending ? "…" : t("sidebar.messagesCount", { count: root.messageCount });
   const tooltip = `${title}\n${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${branch ? ` · ⑂ ${branch}` : ""}`;
 
-  // The right column says the one thing worth knowing: running, else unread,
-  // else when (a pinned row names its project instead, an archived row says
-  // when it was archived). Nothing sits before the title, so it gets the room.
+  // The right column says the one thing worth knowing: awaiting input, else
+  // running, else unread, else when (a pinned row names its project instead, an
+  // archived row says when it was archived). Nothing sits before the title, so it
+  // gets the room.
   let meta: ReactNode;
   let metaState = "";
   let metaTitle: string | undefined;
-  if (status.running) {
+  if (status.awaiting) {
+    // The run is parked on a dialog only the user can answer: the same slot as
+    // the spinner, in the unread dot's shape, in warning amber. The tooltip says
+    // which of the two it is, since the row keeps its running actions.
+    meta = <span className="session-tree-awaiting" role="img" aria-label={t("sidebar.agentAwaitingInput")} />;
+    metaState = " is-awaiting";
+    metaTitle = t("sidebar.agentAwaitingInput");
+  } else if (status.running) {
     meta = <SpinnerIcon size={12} label={t("sidebar.agentRunning")} />;
     metaState = " is-running";
     metaTitle = t("sidebar.agentRunning");
@@ -651,11 +669,13 @@ const SessionRowView = memo(function SessionRowView({
 function RenameInput({
   initialValue,
   label,
+  maxLength,
   onCommit,
   onCancel,
 }: {
   initialValue: string;
   label: string;
+  maxLength?: number;
   onCommit: (value: string) => void;
   onCancel: () => void;
 }) {
@@ -684,6 +704,7 @@ function RenameInput({
       className="session-tree-rename"
       value={value}
       aria-label={label}
+      maxLength={maxLength}
       onChange={(event) => setValue(event.target.value)}
       onBlur={(event) => commit(event.currentTarget.value)}
       onKeyDown={(event) => {
@@ -778,6 +799,7 @@ const GroupRowView = memo(function GroupRowView({
   top,
   height,
   menuOpen,
+  renaming,
   canDrag,
   dragPhase,
   drag,
@@ -788,6 +810,8 @@ const GroupRowView = memo(function GroupRowView({
   height: number;
   /** The group's ⋯ menu is open. */
   menuOpen: boolean;
+  /** The header is a field for the project's display name. */
+  renaming: boolean;
   /** Its band has another group to move it past. */
   canDrag: boolean;
   /** This group is picked up by a long-press, or being dragged. */
@@ -817,6 +841,22 @@ const GroupRowView = memo(function GroupRowView({
     element.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => element.removeEventListener("touchmove", onTouchMove);
   }, [canDrag, drag]);
+
+  // Seeded with the name shown. The field counts UTF-16 units, the server
+  // code points: whatever fits the field, the server takes.
+  if (renaming) {
+    return (
+      <div ref={rowRef} className={`${className} is-renaming`} style={rowStyle(top, height)} data-row-key={row.key}>
+        <RenameInput
+          initialValue={project.name}
+          label={t("sidebar.projectName")}
+          maxLength={MAX_PROJECT_NAME_LENGTH}
+          onCommit={(value) => handlers.current.onRenameProjectCommit(project, value)}
+          onCancel={() => handlers.current.onRenameProjectCancel()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div

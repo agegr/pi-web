@@ -21,9 +21,11 @@ test("only the active file tab mounts a FileViewer", () => {
 
 test("the active viewer restores tab state and saves it with a revision", () => {
   const block = fileContentBlock();
-  assert.match(block, /key=\{`\$\{activeFileTab\.id\}:\$\{activeFileTab\.viewerRevision \?\? 0\}`\}/);
+  // The workspace generation remounts the viewer on a project switch, so the
+  // tab being parked reports under its own workspace even for a shared path.
+  assert.match(block, /key=\{`\$\{fileWorkspaceGeneration\}:\$\{activeFileTab\.id\}:\$\{activeFileTab\.viewerRevision \?\? 0\}`\}/);
   assert.match(block, /initialState=\{activeFileTab\.viewerState\}/);
-  assert.match(block, /handleFileViewerStateChange\(\s*activeFileTab\.id,\s*activeFileTab\.viewerRevision \?\? 0,/);
+  assert.match(block, /handleFileViewerStateChange\(\s*fileWorkspaceGeneration,\s*activeFileTab\.id,\s*activeFileTab\.viewerRevision \?\? 0,/);
 });
 
 test("closing the file panel pauses the active viewer watcher", () => {

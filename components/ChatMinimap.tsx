@@ -8,6 +8,7 @@ import {
   normalizeDisplayMath,
 } from "@/lib/markdown";
 import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { loadMinimapPreviewLocked, saveMinimapPreviewLocked } from "@/lib/minimap-preview-lock";
 import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
@@ -18,11 +19,16 @@ interface Props {
   scrollContainer: RefObject<HTMLDivElement | null>;
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
   onRevealHistory: () => void;
+  /** Turns of the branch the server has not sent yet: numbers continue from it (#791). */
+  turnsBefore: number;
 }
 
 const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
+// The lock button sits at the bottom of the rail (6px inset + 30px): nodes stop
+// above it so the last turn stays visible and clickable.
+const MINIMAP_BOTTOM_PADDING = 36 + MINIMAP_PADDING;
 const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
@@ -218,7 +224,7 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
   }
 
   const height = Math.max(1, minimapHeight);
-  const usableHeight = Math.max(0, height - MINIMAP_PADDING * 2);
+  const usableHeight = Math.max(0, height - MINIMAP_PADDING - MINIMAP_BOTTOM_PADDING);
   if (allNodes.length === 1) {
     return {
       nodes: [{ ...allNodes[0], topRatio: MINIMAP_PADDING / height }],
@@ -245,6 +251,7 @@ export function ChatMinimap({
   scrollContainer,
   messageRefs,
   onRevealHistory,
+  turnsBefore,
 }: Props) {
   const { t } = useI18n();
   const [visible, setVisible] = useState(false);
@@ -252,6 +259,7 @@ export function ChatMinimap({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
   const [minimapHovered, setMinimapHovered] = useState(false);
+  const [locked, setLocked] = useState(loadMinimapPreviewLocked);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -550,9 +558,21 @@ export function ChatMinimap({
   }, []);
 
   const showPreview = useCallback(() => {
+    if (locked) return;
     cancelPreviewHide();
     setMinimapHovered(true);
-  }, [cancelPreviewHide]);
+  }, [cancelPreviewHide, locked]);
+
+  const toggleLock = useCallback(() => {
+    const next = !locked;
+    setLocked(next);
+    saveMinimapPreviewLocked(next);
+    if (next) {
+      cancelPreviewHide();
+      setMinimapHovered(false);
+      setMouseYRatio(null);
+    }
+  }, [cancelPreviewHide, locked]);
 
   const schedulePreviewHide = useCallback(() => {
     cancelPreviewHide();
@@ -636,6 +656,21 @@ export function ChatMinimap({
         overflow: "visible",
       }}
     >
+      {turnsBefore > 0 && (
+        <div
+          data-minimap-earlier=""
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: 0,
+            height: MINIMAP_PADDING,
+            width: 1,
+            background: "repeating-linear-gradient(to bottom, var(--text-dim) 0 2px, transparent 2px 4px)",
+            transform: "translateX(-50%)",
+            zIndex: 0,
+          }}
+        />
+      )}
       <div
         style={{
           position: "absolute",
@@ -688,6 +723,39 @@ export function ChatMinimap({
         );
       })}
 
+      <button
+        type="button"
+        className={styles.lock}
+        data-minimap-lock={locked ? "on" : "off"}
+        aria-pressed={locked}
+        title={t(locked ? "chatMinimap.unlockPreview" : "chatMinimap.lockPreview")}
+        aria-label={t("chatMinimap.lockPreview")}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleLock();
+        }}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="4" y="11" width="16" height="10" rx="2" />
+          {locked ? (
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          ) : (
+            <path d="M8 11V7a4 4 0 0 1 7.9-.9" />
+          )}
+        </svg>
+      </button>
+
       {minimapHovered && allNodes.length > 0 && (
         <div
           ref={previewBoxRef}
@@ -697,6 +765,17 @@ export function ChatMinimap({
           onMouseDown={(event) => event.stopPropagation()}
           onMouseMove={(event) => event.stopPropagation()}
         >
+          {turnsBefore > 0 && (
+            <button
+              type="button"
+              className={styles.earlier}
+              data-minimap-preview-earlier=""
+              // The chat's top sentinel pages the older history in.
+              onClick={() => scrollContainer.current?.scrollTo({ top: 0, behavior: "smooth" })}
+            >
+              {t("chatMinimap.earlierTurns", { count: turnsBefore })}
+            </button>
+          )}
           {allNodes.map((node) => {
             const isLocated = nearestNodeIndex === node.index;
             return (
@@ -712,7 +791,7 @@ export function ChatMinimap({
               >
                 <span className={styles.number}>
                   <span aria-hidden="true">
-                    {String(node.index + 1).padStart(2, "0")}
+                    {String(turnsBefore + node.index + 1).padStart(2, "0")}
                   </span>
                   {node.targetTurn.toolCount > 0 && (
                     <span

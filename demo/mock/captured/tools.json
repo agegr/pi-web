@@ -319,21 +319,9 @@
      "type": "string",
      "description": "Optional provider/modelId override."
     },
-    "thinking": {
-     "type": "string",
-     "description": "Optional thinking level override."
-    },
-    "max_turns": {
-     "type": "number",
-     "description": "Optional positive agent turn limit."
-    },
-    "inherit_context": {
-     "type": "boolean",
-     "description": "Include the parent session's active conversation context."
-    },
     "isolation": {
      "type": "string",
-     "description": "Run the subagent in an isolated git worktree."
+     "description": "Set to \"worktree\" to run the subagent in an isolated git worktree."
     }
    }
   },

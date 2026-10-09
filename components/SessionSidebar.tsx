@@ -33,11 +33,18 @@ import {
   saveSidebarTab,
   type SidebarTab,
 } from "@/lib/sidebar-prefs";
-import { forkFailureMessage, sessionMenuEntries, type SessionMenuActionId } from "@/lib/sidebar-actions";
+import {
+  forkFailureMessage,
+  projectNameMenuEntries,
+  projectRenameRequest,
+  sessionMenuEntries,
+  type SessionMenuActionId,
+} from "@/lib/sidebar-actions";
 import { splitBeforeForkSuffix } from "@/lib/session-fork-name";
 import {
   mergeProjectChoices,
   newSessionContextKey,
+  withProjectAlias,
   type NewSessionContext,
   type NewSessionOptions,
   type NewSessionTarget,
@@ -425,6 +432,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileManager, setFileManager] = useState<FileManagerAvailability | null>(null);
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -454,6 +462,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [archiveView, setArchiveView] = useState(false);
   // Row states that must survive virtualization live here, not in the rows.
   const [renamingRootId, setRenamingRootId] = useState<string | null>(null);
+  const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
   const [confirmDeleteRootId, setConfirmDeleteRootId] = useState<string | null>(null);
   const [menu, setMenu] = useState<SidebarMenuState | null>(null);
   // A row the main tree should scroll to (a fork's new row); see
@@ -537,6 +546,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         sessions: SessionInfo[];
         sessionListVersion: number;
         runningSessionIds?: string[];
+        awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
       if (loadId !== sessionLoadIdRef.current) return;
@@ -550,6 +560,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
       }
       // Drop markers for deleted sessions and for subagents, whose completion
       // is intentionally silent even if an older client marked them unread.
@@ -686,6 +697,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const data = await res.json() as {
           sessionListVersion: number;
           runningSessionIds?: string[];
+          awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
           sessionUiStateRevision?: number | null;
         };
@@ -695,6 +707,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
         if (data.sessionListVersion !== sessionListVersionRef.current) {
@@ -1188,21 +1201,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     sessions: allSessions,
     uiState,
     runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
     groupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, unreadSessionIds, selectedSessionId, currentProject, groupExpansion, moreShown, pinnedCollapsed]);
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, groupExpansion, moreShown, pinnedCollapsed]);
   const archiveRows = useMemo(() => (archiveView ? buildArchiveRows({
     sessions: allSessions,
     uiState,
     runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
-  }) : []), [archiveView, allSessions, uiState, runningSessionIds, unreadSessionIds, selectedSessionId, currentProject]);
+  }) : []), [archiveView, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject]);
   const projectByKey = useMemo(
     () => new Map(model.projects.map((project) => [project.key, project])),
     [model.projects],
@@ -1235,8 +1250,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Every project in the groups' order, then those with sessions but no
   // group (all of them archived, or pinned while the project is not): the
-  // project menus of the files tab and of the bar above a fresh composer.
-  const projectChoiceList = useMemo(() => mergeProjectChoices(model.projects, recentProjects), [model.projects, recentProjects]);
+  // project menus of the files tab and of the bar above a fresh composer,
+  // with the names the user gave them.
+  const projectNames = uiState.projectNames;
+  const projectChoiceList = useMemo(
+    () => mergeProjectChoices(model.projects, recentProjects, projectNames),
+    [model.projects, recentProjects, projectNames],
+  );
 
   // What both pickers show for this cwd: the project, its worktrees where the
   // files tab offers them (the top of a git checkout), every project. The
@@ -1247,12 +1267,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const listed = showWorktreeSwitcher && worktreeState !== null;
     return {
       cwd: selectedCwd,
-      project: { key: selectedProject.key, root: selectedProject.root },
+      project: withProjectAlias(selectedProject, projectNames),
       worktrees: listed ? worktreeState.worktrees.map(({ path, branch, isMain }) => ({ path, branch, isMain })) : null,
       currentWorktreePath: listed ? currentWorktreePath : null,
       projects: projectChoiceList,
     };
-  }, [selectedCwd, selectedProject, showWorktreeSwitcher, worktreeState, currentWorktreePath, projectChoiceList]);
+  }, [selectedCwd, selectedProject, showWorktreeSwitcher, worktreeState, currentWorktreePath, projectChoiceList, projectNames]);
   const newSessionContextRef = useRef(newSessionContext);
   newSessionContextRef.current = newSessionContext;
   const newSessionContextSignature = newSessionContextKey(newSessionContext);
@@ -1295,6 +1315,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (button && button.getClientRects().length > 0) return button;
     }
     return selectedTabButton();
+  }, [selectedTabButton]);
+
+  // A project's group header (its toggle), else the selected tab.
+  const groupHeaderButton = useCallback((projectKey: string): HTMLElement | null => {
+    const key = CSS.escape(`group:${projectKey}`);
+    const button = sessionsPanelRef.current?.querySelector<HTMLElement>(`[data-row-key="${key}"] .session-tree-group-toggle`);
+    return button && button.getClientRects().length > 0 ? button : selectedTabButton();
   }, [selectedTabButton]);
 
   // Pin and archive changes apply at once and are saved in the background; a
@@ -1519,6 +1546,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [loadSessions]);
 
+  // A project's display name is pi-web's own (the UI state file): renaming
+  // it never selects the project, nor moves, pins or folds its group. The
+  // header's field goes as the name is saved; its toggle takes the focus.
+  const startProjectRename = useCallback((project: SidebarProject) => {
+    setRenamingProjectKey(project.key);
+  }, []);
+
+  const endProjectRename = useCallback((projectKey: string) => {
+    setRenamingProjectKey((current) => (current === projectKey ? null : current));
+    focusAfterCommit(() => groupHeaderButton(projectKey));
+  }, [focusAfterCommit, groupHeaderButton]);
+
+  const commitProjectRename = useCallback((project: SidebarProject, value: string) => {
+    endProjectRename(project.key);
+    const request = projectRenameRequest(project, value);
+    if (request) void applyUiState(request);
+  }, [applyUiState, endProjectRename]);
+
   const performDelete = useCallback(async (family: SessionFamily) => {
     const session = family.root;
     if (session.transient) return;
@@ -1695,9 +1740,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     sessions: allSessions,
     uiState,
     runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
-  }), [allSessions, uiState, runningSessionIds, unreadSessionIds, selectedSessionId]);
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId]);
 
   const handleGroupMenu = useCallback((project: SidebarProject, opener: HTMLElement) => {
     const olderCount = familiesToArchive(treeSelectionInput, project.key, ARCHIVE_OLDER_THAN_MS, Date.now()).length;
@@ -1843,6 +1889,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // Within the project's band; disabled at its edges.
     const up = adjacentProjectMove(model.projects, project.key, "up");
     const down = adjacentProjectMove(model.projects, project.key, "down");
+    const nameItems = projectNameMenuEntries(project).map((id): SidebarMenuItem => (id === "rename-project" ? {
+      type: "item",
+      id,
+      label: t("sidebar.renameProject"),
+      icon: <PencilIcon />,
+      onSelect: () => startProjectRename(project),
+    } : {
+      type: "item",
+      id,
+      label: t("sidebar.resetProjectName"),
+      icon: <RestoreIcon />,
+      onSelect: () => { void applyUiState({ action: "rename-project", projectKey: project.key, name: null }); },
+    }));
     return [
       {
         type: "item",
@@ -1851,6 +1910,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         icon: project.pinned ? <PinOffIcon /> : <PinIcon />,
         onSelect: () => { void applyUiState({ action: "pin-project", projectKey: project.key, root: project.root, pinned: !project.pinned }); },
       },
+      ...nameItems,
       {
         type: "item",
         id: "move-up",
@@ -1922,10 +1982,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     menuLabel = t("sidebar.sessionActions");
     menuItems = sessionMenuItems(menuRow);
   } else if (menu?.kind === "group") {
-    menuTitle = menu.project.name;
-    menuLabel = t("sidebar.projectActions", { name: menu.project.name });
-    // The project as the tree has it now: pinned, unpinned or moved in another window while the menu is open.
-    menuItems = groupMenuItems(projectByKey.get(menu.project.key) ?? menu.project, menu.olderCount);
+    // The project as the tree has it now: pinned, unpinned, renamed or moved in another window while the menu is open.
+    const project = projectByKey.get(menu.project.key) ?? menu.project;
+    menuTitle = project.name;
+    menuLabel = t("sidebar.projectActions", { name: project.name });
+    menuItems = groupMenuItems(project, menu.olderCount);
     menuWidth = 264;
   }
 
@@ -1942,6 +2003,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     loading: treeLoading,
     error,
     renamingRootId,
+    renamingProjectKey,
     confirmDeleteRootId,
     activeMenuRowKey,
     onSelectFamily: handleSelectFamily,
@@ -1955,6 +2017,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onRowContextMenu: handleContextMenu,
     onRenameCommit: (family: SessionFamily, value: string) => { void commitRename(family, value); },
     onRenameCancel: () => setRenamingRootId(null),
+    onRenameProjectCommit: commitProjectRename,
+    onRenameProjectCancel: () => { if (renamingProjectKey) endProjectRename(renamingProjectKey); },
     onDeleteConfirm: (family: SessionFamily) => { void performDelete(family); },
     onDeleteCancel: () => {
       const rootId = confirmDeleteRootId;

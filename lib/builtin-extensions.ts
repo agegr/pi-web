@@ -343,6 +343,34 @@ function builtin(name: string, factory: ExtensionFactory): InlineExtension {
   return { name, factory, replaceable: true, builtin: true };
 }
 
+/**
+ * Code mode for a subagent whose profile turns it on. A plain inline extension, not
+ * `builtin:codemode`: a child that loads no extensions runs with `noExtensions`, which drops
+ * named built-ins too. Its factory reads the `-builtin:codemode` switch on every load instead,
+ * so the settings that switch Code mode off for normal sessions switch it off here as well.
+ */
+export async function createSubagentCodemodeExtension(options: {
+  agentDir: string;
+  cwd: string;
+  projectTrusted: () => boolean;
+}): Promise<InlineExtension> {
+  const sandbox = await checkCodemodeSandbox();
+  if (!sandbox.available) throw new Error(`Code mode is unavailable: ${sandbox.reason}`);
+  const codemode = createCodemodeExtension();
+  return {
+    name: "codemode",
+    replaceable: true,
+    factory: async (pi) => {
+      const switches = await readBuiltinExtensionSwitches({
+        agentDir: options.agentDir,
+        cwd: options.cwd,
+        projectTrusted: options.projectTrusted(),
+      });
+      if (switches.codemode.enabled) await codemode(pi);
+    },
+  };
+}
+
 export interface PiWebBuiltinExtensionsOptions {
   agentDir: string;
   /** Timing overrides for tests. */
