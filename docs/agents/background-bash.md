@@ -1,0 +1,20 @@
+# Background bash tasks
+
+Opt-in: `bgTasksEnabled: true` in the global settings.json, written only by `PUT /api/tools/settings` (`lib/bg-tasks-settings.ts`; absent reads as disabled). `isBgTasksEnabled()` is read synchronously where the session's `extensionFactories` are built (`lib/rpc-manager.ts`), so the switch takes effect for sessions started afterwards, not for a running one. With it off, `createProjectCommandBashExtension()` registers pi's plain bash tool and none of this exists.
+
+## Two ways into the background
+- `run_in_background: true` (`startBackgroundCommand`) returns at once, streaming straight into the log file, and notifies when the process ends. A user-typed `timeout` still applies.
+- A foreground command auto-backgrounds after `FOREGROUND_AUTO_BACKGROUND_MS` (120 s, `lib/bash-bg-tasks.ts`). The tool call rejects with `bg-task-backgrounded:<logPath>`, which the registered tool turns into a text result for the model; the process keeps running and its completion notifies later. The threshold is in the tool's prompt, so the model knows it instead of discovering it.
+- **An explicit `timeout` must not disable the handoff.** It used to, and the model passes one on nearly every long command (in a sample of real sessions, no call over the threshold omitted it), so the feature never fired in practice. The timeout stays the process's own hard limit — the child still dies at it — and only the model is released earlier; a `timeout` shorter than the threshold still wins and reports `timeout:N`.
+- Output before the handoff is buffered in memory (`PreHandoffBuffer`, 4 MiB) and dumped into the log at handoff, so the report's tail covers output the model never saw. Overflow replaces the head with `[... earlier output truncated ...]`.
+
+## Stop reaches the child, but not a survivor
+The child is spawned against the wrapper's own `AbortController`, not the tool call's signal: after the handoff the tool call is already settled, and a later abort must not kill the backgrounded process. So **the tool call's signal has to be forwarded into that controller** — the abort listener belongs on both (`signal` and `execSignal`; `release()` removes both). Listening only on `execSignal` leaves Stop a no-op for *every* command while the feature is on, which is invisible until someone notices the process still running after the button.
+- Once `handedOff` is set, `onAbort` skips the abort and `release()` has already dropped both listeners, so Stop cannot reach a background task at all. That is the intended split: Stop kills what is in front of the user, leaves what is not.
+- `trackBgTask()` / `untrackBgTask()` keep the live controllers per session id, and `killBgTasksForSession()` aborts them from the wrapper's `onDestroy`, so a session that goes away does not orphan its processes.
+- The timeout and abort paths keep pi's settle grace (`ABORT_SETTLE_GRACE_MS`): pi kills the process tree and then keeps reading until inherited stdout/stderr handles fall idle (#647).
+
+## The completion report
+`createBgTaskNotifier()` reopens a dead session by id, waits until it is **idle** (never interrupts a run in flight), then delivers `pi-web:bg-task-notification` as a follow-up turn. The text is built by `buildBgTaskNotification()`: status, duration, command (500 chars), log path, and the log's last 4 KiB as the tail (`(no output)` when empty).
+- The first paragraph (`BG_TASK_NOTIFICATION_PREFIX`) is a guard for the model: it marks the report as tool output carrying no new user intent. It must stay in the session file and must never reach the screen.
+- Both the builder and `parseBgTaskReport()` live in the client-safe `lib/bg-task-notification.ts`, not in `lib/bash-bg-tasks.ts`, which imports `node:fs` and cannot be pulled into a component. `BgTaskNotificationView` parses the report back apart and renders the fields as a table plus a `<pre>` tail, falling back to the raw text for a report in a shape this build does not know.
