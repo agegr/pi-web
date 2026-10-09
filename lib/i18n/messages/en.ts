@@ -582,6 +582,7 @@ export const enLocale: LocalePlugin = {
     "chat.dropFoldersUnsupported": "Folders cannot be dropped here; drop the files inside instead: {names}",
     "chat.dropFailed": "Upload failed: {message}",
     "chat.tokensSaved": "{saved} saved",
+    "chatMinimap.earlierTurns": "Earlier turns not loaded: {count}. Click to load",
     "chatMinimap.locateAssistant": "Locate assistant message",
     "chatMinimap.toolCalls": "Tool calls this turn: {count}",
     "chatMinimap.lockPreview": "Lock: don't open the preview on hover",

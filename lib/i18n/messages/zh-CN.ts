@@ -582,6 +582,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.dropFoldersUnsupported": "不支持拖入文件夹，请拖入其中的文件：{names}",
     "chat.dropFailed": "上传失败：{message}",
     "chat.tokensSaved": "节省 {saved}",
+    "chatMinimap.earlierTurns": "更早的 {count} 轮还没加载，点击加载",
     "chatMinimap.locateAssistant": "定位助手消息",
     "chatMinimap.toolCalls": "本轮 {count} 次工具调用",
     "chatMinimap.lockPreview": "锁定：悬停时不展开预览",
