@@ -45,7 +45,7 @@ app/api/
   agent/new/route.ts               POST { cwd, type: prompt|ensure_session (start only), message?, toolNames?, provider?, modelId?, thinkingLevel? }
   agent/[id]/route.ts              GET state | POST any command
   agent/[id]/events/route.ts       GET SSE stream
-  agent/running/route.ts           GET running session ids + sidebar pins/archive revision
+  agent/running/route.ts           GET running + awaiting-input session ids, sidebar pins/archive revision
   auth/api-key/[provider]/route.ts POST/DELETE stored provider API key
   auth/login/[provider]/route.ts   GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts  POST OAuth logout
@@ -125,7 +125,7 @@ lib/
   default-cwd.ts            dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   worktree.ts               project/worktree resolution and git worktree operations
   draft-store.ts            local draft persistence
-  extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id
+  extension-ui-queue.ts      FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
   markdown.ts               shared markdown helpers
   gfm-autolink-email-loader.cjs  bundler loader: remark-gfm's email regex without a lookbehind literal
   node-cli.ts               locate bundled npm-cli.js / npx-cli.js to spawn npm/npx without a shell (Windows)
