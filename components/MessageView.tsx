@@ -1808,9 +1808,12 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               </div>
             )}
              {text
-               ? isBgTaskNotification
-                 ? <BgTaskNotificationView text={text} />
-                 : <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody>
+               ? <BgTaskNotificationView
+                   text={text}
+                   fallback={isBgTaskNotification
+                     ? <pre style={{ margin: 0, color: "var(--text-muted)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text}</pre>
+                     : <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody>}
+                 />
                : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
           </div>
         ) : (

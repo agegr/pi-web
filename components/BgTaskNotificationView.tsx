@@ -24,9 +24,10 @@ const VALUE: React.CSSProperties = {
  * report text: the model-only prefix never reaches the screen, and the fields
  * read as a table instead of prose.
  */
-export function BgTaskNotificationView({ text }: { text: string }) {
+export function BgTaskNotificationView({ text, fallback }: { text: string; fallback: React.ReactNode }) {
   const report = useMemo(() => parseBgTaskReport(text), [text]);
-  if (!report) return null;
+  // A report in a shape this build does not know is still worth reading.
+  if (!report) return <>{fallback}</>;
   const rows: Array<[string, string]> = [
     ["Outcome", `${report.outcome} in ${report.duration}s`],
     ["Command", report.command],
