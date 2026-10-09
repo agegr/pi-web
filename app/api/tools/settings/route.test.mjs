@@ -36,15 +36,15 @@ test("reports and switches Code mode on every platform", async () => {
   await writeFile(settingsPath, JSON.stringify({ defaultModel: "m" }));
   const initial = await GET();
   assert.equal(initial.status, 200);
-  assert.deepEqual(await initial.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: {} });
+  assert.deepEqual(await initial.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: {}, bgTasksEnabled: false });
 
   const enabled = await put({ codemode: "always" });
   assert.equal(enabled.status, 200);
-  assert.deepEqual(await enabled.json(), { isWindows, powerShellEnabled: false, codemode: "always", codemodeMode: { value: "on" }, codemodeInlineBudget: {} });
+  assert.deepEqual(await enabled.json(), { isWindows, powerShellEnabled: false, codemode: "always", codemodeMode: { value: "on" }, codemodeInlineBudget: {}, bgTasksEnabled: false });
   assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", defaultTools: ["+codemode"] });
 
   const automatic = await put({ codemode: "automatic" });
-  assert.deepEqual(await automatic.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: {} });
+  assert.deepEqual(await automatic.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: {}, bgTasksEnabled: false });
   assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m" });
 });
 
@@ -52,7 +52,7 @@ test("saves the Code mode inline budget, and null gives sessions pi's default ag
   await writeFile(settingsPath, JSON.stringify({ defaultModel: "m", codemode: { mode: "on" } }));
   const saved = await put({ codemodeInlineBudget: 1000 });
   assert.equal(saved.status, 200);
-  assert.deepEqual(await saved.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: { value: 1000 } });
+  assert.deepEqual(await saved.json(), { isWindows, powerShellEnabled: false, codemode: "automatic", codemodeMode: { value: "on" }, codemodeInlineBudget: { value: 1000 }, bgTasksEnabled: false });
   assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", codemode: { mode: "on", inlineBudget: 1000 } });
 
   const zero = await put({ codemodeInlineBudget: 0 });
@@ -80,6 +80,7 @@ test("saves the Code mode mode, and \"on\" gives sessions pi's default again", a
     codemode: "automatic",
     codemodeMode: { value: "only" },
     codemodeInlineBudget: { value: 1000 },
+    bgTasksEnabled: false,
   });
   assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", codemode: { inlineBudget: 1000, mode: "only" } });
 
@@ -99,6 +100,24 @@ test("saves the Code mode mode, and \"on\" gives sessions pi's default again", a
   assert.equal(await readFile(settingsPath, "utf8"), JSON.stringify({ codemode: "only" }));
 });
 
+test("turns the background-bash switch on and off", async () => {
+  await writeFile(settingsPath, JSON.stringify({ defaultModel: "m" }));
+  const enabled = await put({ bgTasksEnabled: true });
+  assert.equal(enabled.status, 200);
+  assert.equal((await enabled.json()).bgTasksEnabled, true);
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m", bgTasksEnabled: true });
+
+  // Absent reads as disabled again, so the key is removed rather than set false.
+  const disabled = await put({ bgTasksEnabled: false });
+  assert.equal((await disabled.json()).bgTasksEnabled, false);
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m" });
+
+  const refused = await put({ bgTasksEnabled: "yes" });
+  assert.equal(refused.status, 400);
+  assert.equal((await refused.json()).reason, "invalid-request");
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { defaultModel: "m" });
+});
+
 test("rejects requests that do not name exactly one valid change, with a reason Settings › MCP translates", async () => {
   for (const body of [
     { codemode: "never" },
@@ -113,6 +132,7 @@ test("rejects requests that do not name exactly one valid change, with a reason 
     { codemodeInlineBudget: "3000" },
     { codemodeInlineBudget: 1_000_001 },
     { codemodeInlineBudget: true },
+    { bgTasksEnabled: 1 },
     {},
     [],
     "{ not json",

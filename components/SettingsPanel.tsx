@@ -148,6 +148,29 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     }
   };
 
+  const toggleBgTasks = async (enabled: boolean) => {
+    setShellSaving(true);
+    setShellError(null);
+    try {
+      const response = await fetch("/api/tools/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bgTasksEnabled: enabled }),
+      });
+      const data = await response.json() as ToolSettingsResponse & { error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      setShellSettings(data);
+      if (sessionId) {
+        await sendAgentCommand(sessionId, { type: "reload" });
+        onSessionReloaded();
+      }
+    } catch (cause) {
+      setShellError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setShellSaving(false);
+    }
+  };
+
   const registerPush = async () => {
     if (pushRegistering) return;
     setPushRegistering(true);
@@ -330,6 +353,21 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
         </section>
       )}
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.bgTasks")}</h3>
+        <p className="settings-general-description">{t("settings.bgTasksDescription")}</p>
+        <div className="settings-shell-option">
+          <span>{t("settings.bgTasks")}</span>
+          <ConfigSwitch
+            checked={shellSettings?.bgTasksEnabled ?? false}
+            loading={shellSaving}
+            label={t("settings.bgTasks")}
+            onChange={(enabled) => void toggleBgTasks(enabled)}
+          />
+        </div>
+        {shellError && <p role="alert" className="settings-general-error">{shellError}</p>}
+      </section>
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.pushPermission")}</h3>

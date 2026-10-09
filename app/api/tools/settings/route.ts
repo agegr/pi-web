@@ -12,6 +12,7 @@ import {
   writeCodemodePreference,
 } from "@/lib/codemode-settings";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { readBgTasksEnabled, writeBgTasksEnabled } from "@/lib/bg-tasks-settings";
 import {
   readPowerShellToolEnabled,
   writePowerShellToolEnabled,
@@ -27,7 +28,7 @@ export const dynamic = "force-dynamic";
 // Every refusal carries a `reason` code the panel translates, beside the
 // English `error` it shows only as the diagnostic of an `internal` failure.
 
-const CHANGES = ["enabled", "codemode", "codemodeMode", "codemodeInlineBudget"] as const;
+const CHANGES = ["enabled", "codemode", "codemodeMode", "codemodeInlineBudget", "bgTasksEnabled"] as const;
 
 function refusal(status: number, reason: McpRefusalReason, error: string) {
   return NextResponse.json({ error, reason } satisfies McpErrorResponse, { status });
@@ -43,7 +44,8 @@ async function readToolSettings(): Promise<ToolSettingsResponse> {
   const powerShellEnabled = await readPowerShellToolEnabled();
   const codemode = await readCodemodePreference();
   const { mode: codemodeMode, inlineBudget: codemodeInlineBudget } = await readCodemodeSettings();
-  return { isWindows: process.platform === "win32", powerShellEnabled, codemode, codemodeMode, codemodeInlineBudget };
+  const bgTasksEnabled = await readBgTasksEnabled();
+  return { isWindows: process.platform === "win32", powerShellEnabled, codemode, codemodeMode, codemodeInlineBudget, bgTasksEnabled };
 }
 
 export async function GET() {
@@ -71,9 +73,21 @@ export async function PUT(req: Request) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return refusal(400, "invalid-request", "Expected a JSON object");
   }
-  const changes = body as { enabled?: unknown; codemode?: unknown; codemodeMode?: unknown; codemodeInlineBudget?: unknown };
+  const changes = body as { enabled?: unknown; codemode?: unknown; codemodeMode?: unknown; codemodeInlineBudget?: unknown; bgTasksEnabled?: unknown };
   if (CHANGES.filter((key) => key in changes).length !== 1) {
-    return refusal(400, "invalid-request", "Send one of enabled (PowerShell), codemode, codemodeMode or codemodeInlineBudget");
+    return refusal(400, "invalid-request", "Send one of enabled (PowerShell), codemode, codemodeMode, codemodeInlineBudget or bgTasksEnabled");
+  }
+
+  if ("bgTasksEnabled" in changes) {
+    if (typeof changes.bgTasksEnabled !== "boolean") {
+      return refusal(400, "invalid-request", "bgTasksEnabled must be a boolean");
+    }
+    try {
+      await writeBgTasksEnabled(changes.bgTasksEnabled);
+      return NextResponse.json(await readToolSettings());
+    } catch (error) {
+      return errorResponse(error);
+    }
   }
 
   if ("codemodeMode" in changes) {

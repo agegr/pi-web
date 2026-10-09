@@ -461,6 +461,35 @@ test("marks apply_patch returned failures as errors even when isError is unset",
   assert.doesNotMatch(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
 });
 
+test("shows a background-task report as fields, without the model-only prefix", async () => {
+  const { buildBgTaskNotification } = await jiti.import("@/lib/bg-task-notification");
+  const message = {
+    role: "custom",
+    customType: "pi-web:bg-task-notification",
+    content: [{
+      type: "text",
+      text: buildBgTaskNotification({
+        command: "bun scripts/run.js 1 out.jsonl",
+        logPath: "/tmp/pi-web-bg-tasks/abc.log",
+        startedAtMs: 1_000,
+        finishedAtMs: 13_400,
+        exitCode: 0,
+      }, "last line of output"),
+    }],
+    display: true,
+    timestamp: Date.now(),
+  };
+  const html = renderMessage(message);
+  // The facts, laid out as a table.
+  assert.match(html, /Outcome/);
+  assert.match(html, /completed in 12.4s/);
+  assert.match(html, /bun scripts\/run\.js 1 out\.jsonl/);
+  assert.match(html, /\/tmp\/pi-web-bg-tasks\/abc\.log/);
+  assert.match(html, /last line of output/);
+  // The prefix exists for the model, not for the screen.
+  assert.doesNotMatch(html, /The following is a background bash task/);
+});
+
 test("renders custom-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "custom",

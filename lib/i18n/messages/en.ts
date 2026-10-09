@@ -62,6 +62,8 @@ export const enLocale: LocalePlugin = {
     "settings.pushRegistered": "✅ Push registered — background notifications are ready.",
     "settings.pushRegisterFailed": "❌ Registration failed:",
     "settings.usePowerShell": "Use PowerShell instead of Bash",
+    "settings.bgTasks": "Background bash tasks",
+    "settings.bgTasksDescription": "Let the agent run long bash commands in the background and notify the session when they finish. Applies to new sessions and reloads.",
     "settings.projectRequired": "Open a project to configure this section",
     "settings.mcp": "MCP",
     "auth.prompt": "Sign in to continue",

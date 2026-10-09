@@ -47,6 +47,8 @@ export interface ToolSettingsResponse {
   codemodeMode: CodemodeModeSetting;
   /** The global `codemode.inlineBudget`. */
   codemodeInlineBudget: CodemodeInlineBudgetSetting;
+  /** Whether the background bash extension is enabled for new sessions. */
+  bgTasksEnabled: boolean;
 }
 
 export interface SkillSearchResult {

@@ -62,6 +62,8 @@ export const zhTWLocale: LocalePlugin = {
     "settings.pushRegistered": "✅ 推送已註冊，背景通知就緒。",
     "settings.pushRegisterFailed": "❌ 註冊失敗：",
     "settings.usePowerShell": "使用 PowerShell 取代 Bash",
+    "settings.bgTasks": "背景 bash 任務",
+    "settings.bgTasksDescription": "允許代理在背景執行耗時的 bash 命令，完成後通知會話。對新會話和重新載入後的會話生效。",
     "settings.projectRequired": "開啟專案後才能設定此項",
     "settings.mcp": "MCP",
     "auth.prompt": "登入後繼續使用",

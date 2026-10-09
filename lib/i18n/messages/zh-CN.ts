@@ -62,6 +62,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.pushRegistered": "✅ 推送已注册，后台通知就绪。",
     "settings.pushRegisterFailed": "❌ 注册失败：",
     "settings.usePowerShell": "使用 PowerShell 替代 Bash",
+    "settings.bgTasks": "后台 bash 任务",
+    "settings.bgTasksDescription": "允许代理在后台运行耗时的 bash 命令，完成后通知会话。对新会话和重载后的会话生效。",
     "settings.projectRequired": "打开项目后才能配置此项",
     "settings.mcp": "MCP",
     "auth.prompt": "登录后继续使用",
