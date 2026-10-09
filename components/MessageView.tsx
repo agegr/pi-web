@@ -21,6 +21,7 @@ import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
+import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import type {
   AgentMessage,
   UserMessage,
@@ -680,7 +681,10 @@ function AssistantMessageView({
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const streamStartRef = useRef<number | null>(null);
+  const streamStartRef = useRef<StreamRateStart | null>(null);
+  const rateKey = streamRateKey(message);
+  const streamRateKeyRef = useRef(rateKey);
+  streamRateKeyRef.current = rateKey;
   const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
   blockItemsRef.current = blockItems;
@@ -789,9 +793,9 @@ function AssistantMessageView({
 
       const tokens = estimatedTokensRef.current;
       if (tokens === 0) return;
-      if (streamStartRef.current === null) streamStartRef.current = now;
-      const elapsed = (now - streamStartRef.current) / 1000;
-      if (elapsed > 0.5) setTps(tokens / elapsed);
+      streamStartRef.current ??= streamRateStart(streamRateKeyRef.current, tokens, now);
+      const rate = streamTokensPerSecond(streamStartRef.current, tokens, now);
+      if (rate !== null) setTps(rate);
     };
     const id = setInterval(tick, 300);
     return () => clearInterval(id);
@@ -1736,8 +1740,6 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
 
 function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void }) {
   const { t } = useI18n();
-  const isHiddenDisplay = message.display === false;
-  const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const text = getMessageText(message.content);
@@ -1761,8 +1763,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
           border: "1px solid var(--border)",
           borderRadius: 8,
           overflow: "hidden",
-          background: isHiddenDisplay ? "var(--bg-subtle)" : "var(--bg)",
-          opacity: isHiddenDisplay && !contentExpanded ? 0.82 : 1,
+          background: "var(--bg)",
         }}
       >
         <div
@@ -1780,50 +1781,30 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
           <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             {title}
           </span>
-           {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("i18n.hiddenExtensionMessage")}</span>}
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
-        {contentExpanded ? (
-          <div style={{ padding: "6px 9px" }}>
-            {images.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: text ? 8 : 0 }}>
-                {images.map((img, i) => {
-                  const src = imageSource(img);
-                  if (!src) return null;
-                  return (
-                    <ImagePreview key={i} src={src}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={src}
-                        alt=""
-                        style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
-                      />
-                    </ImagePreview>
-                  );
-                })}
-              </div>
-            )}
-             {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
-          </div>
-        ) : (
-          <button
-            onClick={() => setContentExpanded(true)}
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "8px 10px",
-              border: "none",
-              background: "transparent",
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 12,
-              textAlign: "left",
-            }}
-          >
-             {text ? previewText(text) : t("i18n.showExtensionMessage")}
-          </button>
-        )}
+        <div style={{ padding: "6px 9px" }}>
+          {images.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: text ? 8 : 0 }}>
+              {images.map((img, i) => {
+                const src = imageSource(img);
+                if (!src) return null;
+                return (
+                  <ImagePreview key={i} src={src}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt=""
+                      style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
+                    />
+                  </ImagePreview>
+                );
+              })}
+            </div>
+          )}
+          {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
+        </div>
 
         <div
           style={{
@@ -1850,12 +1831,9 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                {copied ? t("i18n.copied") : t("i18n.copy")}
             </button>
           ) : null}
-          {(hasDetails || isHiddenDisplay) && (
+          {hasDetails && (
             <button
-              onClick={() => {
-                if (isHiddenDisplay) setContentExpanded((v) => !v);
-                else setDetailsExpanded((v) => !v);
-              }}
+              onClick={() => setDetailsExpanded((v) => !v)}
               style={{
                 marginLeft: "auto",
                 padding: "3px 7px",
@@ -1866,14 +1844,12 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                 fontSize: 11,
               }}
             >
-              {isHiddenDisplay
-                 ? (contentExpanded ? t("i18n.collapse") : t("i18n.expand"))
-                 : (detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails"))}
+              {detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails")}
             </button>
           )}
         </div>
 
-        {hasDetails && ((isHiddenDisplay && contentExpanded) || (!isHiddenDisplay && detailsExpanded)) && (
+        {hasDetails && detailsExpanded && (
           <pre
             style={{
               margin: 0,
@@ -1947,12 +1923,6 @@ function getWrittenFileText(block: ToolCallContent): string | null {
 
 function formatCustomType(type: string): string {
   return type || "extension";
-}
-
-function previewText(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return "Show extension message";
-  return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized;
 }
 
 

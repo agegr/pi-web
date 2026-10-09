@@ -33,3 +33,12 @@ test("resets process details when the turn gains or loses its final answer", () 
     /<ProcessDetailsGroup key=\{answered \? "answered" : "unanswered"\}[\s\S]*?defaultExpanded=\{!answered\}/,
   );
 });
+
+test("skips custom messages without display and counts them nowhere (#1043)", () => {
+  // pi's TUI never renders them; one card per idle session restart flooded the chat.
+  assert.match(source, /const msg = options\.messageOverride \?\? messages\[idx\];\s*if \(isHiddenCustomMessage\(msg\)\) return null;/);
+  assert.match(
+    source,
+    /if \(processMessage\.role === "custom"\) \{[^}]*?if \(isHiddenCustomMessage\(processMessage\)\) continue;/,
+  );
+});
