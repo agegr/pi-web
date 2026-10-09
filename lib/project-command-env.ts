@@ -127,10 +127,18 @@ export function createProjectCommandBashOperations(
       const buffer = autoBgArmed ? new PreHandoffBuffer() : undefined;
       let bgStream: ReturnType<typeof createWriteStream> | undefined;
       const startedAtMs = Date.now();
+      // Pi rejects any other timeout before it starts the command, so the
+      // sanitized value goes downstream too: a model that means "unlimited" by
+      // passing 0 must not fail the task before it spawns anything.
+      const timeoutSeconds = typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0
+        ? timeout
+        : undefined;
+      const timeoutMs = timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000;
       const execution = localOperations.exec(command, cwd, {
         ...executionOptions,
         env: environment,
         signal: execSignal,
+        timeout: timeoutSeconds,
         // Callers finalize their output once the command is released; a
         // survivor must not append to it afterwards.
         onData: (data) => {
@@ -139,10 +147,6 @@ export function createProjectCommandBashOperations(
           else buffer?.push(data);
         },
       });
-      // Pi rejects any other timeout before it starts the command.
-      const timeoutMs = typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0
-        ? timeout * 1000
-        : undefined;
       if (!execSignal && timeoutMs === undefined && !autoBgArmed) return execution;
 
       // On Stop or a timeout, pi kills the shell's process tree but then keeps
