@@ -79,6 +79,7 @@ app/api/
   plugins/route.ts                 GET/POST package plugin management
   plugins/check/route.ts           POST check plugin package updates
   skills/route.ts                  GET/PATCH loaded skills, disable-model-invocation
+  skills/content/route.ts          GET one loaded skill's bounded Markdown source
   skills/install/route.ts          POST install skills via npx skills add
   skills/search/route.ts           POST skills.sh search
   subagents/settings/route.ts      GET/PUT built-in subagent switch and maxConcurrent

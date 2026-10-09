@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type {
+  SkillContentResponse,
   SkillInfo as Skill,
   SkillInstallScope,
   SkillSearchResult,
@@ -12,6 +13,7 @@ import type {
   ProjectTrustStatus,
 } from "@/lib/api-types";
 import { displayPathWithin, shortenPath } from "@/lib/display-path";
+import { parseFrontmatter } from "@/lib/frontmatter";
 import {
   getLastSettingsSelection,
   setLastSettingsSelection,
@@ -44,6 +46,7 @@ import {
   ConfigTrustNotice,
 } from "./SettingsUi";
 import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
+import { MarkdownBody } from "./MarkdownBody";
 
 type SkillScope = "global" | "project" | "path";
 type Translate = ReturnType<typeof useI18n>["t"];
@@ -101,6 +104,10 @@ function shortVersion(version: string | undefined, unknown: string): string {
   return version ? version.slice(0, 8) : unknown;
 }
 
+export function skillInstructionsBody(content: string): string {
+  return parseFrontmatter(content).rest.trim();
+}
+
 function SkillDetail({
   skill,
   cwd,
@@ -129,6 +136,32 @@ function SkillDetail({
   const { t } = useI18n();
   const label = sourceLabel(skill);
   const enabled = !skill.disableModelInvocation;
+  const [instructions, setInstructions] = useState<string | null>(null);
+  const [instructionsError, setInstructionsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setInstructions(null);
+    setInstructionsError(null);
+
+    const load = async () => {
+      try {
+        const params = new URLSearchParams({ cwd, filePath: skill.filePath });
+        const response = await fetch(`/api/skills/content?${params}`, { signal: controller.signal });
+        const data = (await response.json()) as Partial<SkillContentResponse> & { error?: string };
+        if (!response.ok || data.error || typeof data.content !== "string") {
+          throw new Error(data.error ?? `HTTP ${response.status}`);
+        }
+        setInstructions(skillInstructionsBody(data.content));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setInstructionsError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    void load();
+    return () => controller.abort();
+  }, [cwd, skill.filePath]);
 
   return (
     <ConfigDetailStack>
@@ -247,6 +280,20 @@ function SkillDetail({
         <span className="skill-description">
           {skill.description}
         </span>
+      </ConfigField>
+
+      <ConfigField label={t("skills.instructions")}>
+        {instructionsError ? (
+          <span role="alert" className="skill-instructions-status is-error">{instructionsError}</span>
+        ) : instructions === null ? (
+          <span role="status" className="skill-instructions-status">{t("i18n.loading")}</span>
+        ) : instructions ? (
+          <MarkdownBody className="skill-instructions" cwd={skill.baseDir}>
+            {instructions}
+          </MarkdownBody>
+        ) : (
+          <span className="skill-instructions-status">{t("skills.noInstructions")}</span>
+        )}
       </ConfigField>
     </ConfigDetailStack>
   );

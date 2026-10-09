@@ -80,6 +80,8 @@ export const zhCNLocale: LocalePlugin = {
     "skills.groupSwitchOff": "在模型提示词中显示「{group}」中的所有技能",
     "skills.groupSwitchOn": "在模型提示词中隐藏「{group}」中的所有技能，仍可手动调用。",
     "skills.bulkFailed": "{total} 个技能中有 {count} 个未能更改：",
+    "skills.instructions": "说明",
+    "skills.noInstructions": "此技能没有说明。",
     "plugins.groupSwitchOff": "启用 {group} 中的所有包",
     "plugins.groupSwitchOn": "禁用 {group} 中的所有包。设置了资源过滤的包会保持启用，因为禁用会清除其过滤设置；请使用它自己的开关。",
     "plugins.bulkKeptFiltered": "{count} 个设置了资源过滤的包保持启用：禁用会清除其过滤设置，请使用它自己的开关。",
