@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MessageView } from "./MessageView";
 import { StatusIcon, statusColor } from "./AgentSessionPanel";
+import { buildToolResultsMap, EMPTY_TRANSCRIPT, mergeTailPage, prependOlderPage, type SubagentTranscript } from "./subagent-viewer-state";
 import { useI18n } from "@/hooks/useI18n";
-import type { AgentMessage, SessionInfo, ToolResultMessage } from "@/lib/types";
+import type { SessionInfo } from "@/lib/types";
 
 interface Props {
   sessionId: string;
@@ -14,23 +15,22 @@ interface Props {
   onOpenFile: (filePath: string, page?: number) => void;
 }
 
-interface ContextPage {
-  messages: AgentMessage[];
-  entryIds: string[];
-  oldestEntryId: string | null;
-  hasMore: boolean;
-}
-
 const POLL_MS = 2000;
 const TAIL = 100;
 
-/** Same pairing the main chat builds: a tool result keyed by its tool call. */
-export function buildToolResultsMap(messages: readonly AgentMessage[]): Map<string, ToolResultMessage> {
-  const map = new Map<string, ToolResultMessage>();
-  for (const message of messages) {
-    if (message.role === "toolResult") map.set(message.toolCallId, message);
-  }
-  return map;
+function contextUrl(sessionId: string, before?: string): string {
+  const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: String(TAIL) });
+  if (before) params.set("before", before);
+  return `/api/sessions/${encodeURIComponent(sessionId)}/context?${params}`;
+}
+
+function toTranscript(page: Partial<SubagentTranscript>): SubagentTranscript {
+  return {
+    messages: page.messages ?? [],
+    entryIds: page.entryIds ?? [],
+    oldestEntryId: page.oldestEntryId ?? null,
+    hasMore: Boolean(page.hasMore),
+  };
 }
 
 /**
@@ -47,16 +47,17 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
   const { t, locale } = useI18n();
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [label, setLabel] = useState(fallbackLabel);
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [entryIds, setEntryIds] = useState<string[]>([]);
-  const [oldestEntryId, setOldestEntryId] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [transcript, setTranscript] = useState<SubagentTranscript>(EMPTY_TRANSCRIPT);
+  const { messages, entryIds, oldestEntryId, hasMore } = transcript;
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Session info once (and on manual refresh): label, cwd, persisted status.
+  // Session info on open, when the run starts or ends (the persisted status
+  // takes over from the live flag), and on manual refresh: label, cwd, status.
   useEffect(() => {
     const controller = new AbortController();
     (async () => {
@@ -76,39 +77,39 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
       }
     })();
     return () => controller.abort();
-  }, [sessionId, refreshKey, fallbackLabel]);
+  }, [sessionId, running, refreshKey, fallbackLabel]);
 
-  // Initial context load; while the subagent runs, poll for new entries.
+  // Initial context load; while the subagent runs, poll for new entries. Each
+  // poll is the newest page, folded into the older pages already loaded.
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
+    let inFlight = false;
     const load = async () => {
+      // One request at a time: a slow answer must not land after a newer one.
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: String(TAIL) });
-        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/context?${params}`, {
-          signal: controller.signal,
-          cache: "no-store",
-        });
+        const res = await fetch(contextUrl(sessionId), { signal: controller.signal, cache: "no-store" });
         if (res.status === 404) {
           if (!cancelled) setNotFound(true);
           return;
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { context: ContextPage };
+        const data = await res.json() as { context: Partial<SubagentTranscript> };
         if (cancelled) return;
         setNotFound(false);
         setError(null);
-        setMessages(data.context.messages);
-        setEntryIds(data.context.entryIds ?? []);
-        setOldestEntryId(data.context.oldestEntryId ?? null);
-        setHasMore(Boolean(data.context.hasMore));
+        setTranscript((current) => mergeTailPage(current, toTranscript(data.context)));
       } catch (err) {
         if (!cancelled && !(err instanceof Error && err.name === "AbortError")) {
           setError(err instanceof Error ? err.message : String(err));
         }
+      } finally {
+        inFlight = false;
       }
     };
-    load();
+    void load();
     if (!running) {
       return () => {
         cancelled = true;
@@ -125,45 +126,54 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
     };
   }, [sessionId, running, refreshKey]);
 
+  const listRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  // Distance from the bottom to keep while an older page is prepended.
+  const prependAnchorRef = useRef<number | null>(null);
+  const loadingEarlierRef = useRef(false);
+  const pagingControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => pagingControllerRef.current?.abort(), []);
+
   // Page upward through older entries, like the main chat's history paging.
   const loadEarlier = useCallback(async () => {
-    if (!oldestEntryId || loadingEarlier) return;
+    const cursor = oldestEntryId;
+    if (!cursor || loadingEarlierRef.current) return;
+    loadingEarlierRef.current = true;
     const controller = new AbortController();
+    pagingControllerRef.current = controller;
     setLoadingEarlier(true);
     try {
-      const params = new URLSearchParams({
-        deferThinking: "1",
-        deferMedia: "1",
-        tail: String(TAIL),
-        before: oldestEntryId,
-      });
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/context?${params}`, {
-        signal: controller.signal,
-        cache: "no-store",
-      });
+      const res = await fetch(contextUrl(sessionId, cursor), { signal: controller.signal, cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { context: ContextPage };
-      setMessages((prev) => [...data.context.messages, ...prev]);
-      setEntryIds((prev) => [...(data.context.entryIds ?? []), ...prev]);
-      setOldestEntryId(data.context.oldestEntryId ?? null);
-      setHasMore(Boolean(data.context.hasMore));
+      const data = await res.json() as { context: Partial<SubagentTranscript> };
+      // A poll replaced the transcript meanwhile: this page no longer joins on.
+      if (transcriptRef.current.oldestEntryId !== cursor) return;
+      const el = listRef.current;
+      prependAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
+      setTranscript((current) => prependOlderPage(current, cursor, toTranscript(data.context)));
     } catch {
       /* paging is best-effort; the button stays for a retry */
     } finally {
-      setLoadingEarlier(false);
+      loadingEarlierRef.current = false;
+      if (pagingControllerRef.current === controller) pagingControllerRef.current = null;
+      if (!controller.signal.aborted) setLoadingEarlier(false);
     }
-  }, [oldestEntryId, loadingEarlier, sessionId]);
+  }, [oldestEntryId, sessionId]);
 
-  // Stick to the bottom while new entries arrive, unless the user scrolled up.
-  const listRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
+  // Stick to the bottom while new entries arrive, unless the user scrolled up;
+  // a prepended older page leaves what the user was reading in place.
   const handleScroll = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
   }, []);
-  useEffect(() => {
-    if (stickToBottomRef.current) listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    const anchor = prependAnchorRef.current;
+    prependAnchorRef.current = null;
+    if (!el) return;
+    if (anchor !== null) el.scrollTop = el.scrollHeight - anchor;
+    else if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   const toolResults = useMemo(() => buildToolResultsMap(messages), [messages]);
@@ -260,6 +270,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
                   toolResults={toolResults}
                   cwd={info?.cwd}
                   onOpenFile={onOpenFile}
+                  sessionId={sessionId}
                   entryId={entryIds[index]}
                 />
               </div>

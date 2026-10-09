@@ -89,6 +89,12 @@ function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
 }
 
+/** Panel tab id of the last sub-agent tab, or null when there is none. */
+function lastAgentTabId(tabs: readonly { sessionId: string }[]): string | null {
+  const last = tabs.at(-1);
+  return last ? `agent:${last.sessionId}` : null;
+}
+
 export function AppShell() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -881,7 +887,8 @@ export function AppShell() {
     const targetProject = projectKey ?? (cwd === activeCwd ? activeProjectKeyRef.current : null) ?? cwd;
     if (activeProjectKeyRef.current !== targetProject) {
       setFileTabs([]);
-      if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
+      setAgentTabs([]);
+      if (!activeFileTabId || activeFileTabId.startsWith("file:") || activeFileTabId.startsWith("agent:")) {
         setActiveFileTabId(null);
         setRightPanelOpen(false);
       }
@@ -1165,7 +1172,7 @@ export function AppShell() {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
-    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? agentTabs.at(-1) ? `agent:${agentTabs.at(-1)!.sessionId}` : null);
+    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
     if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) setRightPanelOpen(false);
   };
 
@@ -1179,7 +1186,7 @@ export function AppShell() {
       setAgentTabs(remainingAgents);
       setActiveFileTabId((cur) => {
         if (cur !== tabId) return cur;
-        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? remainingAgents.at(-1) ? `agent:${remainingAgents.at(-1)!.sessionId}` : null;
+        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents);
       });
       if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
       return;
@@ -1192,7 +1199,7 @@ export function AppShell() {
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? agentTabs.at(-1) ? `agent:${agentTabs.at(-1)!.sessionId}` : null;
+      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
   }, [fileTabs, terminalTabs, agentTabs]);
 
