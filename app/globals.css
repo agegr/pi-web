@@ -1114,6 +1114,212 @@ pre, code {
   color: var(--text);
 }
 
+.interactive-preview {
+  position: relative;
+  inset: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  min-width: 0;
+  margin: 6px 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+.interactive-preview .markdown-code-header {
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.interactive-preview-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.interactive-preview .markdown-code-actions {
+  gap: 3px;
+  margin-left: auto;
+}
+.interactive-artifact-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px var(--font-mono);
+}
+.has-artifact-version .interactive-preview-label {
+  flex: 1 1 260px;
+}
+.interactive-preview-label .markdown-code-lang,
+.interactive-preview-label select {
+  flex: none;
+  white-space: nowrap;
+}
+.interactive-preview-label select {
+  max-width: 100px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 12px;
+}
+.interactive-artifact-history {
+  margin: 6px 0;
+}
+.interactive-artifact-history > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font: 12px/1.5 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.interactive-artifact-notice,
+.interactive-artifact-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+}
+.interactive-artifact-loading {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.interactive-preview-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.interactive-preview-action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.interactive-preview-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.interactive-preview-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.interactive-preview-frame {
+  flex: none;
+  height: 320px;
+  background: var(--bg);
+}
+.interactive-preview-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  color-scheme: light dark;
+}
+.interactive-preview-source {
+  min-height: 0;
+  max-height: min(480px, 60dvh);
+  overflow: auto;
+}
+.interactive-preview-source > .markdown-code-block {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.interactive-preview [hidden] {
+  display: none;
+}
+.interactive-preview-error {
+  flex: none;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+.interactive-preview-error-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.interactive-preview-error summary {
+  cursor: pointer;
+  width: fit-content;
+  padding: 4px 0;
+}
+.interactive-preview-error pre {
+  max-height: 160px;
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 8px;
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: var(--bg);
+}
+.interactive-preview.is-expanded {
+  position: fixed;
+  inset: 0;
+  width: calc(100% - 32px);
+  max-width: 1000px;
+  height: calc(100dvh - 32px);
+  max-height: none;
+  margin: auto;
+}
+.interactive-preview.is-expanded .interactive-preview-frame {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+.interactive-preview.is-expanded .interactive-preview-source {
+  flex: 1;
+  max-height: none;
+}
+.interactive-preview::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+@media (pointer: coarse) {
+  .interactive-preview-action {
+    width: 32px;
+    height: 36px;
+  }
+}
+@media (max-width: 600px) {
+  .interactive-preview.is-expanded {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 .mermaid-block {
   padding: 12px;
   overflow-x: auto;

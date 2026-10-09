@@ -47,6 +47,7 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
+import { INTERACTIVE_PREVIEW_PROMPT, withInteractivePreviewPrompt } from "./interactive-preview-prompt";
 import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
@@ -2480,6 +2481,7 @@ export async function startRpcSession(
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
+            appendSystemPromptOverride: (base) => [...base, INTERACTIVE_PREVIEW_PROMPT],
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
@@ -2579,7 +2581,7 @@ export async function startRpcSession(
     const exactSystemPrompt = subagentResources
       ? skillsBinding!.getExactSystemPrompt
       : chatOnly
-        ? () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
+        ? () => withInteractivePreviewPrompt(contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles))
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const wrapper = new AgentSessionWrapper(inner, {

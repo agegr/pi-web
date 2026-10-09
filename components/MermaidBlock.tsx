@@ -254,6 +254,7 @@ interface CodeBlockProps {
   lang: string;
   headerAction?: ReactNode;
   isStreaming?: boolean;
+  hideHeader?: boolean;
 }
 
 // Prism's light theme uses backgroundColor, while its dark theme uses the
@@ -277,7 +278,7 @@ delete codeBlockDarkTheme['pre[class*="language-"]'].background;
  * monospace text — highlighting a growing block re-tokenizes all of it on
  * every chunk, which is the single most expensive part of streamed rendering.
  */
-export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isStreaming }: CodeBlockProps) {
+export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isStreaming, hideHeader }: CodeBlockProps) {
   const { isDark } = useTheme();
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -291,7 +292,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
 
   return (
     <div className="markdown-code-block">
-      <div className="markdown-code-header">
+      {!hideHeader && <div className="markdown-code-header">
         <span className="markdown-code-lang">{lang || "text"}</span>
         <div className="markdown-code-actions">
           {headerAction}
@@ -302,7 +303,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
             {copied ? t("i18n.copied") : t("i18n.copy")}
           </button>
         </div>
-      </div>
+      </div>}
       {isStreaming ? (
         <pre
           style={{

@@ -15,6 +15,7 @@ import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
+import { InteractiveArtifactsProvider, InteractiveArtifactEntry } from "./InteractiveArtifacts";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -1079,6 +1080,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
+            <InteractiveArtifactsProvider sessionId={session?.id ?? sessionIdRef.current ?? undefined} leafId={activeLeafId} messages={messages} entryIds={entryIds}>
             <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
@@ -1128,6 +1130,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
                 if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp;
                 const view = (
+                  <InteractiveArtifactEntry key={`${keyPrefix}-view-${messageKey}`} value={entryIds[idx] ?? `pending-${idx}`}>
                   <MessageView
                     key={`${keyPrefix}-view-${messageKey}`}
                     message={msg}
@@ -1151,6 +1154,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     isCompacting={options.recoverTruncation ? isCompacting : undefined}
                     compactError={options.recoverTruncation ? compactError : undefined}
                   />
+                  </InteractiveArtifactEntry>
                 );
                 if (!isVisible || currentRefIdx === undefined) return view;
                 return (
@@ -1318,6 +1322,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
             </div>
+            </InteractiveArtifactsProvider>
           </div>
         </div>
         {isMobile || pendingScrollRestore ? null : (
