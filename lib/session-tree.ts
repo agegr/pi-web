@@ -43,7 +43,7 @@ export const PINNED_MORE_KEY = "pinned";
  * (`customName`, from its group menu's Rename…), else its folder's name.
  */
 export interface SidebarProject { key: string; root: string; name: string; customName: string | null; pinned: boolean; current: boolean }
-export interface SidebarFamilyStatus { running: boolean; unread: boolean; selected: boolean; transient: boolean }
+export interface SidebarFamilyStatus { running: boolean; awaiting: boolean; unread: boolean; selected: boolean; transient: boolean }
 
 export type SidebarRow =
   | { kind: "pinned-header"; key: "pinned-header"; count: number; collapsed: boolean; running: number; unread: number }
@@ -62,6 +62,8 @@ export interface SessionTreeInput {
   sessions: readonly SessionInfo[];
   uiState: SessionUiState;
   runningIds: ReadonlySet<string>;
+  /** Members parked on an extension's blocking dialog, a subset of runningIds (/api/agent/running). */
+  awaitingIds?: ReadonlySet<string>;
   unreadIds: ReadonlySet<string>;
   selectedSessionId: string | null;
   /** projectFor(selectedCwd); shown as a group even without sessions. */
@@ -93,7 +95,7 @@ export interface SessionTreeModel {
   projectKeysToRecord: string[];
 }
 
-type FamilyFlagsInput = Pick<SessionTreeInput, "uiState" | "runningIds" | "unreadIds" | "selectedSessionId">;
+type FamilyFlagsInput = Pick<SessionTreeInput, "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId">;
 
 function familyEntry(state: SessionUiState, rootId: string): SessionUiFamilyState | undefined {
   // Session ids such as "constructor" must not resolve to Object.prototype members.
@@ -188,6 +190,7 @@ export function keepOutgoingGroupOpen(
 function familyStatus(family: SessionFamily, input: FamilyFlagsInput): SidebarFamilyStatus {
   return {
     running: anyMemberIn(family, input.runningIds),
+    awaiting: input.awaitingIds ? anyMemberIn(family, input.awaitingIds) : false,
     unread: anyMemberIn(family, input.unreadIds),
     selected: isMember(family, input.selectedSessionId),
     transient: family.root.transient === true,
@@ -477,7 +480,7 @@ export function nextProjectKeysToRecord(toRecord: readonly string[], sent: Reado
  * Groups by their newest archivedAt (desc), families by archivedAt (desc).
  */
 export function buildArchiveRows(
-  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "unreadIds" | "selectedSessionId" | "currentProject">,
+  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId" | "currentProject">,
 ): SidebarRow[] {
   const { uiState, runningIds } = input;
   const flags: FamilyFlagsInput = input;

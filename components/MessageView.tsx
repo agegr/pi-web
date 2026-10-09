@@ -1783,6 +1783,8 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
 
 function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void }) {
   const { t } = useI18n();
+  // Expanded by default: pi's TUI always draws a displayed custom message in full.
+  const [contentExpanded, setContentExpanded] = useState(true);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const text = getMessageText(message.content);
@@ -1815,102 +1817,135 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
             alignItems: "center",
             gap: 8,
             padding: "7px 10px",
-            borderBottom: "1px solid var(--border)",
+            borderBottom: contentExpanded ? "1px solid var(--border)" : "none",
             background: "var(--bg-panel)",
             color: "var(--text-muted)",
             fontSize: 12,
           }}
         >
-          <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            {title}
-          </span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
-        </div>
-
-        <div style={{ padding: "6px 9px" }}>
-          {images.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: text ? 8 : 0 }}>
-              {images.map((img, i) => {
-                const src = imageSource(img);
-                if (!src) return null;
-                return (
-                  <ImagePreview key={i} src={src}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={src}
-                      alt=""
-                      style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
-                    />
-                  </ImagePreview>
-                );
-              })}
-            </div>
-          )}
-          {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "4px 9px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg-subtle)",
-          }}
-        >
-          {text || detailsText ? (
-            <button
-              onClick={copyContent}
-              style={{
-                padding: "3px 7px",
-                border: "none",
-                background: "none",
-                color: copied ? "var(--accent)" : "var(--text-dim)",
-                cursor: "pointer",
-                fontSize: 11,
-              }}
-            >
-               {copied ? t("i18n.copied") : t("i18n.copy")}
-            </button>
-          ) : null}
-          {hasDetails && (
-            <button
-              onClick={() => setDetailsExpanded((v) => !v)}
-              style={{
-                marginLeft: "auto",
-                padding: "3px 7px",
-                border: "none",
-                background: "none",
-                color: "var(--text-dim)",
-                cursor: "pointer",
-                fontSize: 11,
-              }}
-            >
-              {detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails")}
-            </button>
-          )}
-        </div>
-
-        {hasDetails && detailsExpanded && (
-          <pre
+          <button
+            type="button"
+            onClick={() => setContentExpanded((v) => !v)}
+            aria-expanded={contentExpanded}
+            title={contentExpanded ? t("i18n.collapse") : t("i18n.expand")}
             style={{
-              margin: 0,
-              padding: "9px 10px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
-              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              maxHeight: 360,
-              overflow: "auto",
-              fontFamily: "var(--font-mono)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
+              flex: 1,
+              padding: 0,
+              border: "none",
+              background: "none",
+              color: "inherit",
+              cursor: "pointer",
+              fontSize: "inherit",
+              textAlign: "left",
             }}
           >
-            {detailsText}
-          </pre>
+            <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650, flexShrink: 0 }}>
+              {title}
+            </span>
+            {!contentExpanded && text && (
+              <span style={{ color: "var(--text-dim)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                {text.slice(0, 300).replace(/\s+/g, " ").trim()}
+              </span>
+            )}
+            {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10, flexShrink: 0 }}>{time}</span>}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: contentExpanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+              <polyline points="2 3.5 5 6.5 8 3.5" />
+            </svg>
+          </button>
+        </div>
+
+        {contentExpanded && (
+          <>
+            <div style={{ padding: "6px 9px" }}>
+              {images.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: text ? 8 : 0 }}>
+                  {images.map((img, i) => {
+                    const src = imageSource(img);
+                    if (!src) return null;
+                    return (
+                      <ImagePreview key={i} src={src}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={src}
+                          alt=""
+                          style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
+                        />
+                      </ImagePreview>
+                    );
+                  })}
+                </div>
+              )}
+              {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "4px 9px",
+                borderTop: "1px solid var(--border)",
+                background: "var(--bg-subtle)",
+              }}
+            >
+              {text || detailsText ? (
+                <button
+                  onClick={copyContent}
+                  style={{
+                    padding: "3px 7px",
+                    border: "none",
+                    background: "none",
+                    color: copied ? "var(--accent)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    fontSize: 11,
+                  }}
+                >
+                   {copied ? t("i18n.copied") : t("i18n.copy")}
+                </button>
+              ) : null}
+              {hasDetails && (
+                <button
+                  onClick={() => setDetailsExpanded((v) => !v)}
+                  style={{
+                    marginLeft: "auto",
+                    padding: "3px 7px",
+                    border: "none",
+                    background: "none",
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    fontSize: 11,
+                  }}
+                >
+                  {detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails")}
+                </button>
+              )}
+            </div>
+
+            {hasDetails && detailsExpanded && (
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "9px 10px",
+                  borderTop: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text-muted)",
+                  fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+                  lineHeight: 1.5,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: 360,
+                  overflow: "auto",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {detailsText}
+              </pre>
+            )}
+          </>
         )}
       </div>
     </div>

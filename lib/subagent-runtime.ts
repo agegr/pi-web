@@ -226,13 +226,10 @@ export function createSubagentController(
         isolatedWorktree = await addWorktree(parent.cwd, `pi-web-agent-${randomUUID()}`);
       }
       const childCwd = isolatedWorktree?.path ?? parent.cwd;
-      const inheritContext = request.inheritContext ?? profile.inheritContext;
-      const maxTurns = request.maxTurns ?? profile.maxTurns;
-      if (maxTurns !== undefined && (!Number.isFinite(maxTurns) || maxTurns < 0)) {
-        throw new Error("max_turns must be a non-negative number");
-      }
-      const turnLimit = maxTurns && maxTurns > 0 ? Math.floor(maxTurns) : undefined;
-      const thinking = request.thinking ?? profile.thinking ?? parent.inner.agent.state?.thinkingLevel;
+      const inheritContext = profile.inheritContext;
+      // `parseProfileFile` already floors a positive profile `max_turns`, so it is an integer or absent.
+      const turnLimit = profile.maxTurns;
+      const thinking = profile.thinking ?? parent.inner.agent.state?.thinkingLevel;
       if (thinking && !THINKING_LEVELS.has(thinking as ThinkingLevel)) {
         throw new Error(`Invalid subagent thinking level: ${thinking}`);
       }

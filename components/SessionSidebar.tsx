@@ -432,6 +432,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileManager, setFileManager] = useState<FileManagerAvailability | null>(null);
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -545,6 +546,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         sessions: SessionInfo[];
         sessionListVersion: number;
         runningSessionIds?: string[];
+        awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
       if (loadId !== sessionLoadIdRef.current) return;
@@ -558,6 +560,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
       }
       // Drop markers for deleted sessions and for subagents, whose completion
       // is intentionally silent even if an older client marked them unread.
@@ -694,6 +697,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const data = await res.json() as {
           sessionListVersion: number;
           runningSessionIds?: string[];
+          awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
           sessionUiStateRevision?: number | null;
         };
@@ -703,6 +707,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
         if (data.sessionListVersion !== sessionListVersionRef.current) {
@@ -1196,21 +1201,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     sessions: allSessions,
     uiState,
     runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
     groupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, unreadSessionIds, selectedSessionId, currentProject, groupExpansion, moreShown, pinnedCollapsed]);
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, groupExpansion, moreShown, pinnedCollapsed]);
   const archiveRows = useMemo(() => (archiveView ? buildArchiveRows({
     sessions: allSessions,
     uiState,
     runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
     currentProject,
-  }) : []), [archiveView, allSessions, uiState, runningSessionIds, unreadSessionIds, selectedSessionId, currentProject]);
+  }) : []), [archiveView, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject]);
   const projectByKey = useMemo(
     () => new Map(model.projects.map((project) => [project.key, project])),
     [model.projects],
@@ -1733,9 +1740,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     sessions: allSessions,
     uiState,
     runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
     unreadIds: unreadSessionIds,
     selectedSessionId,
-  }), [allSessions, uiState, runningSessionIds, unreadSessionIds, selectedSessionId]);
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId]);
 
   const handleGroupMenu = useCallback((project: SidebarProject, opener: HTMLElement) => {
     const olderCount = familiesToArchive(treeSelectionInput, project.key, ARCHIVE_OLDER_THAN_MS, Date.now()).length;

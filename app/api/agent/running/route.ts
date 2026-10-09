@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionListVersion } from "@/lib/session-reader";
 import {
+  getAwaitingInputRpcSessionIds,
   getCompletionNotificationSuppressedRpcSessionIds,
   getRunningRpcSessionIds,
 } from "@/lib/rpc-manager";
@@ -16,6 +17,7 @@ export async function GET() {
     {
       sessionListVersion: getSessionListVersion(),
       runningSessionIds: getRunningRpcSessionIds(),
+      awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       sessionUiStateRevision: getSessionUiStateRevision(),
     },

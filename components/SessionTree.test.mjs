@@ -102,7 +102,7 @@ function sessionRow(root, { context = "group", status = {}, archivedAt = null, r
     family: { root, subagents: [], latestModified: root.modified },
     context,
     project: rowProject,
-    status: { running: false, unread: false, selected: false, transient: false, ...status },
+    status: { running: false, awaiting: false, unread: false, selected: false, transient: false, ...status },
     archivedAt,
   };
 }
@@ -227,6 +227,26 @@ test("a running row shows the labelled spinner and cannot be archived from the r
 test("an unread row shows the labelled unread dot", () => {
   const html = rowMarkup(render({ rows: [sessionRow(session("new"), { status: { unread: true } })] }), "session:group:new");
   assert.match(html, /<span class="session-tree-meta is-unread" title="New activity"><span class="session-tree-unread" role="img" aria-label="New session activity"><\/span><\/span>/);
+});
+
+test("an awaiting row shows the amber dot in the spinner's slot", () => {
+  const html = rowMarkup(render({
+    rows: [sessionRow(session("ask"), { status: { running: true, awaiting: true, unread: true } })],
+  }), "session:group:ask");
+  // Awaiting wins the slot (it is the one thing worth knowing), and the row is
+  // still the running row it is: same class, same actions, no archive button.
+  assert.match(html, /class="session-tree-row session-tree-session is-running"/);
+  assert.match(html, /<span class="session-tree-title">first ask<\/span><span class="session-tree-meta is-awaiting" title="Agent waiting for your input"><span class="session-tree-awaiting" role="img" aria-label="Agent waiting for your input"><\/span><\/span>/);
+  assert.doesNotMatch(html, /sidebar-spin/);
+  assert.doesNotMatch(html, /session-tree-unread/);
+  assert.doesNotMatch(html, /aria-label="Archive"/);
+  assert.match(html, /aria-label="More actions"/);
+  // The unread dot's shape and breath, in warning amber, and still stopped for
+  // reduced motion.
+  assert.match(cssRule(".session-tree-awaiting"), /width: 6px;\s*height: 6px;\s*border-radius: 50%;\s*background: #d97706;/);
+  assert.match(cssRule(".session-tree-awaiting::after"), /inset: -3px;\s*border: 1\.4px solid #d97706;[\s\S]*animation: session-tree-status-pulse 1\.6s ease-in-out infinite;/);
+  assert.match(css, /@keyframes session-tree-status-pulse \{\s*50% \{\s*transform: scale\(1\.6\);\s*opacity: 0;\s*\}\s*\}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.session-tree-unread::after \{\s*animation: none;\s*\}\s*\.session-tree-awaiting::after \{\s*animation: none;\s*\}/);
 });
 
 test("the selected row is marked and its menu button reports an open menu", () => {
@@ -497,7 +517,7 @@ test("row CSS stays flat, themed and quiet", () => {
   assert.doesNotMatch(css, /&/, "no CSS nesting");
   assert.doesNotMatch(css, /@starting-style|prefers-color-scheme/);
   const colors = new Set((css.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).map((color) => color.toLowerCase()));
-  for (const color of colors) assert.ok(["#ef4444", "#0891b2", "#f87171", "#fff"].includes(color), `unexpected color ${color}`);
+  for (const color of colors) assert.ok(["#ef4444", "#0891b2", "#d97706", "#f87171", "#fff"].includes(color), `unexpected color ${color}`);
   // Hover and selection are a rounded box inset from the edges, not a full-width band.
   assert.match(cssRule(".session-tree-scroll"), /--session-tree-inset-left: max\(6px, var\(--session-tree-scrollbar, 0px\)\);\s*--session-tree-inset-right: max\(0px, calc\(6px - var\(--session-tree-scrollbar, 0px\)\)\);/);
   // The scrollbar's room is kept while everything fits, so rows keep their width when it starts to scroll.

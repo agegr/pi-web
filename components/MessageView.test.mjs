@@ -462,6 +462,36 @@ test("marks apply_patch returned failures as errors even when isError is unset",
   assert.doesNotMatch(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
 });
 
+test("collapses a displayed custom message from its header alone", () => {
+  const custom = (props) => renderMessage({
+    role: "custom",
+    customType: "extension",
+    display: true,
+    timestamp: Date.now(),
+    ...props,
+  });
+  // The header is the card's first button and the only one holding the title.
+  const header = (html) => html.slice(0, html.indexOf("</button>"));
+
+  // The header is the toggle, so a message with no `details` can collapse too.
+  const shown = custom({ content: [{ type: "text", text: "a message with no details" }] });
+  assert.match(header(shown), /aria-expanded="true"/);
+  assert.match(header(shown), />extension</);
+  // The footer is for details only; it is not a second way to collapse.
+  assert.doesNotMatch(shown, /Show details|Hide details/);
+
+  // It starts expanded, as pi's TUI draws a displayed custom message in full.
+  assert.match(shown, /a message with no details/);
+  // A message with no text (images only) can collapse too.
+  assert.match(header(custom({ content: [] })), /aria-expanded="true"/);
+
+  // A message that does carry details keeps that button, for its details.
+  assert.match(
+    custom({ content: [{ type: "text", text: "a message with details" }], details: { files: ["a.ts"] } }),
+    /Show details/,
+  );
+});
+
 test("renders custom-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "custom",
