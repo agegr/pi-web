@@ -267,15 +267,73 @@ test("cycleListIndex wraps in both directions", () => {
   assert.equal(cycleListIndex(-1, 4, 1), 0);
 });
 
-test("shows the follow-up shortcut in the button tooltip", () => {
+test("names the follow-up timing and shortcut when it is the only delivery choice", () => {
   const html = renderToStaticMarkup(
     React.createElement(I18nProvider, null, React.createElement(ChatInput, {
       onSend() {}, onAbort() {}, onFollowUp() {}, isStreaming: true,
     })),
   );
 
-  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
+  assert.match(html, /title="Delivered only once the agent has no tool calls left and would otherwise stop, so the current task finishes untouched \(Alt\/Option\+Enter\)"/);
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
+});
+
+test("shows one delivery button and folds the other timing behind its menu", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, isStreaming: true,
+    })),
+  );
+
+  // Enter's behavior is the primary action; the closed menu holds one label.
+  assert.match(html, /aria-keyshortcuts="Enter"/);
+  assert.match(html, /aria-haspopup="menu"/);
+  assert.equal((html.match(/>Steer<\/button>/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /Follow-up/);
+
+  const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const rows = source.slice(source.indexOf("const timingRows = ["), source.indexOf("const primary = primaryMode"));
+  assert.match(rows, /hint: t\("chat\.steerHint"\)/);
+  assert.match(rows, /hint: `\$\{t\("chat\.followUpHint"\)\} \(\$\{isMobile \? "Ctrl\/Cmd\+" : ""\}Alt\/Option\+Enter\)`,/);
+  const menu = source.slice(source.indexOf('role="menu"'));
+  assert.match(menu, /title=\{row\.hint\}/);
+  assert.match(menu, /aria-keyshortcuts=\{row\.ariaKeys\}/);
+});
+
+test("keeps Stop out of the controls row so a second click cannot reach compaction", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {},
+      onCompact() {}, onToolPresetChange() {}, onThinkingLevelChange() {},
+      isStreaming: true,
+    })),
+  );
+
+  const stop = html.indexOf('aria-label="Stop agent"');
+  assert.notEqual(stop, -1);
+  assert.ok(stop < html.indexOf("chat-input-controls"), "Stop sits in the composer row, clear of the controls bar");
+
+  // Context controls keep their coordinates and go inert instead of leaving a slot
+  // for compaction to appear under the pointer that just pressed Stop.
+  for (const label of ["Compact context", "Change tool preset"]) {
+    const at = html.indexOf(`aria-label="${label}"`);
+    assert.notEqual(at, -1, `${label} stays rendered`);
+    const tag = html.slice(html.lastIndexOf("<button", at), at);
+    assert.match(tag, /disabled=""/);
+    assert.doesNotMatch(tag, /title=/);
+    assert.match(html.slice(html.lastIndexOf("<div", html.lastIndexOf("<button", at))), /title="Available when this run finishes"/);
+  }
+});
+
+test("returns the context controls once the run settles", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, onCompact() {}, isStreaming: false,
+    })),
+  );
+
+  assert.match(html, /title="Compact context"/);
+  assert.doesNotMatch(html, /aria-label="Stop agent"/);
 });
 
 test("renders the upstream model error", () => {

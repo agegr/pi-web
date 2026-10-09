@@ -829,14 +829,19 @@ test("keeps the compaction control reachable while a turn is auto-compacting", (
   // the control behind `!isStreaming` left only the generic stop button, which aborts the
   // whole prompt instead of the compaction.
   const controlBlock = chatInputSource.slice(
-    chatInputSource.indexOf("onClick={isCompacting ? onAbortCompaction : onCompact}") - 200,
-    chatInputSource.indexOf('aria-label={isCompacting ? t("chat.stopCompaction")'),
+    chatInputSource.indexOf("{onCompact && (() => {"),
+    chatInputSource.indexOf("{onSoundToggle !== undefined && ("),
   );
+  assert.ok(controlBlock.length > 0, "compaction control not found before the sound toggle");
 
-  assert.match(controlBlock, /\{\(!isStreaming \|\| isCompacting\) && onCompact && \(/);
+  assert.match(controlBlock, /const compactBlocked = isStreaming && !isCompacting;/);
+  assert.match(controlBlock, /onClick=\{isCompacting \? onAbortCompaction : onCompact\}/);
+  assert.match(controlBlock, /disabled=\{compactBlocked\}/);
+  // Never the old gate that hid the only compaction abort mid-turn, and never removal:
+  // the slot holds its place so nothing else slides under the pointer.
   assert.doesNotMatch(controlBlock, /\{!isStreaming && onCompact && \(/);
-  // The "streaming but not compacting" state is now unreachable, so its disabled styling
-  // must be gone rather than left as dead branches.
-  assert.doesNotMatch(controlBlock, /isStreaming && !isCompacting/);
-  assert.match(controlBlock, /cursor: "pointer"/);
+  assert.doesNotMatch(controlBlock, /\{\(!isStreaming \|\| isCompacting\) && onCompact && \(/);
+  assert.match(controlBlock, /title=\{isCompacting \? t\("chat\.stopCompaction"\) : compactBlocked \? undefined : t\("chat\.compactContext"\)/);
+  // A disabled button shows no tooltip of its own, so its wrapper explains the wait.
+  assert.match(controlBlock, /title=\{compactBlocked \? t\("chat\.busyWhileRunning"\) : undefined\}/);
 });
