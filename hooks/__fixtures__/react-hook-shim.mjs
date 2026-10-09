@@ -24,6 +24,10 @@ export function useState(initial) {
   });
   return [state.value, state.set];
 }
+export function useReducer(reducer, initial, init) {
+  const [state, setState] = useState(() => (init ? init(initial) : initial));
+  return [state, (action) => setState((previous) => reducer(previous, action))];
+}
 function memo(fn, deps) {
   const entry = slot(() => ({ deps: undefined, value: undefined }));
   if (changed(entry.deps, deps)) { entry.value = fn(); entry.deps = deps; }

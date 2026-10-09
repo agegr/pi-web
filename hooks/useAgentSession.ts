@@ -1778,7 +1778,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             await sendAgentCommand(sid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
           }
         }
-        await ensureEventsConnected(sid);
+        // Switching sessions unmounts this composer and closes its stream. The
+        // prompt still goes out, so the new session runs and gets its sidebar
+        // row instead of losing the submitted text (#1146).
+        if (sessionHookMountedRef.current) {
+          await ensureEventsConnected(sid).catch((error) => {
+            if (sessionHookMountedRef.current) throw error;
+          });
+        }
         promptRequestStarted = true;
         await sendAgentCommand(sid, {
           type: "prompt",
