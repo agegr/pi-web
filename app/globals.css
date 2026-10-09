@@ -1694,9 +1694,10 @@ pre, code {
 }
 
 /* A project the user named (its group menu's Rename…): the name in the
-   text's color, as a path is, cut at its end. */
+   path's color and code type, cut at its end. */
 .project-picker-label.is-alias {
   color: var(--text);
+  font-family: var(--font-mono);
 }
 
 /* A path or a branch, cut at its left (rtl), the text itself kept left to

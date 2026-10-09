@@ -150,8 +150,8 @@ function parentFolderName(root: string): string | null {
 /**
  * Each choice's folder name, and its parent folder's name as a note only
  * where two choices share a name: a full path would be cut at its tail, the
- * part that tells them apart. A project the user named shows that name, with
- * its folder's name as the note.
+ * part that tells them apart. A project the user named shows that name alone:
+ * the path tooltip tells it apart.
  */
 export function describeProjectChoices(choices: readonly ProjectChoice[]): Array<{ choice: ProjectChoice; name: string; note: string | null }> {
   const named = choices.map((choice) => ({ choice, name: choice.alias ?? projectNameOf(choice.root) }));
@@ -160,8 +160,7 @@ export function describeProjectChoices(choices: readonly ProjectChoice[]): Array
   return named.map(({ choice, name }) => ({
     choice,
     name,
-    note: choice.alias !== undefined ? projectNameOf(choice.root)
-      : (counts.get(name) ?? 0) > 1 ? parentFolderName(choice.root) : null,
+    note: choice.alias === undefined && (counts.get(name) ?? 0) > 1 ? parentFolderName(choice.root) : null,
   }));
 }
 

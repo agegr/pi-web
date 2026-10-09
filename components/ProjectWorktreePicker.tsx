@@ -338,14 +338,14 @@ export function ProjectWorktreePicker({
     const choices = describeProjectChoices(projectChoices(context)).map(({ choice, name, note }): SidebarMenuItem => {
       const activity = projectActivity?.get(choice.key);
       // A desktop shows the whole path, unless the user named the project:
-      // then its name, with its folder as the note, as on a phone.
+      // then that name alone, in the same code type; the tooltip keeps the path.
       const wholePath = classic && choice.alias === undefined;
       return {
         type: "item",
         id: `project:${choice.key}`,
         label: wholePath ? displayPath(choice.root, homeDir) : name,
         note: wholePath ? undefined : note ?? undefined,
-        mono: wholePath,
+        mono: classic,
         path: wholePath,
         title: choice.root,
         checked: choice.key === project?.key,
