@@ -1383,6 +1383,7 @@ export const enLocale: LocalePlugin = {
     "i18n.noOutput": "(no output)",
     "i18n.noSummary": "(no summary)",
     "i18n.conversationCompacted": "Conversation compacted",
+    "i18n.compactedFromTokens": "Compacted from {tokens} tokens",
     "i18n.compactionDescription": "The conversation history before this point was compacted into the following summary:",
     "i18n.fileContext": "File context: {details}",
     "i18n.readFiles": "Read files",

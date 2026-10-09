@@ -44,6 +44,9 @@ The chat renders the last `visibleCount` rows, kept at least the loaded message 
 ## Process details start open without an answer (`ProcessDetailsGroup`, `components/ChatWindow.tsx`)
 A grouped turn's Process details start collapsed only when the answer shown under them has text or an image (`collapsesProcessDetails()`, `lib/message-display.ts`). A turn that ends on an error or truncation notice alone, e.g. empty `stopReason: "error"` replies after text and a trailing tool call, still shows that notice but keeps them open: the earlier text is inside them (#906). The group is keyed on this decision, so a leaf switch that changes it resets the group; a search hit inside opens it (`reveal`).
 
+## Compaction summary card (`CompactionMessageView`, `components/MessageView.tsx`)
+Collapsed by default, as pi's TUI `CompactionSummaryMessageComponent` (#1026): the header, "Conversation compacted" and pi's "Compacted from N tokens" (`details.tokensBefore`, set by the reader). The title is the toggle (a button with `aria-expanded`); the description, the summary Markdown and the file lists mount only when expanded. Session search indexes only user and assistant `message` entries (`lib/session-search.ts`), so no hit lands inside a summary and the card needs no `reveal` like Process details.
+
 ## Streaming token rate
 The streaming reply's `t/s` counts estimated tokens from when its first ones showed. That start lives in `lib/stream-token-rate.ts`, keyed by the reply (provider, model and request `timestamp`), not in `MessageView`: switching sessions remounts the chat, and a start taken at the remount divided every token streamed so far by a fraction of a second. A reply joined with no record (a reload) counts only the tokens that follow.
 
@@ -120,6 +123,9 @@ New sessions and the files tab:
 - A key `command:/name args` makes its cell a button that sends that slash command through `handleSend` (disabled while the session is busy). The command lives in the key because `setStatus` has no room for it, and Pi's own footer prints only the text, so the same status is plain text there. Only `/…` commands qualify: anything else would reach the model, and `!` would run a shell command.
 - A status with nothing visible (empty after stripping ANSI) gets no cell. Touch screens get 44px cells (widget triggers included) only when the bar has a command button.
 - Statuses exist only while the session's wrapper is alive, so a fresh chat or a session nobody has prompted yet shows no cells (and no buttons) until its first message.
+
+## Message list props stay stable (`components/ChatWindow.tsx`)
+- ChatWindow re-renders on every chat update: streamed chunks, notices, statuses, and each render an extension's custom panel sends (one or two per key typed into it). `MessageView` is `memo`'d and `MarkdownBody` parses again on every render, so each prop the list hands it keeps its identity while the transcript is unchanged: `toolResultsMap` is memoized, and a grouped turn's answer and process copies and its written-files list come from `getFinalAnswerViews()` / `keepWrittenFiles()` (`lib/turn-views.ts`), cached per stored message. Copies built inline re-ran every visible answer's markdown per keystroke (#1005).
 
 ## Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper, then makes the generated HTML's recursive tree helpers iterative, so very deep linear sessions do not overflow the browser call stack.
