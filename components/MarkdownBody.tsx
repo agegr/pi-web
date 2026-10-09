@@ -7,8 +7,28 @@ import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { InteractivePreview } from "./InteractivePreview";
+import { INTERACTIVE_PREVIEW_LANGUAGE, isCompleteInteractiveFence } from "@/lib/interactive-preview";
 
 const MarkdownLinkContext = createContext(false);
+const MarkdownCodeContext = createContext<{ markdown: string; isStreaming?: boolean; allowInteractive: boolean }>({
+  markdown: "", allowInteractive: false,
+});
+
+function MarkdownCode({ className, children, node, ...props }: ComponentProps<"code"> & ExtraProps) {
+  const { markdown, isStreaming, allowInteractive } = useContext(MarkdownCodeContext);
+  const lang = className?.replace("language-", "").toLowerCase() ?? "";
+  const raw = String(children);
+  const isBlock = className?.includes("language-") || raw.includes("\n");
+  if (!isBlock) return <code className="markdown-inline-code" {...props}>{children}</code>;
+  const code = raw.replace(/\n$/, "");
+  if (allowInteractive && lang === INTERACTIVE_PREVIEW_LANGUAGE) {
+    return <InteractivePreview code={code} isStreaming={isStreaming}
+      complete={isCompleteInteractiveFence(markdown, node?.position)} />;
+  }
+  if (lang === "mermaid") return <MermaidBlock code={code} isStreaming={isStreaming} defaultPreview />;
+  return <CodeBlock code={code} lang={lang} isStreaming={isStreaming} />;
+}
 
 interface MarkdownBodyProps {
   children: string;
@@ -18,6 +38,7 @@ interface MarkdownBodyProps {
   onOpenFile?: (filePath: string, page?: number) => void;
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
+  allowInteractive?: boolean;
 }
 
 function MarkdownImage({
@@ -44,35 +65,13 @@ function MarkdownImage({
   );
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks, allowInteractive = false }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
-  // Stable renderer identities keep stateful blocks mounted across message hover updates.
+  const codeContext = useMemo(() => ({ markdown: normalizedMarkdown, isStreaming, allowInteractive }),
+    [normalizedMarkdown, isStreaming, allowInteractive]);
+  // Context updates content without remounting stateful blocks on each streaming delta.
   const components = useMemo<Components>(() => ({
-    code({ className, children, ...props }) {
-      const lang = className?.replace("language-", "").toLowerCase() ?? "";
-      const raw = String(children);
-      const isBlock = className?.includes("language-") || raw.includes("\n");
-      if (isBlock) {
-        if (lang === "mermaid") {
-          return (
-            <MermaidBlock
-              code={raw.replace(/\n$/, "")}
-              isStreaming={isStreaming}
-              defaultPreview
-            />
-          );
-        }
-        return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} isStreaming={isStreaming} />;
-      }
-      return (
-        <code
-          className="markdown-inline-code"
-          {...props}
-        >
-          {children}
-        </code>
-      );
-    },
+    code: MarkdownCode,
     pre({ children }) {
       return <>{children}</>;
     },
@@ -117,10 +116,11 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, onOpenFile]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+      <MarkdownCodeContext.Provider value={codeContext}>
       <ReactMarkdown
         remarkPlugins={keepLineBreaks ? markdownUserRemarkPlugins : markdownRemarkPlugins}
         rehypePlugins={markdownRehypePlugins}
@@ -129,6 +129,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       >
         {normalizedMarkdown}
       </ReactMarkdown>
+      </MarkdownCodeContext.Provider>
     </div>
   );
 }

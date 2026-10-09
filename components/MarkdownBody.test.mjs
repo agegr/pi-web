@@ -27,6 +27,32 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("only assistant-enabled, explicitly closed pi-html fences create sandboxed previews", () => {
+  const document = '<button onclick="this.textContent=42">Calculate</button><script>window.answer=42</script>';
+  const markdown = `\`\`\`pi-html\n${document}\n\`\`\``;
+  const html = renderMarkdown(markdown, { allowInteractive: true });
+  assert.match(html, /<iframe/);
+  assert.match(html, /sandbox="allow-scripts"/);
+  assert.match(html, /referrerPolicy="no-referrer"/i);
+  assert.match(html, /Content-Security-Policy/);
+  assert.doesNotMatch(html, /allow-same-origin|<script>/);
+  assert.doesNotMatch(renderMarkdown(markdown), /<iframe/);
+  assert.doesNotMatch(renderMarkdown(markdown.replace("pi-html", "html"), { allowInteractive: true }), /<iframe/);
+});
+
+test("streaming, unfinished fences and raw code tags never execute preview scripts", () => {
+  const complete = "```pi-html\n<script>throw new Error('not yet')</script>\n```";
+  for (const markdown of [complete.slice(0, -3), complete.replace(/```$/, "~~~"), '<pre><code class="language-pi-html">hi</code></pre>']) {
+    assert.doesNotMatch(renderMarkdown(markdown, { allowInteractive: true }), /<iframe/);
+  }
+  const streaming = renderMarkdown(complete, { allowInteractive: true, isStreaming: true });
+  assert.doesNotMatch(streaming, /<iframe|<pre|throw new Error/);
+  assert.match(streaming, /Generating preview/);
+  for (const markdown of [complete.replaceAll("```", "~~~~"), `> ${complete.replaceAll("\n", "\n> ")}`]) {
+    assert.match(renderMarkdown(markdown, { allowInteractive: true }), /<iframe/);
+  }
+});
+
 test("renders CJK sentence emphasis without spaces after closing punctuation", () => {
   const sentence = "今天天气很好。";
   const markdown = `**${sentence}**我们去公园散步吧。`;

@@ -12,7 +12,7 @@ export const EXACT_SYSTEM_PROMPT_EXTENSION_NAME = "pi-web-exact-system-prompt";
  * `systemPrompt`: the SDK projects that text as the provider's leading system prompt
  * for the run while the transcript keeps recording Pi's structured sections.
  *
- * Used for Chat-only sessions (context files only) and subagent profiles whose prompt
+ * Used for Chat-only sessions (context files plus host display hints) and subagent profiles whose prompt
  * mode replaces Pi's prompt. `getPrompt` is read on every run, so a session that reloads
  * its context files sends the new contents on its next prompt.
  */
