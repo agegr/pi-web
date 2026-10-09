@@ -44,7 +44,7 @@ export function isCompleteInteractiveFence(
     const contentLines = code ? code.split(/\r?\n/).length : 0;
     if (position.end.line - position.start.line <= contentLines) return false;
   }
-  const opener = /^(`{3,}|~{3,})pi-html(?:[ \t]+[^\r\n]*)?\r?\n/i.exec(source);
+  const opener = /^(`{3,}|~{3,})[ \t]*pi-html(?:[ \t]+[^\r\n]*)?\r?\n/i.exec(source);
   if (!opener) return false;
   const lastLine = source.slice(source.lastIndexOf("\n") + 1);
   const closer = /(?:^|[\s>])(`{3,}|~{3,})[ \t]*$/.exec(lastLine);
@@ -139,4 +139,39 @@ const INTERACTIVE_PREVIEW_PREFIX = `<!doctype html>
 
 export function interactivePreviewDocument(code: string): string {
   return INTERACTIVE_PREVIEW_PREFIX + code;
+}
+
+/** A separate opaque parent enforces frame-src on the executable frame's navigations. */
+export function interactivePreviewHostDocument(code: string): string {
+  // Never interpolate executable HTML into the host's markup or script context.
+  const source = JSON.stringify(interactivePreviewDocument(code)).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${INTERACTIVE_PREVIEW_CSP}">
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; color-scheme: light dark; }
+  iframe { display: block; border: 0; width: 100%; height: 100%; }
+</style>
+<body><script>
+  addEventListener('load', function () {
+    var frame = document.createElement('iframe');
+    frame.sandbox = 'allow-scripts';
+    frame.referrerPolicy = 'no-referrer';
+    frame.title = 'Interactive content';
+    function measure() { frame.contentWindow.postMessage({ type: 'pi-html:measure' }, '*'); }
+    addEventListener('message', function (event) {
+      var data = event.data;
+      if (event.source === parent && data?.type === 'pi-html:measure') measure();
+      if (event.source !== frame.contentWindow || !data) return;
+      if (data.type === 'pi-html:resize') parent.postMessage({ type: data.type, height: data.height }, '*');
+      if (data.type === 'pi-html:escape') parent.postMessage({ type: data.type }, '*');
+      if (data.type === 'pi-html:error') parent.postMessage({
+        type: data.type, kind: data.kind, message: data.message, line: data.line, column: data.column
+      }, '*');
+    });
+    frame.addEventListener('load', measure);
+    frame.srcdoc = ${source};
+    document.body.append(frame);
+  }, { once: true });
+</script>`;
 }

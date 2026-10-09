@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { copyText } from "@/lib/clipboard";
-import { interactivePreviewDocument, interactivePreviewError, interactivePreviewHeight, type InteractivePreviewError } from "@/lib/interactive-preview";
+import { interactivePreviewHostDocument, interactivePreviewError, interactivePreviewHeight, type InteractivePreviewError } from "@/lib/interactive-preview";
 import { useI18n } from "@/hooks/useI18n";
 import { CloseIcon, EyeIcon, RefreshIcon, SpinnerIcon } from "./SidebarIcons";
 import { CodeBlock } from "./MermaidBlock";
@@ -27,7 +27,7 @@ export function InteractivePreview({ code, isStreaming, complete, headerSlot, no
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const ready = complete && !isStreaming;
   const sourceVisible = showSource;
-  const documentSource = useMemo(() => interactivePreviewDocument(code), [code]);
+  const documentSource = useMemo(() => interactivePreviewHostDocument(code), [code]);
 
   useEffect(() => {
     const dialog = dialogRef.current;

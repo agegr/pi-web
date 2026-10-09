@@ -19,7 +19,7 @@ export async function checkArtifactVersions(page, artifacts, width) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   const preview = page.locator('.interactive-preview');
   const select = () => page.getByRole('combobox', { name: 'Version', exact: true }).last();
-  const input = () => page.locator('.interactive-preview').last().frameLocator('iframe').locator('#value');
+  const input = () => page.locator('.interactive-preview').last().frameLocator('iframe').frameLocator('iframe').locator('#value');
   await input().waitFor();
   await page.waitForFunction(() => document.querySelector('.interactive-preview select')?.options.length === 4);
   assert.equal(await preview.count(), 1, 'Only the latest version initially executes');
@@ -76,7 +76,7 @@ export async function checkArtifactVersions(page, artifacts, width) {
     window.__previewEventSource.emit({ type: 'message_start', message });
   }, next);
   await page.getByRole('img', { name: 'Generating preview' }).waitFor();
-  assert.equal(await preview.first().frameLocator('iframe').locator('#value').inputValue(), '77');
+  assert.equal(await preview.first().frameLocator('iframe').frameLocator('iframe').locator('#value').inputValue(), '77');
   assert.equal(await page.locator('.interactive-preview iframe').count(), 1);
   await page.evaluate((message) => window.__previewEventSource.emit({ type: 'message_end', message }), next);
   await input().waitFor();

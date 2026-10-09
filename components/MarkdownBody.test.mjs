@@ -40,6 +40,9 @@ test("only assistant-enabled, explicitly closed pi-html fences create sandboxed 
   assert.doesNotMatch(renderMarkdown(markdown.replace("pi-html", "html"), { allowInteractive: true }), /<iframe/);
   assert.match(renderMarkdown(markdown.replace("pi-html", 'pi-html id="demo"'), { allowInteractive: true }), /<iframe/);
   assert.doesNotMatch(renderMarkdown(markdown.replace("pi-html", 'pi-html id="demo"')), /<iframe/);
+  for (const space of [' ', '\t']) {
+    assert.match(renderMarkdown(markdown.replace('```pi-html', '```' + space + 'pi-html'), { allowInteractive: true }), /<iframe/);
+  }
 });
 
 test("streaming, unfinished fences and raw code tags never execute preview scripts", () => {

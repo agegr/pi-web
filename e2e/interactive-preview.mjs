@@ -43,7 +43,7 @@ update();
 
 export async function checkInteractivePreview(page, artifacts, width) {
   const preview = page.locator('.interactive-preview');
-  const frame = page.frameLocator('.interactive-preview iframe');
+  const frame = page.frameLocator('.interactive-preview iframe').frameLocator('iframe');
   await frame.locator('#result').getByText('$40.00', { exact: true }).waitFor();
   assert.equal(await preview.count(), 1, 'Only the assistant pi-html fence executes');
   await frame.locator('#total').fill('180');
@@ -166,7 +166,7 @@ export async function checkPreviewErrors(page, artifacts, width) {
   assert.match(await promise.locator('.interactive-preview-error pre').textContent(), /Unhandled promise rejection: promise fixture/);
   assert.equal(await all.first().getByRole('status').count(), 0, 'Errors do not leak to sibling previews');
 
-  const frame = runtime.frameLocator('iframe');
+  const frame = runtime.frameLocator('iframe').frameLocator('iframe');
   await frame.locator('body').evaluate(() => {
     parent.postMessage({ type: 'pi-html:error', kind: 'invalid', message: 'ignored' }, '*');
     for (let index = 0; index < 20; index++) parent.postMessage({ type: 'pi-html:error', kind: 'runtime', message: 'bounded-' + index + 'x'.repeat(2000) }, '*');
@@ -189,7 +189,7 @@ export async function checkPreviewErrors(page, artifacts, width) {
 
 async function checkNaturalSizing(page, artifacts, width) {
   const preview = page.locator('.interactive-preview');
-  const frame = preview.frameLocator('iframe');
+  const frame = preview.frameLocator('iframe').frameLocator('iframe');
   const frameHeight = () => preview.locator('.interactive-preview-frame').evaluate((node) => node.getBoundingClientRect().height);
   const waitForFit = () => page.waitForFunction(() => {
     const node = document.querySelector('.interactive-preview-frame');

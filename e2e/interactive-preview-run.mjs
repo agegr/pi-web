@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { checkInteractivePreview, checkPreviewErrors, interactivePreviewFixture } from "./interactive-preview.mjs";
 import { checkArtifactVersions } from "./interactive-artifacts.mjs";
+import { checkPreviewNavigation } from "./interactive-preview-security.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const existingServer = process.env.PI_WEB_TEST_BASE_URL;
@@ -54,6 +55,7 @@ try {
     await delay(250);
   }
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined });
+  await checkPreviewNavigation(browser);
   for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }, { width: 3840, height: 2160 }]) {
     const context = await browser.newContext({ viewport, locale: 'en-US', isMobile: viewport.width < 600, hasTouch: viewport.width < 600 });
     page = await context.newPage();
@@ -196,6 +198,6 @@ async function checkStreamingSource(page, width) {
     role: 'assistant', content: [{ type: 'text', text: '```pi-html\n<button>finished</button>\n```' }],
     provider: 'test', model: 'test', stopReason: 'stop', timestamp: Date.now(),
   } }));
-  await page.locator('.interactive-preview').last().frameLocator('iframe').getByRole('button', { name: 'finished' }).waitFor();
+  await page.locator('.interactive-preview').last().frameLocator('iframe').frameLocator('iframe').getByRole('button', { name: 'finished' }).waitFor();
   console.log('PASS: streaming starts folded, source choice survives deltas, completion opens preview');
 }
