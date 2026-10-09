@@ -4,6 +4,7 @@ import test from "node:test";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const hookSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
+const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("renders temporary notices once at the top right of the chat column", () => {
   const noticeShelfUsages = source.match(/<NoticeShelf notices=\{notices\}/g) ?? [];
@@ -22,9 +23,38 @@ test("pauses only for a visible notice", () => {
   );
 });
 
+test("centres a one-line notice in the card the entrance animation pins", () => {
+  const minHeight = Number(source.match(/const NOTICE_MIN_HEIGHT_PX = (\d+);/)[1]);
+  const lineBox = Number(source.match(/const NOTICE_LINE_BOX_PX = (\d+);/)[1]);
+
+  // The padding is half of what one line leaves of the card - the two 1px
+  // borders and a 21px line box out - so the line sits in the middle of the
+  // card. Filling the card's min-height from the top instead leaves its
+  // leftover under the text, which pushes the line above the centre.
+  assert.match(source, /const NOTICE_TEXT_PADDING_Y_PX = \(NOTICE_MIN_HEIGHT_PX - 2 - NOTICE_LINE_BOX_PX\) \/ 2;/);
+  const padding = (minHeight - 2 - lineBox) / 2;
+
+  // Both keyframes pin the card to one line's height while a notice animates in
+  // and out (the "backwards" fill returns the height to the inline styles after
+  // it), so the text between the borders has to add up to exactly that height.
+  const animatedHeight = Number(globals.match(/@keyframes notice-shelf-in \{[\s\S]*?height: (\d+)px/)[1]);
+  assert.equal(2 * padding + lineBox + 2, animatedHeight);
+});
+
+test("keeps the type dot on the first text line, however many it has", () => {
+  // The text carries the padding the dot's offset is measured from: the dot
+  // stays on the first line of a wrapped notice and on the only line of a short
+  // one, which is centred by that same padding.
+  assert.match(source, /minHeight: NOTICE_MIN_HEIGHT_PX,/);
+  assert.match(source, /padding: `\$\{NOTICE_TEXT_PADDING_Y_PX\}px 0`/);
+  assert.match(source, /marginTop: NOTICE_TEXT_PADDING_Y_PX \+ 7,/);
+  assert.match(source, /const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 2 - NOTICE_TEXT_PADDING_Y_PX \* 2;/);
+});
+
 test("lets keyboard users pause and scroll long notices", () => {
   assert.match(source, /onFocus=\{\(\) => onPauseChange\?\.\(notice\.id\)\}/);
   assert.match(source, /onBlur=\{\(event\) => \{\s*if \(!event\.currentTarget\.matches\(":hover"\)\) onPauseChange\?\.\(null\)/);
   assert.match(source, /onMouseLeave=\{\(event\) => \{\s*if \(!event\.currentTarget\.contains\(document\.activeElement\)\) onPauseChange\?\.\(null\)/);
-  assert.match(source, /<span\s+tabIndex=\{0\}\s+style=\{\{[^}]*overflowY: "auto"/);
+  // The text's padding is interpolated, so the pattern skips the style's braces
+  assert.match(source, /<span\s+tabIndex=\{0\}\s+style=\{\{[\s\S]*?overflowY: "auto"/);
 });

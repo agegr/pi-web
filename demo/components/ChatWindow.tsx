@@ -1381,9 +1381,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   );
 }
 
-// Toast 整体高度上限；文本区高度上限 = 整体上限 - 上下 padding(14*2) - 上下边框(1*2)
+// A one-line notice is exactly as tall as its entrance animation pins it, and
+// its line sits dead centre: the two 1px borders, a 21px line box (14px at
+// line-height 1.5) and this padding twice add up to 60px. Letting the card's
+// min-height take the leftover instead leaves the top-aligned text 4.5px above
+// the centre, since the rest of the leftover stays under it.
+const NOTICE_MIN_HEIGHT_PX = 60;
+const NOTICE_LINE_BOX_PX = 21;
+const NOTICE_TEXT_PADDING_Y_PX = (NOTICE_MIN_HEIGHT_PX - 2 - NOTICE_LINE_BOX_PX) / 2;
+// Toast 整体高度上限；文本区高度上限 = 整体上限 - 上下 padding - 上下边框
 const NOTICE_MAX_HEIGHT_PX = 500;
-const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 30;
+const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 2 - NOTICE_TEXT_PADDING_Y_PX * 2;
 
 function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: NoticeItem[]; floating?: boolean; onPauseChange?: (id: string | null) => void }) {
   if (notices.length === 0) return null;
@@ -1422,7 +1430,7 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
               // Top-align children so the type dot sits by the first line on multi-line toasts
               alignItems: "flex-start",
               gap: 10,
-              minHeight: 60,
+              minHeight: NOTICE_MIN_HEIGHT_PX,
               height: "auto",
               // 整体高度上限：超出后由文本区内部滚动承担（见下方 span 的 overflowY），
               // 容器自身保持 hidden，小圆点固定在顶部不随文本滚动
@@ -1460,9 +1468,9 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
                 borderRadius: "50%",
                 background: color,
                 flexShrink: 0,
-                // Align with the optical center of the first text line: 14px vertical
-                // padding + (21px line box - 7px dot) / 2
-                marginTop: 21,
+                // Align with the optical center of the first text line: the text's
+                // vertical padding + (21px line box - 7px dot) / 2
+                marginTop: NOTICE_TEXT_PADDING_Y_PX + 7,
               }}
             />
             {/* Full text by default: pre-line preserves \n (nowrap/normal collapse
@@ -1470,7 +1478,7 @@ function NoticeShelf({ notices, floating = false, onPauseChange }: { notices: No
                 content taller than the cap scrolls inside the text area */}
             <span
               tabIndex={0}
-              style={{ padding: "14px 0", minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}
+              style={{ padding: `${NOTICE_TEXT_PADDING_Y_PX}px 0`, minWidth: 0, maxWidth: "100%", maxHeight: NOTICE_TEXT_MAX_HEIGHT_PX, overflowY: "auto", scrollbarWidth: "thin", whiteSpace: "pre-line", wordBreak: "break-word" }}
             >
               {notice.message}
             </span>
