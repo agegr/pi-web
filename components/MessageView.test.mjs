@@ -174,7 +174,7 @@ test("keeps the input JSON for a write with another argument, an empty file or s
   }
 });
 
-test("renders subagents as standard tool calls with only an extra session button", () => {
+test("renders subagents as standard tool calls with only an extra side-panel button", () => {
   const block = {
     type: "toolCall",
     toolCallId: "call-agent-1",
@@ -206,13 +206,13 @@ test("renders subagents as standard tool calls with only an extra session button
     content: [block],
   }, {
     toolResults: new Map([[block.toolCallId, result]]),
-    onOpenSession() {},
+    onOpenSubagent() {},
   });
 
   assert.match(html, /border:1px solid rgba\(34,197,94,0\.25\)/);
   assert.match(html, />Agent</);
   assert.match(html, />Explore</);
-  assert.match(html, /aria-label="Open sub-agent session"/);
+  assert.match(html, /aria-label="View sub-agent work in side panel"/);
   assert.doesNotMatch(html, />completed</);
   assert.doesNotMatch(html, />Find parser</);
 
@@ -223,9 +223,9 @@ test("renders subagents as standard tool calls with only an extra session button
     content: [{ ...block, toolCallId: "call-extension-1", toolName: "extension_tool" }],
   }, {
     toolResults: new Map(),
-    onOpenSession() {},
+    onOpenSubagent() {},
   });
-  assert.doesNotMatch(ordinaryHtml, /Open sub-agent session/);
+  assert.doesNotMatch(ordinaryHtml, /View sub-agent work in side panel/);
 });
 
 test("a tool card shows the run time pi recorded, else the timestamps' difference, never a tiny one", () => {

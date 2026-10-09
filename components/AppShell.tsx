@@ -16,6 +16,7 @@ import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
+import { SubagentViewer } from "./SubagentViewer";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -513,13 +514,25 @@ export function AppShell() {
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [terminalsRestored, setTerminalsRestored] = useState(false);
-  const panelTabs: Tab[] = [...fileTabs, ...terminalTabs.map((tab) => ({
-    id: tab.id,
-    label: getFileName(tab.cwd) || tab.cwd,
-    filePath: tab.cwd,
-    kind: "terminal" as const,
-    closing: Boolean(tab.closing),
-  }))];
+  // Subagent work tabs are session-scoped and transient: no persistence, and
+  // they are dropped when the project changes (they belong to its sessions).
+  const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
+  const panelTabs: Tab[] = [
+    ...fileTabs,
+    ...terminalTabs.map((tab) => ({
+      id: tab.id,
+      label: getFileName(tab.cwd) || tab.cwd,
+      filePath: tab.cwd,
+      kind: "terminal" as const,
+      closing: Boolean(tab.closing),
+    })),
+    ...agentTabs.map((tab) => ({
+      id: `agent:${tab.sessionId}`,
+      label: tab.label,
+      filePath: tab.label,
+      kind: "agent" as const,
+    })),
+  ];
 
   useEffect(() => {
     try {
@@ -771,7 +784,8 @@ export function AppShell() {
       // File tabs are keyed by absolute path, so tabs opened in the previous
       // project must not linger. Same-project worktree switches keep them.
       setFileTabs([]);
-      if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
+      setAgentTabs([]);
+      if (!activeFileTabId || activeFileTabId.startsWith("file:") || activeFileTabId.startsWith("agent:")) {
         setActiveFileTabId(null);
         setRightPanelOpen(false);
       }
@@ -795,7 +809,8 @@ export function AppShell() {
     const projectKey = workspaceKeyOf(session);
     if (activeProjectKeyRef.current !== projectKey) {
       setFileTabs([]);
-      if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
+      setAgentTabs([]);
+      if (!activeFileTabId || activeFileTabId.startsWith("file:") || activeFileTabId.startsWith("agent:")) {
         setActiveFileTabId(null);
         setRightPanelOpen(false);
       }
@@ -915,24 +930,6 @@ export function AppShell() {
       })
       .catch(() => {});
   }, []);
-
-  const handleOpenSession = useCallback(async (sessionId: string) => {
-    // Prefer the catalogue the sidebar already delivered: selecting from it
-    // avoids a full detail round trip just to obtain the SessionInfo.
-    const catalogued = sessionCatalog.find((s) => s.id === sessionId);
-    if (catalogued && !catalogued.transient) {
-      handleSelectSession(catalogued);
-      return;
-    }
-    try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
-      const data = await response.json() as { info?: SessionInfo; error?: string };
-      if (!response.ok || !data.info) throw new Error(data.error ?? `HTTP ${response.status}`);
-      handleSelectSession(data.info);
-    } catch (error) {
-      console.error("[pi-web] failed to open session:", error instanceof Error ? error.message : error);
-    }
-  }, [handleSelectSession, sessionCatalog]);
 
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
@@ -1156,12 +1153,20 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [terminalTabs, isMobile]);
 
+  // Subagent work opens in a right-panel tab instead of hijacking the main chat.
+  const handleOpenSubagentTab = useCallback((sessionId: string, label: string) => {
+    setAgentTabs((prev) => prev.some((tab) => tab.sessionId === sessionId) ? prev : [...prev, { sessionId, label }]);
+    setActiveFileTabId(`agent:${sessionId}`);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
   const handleTerminalClosed = (tab: TerminalTab) => {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
-    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? null);
-    if (!replacement && !remaining.length && !fileTabs.length) setRightPanelOpen(false);
+    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? agentTabs.at(-1) ? `agent:${agentTabs.at(-1)!.sessionId}` : null);
+    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) setRightPanelOpen(false);
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
@@ -1169,17 +1174,27 @@ export function AppShell() {
       setTerminalTabs((tabs) => tabs.map((tab) => tab.id === tabId && !tab.closing ? { ...tab, closing: "close" } : tab));
       return;
     }
+    if (tabId.startsWith("agent:")) {
+      const remainingAgents = agentTabs.filter((tab) => `agent:${tab.sessionId}` !== tabId);
+      setAgentTabs(remainingAgents);
+      setActiveFileTabId((cur) => {
+        if (cur !== tabId) return cur;
+        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? remainingAgents.at(-1) ? `agent:${remainingAgents.at(-1)!.sessionId}` : null;
+      });
+      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
+      return;
+    }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0) setRightPanelOpen(false);
+      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0) setRightPanelOpen(false);
       return next;
     });
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? null;
+      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? agentTabs.at(-1) ? `agent:${agentTabs.at(-1)!.sessionId}` : null;
     });
-  }, [fileTabs, terminalTabs]);
+  }, [fileTabs, terminalTabs, agentTabs]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1317,6 +1332,8 @@ export function AppShell() {
   }, [projectTrustCwd]);
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
+  // Subagent work tabs: like files, only the active one is mounted.
+  const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
@@ -2495,7 +2512,7 @@ export function AppShell() {
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               onFilesUploaded={handleExplorerRefresh}
-              onOpenSession={handleOpenSession}
+              onOpenSubagent={handleOpenSubagentTab}
               onAskInNewChat={handleAskInNewChat}
               quoteSelectionEnabled={quoteSelectionEnabled}
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
@@ -2659,7 +2676,7 @@ export function AppShell() {
                 { sourceSessionId: activeFileTab.sourceSessionId, page },
               )}
             />
-          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) ? (
+          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
@@ -2675,6 +2692,15 @@ export function AppShell() {
               />
             </div>
           ))}
+          {activeAgentTab && (
+            <SubagentViewer
+              key={activeAgentTab.sessionId}
+              sessionId={activeAgentTab.sessionId}
+              fallbackLabel={activeAgentTab.label}
+              running={runningSessionIds.has(activeAgentTab.sessionId)}
+              onOpenFile={handleOpenLinkedFile}
+            />
+          )}
         </div>
       </div>
     </div>
