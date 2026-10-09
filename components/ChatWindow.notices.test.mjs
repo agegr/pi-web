@@ -48,7 +48,16 @@ test("keeps the type dot on the first text line, however many it has", () => {
   assert.match(source, /minHeight: NOTICE_MIN_HEIGHT_PX,/);
   assert.match(source, /padding: `\$\{NOTICE_TEXT_PADDING_Y_PX\}px 0`/);
   assert.match(source, /marginTop: NOTICE_TEXT_PADDING_Y_PX \+ 7,/);
-  assert.match(source, /const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 2 - NOTICE_TEXT_PADDING_Y_PX \* 2;/);
+  // Every box is border-box (app/globals.css), so the text's max-height already
+  // holds its own padding: only the card's two borders come off the card's cap.
+  assert.match(globals, /\* \{\s*box-sizing: border-box;/);
+  assert.match(source, /const NOTICE_TEXT_MAX_HEIGHT_PX = NOTICE_MAX_HEIGHT_PX - 2;/);
+});
+
+test("measures the notice line box from the card's own font size and line height", () => {
+  const lineBox = Number(source.match(/const NOTICE_LINE_BOX_PX = (\d+);/)[1]);
+  const card = source.match(/className="notice-shelf-item"[\s\S]*?fontSize: (\d+),\s*lineHeight: ([\d.]+),/);
+  assert.equal(Number(card[1]) * Number(card[2]), lineBox);
 });
 
 test("lets keyboard users pause and scroll long notices", () => {
