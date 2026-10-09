@@ -25,6 +25,7 @@ import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrl
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { parseUnifiedPatch } from "@/lib/patch";
+import { CsvTable, isCsvPath } from "./CsvTable";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -1794,6 +1795,8 @@ function TextFileViewer({
               {markdownPreview}
             </ReactMarkdown>
           </div>
+        ) : isCsvPath(filePath) && effectiveDisplayMode === "source" ? (
+          <CsvTable content={viewerContent} filePath={filePath} />
         ) : useLightweightSource ? (
           <div
             className="file-source-view is-lightweight"

@@ -39,6 +39,9 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  /* --bg-subtle composited over --bg, for surfaces that must stay opaque
+     behind a sticky strip (the delimited-table gutter). */
+  --bg-subtle-solid: #f7f7f7;
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
 }
@@ -61,6 +64,7 @@ html.dark,
   --assistant-bg: #1a1a1a;
   --tool-bg: #222222;
   --bg-subtle: rgba(255,255,255,0.04);
+  --bg-subtle-solid: #232323;
 }
 
 [data-theme="mist"] {
@@ -80,6 +84,7 @@ html.dark,
   --assistant-bg: #f4f8f7;
   --tool-bg: #ecf3f0;
   --bg-subtle: rgba(24,65,50,0.04);
+  --bg-subtle-solid: #ebf1ef;
 }
 
 [data-theme="rose"] {
@@ -99,6 +104,7 @@ html.dark,
   --assistant-bg: #fcf7f8;
   --tool-bg: #f7eef2;
   --bg-subtle: rgba(89,39,62,0.04);
+  --bg-subtle-solid: #f5eff1;
 }
 
 html[data-theme="pine"],
@@ -119,6 +125,7 @@ html[data-theme="pine"],
   --assistant-bg: #19201f;
   --tool-bg: #222d29;
   --bg-subtle: rgba(210,236,219,0.04);
+  --bg-subtle-solid: #202827;
 }
 
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed

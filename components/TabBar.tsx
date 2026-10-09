@@ -9,7 +9,7 @@ export interface Tab {
   id: string;
   label: string;
   filePath: string;
-  kind?: "terminal";
+  kind?: "terminal" | "read-snapshot";
   closing?: boolean;
   sourceSessionId?: string | null;
   initialDisplayMode?: FileViewerDisplayMode;
@@ -17,6 +17,8 @@ export interface Tab {
   page?: number;
   viewerState?: FileViewerState;
   viewerRevision?: number;
+  /** The exact slice a read tool call returned, for `kind: "read-snapshot"`. */
+  readSnapshot?: { filePath: string; content: string; offset?: number };
 }
 
 interface Props {

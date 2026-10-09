@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
+import { ReadSnapshotViewer } from "./ReadSnapshotViewer";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
@@ -1140,6 +1141,26 @@ export function AppShell() {
     setActiveFileTabId(tabId);
     setRightPanelOpen(true);
     // On mobile the file panel is full-screen; close the drawer so it shows.
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  const handleOpenReadSnapshot = useCallback((info: { toolCallId: string; filePath: string; content: string; offset?: number }) => {
+    const tabId = `read:${info.toolCallId}`;
+    const readSnapshot = { filePath: info.filePath, content: info.content, offset: info.offset };
+    setFileTabs((prev) => {
+      if (prev.some((tab) => tab.id === tabId)) {
+        return prev.map((tab) => tab.id === tabId ? { ...tab, readSnapshot } : tab);
+      }
+      return [...prev, {
+        id: tabId,
+        label: getFileName(info.filePath) || info.filePath,
+        filePath: info.filePath,
+        kind: "read-snapshot" as const,
+        readSnapshot,
+      }];
+    });
+    setActiveFileTabId(tabId);
+    setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
@@ -2496,6 +2517,7 @@ export function AppShell() {
               onOpenFile={handleOpenLinkedFile}
               onFilesUploaded={handleExplorerRefresh}
               onOpenSession={handleOpenSession}
+              onOpenReadSnapshot={handleOpenReadSnapshot}
               onAskInNewChat={handleAskInNewChat}
               quoteSelectionEnabled={quoteSelectionEnabled}
               initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
@@ -2635,7 +2657,13 @@ export function AppShell() {
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
+          {activeFileTab?.kind === "read-snapshot" && activeFileTab.readSnapshot ? (
+            <ReadSnapshotViewer
+              filePath={activeFileTab.readSnapshot.filePath}
+              content={activeFileTab.readSnapshot.content}
+              offset={activeFileTab.readSnapshot.offset}
+            />
+          ) : activeFileTab?.filePath ? (
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}
