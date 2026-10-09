@@ -9,6 +9,7 @@ const jiti = createJiti(import.meta.url, {
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
+  CompactionSummaryDetails,
   MessageView,
   ThinkingBlock,
   formatToolDuration,
@@ -479,11 +480,10 @@ test("collapses a displayed custom message from its header alone", () => {
   // The footer is for details only; it is not a second way to collapse.
   assert.doesNotMatch(shown, /Show details|Hide details/);
 
-  // aria-expanded follows the collapse state instead of being fixed markup.
-  assert.match(
-    header(custom({ content: [{ type: "text", text: "a hidden message" }], display: false })),
-    /aria-expanded="false"/,
-  );
+  // It starts expanded, as pi's TUI draws a displayed custom message in full.
+  assert.match(shown, /a message with no details/);
+  // A message with no text (images only) can collapse too.
+  assert.match(header(custom({ content: [] })), /aria-expanded="true"/);
 
   // A message that does carry details keeps that button, for its details.
   assert.match(
@@ -721,4 +721,34 @@ test("keeps the registered name where no result names the server and tool", (t) 
     details: { calls: [{ id: "call-codemode-mcp/1", name: "mcp__docs_v2__search_pages", args: "{}", status: "ok" }] },
   });
   assert.match(textOf(html), /mcp__docs_v2__search_pages\{\}/);
+});
+
+test("collapses the compaction summary to its title and token count, as pi's TUI does (#1026)", () => {
+  const summary = "## Goal\n\nShip the parser fix.\n\n<read-files>\nlib/read.ts\n</read-files>\n\n<modified-files>\nlib/changed.ts\n</modified-files>";
+  const message = {
+    role: "custom",
+    customType: "compaction",
+    content: summary,
+    display: true,
+    details: { tokensBefore: 123456, firstKeptEntryId: "kept0001" },
+  };
+  const html = renderMessage(message);
+
+  assert.match(html, /<button type="button" aria-expanded="false" title="Expand"/);
+  assert.match(html, /Conversation compacted/);
+  assert.ok(html.includes(`Compacted from ${(123456).toLocaleString()} tokens`));
+  assert.doesNotMatch(html, /Ship the parser fix|following summary|File context|lib\/read\.ts|lib\/changed\.ts/);
+  assert.doesNotMatch(renderMessage({ ...message, details: undefined }), /Compacted from/);
+
+  // What the toggle reveals.
+  const details = renderToStaticMarkup(React.createElement(
+    I18nProvider,
+    null,
+    React.createElement(CompactionSummaryDetails, { summary }),
+  ));
+  assert.match(details, /following summary/);
+  assert.match(details, /Ship the parser fix/);
+  assert.match(details, /File context: 1 read, 1 modified/);
+  assert.match(details, /lib\/read\.ts/);
+  assert.match(details, /lib\/changed\.ts/);
 });
