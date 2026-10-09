@@ -667,6 +667,40 @@ test("labels an MCP call server/tool and indents a JSON result", (t) => {
   assert.match(text, /\{\n {2}"hits": \[\n {4}\{\n {6}"title": "Code mode"/);
 });
 
+test("colors a shell command in place, without a pre or code element", (t) => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-bash-1",
+    toolName: "bash",
+    input: { command: 'git commit -m "fix: $HOME" --amend', timeout: 30 },
+  };
+  const collapsed = textOf(renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map() }));
+
+  // The header line carries the tokens themselves, not a code block.
+  assert.match(collapsed, /git commit -m "fix: \$HOME" --amend/);
+
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [block],
+  }, { toolResults: new Map() });
+
+  assert.match(html, /<span style="color:var\(--syntax-command\);font-weight:600">git<\/span>/);
+  assert.match(html, /<span style="color:var\(--syntax-string\)">&quot;fix: <\/span><span style="color:var\(--syntax-variable\)">\$HOME<\/span><span style="color:var\(--syntax-string\)">\&quot;<\/span>/);
+  assert.match(html, /<span style="color:var\(--syntax-flag\)">--amend<\/span>/);
+  // Expanded: the command itself, not the input JSON, and its timeout kept.
+  assert.equal(textOf(html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)[1]), 'git commit -m "fix: $HOME" --amend (timeout 30s)');
+  assert.doesNotMatch(html, /&quot;command&quot;/);
+});
+
 test("keeps the registered name where no result names the server and tool", (t) => {
   // Sanitizing maps docs.v2/search.pages and docs_v2/search_pages to one name, so it is not split.
   const block = { type: "toolCall", toolCallId: "call-mcp-running", toolName: "mcp__docs_v2__search_pages", input: {} };

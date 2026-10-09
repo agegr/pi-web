@@ -32,3 +32,13 @@ export function isApplyPatchToolName(toolName: string): boolean {
     name.endsWith(".apply_patch") ||
     name.endsWith("_apply_patch");
 }
+
+/**
+ * The shell tools, whose `command` input is a shell command line.
+ * `bash (local)` is what a bash command the user typed in the composer shows as.
+ */
+const SHELL_TOOL_NAMES = new Set(["bash", "powershell", "bash (local)"]);
+
+export function isShellToolName(toolName: string): boolean {
+  return SHELL_TOOL_NAMES.has(toolName.toLowerCase());
+}

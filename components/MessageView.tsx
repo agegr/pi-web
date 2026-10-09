@@ -11,7 +11,7 @@ import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
-import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
+import { isApplyPatchToolName, isEditToolName, isShellToolName, isWriteToolName } from "@/lib/tool-names";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -20,6 +20,7 @@ import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
+import { BashCommand } from "./BashCommand";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import type {
   AgentMessage,
@@ -154,6 +155,9 @@ function SafeMarkdownBody({ children, className, ...props }: React.ComponentProp
 // Cap the user "sent" bubble's height so an abnormally long message does not
 // push the conversation off screen; overflow scrolls inside the bubble.
 const USER_BUBBLE_MAX_HEIGHT = 300;
+
+/** Characters of a tool's input the collapsed header line shows. */
+const TOOL_PREVIEW_LENGTH = 120;
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
   const key = `${sessionId}:${entryId}:${blockIndex}`;
@@ -1155,6 +1159,11 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
   const codemode = codemodeCode === null ? null : { code: codemodeCode, ...codemodeCalls(result?.details) };
   // A running script's progress snapshot has calls but no content yet.
   const codemodeRunning = codemode !== null && result !== undefined && result.content.length === 0;
+  // A shell command shows as itself — highlighted, not as input JSON — so its
+  // tokens read as a command in the collapsed header as well as expanded.
+  const shellInput = !isStreamingInput && isShellToolName(block.toolName) && block.input ? block.input : null;
+  const shellCommand = typeof shellInput?.command === "string" ? shellInput.command : null;
+  const shellTimeout = typeof shellInput?.timeout === "number" ? shellInput.timeout : null;
 
   // `server/tool` instead of the registered `mcp__server__tool`, as pi's TUI shows it.
   const mcpLabel = mcpToolLabel(block.toolName, result?.details);
@@ -1215,7 +1224,9 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {isStreamingInput
               ? t("chat.generatingToolInput")
-              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)))}
+              : shellCommand !== null
+                ? <BashCommand command={shellCommand} limit={TOOL_PREVIEW_LENGTH} />
+                : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)))}
           </span>
           {codemodeCallCount > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
@@ -1258,7 +1269,11 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
             wordBreak: "break-all",
           }}
         >
-          {codemode ? codemode.code.replace(/\r/g, "").trimEnd() : inputStr}
+          {codemode
+            ? codemode.code.replace(/\r/g, "").trimEnd()
+            : shellCommand !== null
+              ? <><BashCommand command={shellCommand} />{shellTimeout !== null && <span style={{ color: "var(--text-dim)" }}>{` (timeout ${shellTimeout}s)`}</span>}</>
+              : inputStr}
         </pre>
       )}
 
@@ -1963,14 +1978,14 @@ function getToolPreview(block: ToolCallContent): string {
   if (keys.length === 0) return "";
 
   // Common tool input patterns
-  if ("command" in input) return String(input.command).slice(0, 120);
-  if ("path" in input) return String(input.path).slice(0, 120);
-  if ("file_path" in input) return String(input.file_path).slice(0, 120);
-  if ("pattern" in input) return String(input.pattern).slice(0, 120);
-  if ("query" in input) return String(input.query).slice(0, 120);
+  if ("command" in input) return String(input.command).slice(0, TOOL_PREVIEW_LENGTH);
+  if ("path" in input) return String(input.path).slice(0, TOOL_PREVIEW_LENGTH);
+  if ("file_path" in input) return String(input.file_path).slice(0, TOOL_PREVIEW_LENGTH);
+  if ("pattern" in input) return String(input.pattern).slice(0, TOOL_PREVIEW_LENGTH);
+  if ("query" in input) return String(input.query).slice(0, TOOL_PREVIEW_LENGTH);
 
   const first = input[keys[0]];
-  return String(first).slice(0, 120);
+  return String(first).slice(0, TOOL_PREVIEW_LENGTH);
 }
 
 function formatUsage(usage: {

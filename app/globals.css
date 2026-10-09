@@ -39,6 +39,15 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
+  /* Shell-command tokens (lib/bash-highlight.ts). Every theme sets its palette
+     on the root element, so these derive from whichever one is active and stay
+     legible in light and dark alike. */
+  --syntax-command: var(--accent);
+  --syntax-flag: color-mix(in srgb, #7c3aed 72%, var(--text));
+  --syntax-string: color-mix(in srgb, #d97706 78%, var(--text));
+  --syntax-variable: color-mix(in srgb, #0d9488 76%, var(--text));
+  --syntax-operator: var(--text-dim);
+  --syntax-comment: var(--text-dim);
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
 }
