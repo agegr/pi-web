@@ -36,6 +36,7 @@ import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
+import { createSubagentCodemodeExtension } from "./builtin-extensions";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
@@ -249,12 +250,33 @@ export function createSubagentController(
         task: appendSubagentInputFiles(request.task, inputFiles),
         inheritedParentContext,
       });
-      const { chatOnly, appendSystemPrompt, delegatedTask } = promptPlan;
+      const parentCodemodeEnabled = parent.inner.getActiveToolNames().includes("codemode");
+      const wantsCodemode = profile.codemode === "on"
+        || (profile.codemode === "inherit" && parentCodemodeEnabled);
+      if (promptPlan.chatOnly && profile.codemode === "on") {
+        throw new Error("Code mode cannot be enabled for a chat-only subagent profile");
+      }
+      // A chat-only profile remains chat-only when inheritance is selected. An explicit `on`
+      // is rejected above so it cannot silently grant a script capability to tools:none.
+      const codemodeEnabled = !promptPlan.chatOnly && wantsCodemode;
+      const chatOnly = promptPlan.chatOnly;
+      const { appendSystemPrompt, delegatedTask } = promptPlan;
       const skillsBinding = createSubagentSkillsBinding({
         loadSkills: profile.loadSkills,
         skills: profile.skills,
         exactSystemPrompt: promptPlan.exactSystemPrompt,
       });
+      const codemodeExtension = codemodeEnabled
+        ? await createSubagentCodemodeExtension({
+            agentDir,
+            cwd: childCwd,
+            projectTrusted: () => settingsManager.isProjectTrusted(),
+          })
+        : undefined;
+      const extensionFactories = [
+        ...(codemodeExtension ? [codemodeExtension] : []),
+        ...(skillsBinding.loaderOptions.extensionFactories ?? []),
+      ];
       if (!chatOnly) initTheme();
       const services = await createAgentSessionServices({
         cwd: childCwd,
@@ -264,6 +286,7 @@ export function createSubagentController(
         resourceLoaderOptions: {
           ...subagentExtensionLoaderOptions(profile),
           ...skillsBinding.loaderOptions,
+          ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
@@ -275,14 +298,19 @@ export function createSubagentController(
             : {}),
           appendSystemPrompt,
         },
-        ...((profile.loadExtensions || profile.loadSkills)
+        ...((profile.loadExtensions || profile.loadSkills || codemodeEnabled)
           ? { resourceLoaderReloadOptions: projectTrustReloadOptions(childCwd, agentDir) }
           : {}),
       });
 
-      const allExtensionTools = profile.loadExtensions && !profile.extensionTools?.length;
+      if (codemodeEnabled && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
+        throw new Error("Code mode is unavailable: builtin:codemode was not registered");
+      }
+
+      // `ext:` selectors that `disallowed_tools` cancels out leave an empty list, which admits none.
+      const allExtensionTools = profile.loadExtensions && profile.extensionTools === undefined;
       const extensionToolNames = profile.loadExtensions
-        ? profile.extensionTools?.length
+        ? profile.extensionTools !== undefined
           ? selectSubagentExtensionTools(
             services.resourceLoader.getExtensions().extensions,
             profile.extensionTools,
@@ -294,6 +322,7 @@ export function createSubagentController(
         withSubagentExtensionTools(profile.tools, extensionToolNames),
         settingsManager.getDefaultTools(),
       );
+      if (codemodeEnabled && !activeTools.includes("codemode")) activeTools.push("codemode");
 
       const sessionManager = isolatedWorktree
         ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
@@ -313,6 +342,7 @@ export function createSubagentController(
           version: 1,
           appendSystemPrompt: [...appendSystemPrompt],
           tools: [...activeTools],
+          ...(codemodeEnabled ? { codemode: true as const } : {}),
           loadSkills: profile.loadSkills,
           ...(profile.skills !== undefined ? { skills: [...profile.skills] } : {}),
           loadExtensions: profile.loadExtensions,

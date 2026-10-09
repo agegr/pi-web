@@ -89,6 +89,129 @@ test("profile PUT narrows malformed skill lists instead of enabling all skills",
   }
 });
 
+test("profile PUT persists each codemode choice in global and project profiles", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "codemode-route-save-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const name = "codemode-save-agent";
+  t.after(() => rm(join(testAgentDir, "agents", `${name}.md`), { force: true }));
+
+  for (const scope of ["global", "project"]) {
+    const file = join(scope === "global" ? testAgentDir : join(cwd, ".pi"), "agents", `${name}.md`);
+    for (const codemode of ["on", "off", "inherit"]) {
+      await t.test(`${scope}: ${codemode}`, async () => {
+        const response = await PUT(jsonRequest("PUT", { cwd, scope, profile: profile({ name, codemode }) }));
+        assert.equal(response.status, 200);
+        const saved = (await response.json()).profile;
+        assert.equal(saved.codemode, codemode);
+        assert.equal(saved.scope, scope);
+        assert.deepEqual(saved.tools, []);
+        assert.equal(parseFrontmatter(await readFile(file, "utf8")).data.codemode, codemode);
+
+        const listed = await GET(new Request(`http://localhost/api/subagents/profiles?cwd=${encodeURIComponent(cwd)}`));
+        assert.equal(listed.status, 200);
+        const source = (await listed.json()).profiles.find((item) => item.name === name && item.scope === scope);
+        assert.equal(source.codemode, codemode);
+        assert.deepEqual(source.tools, []);
+      });
+    }
+  }
+});
+
+test("profile PUT defaults an omitted codemode to off", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "codemode-route-default-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const name = "codemode-default-agent";
+  t.after(() => rm(join(testAgentDir, "agents", `${name}.md`), { force: true }));
+
+  for (const scope of ["global", "project"]) {
+    const file = join(scope === "global" ? testAgentDir : join(cwd, ".pi"), "agents", `${name}.md`);
+    // Older API clients omit the field, including when updating an existing explicit choice.
+    for (const existing of [false, true]) {
+      if (existing) {
+        const response = await PUT(jsonRequest("PUT", { cwd, scope, profile: profile({ name, codemode: "on" }) }));
+        assert.equal(response.status, 200);
+      }
+      const response = await PUT(jsonRequest("PUT", { cwd, scope, profile: profile({ name }) }));
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).profile.codemode, "off");
+      assert.equal(parseFrontmatter(await readFile(file, "utf8")).data.codemode, "off");
+    }
+  }
+});
+
+test("profile PATCH retains codemode when toggling global and project profiles", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "codemode-route-toggle-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const name = "codemode-toggle-agent";
+  t.after(() => rm(join(testAgentDir, "agents", `${name}.md`), { force: true }));
+
+  for (const scope of ["global", "project"]) {
+    const dir = join(scope === "global" ? testAgentDir : join(cwd, ".pi"), "agents");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, `${name}.md`);
+    for (const [authored, expected] of [["on", "on"], ["off", "off"], ["inherit", "inherit"], [undefined, "off"], [true, "on"], [false, "off"]]) {
+      await t.test(`${scope}: authored ${String(authored)}`, async () => {
+        const codemodeLine = authored === undefined ? "" : `codemode: ${authored}\n`;
+        await writeFile(file, `---\n${codemodeLine}tools: read, ext:codegraph/search\nextensions: all\nisolation: worktree\ncolor: teal\npersist_session: true\nforeign: retain-me\n---\nOriginal prompt`);
+        for (const enabled of [false, true]) {
+          const response = await PATCH(jsonRequest("PATCH", { cwd, scope, name, enabled }));
+          assert.equal(response.status, 200);
+          const saved = (await response.json()).profile;
+          assert.equal(saved.codemode, expected);
+          assert.equal(saved.enabled, enabled);
+          const { data, rest } = parseFrontmatter(await readFile(file, "utf8"));
+          assert.equal(data.codemode, expected);
+          assert.equal(data.enabled, enabled);
+          assert.equal(data.foreign, "retain-me");
+          assert.equal(data.isolation, "worktree");
+          assert.equal(data.color, "teal");
+          assert.equal(data.persist_session, true);
+          assert.ok(String(data.tools).includes("ext:codegraph/search"));
+          assert.equal(data.extensions, true);
+          assert.equal(rest.trim(), "Original prompt");
+
+          const listed = await GET(new Request(`http://localhost/api/subagents/profiles?cwd=${encodeURIComponent(cwd)}`));
+          assert.equal(listed.status, 200);
+          const source = (await listed.json()).profiles.find((item) => item.name === name && item.scope === scope);
+          assert.equal(source.codemode, expected);
+          assert.equal(source.enabled, enabled);
+        }
+      });
+    }
+  }
+});
+
+test("profile PUT rejects invalid codemode without creating or overwriting files", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "codemode-route-invalid-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const name = "codemode-invalid-agent";
+  t.after(() => rm(join(testAgentDir, "agents", `${name}.md`), { force: true }));
+  const invalidValues = [null, true, false, 0, 1, "", "auto", "ON", "OFF", "INHERIT", " on ", [], ["on"], {}];
+
+  for (const scope of ["global", "project"]) {
+    const file = join(scope === "global" ? testAgentDir : join(cwd, ".pi"), "agents", `${name}.md`);
+    for (const existing of [false, true]) {
+      let original;
+      if (existing) {
+        const response = await PUT(jsonRequest("PUT", { cwd, scope, profile: profile({ name, codemode: "off" }) }));
+        assert.equal(response.status, 200);
+        original = await readFile(file, "utf8");
+      }
+      for (const codemode of invalidValues) {
+        const response = await PUT(jsonRequest("PUT", { cwd, scope, profile: profile({ name, codemode }) }));
+        assert.equal(response.status, 400, `${scope}: ${JSON.stringify(codemode)}`);
+        assert.deepEqual(await response.json(), { error: "codemode must be one of: inherit, on, off" });
+        if (existing) assert.equal(await readFile(file, "utf8"), original);
+        else assert.equal(existsSync(file), false);
+      }
+    }
+  }
+});
+
 test("profiles route creates, lists, and deletes a project profile", async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-web-subagent-route-"));
   allowFileRoot(cwd);
