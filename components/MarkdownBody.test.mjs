@@ -67,6 +67,17 @@ test("opens non-file markdown links in a safe new tab", () => {
   assert.doesNotMatch(html, /\snode=/);
 });
 
+test("opens desktop app links like other external links (#1108)", () => {
+  for (const props of [{}, { onOpenFile: undefined }]) {
+    const html = renderMarkdown("[note](obsidian://open?vault=notes)", props);
+
+    assert.match(
+      html,
+      /<a (?=[^>]*href="obsidian:\/\/open\?vault=notes")(?=[^>]*target="_blank")(?=[^>]*rel="noopener noreferrer")[^>]*>note<\/a>/,
+    );
+  }
+});
+
 test("keeps local file markdown links in the app", () => {
   const relativeHtml = renderMarkdown("[file](components/MarkdownBody.tsx)");
   const fileUrlHtml = renderMarkdown("[report](file:///home/me/project/report.html)");

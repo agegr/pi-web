@@ -2,6 +2,9 @@
 @import "tailwindcss";
 /* demo/ is a separate project; keep its sources out of this app's class scan. */
 @source not "../demo";
+/* Agent worktrees: scanning them makes webpack snapshot their symlinked
+   node_modules, which crashes `next build` with "reading 'length'". */
+@source not "../.claude";
 
 @theme {
   --color-bg: var(--bg);
@@ -827,6 +830,8 @@ pre, code {
   margin: 5px 0 8px;
   list-style-position: outside;
 }
+/* Room for the widest bold "N. " marker; MarkdownBody sets the digit count. */
+.markdown-body ol { padding-left: calc(0.8em + var(--ol-marker-digits, 2) * 0.62em); }
 .markdown-body li { margin: 3px 0; padding-left: 2px; }
 .markdown-body ul > li { list-style-type: disc; }
 .markdown-body ol > li { list-style-type: decimal; }
@@ -1691,6 +1696,13 @@ pre, code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A project the user named (its group menu's Rename…): the name in the
+   path's color and code type, cut at its end. */
+.project-picker-label.is-alias {
+  color: var(--text);
+  font-family: var(--font-mono);
 }
 
 /* A path or a branch, cut at its left (rtl), the text itself kept left to

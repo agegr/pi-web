@@ -20,12 +20,12 @@ import {
 import {
   readSubagentRun,
   resolveSubagentProfile,
-  SUBAGENT_CONTROL_TOOL_NAMES,
   SUBAGENT_META_TYPE,
   SUBAGENT_STATUS_TYPE,
   SUBAGENT_RESULT_TYPE,
   selectSubagentExtensionTools,
   subagentExtensionLoaderOptions,
+  subagentToolOptions,
   withSubagentExtensionTools,
   type SubagentMetadata,
   type SubagentResultMetadata,
@@ -280,6 +280,7 @@ export function createSubagentController(
           : {}),
       });
 
+      const allExtensionTools = profile.loadExtensions && !profile.extensionTools?.length;
       const extensionToolNames = profile.loadExtensions
         ? profile.extensionTools?.length
           ? selectSubagentExtensionTools(
@@ -315,6 +316,7 @@ export function createSubagentController(
           loadSkills: profile.loadSkills,
           ...(profile.skills !== undefined ? { skills: [...profile.skills] } : {}),
           loadExtensions: profile.loadExtensions,
+          ...(allExtensionTools ? { allExtensionTools: true } : {}),
           ...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
           ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
         },
@@ -330,8 +332,7 @@ export function createSubagentController(
         sessionManager,
         model: requestedModel ?? parentModel,
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
-        tools: activeTools,
-        excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES],
+        ...subagentToolOptions({ tools: activeTools, allExtensionTools }),
       });
       skillsBinding.setActiveToolsGetter(() => inner.getActiveToolNames());
       dependencies.registerSession(inner, {
