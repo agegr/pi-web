@@ -14,15 +14,16 @@ import {
   type SessionUiStateRequest,
 } from "./session-ui-state-shared";
 
-// The sidebar's pins, archive and project order (`lib/session-ui-state-shared.ts`
-// has the rules) in `pi-web-session-state.json` beside pi's own files. It holds what
-// the user chose, so unlike the session index it is never rebuilt: writes are
-// serialized in-process, locked against other processes, replaced atomically,
-// and a file that cannot be parsed is set aside, never overwritten.
+// The sidebar's pins, archive, project order and project names
+// (`lib/session-ui-state-shared.ts` has the rules) in `pi-web-session-state.json`
+// beside pi's own files. It holds what the user chose, so unlike the session
+// index it is never rebuilt: writes are serialized in-process, locked against
+// other processes, replaced atomically, and a file that cannot be parsed is
+// set aside, never overwritten.
 
 const MAX_BYTES = 4 * 1024 * 1024;
 // `__proto__` is never copied: assigning it would set the object's prototype instead.
-const KNOWN_KEYS = new Set(["version", "revision", "sessions", "projects", "projectOrder", "__proto__"]);
+const KNOWN_KEYS = new Set(["version", "revision", "sessions", "projects", "projectOrder", "projectNames", "__proto__"]);
 
 // Route handlers are bundled separately and hot reload re-evaluates modules; globalThis keeps one queue per process.
 const QUEUE_KEY: symbol = Symbol.for("pi-web:session-ui-state-write-queue");
@@ -224,6 +225,7 @@ function editState(
         sessions: next.sessions,
         projects: next.projects,
         ...(next.projectOrder?.length ? { projectOrder: next.projectOrder } : {}),
+        ...(next.projectNames && Object.keys(next.projectNames).length > 0 ? { projectNames: next.projectNames } : {}),
         ...extras,
       };
       writePrivateFileAtomicSync(path, JSON.stringify(document, null, 2) + "\n");

@@ -1,6 +1,6 @@
 // The sidebar's own UI state for sessions and projects: which session families
-// are pinned or archived, which projects are pinned, and the order of the
-// project groups. It is pi-web's state,
+// are pinned or archived, which projects are pinned, the order of the project
+// groups and the names the user gave projects. It is pi-web's state,
 // never written into a session's `.jsonl`, so the pi CLI does not see it. The
 // server keeps it in `pi-web-session-state.json` in the agent dir
 // (`lib/session-ui-state.ts`); this module holds the types and the pure rules
@@ -22,6 +22,12 @@ export const MAX_PROJECT_ORDER_KEYS = 1000;
  * it can no longer be read or written (pins and archive included).
  */
 export const PROJECT_ORDER_MAX_BYTES = 256 * 1024;
+/** Most characters (code points) a project's display name may have. */
+export const MAX_PROJECT_NAME_LENGTH = 80;
+/** Most display names `projectNames` holds. */
+export const MAX_PROJECT_NAMES = 1000;
+/** Most UTF-8 bytes `projectNames` takes as JSON: its keys are projectKeys, as long as the order's. */
+export const PROJECT_NAMES_MAX_BYTES = 256 * 1024;
 
 /** Epoch ms, keyed by the FAMILY ROOT session id. */
 export interface SessionUiFamilyState { pinnedAt?: number; archivedAt?: number }
@@ -40,6 +46,12 @@ export interface SessionUiState {
    * place. Absent while empty.
    */
   projectOrder?: string[];
+  /**
+   * Display names by projectKey, shown instead of the folder name (the group
+   * menu's Rename…). Only a label: the root, the key and the sessions stay as
+   * they are. Absent while empty.
+   */
+  projectNames?: Record<string, string>;
 }
 /** Where a moved project goes, next to its anchor. */
 export type ProjectMovePosition = "before" | "after";
@@ -59,12 +71,14 @@ export type SessionUiStateRequest =
    * `anchorKey`. `add` (the moved project's band's unsaved keys, top first) is
    * added first, so the move lands where the user saw it.
    */
-  | { action: "move-project"; projectKey: string; anchorKey: string; position: ProjectMovePosition; add: string[] };
+  | { action: "move-project"; projectKey: string; anchorKey: string; position: ProjectMovePosition; add: string[] }
+  /** A project's display name; null (or an empty name) removes it, and the folder name shows again. */
+  | { action: "rename-project"; projectKey: string; name: string | null };
 
 export interface SessionUiStateResponse { state: SessionUiState }
 
-/** Why `POST /api/sessions/ui-state` refused; `error` is English diagnostic text. */
-export type SessionUiStateRefusalReason = "request-denied" | "content-type" | "invalid-request" | "locked" | "internal";
+/** Why `POST /api/sessions/ui-state` refused; `error` is English diagnostic text. "full": no room for another project name. */
+export type SessionUiStateRefusalReason = "request-denied" | "content-type" | "invalid-request" | "full" | "locked" | "internal";
 export interface SessionUiStateErrorResponse { error: string; reason: SessionUiStateRefusalReason }
 
 const hasOwn = (record: object, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
@@ -88,6 +102,31 @@ function isProjectString(value: unknown): value is string {
     && value.length > 0
     && value.length <= MAX_PROJECT_STRING_LENGTH
     && value !== "__proto__";
+}
+
+// C0 and C1 controls (tab and line breaks among them) and the Unicode line
+// and paragraph separators: a display name is one line of text.
+const NOT_ONE_LINE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+/**
+ * A project display name as it is stored: trimmed, one line, at most
+ * MAX_PROJECT_NAME_LENGTH characters. Null for none (null, or nothing but
+ * spaces): the folder name shows. Undefined when `value` is no name, which a
+ * request is refused for and the file drops.
+ */
+export function projectDisplayName(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  const name = value.trim();
+  if (!name) return null;
+  if (NOT_ONE_LINE.test(name) || [...name].length > MAX_PROJECT_NAME_LENGTH) return undefined;
+  return name;
+}
+
+/** The display name `state` holds for `projectKey`, if any. */
+export function storedProjectName(state: SessionUiState, projectKey: string): string | undefined {
+  const names = state.projectNames;
+  return names && hasOwn(names, projectKey) ? names[projectKey] : undefined;
 }
 
 const utf8 = new TextEncoder();
@@ -120,6 +159,22 @@ function fitProjectOrder(keys: readonly string[]): string[] {
     bytes += size;
   }
   return kept;
+}
+
+/** What one name adds to `projectNames` as JSON: the quoted key, its colon, the quoted name and a comma. */
+function nameEntryBytes(key: string, name: string): number {
+  return utf8.encode(JSON.stringify(key)).length + utf8.encode(JSON.stringify(name)).length + 2;
+}
+
+/** `projectNames` as JSON: its braces and entries, one comma fewer than entries. */
+function namesBytes(names: Record<string, string>): number {
+  let bytes = 1;
+  for (const [key, name] of Object.entries(names)) bytes += nameEntryBytes(key, name);
+  return bytes;
+}
+
+function namesFit(count: number, bytes: number): boolean {
+  return count <= MAX_PROJECT_NAMES && bytes <= PROJECT_NAMES_MAX_BYTES;
 }
 
 export function emptySessionUiState(): SessionUiState {
@@ -171,6 +226,23 @@ export function normalizeSessionUiState(value: unknown): SessionUiState | null {
     const order = fitProjectOrder(keys);
     if (order.length > 0) state.projectOrder = order;
   }
+  // Like the order: anything but an object reads as no names, and the first
+  // ones that fit both limits are kept.
+  if (isPlainObject(value.projectNames)) {
+    const names: Record<string, string> = {};
+    let count = 0;
+    let bytes = 1;
+    for (const [key, entry] of Object.entries(value.projectNames)) {
+      const name = projectDisplayName(entry);
+      if (!isProjectString(key) || typeof name !== "string") continue;
+      const size = nameEntryBytes(key, name);
+      if (!namesFit(count + 1, bytes + size)) continue;
+      names[key] = name;
+      count++;
+      bytes += size;
+    }
+    if (count > 0) state.projectNames = names;
+  }
   return state;
 }
 
@@ -218,7 +290,7 @@ function parseProjectKeys(value: unknown, name: string, allowEmpty: boolean): { 
   return { ok: true, keys };
 }
 
-/** Validates an untrusted body. ids: non-empty, unique after dedupe, each matches SESSION_ID_PATTERN, at most MAX_SESSION_UI_IDS_PER_REQUEST. projectKey/root/anchorKey and every key of keys/add: non-empty strings <= 4096 chars, at most MAX_SESSION_UI_IDS_PER_REQUEST of them. */
+/** Validates an untrusted body. ids: non-empty, unique after dedupe, each matches SESSION_ID_PATTERN, at most MAX_SESSION_UI_IDS_PER_REQUEST. projectKey/root/anchorKey and every key of keys/add: non-empty strings <= 4096 chars, at most MAX_SESSION_UI_IDS_PER_REQUEST of them. name: null or a string projectDisplayName() takes, stored as it returns it. */
 export function parseSessionUiStateRequest(body: unknown): ParseResult {
   if (!isPlainObject(body)) return { ok: false, error: "Expected a JSON object" };
   switch (body.action) {
@@ -284,8 +356,18 @@ export function parseSessionUiStateRequest(body: unknown): ParseResult {
       if (!add.ok) return add;
       return { ok: true, request: { action: "move-project", projectKey, anchorKey, position, add: add.keys } };
     }
+    case "rename-project": {
+      if (!isProjectString(body.projectKey)) {
+        return { ok: false, error: `projectKey must be a non-empty string of at most ${MAX_PROJECT_STRING_LENGTH} characters` };
+      }
+      const name = projectDisplayName(body.name);
+      if (name === undefined) {
+        return { ok: false, error: `name must be null or one line of at most ${MAX_PROJECT_NAME_LENGTH} characters` };
+      }
+      return { ok: true, request: { action: "rename-project", projectKey: body.projectKey, name } };
+    }
     default:
-      return { ok: false, error: "action must be \"set\", \"restore\", \"pin-project\", \"add-projects\" or \"move-project\"" };
+      return { ok: false, error: "action must be \"set\", \"restore\", \"pin-project\", \"add-projects\", \"move-project\" or \"rename-project\"" };
   }
 }
 
@@ -341,6 +423,7 @@ function copyState(state: SessionUiState): SessionUiState {
   const copy: SessionUiState = { ...state, sessions, projects };
   // Only when present: an explicit undefined would not equal an absent field.
   if (state.projectOrder) copy.projectOrder = [...state.projectOrder];
+  if (state.projectNames) copy.projectNames = { ...state.projectNames };
   return copy;
 }
 
@@ -353,6 +436,26 @@ function writeProjectOrder(state: SessionUiState, order: string[]): boolean {
   if (sameOrder(state.projectOrder ?? [], order)) return false;
   if (order.length === 0) delete state.projectOrder;
   else state.projectOrder = order;
+  return true;
+}
+
+/**
+ * Stores `name` for `key` (null removes it; no names left removes the field)
+ * and says whether that changed anything. A name that would take the names
+ * past either limit is not stored: no other project's name is pushed out.
+ */
+function writeProjectName(state: SessionUiState, key: string, name: string | null): boolean {
+  const names = { ...state.projectNames };
+  const previous = hasOwn(names, key) ? names[key] : undefined;
+  if (previous === (name ?? undefined)) return false;
+  if (name === null) {
+    delete names[key];
+  } else {
+    names[key] = name;
+    if (!namesFit(Object.keys(names).length, namesBytes(names))) return false;
+  }
+  if (Object.keys(names).length === 0) delete state.projectNames;
+  else state.projectNames = names;
   return true;
 }
 
@@ -502,6 +605,13 @@ export function applySessionUiStateRequest(
       const moved = withProjectMoved([...missingProjectKeys(order, add), ...order], projectKey, anchorKey, position);
       const named = new Set([projectKey, anchorKey, ...add]);
       if (writeProjectOrder(next, capProjectOrder(moved, named))) changed = true;
+      break;
+    }
+    case "rename-project": {
+      // A parsed request's name is clean already; the client's optimistic
+      // copy goes through the same rule, so a name the server refuses changes nothing.
+      const name = projectDisplayName(request.name);
+      if (name !== undefined && writeProjectName(next, request.projectKey, name)) changed = true;
       break;
     }
   }
