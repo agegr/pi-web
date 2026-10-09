@@ -1987,7 +1987,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
       for (const discoveredModel of discovered) {
         if (existingIds.has(discoveredModel.id)) continue;
         existingIds.add(discoveredModel.id);
-        models.push({ id: discoveredModel.id, name: discoveredModel.name });
+        // Keeps the capabilities the upstream published (#856).
+        models.push({ ...discoveredModel });
       }
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
