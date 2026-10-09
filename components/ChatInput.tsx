@@ -331,6 +331,18 @@ export function submitsSlashCommandOnEnter(message: string, command: SlashComman
   return isBuiltinMcpCommand(command) && isBareMcpCommand(message);
 }
 
+export const RUN_END_CLICK_GUARD_MS = 600;
+
+/**
+ * When a run ends, Compact (and the tools button) take the place Stop held in
+ * the controls row, so the second click of a double click on Stop, or a click
+ * aimed at Stop just as the run ends, lands on them. Such a pointer click is
+ * ignored; a keyboard one (Enter/Space, `detail` 0) never is.
+ */
+export function isRunEndStrayClick(detail: number, msSinceRunEnd: number): boolean {
+  return detail > 0 && msSinceRunEnd < RUN_END_CLICK_GUARD_MS;
+}
+
 export function canClearBuiltinCommandInput(message: string, imageCount: number, submittedMessage: string): boolean {
   return imageCount === 0 && message.trim() === submittedMessage;
 }
@@ -658,7 +670,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
-  const [queueMenuOpen, setQueueMenuOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
@@ -692,7 +703,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
-  const queueMenuRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1661,9 +1671,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
       }
-      if (queueMenuRef.current && !queueMenuRef.current.contains(e.target as Node)) {
-        setQueueMenuOpen(false);
-      }
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
       }
@@ -1680,10 +1687,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setToolDropdownOpen(false);
   }, [isStreaming]);
 
-  // The delivery-timing menu only speaks about a run in flight.
-  useEffect(() => {
-    if (!isStreaming) setQueueMenuOpen(false);
+  // Set in the commit that swaps Stop for Compact, before any click can reach it.
+  const runEndedAtRef = useRef(Number.NEGATIVE_INFINITY);
+  useLayoutEffect(() => {
+    if (!isStreaming) return;
+    return () => { runEndedAtRef.current = performance.now(); };
   }, [isStreaming]);
+  const isStrayClick = (e: React.MouseEvent) => isRunEndStrayClick(e.detail, performance.now() - runEndedAtRef.current);
 
   useEffect(() => {
     if (!isMobile) setControlsMenuOpen(false);
@@ -2297,177 +2307,54 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-              {(onSteer || onFollowUp) && (() => {
-                // One delivery-timing control, so Stop owns the slot at its right.
-                const primaryMode: "steer" | "followup" = onSteer ? "steer" : "followup";
-                const timingRows = [
-                  {
-                    mode: "steer" as const,
-                    label: t("chat.steer"),
-                    when: t("chat.steerWhen"),
-                    hint: t("chat.steerHint"),
-                    keys: "Enter",
-                    ariaKeys: "Enter",
-                    tint: "rgba(180,130,0,1)",
-                  },
-                  {
-                    mode: "followup" as const,
-                    label: t("chat.followUp"),
-                    when: t("chat.followUpWhen"),
-                    hint: `${t("chat.followUpHint")} (${isMobile ? "Ctrl/Cmd+" : ""}Alt/Option+Enter)`,
-                    keys: isMobile ? "Ctrl/Cmd+Alt+Enter" : "Alt+Enter",
-                    ariaKeys: isMobile ? "Control+Alt+Enter Meta+Alt+Enter" : "Alt+Enter",
-                    tint: "rgba(99,102,241,1)",
-                  },
-                ];
-                const primary = primaryMode === "steer" ? timingRows[0] : timingRows[1];
-                const showTimingMenu = Boolean(onSteer && onFollowUp);
-                const timingColor = canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)";
-                return (
-                  <div
-                    ref={queueMenuRef}
-                    style={{
-                      position: "relative",
-                      display: "flex", alignItems: "center",
-                      height: isMobile ? 36 : 32,
-                      borderRadius: 8,
-                      border: `1px solid ${canQueueStreamingMessage ? "rgba(234,179,8,0.35)" : "var(--border)"}`,
-                      background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
-                    }}
-                  >
-                    <button
-                      onClick={() => sendQueued(primary.mode)}
-                      disabled={!canQueueStreamingMessage}
-                      title={primary.hint}
-                      aria-keyshortcuts={primary.ariaKeys}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                        height: "100%",
-                        padding: isMobile ? "0 8px" : "0 12px",
-                        background: "none", border: "none",
-                        borderRadius: showTimingMenu ? "8px 0 0 8px" : 8,
-                        color: timingColor,
-                        cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                        fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                        whiteSpace: "nowrap",
-                        transition: "background 0.12s",
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(234,179,8,0.10)"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
-                    >
-                      {primary.mode === "steer" ? (
-                        <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
-                        </svg>
-                      ) : (
-                        <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
-                          <line x1="2" y1="9" x2="8" y2="9" />
-                        </svg>
-                      )}
-                      {primary.label}
-                    </button>
-                    {showTimingMenu && (
-                      <>
-                        <span aria-hidden="true" style={{ width: 1, height: 16, background: canQueueStreamingMessage ? "rgba(234,179,8,0.28)" : "var(--border)" }} />
-                        <button
-                          onClick={() => setQueueMenuOpen((v) => !v)}
-                          title={t("chat.deliverTiming")}
-                          aria-label={t("chat.deliverTiming")}
-                          aria-haspopup="menu"
-                          aria-expanded={queueMenuOpen}
-                          style={{
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            height: "100%", padding: "0 7px",
-                            background: queueMenuOpen ? "rgba(234,179,8,0.10)" : "none",
-                            border: "none",
-                            borderRadius: "0 8px 8px 0",
-                            color: timingColor,
-                            cursor: "pointer",
-                            transition: "background 0.12s",
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(234,179,8,0.10)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = queueMenuOpen ? "rgba(234,179,8,0.10)" : "none"; }}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points={queueMenuOpen ? "18 15 12 9 6 15" : "6 9 12 15 18 9"} />
-                          </svg>
-                        </button>
-                      </>
-                    )}
-                    {showTimingMenu && queueMenuOpen && (
-                      <div
-                        role="menu"
-                        aria-label={t("chat.deliverTiming")}
-                        style={{
-                          position: "absolute",
-                          bottom: "calc(100% + 6px)",
-                          right: isMobile ? undefined : 0,
-                          left: isMobile ? 0 : undefined,
-                          zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
-                          borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
-                          overflow: "hidden", minWidth: 250,
-                        }}
-                      >
-                        {timingRows.map((row) => {
-                          const isPrimary = row.mode === primary.mode;
-                          return (
-                            <button
-                              key={row.mode}
-                              role="menuitem"
-                              onClick={() => { setQueueMenuOpen(false); sendQueued(row.mode); }}
-                              disabled={!canQueueStreamingMessage}
-                              title={row.hint}
-                              aria-keyshortcuts={row.ariaKeys}
-                              style={{
-                                display: "flex", alignItems: "center", gap: 8,
-                                width: "100%", padding: "7px 12px",
-                                background: isPrimary ? "var(--bg-selected)" : "none",
-                                border: "none",
-                                color: canQueueStreamingMessage ? "var(--text)" : "var(--text-dim)",
-                                cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                                fontSize: 12, textAlign: "left",
-                                fontWeight: isPrimary ? 600 : 400,
-                                whiteSpace: "nowrap",
-                              }}
-                              onMouseEnter={(e) => { if (!isPrimary && canQueueStreamingMessage) e.currentTarget.style.background = "var(--bg-hover)"; }}
-                              onMouseLeave={(e) => { if (!isPrimary) e.currentTarget.style.background = "none"; }}
-                            >
-                              <span style={{ width: 3, alignSelf: "stretch", flexShrink: 0, borderRadius: 2, background: row.tint, opacity: canQueueStreamingMessage ? 1 : 0.4 }} />
-                              <span>{row.label}</span>
-                              <span style={{ flex: 1, fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>{row.when}</span>
-                              <span style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{row.keys}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              <button
-                onClick={onAbort}
-                title={t("chat.stopAgent")}
-                aria-label={t("chat.stopAgent")}
-                style={{
-                  flexShrink: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: isMobile ? 36 : 32, height: isMobile ? 36 : 32, padding: 0,
-                  background: "rgba(239,68,68,0.10)",
-                  border: "1px solid rgba(239,68,68,0.34)",
-                  borderRadius: 8,
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  transition: "background 0.12s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.18)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.10)"; }}
-              >
-                <svg width="11" height="11" viewBox="0 0 10 10" fill="none">
-                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                </svg>
-              </button>
+              {onSteer && (
+                <button
+                  onClick={() => sendQueued("steer")}
+                  disabled={!canQueueStreamingMessage}
+                  title={t("chat.steerHint")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "7px 12px",
+                    background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
+                    border: "1px solid rgba(234,179,8,0.35)",
+                    borderRadius: 8,
+                    color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
+                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
+                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
+                  </svg>
+                  {t("chat.steer")}
+                </button>
+              )}
+              {onFollowUp && (
+                <button
+                  onClick={() => sendQueued("followup")}
+                  disabled={!canQueueStreamingMessage}
+                  title={`${t("chat.followUpHint")} (${isMobile ? "Ctrl/Cmd+" : ""}Alt/Option+Enter)`}
+                  aria-keyshortcuts={isMobile ? "Control+Alt+Enter Meta+Alt+Enter" : "Alt+Enter"}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "7px 12px",
+                    background: canQueueStreamingMessage ? "rgba(129,140,248,0.12)" : "none",
+                    border: "1px solid rgba(129,140,248,0.35)",
+                    borderRadius: 8,
+                    color: canQueueStreamingMessage ? "rgba(99,102,241,1)" : "var(--text-dim)",
+                    cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
+                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
+                    <line x1="2" y1="9" x2="8" y2="9" />
+                  </svg>
+                  {t("chat.followUp")}
+                </button>
+              )}
             </div>
           ) : (
             <button
@@ -2567,7 +2454,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {/* spacer */}
           {!isMobile && <div style={{ flex: 1 }} />}
 
-          {/* RIGHT: thinking + tools preset + compact + sound, in the same slots idle and streaming */}
+          {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
           <div ref={controlsMenuRef} style={{
             flex: "0 0 auto",
             display: "flex",
@@ -2734,12 +2621,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 )}
               </div>
             )}
-            {onToolPresetChange && (
-              <div ref={toolDropdownRef} style={{ position: "relative" }} title={isStreaming ? t("chat.busyWhileRunning") : undefined}>
+            {!isStreaming && onToolPresetChange && (
+              <div ref={toolDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
+                  onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
                   disabled={isStreaming}
-                  title={isStreaming ? undefined : t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
+                  title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
                   aria-label={t("chat.changeToolPreset")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -2819,54 +2706,72 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               </div>
             )}
 
-            {onCompact && (() => {
-              // The run owns this slot's space while it streams: keeping the button
-              // here and inert is what stops a Stop click from reaching compaction.
-              const compactBlocked = isStreaming && !isCompacting;
-              return (
-                <div title={compactBlocked ? t("chat.busyWhileRunning") : undefined}>
-                  <button
-                    onClick={isCompacting ? onAbortCompaction : onCompact}
-                    disabled={compactBlocked}
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                      padding: isMobile ? "0 6px" : "8px 12px",
-                      width: isMobile ? "auto" : undefined,
-                      height: 32,
-                      background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
-                      border: "none",
-                      borderRadius: 9,
-                      color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                      cursor: compactBlocked ? "not-allowed" : "pointer",
-                      fontSize: 12,
-                      opacity: compactBlocked ? 0.45 : 1,
-                      transition: "background 0.12s, color 0.12s",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (compactBlocked) return;
-                      e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
-                      e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (compactBlocked) return;
-                      e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
-                      e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
-                    }}
-                    title={isCompacting ? t("chat.stopCompaction") : compactBlocked ? undefined : t("chat.compactContext")}
-                    aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
-                  >
-                    {isCompacting ? (
-                      <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
-                    ) : (
-                      <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
-                        <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                      </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span>}</>
-                    )}
-                  </button>
-                </div>
-              );
-            })()}
+            {(!isStreaming || isCompacting) && onCompact && (
+              <div>
+                <button
+                  onClick={isCompacting ? onAbortCompaction : (e) => { if (!isStrayClick(e)) onCompact(); }}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                    padding: isMobile ? "0 6px" : "8px 12px",
+                    width: isMobile ? "auto" : undefined,
+                    height: 32,
+                    background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
+                    border: "none",
+                    borderRadius: 9,
+                    color: isCompacting ? "#ef4444" : "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    transition: "background 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
+                    e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
+                  }}
+                   title={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+                   aria-label={isCompacting ? t("chat.stopCompaction") : t("chat.compactContext")}
+                >
+                  {isCompacting ? (
+                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compacting")}</span>}</>
+                  ) : (
+                    <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
+                      <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
+                    </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chat.compact")}</span>}</>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {isStreaming && (
+              <button
+                onClick={onAbort}
+                 title={t("chat.stopAgent")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 14px",
+                  height: 32,
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: 9,
+                  color: "#ef4444",
+                  cursor: "pointer",
+                  fontSize: 12, fontWeight: 600,
+                  whiteSpace: "nowrap", letterSpacing: "-0.01em",
+                  transition: "background 0.12s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.16)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
+                </svg>
+                 {t("chat.stop")}
+              </button>
+            )}
 
             {onSoundToggle !== undefined && (
               <button

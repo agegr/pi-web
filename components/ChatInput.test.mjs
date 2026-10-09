@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command.ts");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
@@ -267,73 +267,32 @@ test("cycleListIndex wraps in both directions", () => {
   assert.equal(cycleListIndex(-1, 4, 1), 0);
 });
 
-test("names the follow-up timing and shortcut when it is the only delivery choice", () => {
+test("shows the follow-up shortcut in the button tooltip", () => {
   const html = renderToStaticMarkup(
     React.createElement(I18nProvider, null, React.createElement(ChatInput, {
       onSend() {}, onAbort() {}, onFollowUp() {}, isStreaming: true,
     })),
   );
 
-  assert.match(html, /title="Delivered only once the agent has no tool calls left and would otherwise stop, so the current task finishes untouched \(Alt\/Option\+Enter\)"/);
+  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
 });
 
-test("shows one delivery button and folds the other timing behind its menu", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
-      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, isStreaming: true,
-    })),
-  );
+test("ignores a pointer click that reaches Stop's slot just as the run ends", () => {
+  assert.equal(isRunEndStrayClick(1, 0), true);
+  assert.equal(isRunEndStrayClick(2, RUN_END_CLICK_GUARD_MS - 1), true);
+  assert.equal(isRunEndStrayClick(1, RUN_END_CLICK_GUARD_MS), false);
+  assert.equal(isRunEndStrayClick(1, Number.POSITIVE_INFINITY), false, "no run has ended yet");
+  assert.equal(isRunEndStrayClick(0, 0), false, "Enter/Space on a focused button is never a stray click");
+  assert.ok(RUN_END_CLICK_GUARD_MS <= 700, "a deliberate click after a run must not wait noticeably");
 
-  // Enter's behavior is the primary action; the closed menu holds one label.
-  assert.match(html, /aria-keyshortcuts="Enter"/);
-  assert.match(html, /aria-haspopup="menu"/);
-  assert.equal((html.match(/>Steer<\/button>/g) ?? []).length, 1);
-  assert.doesNotMatch(html, /Follow-up/);
-
+  // Stop and Compact share the spot left of the sound toggle, so a double click on Stop
+  // put its second click on Compact once the run ended (#1131).
   const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-  const rows = source.slice(source.indexOf("const timingRows = ["), source.indexOf("const primary = primaryMode"));
-  assert.match(rows, /hint: t\("chat\.steerHint"\)/);
-  assert.match(rows, /hint: `\$\{t\("chat\.followUpHint"\)\} \(\$\{isMobile \? "Ctrl\/Cmd\+" : ""\}Alt\/Option\+Enter\)`,/);
-  const menu = source.slice(source.indexOf('role="menu"'));
-  assert.match(menu, /title=\{row\.hint\}/);
-  assert.match(menu, /aria-keyshortcuts=\{row\.ariaKeys\}/);
-});
-
-test("keeps Stop out of the controls row so a second click cannot reach compaction", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
-      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {},
-      onCompact() {}, onToolPresetChange() {}, onThinkingLevelChange() {},
-      isStreaming: true,
-    })),
-  );
-
-  const stop = html.indexOf('aria-label="Stop agent"');
-  assert.notEqual(stop, -1);
-  assert.ok(stop < html.indexOf("chat-input-controls"), "Stop sits in the composer row, clear of the controls bar");
-
-  // Context controls keep their coordinates and go inert instead of leaving a slot
-  // for compaction to appear under the pointer that just pressed Stop.
-  for (const label of ["Compact context", "Change tool preset"]) {
-    const at = html.indexOf(`aria-label="${label}"`);
-    assert.notEqual(at, -1, `${label} stays rendered`);
-    const tag = html.slice(html.lastIndexOf("<button", at), at);
-    assert.match(tag, /disabled=""/);
-    assert.doesNotMatch(tag, /title=/);
-    assert.match(html.slice(html.lastIndexOf("<div", html.lastIndexOf("<button", at))), /title="Available when this run finishes"/);
-  }
-});
-
-test("returns the context controls once the run settles", () => {
-  const html = renderToStaticMarkup(
-    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
-      onSend() {}, onAbort() {}, onCompact() {}, isStreaming: false,
-    })),
-  );
-
-  assert.match(html, /title="Compact context"/);
-  assert.doesNotMatch(html, /aria-label="Stop agent"/);
+  assert.match(source, /useLayoutEffect\(\(\) => \{\s*if \(!isStreaming\) return;\s*return \(\) => \{ runEndedAtRef\.current = performance\.now\(\); \};\s*\}, \[isStreaming\]\);/);
+  assert.match(source, /onClick=\{isCompacting \? onAbortCompaction : \(e\) => \{ if \(!isStrayClick\(e\)\) onCompact\(\); \}\}/);
+  assert.match(source, /onClick=\{\(e\) => \{ if \(!isStreaming && !isStrayClick\(e\)\) setToolDropdownOpen\(\(v\) => !v\); \}\}/);
+  assert.match(source, /onClick=\{onAbort\}/, "Stop itself is never delayed");
 });
 
 test("renders the upstream model error", () => {
