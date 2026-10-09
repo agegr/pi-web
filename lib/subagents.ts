@@ -72,6 +72,8 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  /** Extensions load without `ext:` selectors: every tool they register is admitted (#883). */
+  allExtensionTools?: true;
   exactSystemPrompt?: string;
 }
 
@@ -82,6 +84,7 @@ export interface SubagentSessionResources {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  allExtensionTools?: true;
   exactSystemPrompt?: string;
 }
 
@@ -625,6 +628,7 @@ export function readSubagentSessionResources(
       tools: [...new Set(snapshot.tools)],
       loadSkills,
       loadExtensions,
+      ...(loadExtensions && snapshot.allExtensionTools === true ? { allExtensionTools: true as const } : {}),
       ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
     };
   }
@@ -639,6 +643,29 @@ export function withSubagentExtensionTools(
     ...profileTools,
     ...[...extensionToolNames].filter((name) => !SUBAGENT_CONTROL_TOOLS.has(name)),
   ])];
+}
+
+/** Every tool the SDK builds in (its `allToolNames`, which the package does not export). */
+const SDK_BUILTIN_TOOLS = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+
+/**
+ * The SDK tool options of a child, shared by spawn and reopen. A `tools` allowlist is fixed when
+ * the session is created, so it admits only tools registered by then: one an extension registers
+ * at `session_start` or later would never be callable (#883). A child that loads extensions
+ * without `ext:` selectors therefore gets no allowlist: its built-ins are added to none
+ * (`noTools: "builtin"`) and the rest excluded, so no extension can switch them on. `ext:`
+ * selectors keep the allowlist, since the SDK admits tools by name, not by source.
+ */
+export function subagentToolOptions(resources: { tools: readonly string[]; allExtensionTools?: boolean }) {
+  const excludeTools: string[] = [...SUBAGENT_CONTROL_TOOL_NAMES];
+  if (!resources.allExtensionTools) return { tools: [...resources.tools], excludeTools };
+  const builtins = resources.tools.filter((name) => SDK_BUILTIN_TOOLS.includes(name));
+  return {
+    noTools: "builtin" as const,
+    // Only `+name` entries: they add to the default selection instead of forming an allowlist.
+    ...(builtins.length > 0 ? { tools: builtins.map((name) => `+${name}`) } : {}),
+    excludeTools: [...excludeTools, ...SDK_BUILTIN_TOOLS.filter((name) => !builtins.includes(name))],
+  };
 }
 
 interface SubagentExtensionLike {

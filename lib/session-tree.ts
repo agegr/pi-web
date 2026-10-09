@@ -18,7 +18,7 @@
  */
 
 import { listSessionFamilies, type SessionFamily } from "./session-family";
-import type { ProjectMovePosition, SessionUiFamilyState, SessionUiState } from "./session-ui-state-shared";
+import { storedProjectName, type ProjectMovePosition, type SessionUiFamilyState, type SessionUiState } from "./session-ui-state-shared";
 import type { SessionInfo } from "./types";
 import { workspaceKeyOf } from "./workspace-memory";
 
@@ -38,7 +38,11 @@ export const SHOW_MORE_STEP = 20;
 /** `moreShown` entry for the pinned section's "show more". */
 export const PINNED_MORE_KEY = "pinned";
 
-export interface SidebarProject { key: string; root: string; name: string; pinned: boolean; current: boolean }
+/**
+ * `name` is what the sidebar shows: the user's display name for the project
+ * (`customName`, from its group menu's Rename…), else its folder's name.
+ */
+export interface SidebarProject { key: string; root: string; name: string; customName: string | null; pinned: boolean; current: boolean }
 export interface SidebarFamilyStatus { running: boolean; unread: boolean; selected: boolean; transient: boolean }
 
 export type SidebarRow =
@@ -224,10 +228,12 @@ function createProjectResolver(
         ?? (current ? currentProject.root : undefined)
         ?? pinnedEntry?.root
         ?? key;
+      const customName = storedProjectName(uiState, key) ?? null;
       const project: SidebarProject = {
         key,
         root,
-        name: projectNameOf(root),
+        name: customName ?? projectNameOf(root),
+        customName,
         pinned: pinnedEntry !== undefined,
         current,
       };
