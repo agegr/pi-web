@@ -55,15 +55,28 @@ function removeRunRecord(dir, port, pid) {
   }
 }
 
-// Live records sorted by port; records of dead or unreadable launchers are deleted.
-function listRunRecords(dir, isAlive = isProcessAlive) {
+// Any HTTP answer counts (a password-protected server answers 401).
+async function isServerAnswering(url, fetchImpl = fetch) {
+  try {
+    await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(2_000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Running servers sorted by port. A record whose launcher is dead or that cannot
+// be read is deleted. One whose pid is alive but whose URL does not answer is
+// skipped, not deleted: after a crash or a reboot that pid may now belong to an
+// unrelated process, which stop must never signal.
+async function listRunRecords(dir, { isAlive = isProcessAlive, isAnswering = isServerAnswering } = {}) {
   let names;
   try {
     names = fs.readdirSync(dir);
   } catch {
     return [];
   }
-  const records = [];
+  const candidates = [];
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
     const file = path.join(dir, name);
@@ -74,12 +87,13 @@ function listRunRecords(dir, isAlive = isProcessAlive) {
       record = null;
     }
     if (record && Number.isSafeInteger(record.pid) && record.pid > 0 && isAlive(record.pid)) {
-      records.push(record);
+      candidates.push(record);
     } else {
       fs.rmSync(file, { force: true });
     }
   }
-  return records.sort((a, b) => a.port - b.port);
+  const answering = await Promise.all(candidates.map((record) => isAnswering(record.url)));
+  return candidates.filter((_, index) => answering[index]).sort((a, b) => a.port - b.port);
 }
 
 // The --port rule shared by stop and open.
@@ -127,6 +141,7 @@ module.exports = {
   getOpenUrl,
   getRunDir,
   isProcessAlive,
+  isServerAnswering,
   listRunRecords,
   removeRunRecord,
   selectRunRecord,

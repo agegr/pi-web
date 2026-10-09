@@ -1,6 +1,8 @@
 "use strict";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { spawnSync } = require("child_process");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { openInBrowser } = require("./browser-opener");
@@ -19,8 +21,16 @@ function getPackageVersion(pkgDir = path.join(__dirname, "..")) {
   return require(path.join(pkgDir, "package.json")).version;
 }
 
+function killWindowsProcessTree(pid) {
+  const result = spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { encoding: "utf8" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `taskkill exited ${result.status}`).trim());
+}
+
 async function stopServer(record, {
   kill = process.kill,
+  killTree = killWindowsProcessTree,
+  platform = process.platform,
   isAlive = records.isProcessAlive,
   wait = sleep,
   timeoutMs = STOP_TIMEOUT_MS,
@@ -28,9 +38,11 @@ async function stopServer(record, {
   error = console.error,
 } = {}) {
   try {
-    // The launcher forwards SIGTERM to Next.js and exits after it. On Windows
-    // process.kill() terminates the launcher outright instead; acceptable.
-    kill(record.pid, "SIGTERM");
+    // The launcher forwards SIGTERM to Next.js and exits after it. Windows has
+    // no SIGTERM: process.kill() would end the launcher alone and leave Next.js
+    // serving the port, so end the whole process tree there.
+    if (platform === "win32") killTree(record.pid);
+    else kill(record.pid, "SIGTERM");
   } catch (killError) {
     if (killError.code !== "ESRCH") {
       error(`Could not stop pi-web (pid ${record.pid}): ${killError.message}`);
@@ -52,16 +64,17 @@ async function runCommand(options, {
   runDir = records.getRunDir(),
   pkgDir = path.join(__dirname, ".."),
   open = openInBrowser,
+  isAnswering = records.isServerAnswering,
   log = console.log,
   error = console.error,
 } = {}) {
-  const list = () => records.listRunRecords(runDir);
+  const list = () => records.listRunRecords(runDir, { isAnswering });
   switch (options.command) {
     case "version":
       log(getPackageVersion(pkgDir));
       return 0;
     case "status": {
-      const running = list();
+      const running = await list();
       log(running.length === 0
         ? "No pi-web server is running."
         : `Running pi-web servers:\n${running.map(records.formatRunRecord).join("\n")}`);
@@ -69,7 +82,7 @@ async function runCommand(options, {
     }
     case "stop":
     case "open": {
-      const selected = records.selectRunRecord(list(), options.port);
+      const selected = records.selectRunRecord(await list(), options.port);
       if (!selected.record) {
         error(selected.error);
         return 1;

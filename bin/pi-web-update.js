@@ -121,7 +121,7 @@ async function runUpdate({
   if (check) return 0;
 
   // A running `next start` has .next/ open; never replace it underneath.
-  const running = listRecords();
+  const running = await listRecords();
   if (running.length > 0) {
     error(`pi-web is running:\n${running.map(formatRecord).join("\n")}\nRun \`pi-web stop\` first, then update.`);
     return 1;
