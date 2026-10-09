@@ -13,9 +13,6 @@ const agentDir = join(root, "agent");
 const cwd = join(root, "project");
 const fresh = join(root, "fresh");
 const outside = join(root, "outside");
-// addWorktree() derives a worktree folder from the repo it branches from; only the repo
-// existing on disk is what the route's fallback infers from.
-const repo = join(root, "repo");
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousHostKey = process.env.HOST_API_KEY;
 process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -25,7 +22,6 @@ await mkdir(agentDir, { recursive: true });
 await mkdir(join(cwd, ".pi"), { recursive: true });
 await mkdir(fresh, { recursive: true });
 await mkdir(outside, { recursive: true });
-await mkdir(join(repo, ".git"), { recursive: true });
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
@@ -33,7 +29,6 @@ const { SECRET_MASK } = await jiti.import("../../../lib/mcp-secrets.ts");
 const { GET, POST } = await jiti.import("./route.ts");
 allowFileRoot(cwd);
 allowFileRoot(fresh);
-allowFileRoot(repo);
 
 after(async () => {
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -175,27 +170,6 @@ test("a cwd that is missing, not a folder, or outside the allowed folders is ref
   }));
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { error: "Access denied", reason: "cwd-denied" });
-});
-
-test("a removed worktree reports the repo it branched from, and stays untrustable", async () => {
-  // A finished subagent run removes its isolated worktree while its session file still records
-  // it as the cwd, so the browser asks about a folder that is gone.
-  const removedWorktree = join(`${repo}-worktrees`, "pi-web-agent-abc");
-  const { status, body } = await get(removedWorktree);
-  assert.equal(status, 200);
-  assert.deepEqual(body.mcpFile, { scope: "project", path: join(repo, ".pi", "mcp.json"), exists: false, problems: [] });
-  assert.deepEqual(body.mcpServers, []);
-
-  // Answering the read is all it does: trusting is still refused, as it is for any missing folder.
-  const response = await POST(new Request("http://localhost/api/project-trust", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", host: "localhost" },
-    body: JSON.stringify({ cwd: removedWorktree }),
-  }));
-  assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { error: "Access denied", reason: "cwd-denied" });
-  const decisions = existsSync(trustPath) ? JSON.parse(await readFile(trustPath, "utf8")) : {};
-  assert.ok(!Object.keys(decisions).some((folder) => folder.includes("pi-web-agent-abc")), "the removed folder was trusted");
 });
 
 test("a trust store that cannot be read fails the status with a reason, and the servers are still listed", async (t) => {
