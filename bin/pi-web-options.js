@@ -29,10 +29,27 @@ function normalizePort(value) {
   return String(port);
 }
 
-function getHelpText() {
-  return `Usage: pi-web [options]
+// Subcommands and their own options. Matched only as the first argument, so a
+// bare `pi-web [options]` still starts the server.
+const COMMAND_OPTIONS = {
+  version: {},
+  status: {},
+  stop: { port: { type: "string", short: "p" } },
+  open: { port: { type: "string", short: "p" } },
+  update: { check: { type: "boolean" } },
+};
 
-Start the Pi Web UI server.
+function getHelpText() {
+  return `Usage: pi-web [command] [options]
+
+Start the Pi Web UI server, or run one of the commands below.
+
+Commands:
+  version                    Print the installed Pi Web version (also -v, --version)
+  status                     List running Pi Web servers
+  stop [--port <port>]       Stop a running server
+  open [--port <port>]       Open a running server in the browser
+  update [--check]           Update a global npm install to the latest version
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
@@ -53,6 +70,42 @@ Environment:
 `;
 }
 
+function toParseError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const err = new Error(`${message}\nUse --help to see available options.`);
+  err.code = "ERR_PARSE_ARGS_UNKNOWN_OPTION";
+  return err;
+}
+
+// Returns { command: "start", ...launch options } for a bare launch, or
+// { command, help, port?, check? } for a subcommand.
+function parseCommandLine(args = process.argv.slice(2), env = process.env) {
+  const first = args[0];
+  const command = first === "-v" || first === "--version" ? "version" : first;
+  if (!Object.hasOwn(COMMAND_OPTIONS, command)) {
+    return { command: "start", ...parseLaunchOptions(args, env) };
+  }
+
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args: args.slice(1),
+      options: { ...COMMAND_OPTIONS[command], help: { type: "boolean", short: "h" } },
+      strict: true,
+      allowPositionals: false,
+    }));
+  } catch (error) {
+    throw toParseError(error);
+  }
+  if (values.help) return { command, help: true };
+  return {
+    command,
+    help: false,
+    port: values.port === undefined ? undefined : normalizePort(values.port),
+    check: values.check === true,
+  };
+}
+
 function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   let values;
   let positionals;
@@ -64,10 +117,7 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
       allowPositionals: true,
     }));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const err = new Error(`${message}\nUse --help to see available options.`);
-    err.code = "ERR_PARSE_ARGS_UNKNOWN_OPTION";
-    throw err;
+    throw toParseError(error);
   }
 
   if (values.help) {
@@ -88,4 +138,4 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   };
 }
 
-module.exports = { parseLaunchOptions, getHelpText };
+module.exports = { parseCommandLine, parseLaunchOptions, getHelpText };

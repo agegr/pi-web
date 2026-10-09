@@ -36,7 +36,17 @@ npm install -g @agegr/pi-web@latest
 pi-web
 ```
 
-To update, stop the running process with `Ctrl+C` and run the same install command again. To uninstall, run `npm uninstall -g @agegr/pi-web`.
+Commands:
+
+```bash
+pi-web version          # print the installed version
+pi-web status           # list running servers
+pi-web stop [--port N]  # stop a running server
+pi-web open [--port N]  # open a running server in the browser
+pi-web update [--check] # update a global npm install
+```
+
+To update, run `pi-web stop`, then `pi-web update` (or run the same install command again). To uninstall, run `npm uninstall -g @agegr/pi-web`.
 
 ## Configuration
 

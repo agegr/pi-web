@@ -38,7 +38,17 @@ npm install -g @agegr/pi-web@latest
 pi-web
 ```
 
-更新前先用 `Ctrl+C` 停止正在运行的进程，再次执行同一条安装命令。卸载时运行 `npm uninstall -g @agegr/pi-web`。
+命令：
+
+```bash
+pi-web version          # 打印已安装的版本
+pi-web status           # 列出正在运行的服务
+pi-web stop [--port N]  # 停止正在运行的服务
+pi-web open [--port N]  # 在浏览器中打开正在运行的服务
+pi-web update [--check] # 更新全局 npm 安装
+```
+
+更新时先运行 `pi-web stop`，再运行 `pi-web update`（也可以再次执行同一条安装命令）。卸载时运行 `npm uninstall -g @agegr/pi-web`。
 
 ## 配置
 
