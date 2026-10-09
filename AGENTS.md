@@ -125,7 +125,7 @@ lib/
   default-cwd.ts            dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   worktree.ts               project/worktree resolution and git worktree operations
   draft-store.ts            local draft persistence
-  extension-ui-queue.ts      FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
+  extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
   markdown.ts               shared markdown helpers
   gfm-autolink-email-loader.cjs  bundler loader: remark-gfm's email regex without a lookbehind literal
   node-cli.ts               locate bundled npm-cli.js / npx-cli.js to spawn npm/npx without a shell (Windows)

@@ -56,7 +56,6 @@ function treeInput(overrides = {}) {
     sessions: [],
     uiState: { version: 1, revision: 0, sessions: {}, projects: {} },
     runningIds: new Set(),
-    awaitingIds: new Set(),
     unreadIds: new Set(),
     selectedSessionId: null,
     currentProject: null,

@@ -63,7 +63,7 @@ export interface SessionTreeInput {
   uiState: SessionUiState;
   runningIds: ReadonlySet<string>;
   /** Members parked on an extension's blocking dialog, a subset of runningIds (/api/agent/running). */
-  awaitingIds: ReadonlySet<string>;
+  awaitingIds?: ReadonlySet<string>;
   unreadIds: ReadonlySet<string>;
   selectedSessionId: string | null;
   /** projectFor(selectedCwd); shown as a group even without sessions. */
@@ -190,7 +190,7 @@ export function keepOutgoingGroupOpen(
 function familyStatus(family: SessionFamily, input: FamilyFlagsInput): SidebarFamilyStatus {
   return {
     running: anyMemberIn(family, input.runningIds),
-    awaiting: anyMemberIn(family, input.awaitingIds),
+    awaiting: input.awaitingIds ? anyMemberIn(family, input.awaitingIds) : false,
     unread: anyMemberIn(family, input.unreadIds),
     selected: isMember(family, input.selectedSessionId),
     transient: family.root.transient === true,
@@ -524,7 +524,7 @@ export function buildArchiveRows(
  * now - olderThanMs. Transient families have no file and are never archived.
  */
 export function familiesToArchive(
-  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "awaitingIds" | "unreadIds" | "selectedSessionId">,
+  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "unreadIds" | "selectedSessionId">,
   projectKey: string,
   olderThanMs: number,
   now: number,

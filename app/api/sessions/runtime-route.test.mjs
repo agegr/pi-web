@@ -323,7 +323,6 @@ test("live detail and state routes work without a persisted JSONL file", async (
   globalThis.__piSessions = new Map([[id, {
     isAlive: () => true,
     isRunning: () => true,
-    isAwaitingInput: () => false,
     inner: { sessionManager },
     sessionFile: sessionManager.getSessionFile(),
     sessionId: id,
@@ -380,7 +379,6 @@ test("session detail returns a gzip-compressed response when the client accepts 
   globalThis.__piSessions = new Map([[id, {
     isAlive: () => true,
     isRunning: () => false,
-    isAwaitingInput: () => false,
     inner: { sessionManager },
     sessionFile: sessionManager.getSessionFile(),
     sessionId: id,

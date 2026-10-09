@@ -441,7 +441,6 @@ test("renders the model built from a catalog with unique row keys", () => {
     sessions,
     uiState: { version: 1, revision: 0, sessions: { b: { pinnedAt: NOW } }, projects: {} },
     runningIds: new Set(["sub"]),
-    awaitingIds: new Set(),
     unreadIds: new Set(),
     selectedSessionId: "a",
     currentProject: { key: "/work/app", root: "/work/app" },

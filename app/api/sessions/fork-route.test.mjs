@@ -72,7 +72,6 @@ function fakeWrapper({ sessionFile, leafId, running, knownIds }) {
   return {
     isAlive: () => true,
     isRunning: () => running,
-    isAwaitingInput: () => false,
     sessionFile,
     inner: { sessionManager: { getLeafId: () => leafId, getEntry: (entryId) => (knownIds.includes(entryId) ? { id: entryId } : undefined) } },
   };
@@ -112,7 +111,6 @@ test("forks an idle session on disk without starting it, and the copy is a row o
     sessions: list.sessions,
     uiState: { version: 1, revision: 0, sessions: {}, projects: {} },
     runningIds: new Set(),
-    awaitingIds: new Set(),
     unreadIds: new Set(),
     selectedSessionId: body.sessionId,
     currentProject: { key: body.session.projectKey, root: body.session.projectRoot },
