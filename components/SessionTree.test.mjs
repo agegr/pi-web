@@ -302,6 +302,30 @@ test("rename mode swaps the row for a field seeded with the title", () => {
   assert.doesNotMatch(html, /session-tree-actions/);
 });
 
+test("a named project shows its name as plain text in its header, the path as the tooltip", () => {
+  const named = { name: "Thermal <b>Models</b>", customName: "Thermal <b>Models</b>" };
+  const raw = renderToStaticMarkup(h(I18nProvider, null, h(SessionTree, { ...defaults, rows: [groupRow({}, named)] })));
+  assert.match(raw, /title="\/work\/app"><span class="session-tree-group-name">Thermal &lt;b&gt;Models&lt;\/b&gt;<\/span>/);
+  assert.doesNotMatch(raw, /<b>/, "never markup");
+  const html = render({ rows: [groupRow({}, named)] });
+  assert.match(html, /aria-label="New session in Thermal <b>Models<\/b>"/);
+  assert.match(html, /aria-label="Thermal <b>Models<\/b> actions"/);
+});
+
+test("a project's rename swaps its header for a name field seeded with the name shown", () => {
+  const html = rowMarkup(render({ rows: [groupRow({}, { name: "Thermal Models", customName: "Thermal Models" })], renamingProjectKey: "/work/app" }), "group:/work/app");
+  assert.match(html, /^<div class="session-tree-row session-tree-group is-current is-renaming" style="top:0;height:28px" data-row-key="group:\/work\/app">/);
+  assert.match(html, /<input class="session-tree-rename" aria-label="Project name" maxLength="80" value="Thermal Models"\/>/);
+  assert.doesNotMatch(html, /session-tree-group-toggle|session-tree-group-actions/);
+  // Another group, or none being renamed: the header as usual.
+  assert.match(rowMarkup(render({ rows: [groupRow()], renamingProjectKey: "/elsewhere" }), "group:/work/app"), /session-tree-group-toggle/);
+  // Enter saves, Escape cancels, a blur saves: the session row's own field. Kept mounted while scrolled away.
+  const group = source.slice(source.indexOf("const GroupRowView = memo("), source.indexOf("/** The rows with at most one control"));
+  assert.match(group, /<RenameInput\s*initialValue=\{project\.name\}\s*label=\{t\("sidebar\.projectName"\)\}\s*maxLength=\{MAX_PROJECT_NAME_LENGTH\}\s*onCommit=\{\(value\) => handlers\.current\.onRenameProjectCommit\(project, value\)\}\s*onCancel=\{\(\) => handlers\.current\.onRenameProjectCancel\(\)\}/);
+  assert.match(source, /else if \(row\.kind === "group" && row\.project\.key === renamingProjectKey\) indices\.push\(index\);/);
+  assert.match(cssRule(".session-tree-group.is-renaming"), /padding-left: 4px;/);
+});
+
 test("delete confirmation shows a shortened title and both answers", () => {
   const html = rowMarkup(render({
     rows: [sessionRow(session("d", { name: "A very long session title that keeps going" }))],
@@ -540,7 +564,8 @@ test("group headers can be dragged within their band; nothing is drawn while idl
   assert.doesNotMatch(html, /draggable/);
 
   // A band needs a second group, and the tree needs onMoveGroup.
-  assert.match(source, /canDrag=\{canMoveGroups && groupsPerBand\[row\.project\.pinned \? "pinned" : "other"\] > 1\}/);
+  // A header that is a name field is no handle to drag.
+  assert.match(source, /canDrag=\{canMoveGroups && !renaming && groupsPerBand\[row\.project\.pinned \? "pinned" : "other"\] > 1\}/);
   assert.match(source, /const canMoveGroups = Boolean\(props\.onMoveGroup\);/);
   assert.match(source, /enabled: canMoveGroups && !loading,/);
   assert.match(source, /onPointerDown=\{canDrag \? \(event\) => drag\.onPointerDown\(event, project\.key\) : undefined\}/);

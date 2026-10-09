@@ -462,6 +462,11 @@
   background: var(--bg-hover);
 }
 
+/* The project's name field (its menu's Rename…) in place of the header. */
+.session-tree-group.is-renaming {
+  padding-left: 4px;
+}
+
 /* Picked up by a long-press, before the finger moves. */
 .session-tree-group.is-drag-armed {
   background: var(--bg-selected);
