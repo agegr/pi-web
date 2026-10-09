@@ -8,6 +8,7 @@ import {
   normalizeDisplayMath,
 } from "@/lib/markdown";
 import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { loadMinimapPreviewLocked, saveMinimapPreviewLocked } from "@/lib/minimap-preview-lock";
 import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
@@ -23,6 +24,9 @@ interface Props {
 const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
+// The lock button sits at the bottom of the rail (6px inset + 30px): nodes stop
+// above it so the last turn stays visible and clickable.
+const MINIMAP_BOTTOM_PADDING = 36 + MINIMAP_PADDING;
 const PREVIEW_HIDE_DELAY = 250;
 const NAVIGATION_ACTIVE_LOCK_MS = 1600;
 
@@ -218,7 +222,7 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
   }
 
   const height = Math.max(1, minimapHeight);
-  const usableHeight = Math.max(0, height - MINIMAP_PADDING * 2);
+  const usableHeight = Math.max(0, height - MINIMAP_PADDING - MINIMAP_BOTTOM_PADDING);
   if (allNodes.length === 1) {
     return {
       nodes: [{ ...allNodes[0], topRatio: MINIMAP_PADDING / height }],
@@ -252,7 +256,7 @@ export function ChatMinimap({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
   const [minimapHovered, setMinimapHovered] = useState(false);
-  const [locked, setLocked] = useState(false);
+  const [locked, setLocked] = useState(loadMinimapPreviewLocked);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -559,6 +563,7 @@ export function ChatMinimap({
   const toggleLock = useCallback(() => {
     const next = !locked;
     setLocked(next);
+    saveMinimapPreviewLocked(next);
     if (next) {
       cancelPreviewHide();
       setMinimapHovered(false);
@@ -706,7 +711,7 @@ export function ChatMinimap({
         data-minimap-lock={locked ? "on" : "off"}
         aria-pressed={locked}
         title={t(locked ? "chatMinimap.unlockPreview" : "chatMinimap.lockPreview")}
-        aria-label={t(locked ? "chatMinimap.unlockPreview" : "chatMinimap.lockPreview")}
+        aria-label={t("chatMinimap.lockPreview")}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
