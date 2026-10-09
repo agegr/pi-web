@@ -47,7 +47,7 @@ so Chat only never imports or executes session extensions. The exact system
 prompt must also be reapplied after Pi's `before_agent_start` phase, because the
 SDK rebuilds its base prompt immediately before the model call.
 
-> **Updates (2026-09-22).** Three details above have changed since this decision:
+> **Updates (2026-09-22).** Two details above have changed since this decision:
 >
 > - "No entry" no longer marks only a legacy session (#936). The `configured`
 >   preset sends no `toolNames`, so a new session that follows pi's
@@ -60,14 +60,8 @@ SDK rebuilds its base prompt immediately before the model call.
 >   `lib/exact-system-prompt.ts` registers a `before_agent_start` handler that
 >   returns `{ systemPrompt }`, which the SDK sends as the provider's leading
 >   system prompt for the run.
-> - `input_files` is gone. The paragraph above described a host-side input
->   preparation step that no longer exists: `Agent` no longer offers the
->   parameter, because a model filled it in whenever it could, which inlined
->   whole files into the delegated task even though a subagent's default tools
->   already include `read` and `bash`. Paths belong in the delegated `prompt`;
->   the Agents panel was never where this was configured.
 >
-> The current rules are in `docs/agents/tools.md` and `docs/agents/subagents.md`.
+> The current rules are in `docs/agents/tools.md`.
 
 Changing among nonempty tool presets can update an existing wrapper. Crossing
 the Chat-only boundary must append the new selection and rebuild the wrapper:

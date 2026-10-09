@@ -34,6 +34,7 @@ import {
 import type { SessionEntry } from "./types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
+import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
@@ -238,13 +239,14 @@ export function createSubagentController(
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
+      const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? []);
       const promptPlan = buildSubagentPromptPlan({
         profileSystemPrompt: profile.systemPrompt,
         tools: profile.tools,
         loadSkills: profile.loadSkills,
         loadExtensions: profile.loadExtensions,
         promptMode: profile.promptMode,
-        task: request.task,
+        task: appendSubagentInputFiles(request.task, inputFiles),
         inheritedParentContext,
       });
       const { chatOnly, appendSystemPrompt, delegatedTask } = promptPlan;
