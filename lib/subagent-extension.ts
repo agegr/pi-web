@@ -48,6 +48,7 @@ export interface StartSubagentRequest {
   task: string;
   description: string;
   runInBackground?: boolean;
+  model?: string;
   isolation?: "worktree";
   signal?: AbortSignal;
   onUpdate?: (run: SubagentRunInfo) => void;
@@ -173,13 +174,20 @@ export function createSubagentExtension(
           resume: Type.Optional(Type.String({ description: "Existing session ID to continue with its current profile, model, thinking, and context. Omit new-session options." })),
           description: Type.String({ description: "Short activity label shown in the UI." }),
           run_in_background: Type.Optional(Type.Boolean({ description: "Return immediately and notify this session when complete." })),
+          model: Type.Optional(Type.String({ description: "Optional provider/modelId override." })),
           isolation: Type.Optional(Type.Literal("worktree", { description: "Run the subagent in an isolated git worktree." })),
         }),
         async execute(toolCallId, params, signal, onUpdate, ctx) {
           try {
             const resume = params.resume?.trim();
-            if (resume && params.isolation) {
-              throw new Error("isolation only applies to new subagents. Omit it to resume the existing session, or start a new subagent.");
+            if (resume) {
+              const creationOptions = [
+                params.model?.trim() && "model",
+                params.isolation?.trim() && "isolation",
+              ].filter(Boolean);
+              if (creationOptions.length > 0) {
+                throw new Error(`${creationOptions.join(", ")} only apply to new subagents. Omit them to resume the existing session, or start a new subagent.`);
+              }
             }
             const execution = resume
               ? await runtime.resume({
@@ -202,6 +210,7 @@ export function createSubagentExtension(
               task: params.prompt,
               description: params.description,
               ...(params.run_in_background !== undefined ? { runInBackground: params.run_in_background } : {}),
+              ...(params.model ? { model: params.model } : {}),
               ...(params.isolation === "worktree" ? { isolation: "worktree" as const } : {}),
               signal,
               onUpdate: (run) => onUpdate?.({
