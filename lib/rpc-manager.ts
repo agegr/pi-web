@@ -1210,6 +1210,9 @@ export class AgentSessionWrapper {
       }
 
       case "reload": {
+        if (this.isSessionRunningForReplacement()) {
+          throw new Error("Cannot reload while the session is running");
+        }
         if (this.extensionUiAbortController.signal.aborted) {
           this.extensionUiAbortController = new AbortController();
         }
@@ -1959,6 +1962,9 @@ export class AgentSessionWrapper {
         this.navigateTreeKeepingToolSelection(targetId, { summarize: options?.summarize }),
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {
+        if (this.isSessionRunningForReplacement()) {
+          throw new Error("Cannot reload (extension ctx) while the session is running");
+        }
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
@@ -2295,7 +2301,7 @@ export function hasBusyRpcSessionForCwd(cwd: string): boolean {
 export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
   const targetCwd = normalizeRpcCwd(cwd);
   const sessions = Array.from(getRegistry().values()).filter(
-    (session) => normalizeRpcCwd(session.cwd) === targetCwd,
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd && !session.isRunning(),
   );
   await Promise.all(sessions.map((session) => session.shutdown()));
   return sessions.length;
