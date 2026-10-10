@@ -71,6 +71,7 @@ import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import { SidebarToast, type SidebarToastAction, type SidebarToastData } from "./SidebarToast";
+import { SessionMergeDialog } from "./SessionMergeDialog";
 import {
   ArchiveIcon,
   ChangesIcon,
@@ -82,6 +83,7 @@ import {
   FolderIcon,
   MessageIcon,
   ForkIcon,
+  MergeIcon,
   PencilIcon,
   PinIcon,
   PinOffIcon,
@@ -264,6 +266,7 @@ const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
   unpin: "sidebar.unpin",
   rename: "sidebar.rename",
   fork: "sidebar.fork",
+  merge: "sidebar.merge",
   "mark-read": "sidebar.markRead",
   "mark-unread": "sidebar.markUnread",
   archive: "sidebar.archive",
@@ -277,6 +280,7 @@ function sessionActionIcon(id: SessionMenuActionId): ReactNode {
     case "unpin": return <PinOffIcon />;
     case "rename": return <PencilIcon />;
     case "fork": return <ForkIcon />;
+    case "merge": return <MergeIcon />;
     case "mark-read": return <DotOutlineIcon />;
     case "mark-unread": return <DotIcon />;
     case "archive": return <ArchiveIcon />;
@@ -476,6 +480,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   selectedSessionIdRef.current = selectedSessionId;
   const [toast, setToast] = useState<SidebarToastData | null>(null);
   const toastIdRef = useRef(0);
+  // The merge dialog, full-screen over the sidebar. `preselected` starts its
+  // list with a row's session already ticked when opened from that row's menu.
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergePreselected, setMergePreselected] = useState<ReadonlySet<string>>(new Set());
   const [uiWriteFailures, setUiWriteFailures] = useState(0);
   const shownUiWriteFailuresRef = useRef(0);
   // Focus to hand to the files tab once it shows (the control that moved
@@ -1687,6 +1695,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       case "unpin": setFamilyPinned(family, false); break;
       case "rename": startRename(family); break;
       case "fork": void forkFamily(row); break;
+      case "merge":
+        // Ticking the row's root session; the dialog lists every session so
+        // the rest can be picked there.
+        setMergePreselected(new Set([family.root.id]));
+        setMergeOpen(true);
+        break;
       case "mark-read": markFamilyRead(family, true); break;
       case "mark-unread": markFamilyRead(family, false); break;
       case "archive": archiveFamily(family); break;
@@ -1694,6 +1708,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       case "delete": requestDelete(family, shiftKey); break;
     }
   };
+
+  // The dialog's Merge button: the API returns the new session's info. The
+  // sources are gone with the merge, so the tree refreshes from the server;
+  // the merged session opens, and the sources are no longer open either.
+  const handleMergeDone = useCallback((session: SessionInfo, deletedIds: string[]) => {
+    setMergeOpen(false);
+    setMergePreselected(new Set());
+    // The sources' tabs close (deleting also handles the selection if one was
+    // open), then the merged session opens and the tree reloads with it. The
+    // sources are deleted already: the server list no longer contains them.
+    for (const id of deletedIds) onSessionDeleted?.(id);
+    handleSelectSessionFromList(session);
+    void loadSessions();
+  }, [handleSelectSessionFromList, loadSessions, onSessionDeleted]);
 
   const openRowMenu = useCallback((row: SessionRow, anchor: SidebarMenuAnchor, opener: HTMLElement | null) => {
     if (row.status.transient) return;
@@ -2039,7 +2067,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // the head has no search of its own.
   const searchesFiles = sidebarTab === "files" && explorerCwd !== null;
   // What the toolbar row's widths depend on (the chosen tab's label is bolder).
-  useHeaderFit(headerRef, [t("sidebar.tabSessions"), t("sidebar.tabFiles"), t("sidebar.new"), explorerCwd && changesCount > 0 ? changesCount : "", sidebarTab].join("\n"));
+  useHeaderFit(headerRef, [t("sidebar.tabSessions"), t("sidebar.tabFiles"), t("sidebar.new"), t("sidebar.merge"), explorerCwd && changesCount > 0 ? changesCount : "", sidebarTab].join("\n"));
   const archivedCount = model.archivedCount;
 
   return (
@@ -2110,6 +2138,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         >
           <PlusIcon size={12} />
           <span className="sidebar-new-label">{t("sidebar.new")}</span>
+        </button>
+        <button
+          type="button"
+          className="sidebar-merge-button"
+          onClick={() => {
+            setMergePreselected(new Set());
+            setMergeOpen(true);
+          }}
+          disabled={allSessions.length < 2}
+          title={t("sidebar.mergeSessions")}
+        >
+          <MergeIcon size={12} />
+          <span className="sidebar-merge-label">{t("sidebar.merge")}</span>
         </button>
         <button
           type="button"
@@ -2355,6 +2396,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         width={menuWidth}
       />
       <SidebarToast toast={toast} onDismiss={() => setToast(null)} dismissLabel={t("sidebar.dismiss")} />
+      {mergeOpen && (
+        <SessionMergeDialog
+          sessions={allSessions.filter((session) => !session.transient && session.relation?.kind !== "subagent")}
+          preselected={mergePreselected}
+          onClose={() => {
+            setMergeOpen(false);
+            setMergePreselected(new Set());
+          }}
+          onMerged={handleMergeDone}
+        />
+      )}
     </div>
   );
 }

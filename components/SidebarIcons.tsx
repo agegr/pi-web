@@ -117,6 +117,19 @@ export function ForkIcon(props: SidebarIconProps) {
   );
 }
 
+/** Two branches into one stem: a row's "Merge". */
+export function MergeIcon(props: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props}>
+      <line x1="6" y1="3" x2="6" y2="8" />
+      <line x1="18" y1="3" x2="18" y2="8" />
+      <path d="M6 8c0 5 12 3 12 8" />
+      <circle cx="6" cy="20" r="2.5" />
+      <circle cx="18" cy="20" r="2.5" />
+    </SidebarIcon>
+  );
+}
+
 export function TrashIcon(props: SidebarIconProps) {
   return (
     <SidebarIcon {...props}>

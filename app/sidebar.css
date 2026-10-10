@@ -861,6 +861,7 @@
    cell is the one chosen (a tab, the open search). */
 .sidebar-tab,
 .sidebar-new-button,
+.sidebar-merge-button,
 .sidebar-search-toggle {
   display: flex;
   flex: none;
@@ -880,7 +881,8 @@
 }
 
 .sidebar-tab,
-.sidebar-new-button {
+.sidebar-new-button,
+.sidebar-merge-button {
   border-right: 1px solid var(--border);
 }
 
@@ -891,6 +893,7 @@
 
 .sidebar-tab:hover,
 .sidebar-new-button:not(:disabled):hover,
+.sidebar-merge-button:not(:disabled):hover,
 .sidebar-search-toggle:hover {
   background: var(--bg-hover);
   color: var(--text);
@@ -923,7 +926,8 @@
   min-width: 0;
 }
 
-.sidebar-new-button {
+.sidebar-new-button,
+.sidebar-merge-button {
   font-weight: 500;
 }
 
@@ -932,7 +936,8 @@
   padding: 0;
 }
 
-.sidebar-new-button:disabled {
+.sidebar-new-button:disabled,
+.sidebar-merge-button:disabled {
   color: var(--text-dim);
   cursor: not-allowed;
 }
@@ -941,7 +946,9 @@
    change with the language): New keeps its + (data-fit 1), then the tabs
    their icons (2). A hidden label is still each one's name. */
 .sidebar-header[data-fit="1"] .sidebar-new-button,
-.sidebar-header[data-fit="2"] .sidebar-new-button {
+.sidebar-header[data-fit="2"] .sidebar-new-button,
+.sidebar-header[data-fit="1"] .sidebar-merge-button,
+.sidebar-header[data-fit="2"] .sidebar-merge-button {
   width: 36px;
   padding: 0;
 }
@@ -952,6 +959,8 @@
 
 .sidebar-header[data-fit="1"] .sidebar-new-label,
 .sidebar-header[data-fit="2"] .sidebar-new-label,
+.sidebar-header[data-fit="1"] .sidebar-merge-label,
+.sidebar-header[data-fit="2"] .sidebar-merge-label,
 .sidebar-header[data-fit="2"] .sidebar-tab-label {
   position: absolute;
   width: 1px;
@@ -962,6 +971,7 @@
 }
 
 .sidebar-new-button:focus-visible,
+.sidebar-merge-button:focus-visible,
 .sidebar-search-toggle:focus-visible,
 .sidebar-tab:focus-visible,
 .sidebar-archive-back:focus-visible,
@@ -1171,4 +1181,354 @@
   .sidebar-tool-button {
     transition: none;
   }
+}
+
+/* ── Session merge dialog ─────────────────────────────────────────────────── */
+
+.session-merge-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.session-merge-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+}
+
+.session-merge-dialog:focus {
+  outline: none;
+}
+
+.session-merge-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 8px;
+}
+
+.session-merge-title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.session-merge-close {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.session-merge-close:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.session-merge-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.session-merge-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.session-merge-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.session-merge-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.session-merge-dest {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-selected);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.session-merge-search {
+  width: 100%;
+  margin: 10px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.session-merge-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.session-merge-empty {
+  padding: 14px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.session-merge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-merge-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.session-merge-item:hover {
+  background: var(--bg-hover);
+}
+
+.session-merge-item input {
+  flex: none;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.session-merge-item-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.session-merge-item-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-merge-item-meta {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-merge-preview {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.session-merge-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-merge-spinner {
+  color: var(--accent);
+}
+
+.session-merge-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.session-merge-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-merge-bar {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--bg-selected);
+}
+
+.session-merge-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--text-dim);
+}
+
+.session-merge-bar-fill.is-strong {
+  background: var(--accent);
+}
+
+.session-merge-bar-fill.is-mid {
+  background: color-mix(in srgb, var(--accent) 55%, var(--text-dim));
+}
+
+.session-merge-bar-fill.is-weak {
+  background: var(--text-dim);
+}
+
+.session-merge-pair-score {
+  flex: none;
+  min-width: 40px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+}
+
+.session-merge-verdict {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.session-merge-verdict.is-suggested {
+  color: var(--text);
+}
+
+.session-merge-verdict.is-warning {
+  color: #ef4444;
+}
+
+.session-merge-force {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.session-merge-same-cwd {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.session-merge-same-cwd input {
+  flex: none;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.session-merge-force input {
+  flex: none;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.session-merge-error {
+  margin-top: 8px;
+  color: #ef4444;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.session-merge-footer {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.session-merge-button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.session-merge-button:not(:disabled):hover {
+  background: var(--bg-hover);
+}
+
+.session-merge-button.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.session-merge-button.is-primary:not(:disabled):hover {
+  background: var(--accent-hover);
+  filter: brightness(1.08);
+}
+
+.session-merge-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.session-merge-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
