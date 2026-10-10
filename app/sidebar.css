@@ -281,9 +281,9 @@
 
 .session-tree-branch {
   flex: none;
-  max-width: 78px;
+  max-width: 20ch;
   overflow: hidden;
-  color: var(--text-dim);
+  color: var(--accent);
   font-family: var(--font-mono);
   font-size: 10px;
   text-overflow: ellipsis;
@@ -564,6 +564,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--accent);
 }
 
 .session-tree-group-pin {
