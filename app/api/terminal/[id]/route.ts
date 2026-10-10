@@ -26,8 +26,8 @@ export async function POST(
     }
     if (body.type === "resize" && Number.isInteger(body.cols) && Number.isInteger(body.rows)
       && (body.cols as number) >= 2 && (body.cols as number) <= 1000
-      && (body.rows as number) >= 2 && (body.rows as number) <= 1000) {
-      return resizeTerminal(id, body.cols as number, body.rows as number)
+      && (body.rows as number) >= 1 && (body.rows as number) <= 1000) {
+      return resizeTerminal(id, body.cols as number, Math.max(2, body.rows as number))
         ? NextResponse.json({ success: true })
         : NextResponse.json({ error: "Terminal not found" }, { status: 404 });
     }
