@@ -37,26 +37,28 @@ async function stopServer(record, {
   log = console.log,
   error = console.error,
 } = {}) {
+  // The launcher, or the Next.js server a killed launcher left serving.
+  const pid = record.stopPid ?? record.pid;
   try {
     // The launcher forwards SIGTERM to Next.js and exits after it. Windows has
     // no SIGTERM: process.kill() would end the launcher alone and leave Next.js
     // serving the port, so end the whole process tree there.
-    if (platform === "win32") killTree(record.pid);
-    else kill(record.pid, "SIGTERM");
+    if (platform === "win32") killTree(pid);
+    else kill(pid, "SIGTERM");
   } catch (killError) {
     if (killError.code !== "ESRCH") {
-      error(`Could not stop pi-web (pid ${record.pid}): ${killError.message}`);
+      error(`Could not stop pi-web (pid ${pid}): ${killError.message}`);
       return 1;
     }
   }
-  for (let waited = 0; isAlive(record.pid); waited += STOP_POLL_MS) {
+  for (let waited = 0; isAlive(pid); waited += STOP_POLL_MS) {
     if (waited >= timeoutMs) {
-      error(`pi-web on ${record.url} (pid ${record.pid}) is still running after ${timeoutMs / 1000} s.`);
+      error(`pi-web on ${record.url} (pid ${pid}) is still running after ${timeoutMs / 1000} s.`);
       return 1;
     }
     await wait(STOP_POLL_MS);
   }
-  log(`Stopped pi-web on ${record.url} (pid ${record.pid}).`);
+  log(`Stopped pi-web on ${record.url} (pid ${pid}).`);
   return 0;
 }
 
@@ -65,10 +67,11 @@ async function runCommand(options, {
   pkgDir = path.join(__dirname, ".."),
   open = openInBrowser,
   isAnswering = records.isServerAnswering,
+  isOurs = records.isRecordProcess,
   log = console.log,
   error = console.error,
 } = {}) {
-  const list = () => records.listRunRecords(runDir, { isAnswering });
+  const list = () => records.listRunRecords(runDir, { isAnswering, isOurs });
   switch (options.command) {
     case "version":
       log(getPackageVersion(pkgDir));
@@ -89,7 +92,7 @@ async function runCommand(options, {
       }
       if (options.command === "stop") {
         const code = await stopServer(selected.record, { log, error });
-        if (code === 0) records.removeRunRecord(runDir, selected.record.port, selected.record.pid);
+        if (code === 0) records.removeRunRecord(runDir, selected.record.pid);
         return code;
       }
       log(`Opening ${selected.record.url}`);

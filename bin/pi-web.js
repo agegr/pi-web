@@ -123,6 +123,7 @@ function startServer({ port, hostname, openBrowser }) {
     dir: getRunDir,
     record: {
       pid: process.pid,
+      nextPid: child.pid,
       port: Number(port),
       hostname,
       url: getOpenUrl(hostname, port),
