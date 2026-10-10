@@ -191,8 +191,9 @@ test("an idle session row shows its short time, branch and both actions", () => 
   const html = rowMarkup(render({ rows: [sessionRow(root)] }), "session:group:idle");
   assert.match(html, /^<div class="session-tree-row session-tree-session" style="top:0;height:28px" data-row-key="session:group:idle">/);
   // Nothing before the title: it gets the room; the time sits at the right.
-  // The branch after its icon, in the rows' own type (the tooltip keeps the ⑂ glyph).
-  assert.match(html, /<button type="button" class="session-tree-main" title="[^"]*"><span class="session-tree-title">first idle<\/span><span class="session-tree-branch"><svg width="10" height="10"[^>]*class="session-tree-branch-icon" aria-hidden="true">[\s\S]*?<\/svg>feat\/rows<\/span><span class="session-tree-meta">5m<\/span>/);
+  // A saved session's title is a real link to it (middle-click, Ctrl/Cmd-click).
+  // The branch keeps the upstream icon and type; the tooltip keeps the ⑂ glyph.
+  assert.match(html, /<a class="session-tree-main" href="\?session=idle" title="[^"]*"><span class="session-tree-title">first idle<\/span><span class="session-tree-branch"><svg width="10" height="10"[^>]*class="session-tree-branch-icon" aria-hidden="true">[\s\S]*?<\/svg>feat\/rows<\/span><span class="session-tree-meta">5m<\/span><\/a>/);
   assert.match(html, /title="first idle\n3 msgs · 5 minutes ago · ⑂ feat\/rows"/);
   assert.match(html, /class="session-tree-action session-tree-quick-action" aria-label="Archive" title="Archive"/);
   assert.match(html, /class="session-tree-action session-tree-more-action" aria-label="More actions" title="More actions" aria-haspopup="menu" aria-expanded="false"/);
@@ -265,7 +266,7 @@ test("the selected row is marked and its menu button reports an open menu", () =
   const row = sessionRow(session("sel"), { status: { selected: true } });
   const html = rowMarkup(render({ rows: [row], activeMenuRowKey: row.key }), row.key);
   assert.match(html, /class="session-tree-row session-tree-session is-selected is-menu-open"/);
-  assert.match(html, /<button type="button" class="session-tree-main" title="[^"]*" aria-current="true">/);
+  assert.match(html, /<a class="session-tree-main" href="\?session=sel" title="[^"]*" aria-current="true">/);
   assert.match(html, /class="session-tree-action session-tree-more-action is-active"[^>]*aria-expanded="true"/);
 });
 
@@ -275,6 +276,59 @@ test("a transient row offers no actions at all", () => {
   assert.doesNotMatch(html, /More actions/);
   assert.doesNotMatch(html, /aria-label="Archive"/);
   assert.match(html, /session-tree-title">first tmp</);
+  // No file yet, so no link another tab could not load: still a button.
+  assert.match(html, /<button type="button" class="session-tree-main" title="[^"]*"><span class="session-tree-title">first tmp<\/span>/);
+  assert.doesNotMatch(html, /<a |href=/);
+  const selected = rowMarkup(render({ rows: [sessionRow(session("tmp"), { status: { transient: true, selected: true } })] }), "session:group:tmp");
+  assert.match(selected, /<button type="button" class="session-tree-main" title="[^"]*" aria-current="true">/);
+});
+
+test("every saved row's title links to its session, encoded, in every context and state", () => {
+  const cases = [
+    [sessionRow(session("a/b?c&d #%")), "?session=a%2Fb%3Fc%26d%20%23%25"],
+    [sessionRow(session("pin"), { context: "pinned" }), "?session=pin"],
+    [sessionRow(session("old"), { context: "archive", archivedAt: NOW }), "?session=old"],
+    [sessionRow(session("run"), { status: { running: true } }), "?session=run"],
+    [sessionRow(session("ask"), { status: { running: true, awaiting: true } }), "?session=ask"],
+    [sessionRow(session("new"), { status: { unread: true } }), "?session=new"],
+  ];
+  for (const [row, href] of cases) {
+    const html = rowMarkup(render({ rows: [row] }), row.key);
+    const link = html.match(/<a [^>]*>/)?.[0] ?? "";
+    assert.equal(link.match(/href="([^"]*)"/)?.[1], href, row.key);
+    assert.match(link, /^<a class="session-tree-main" href=/, row.key);
+    // Never target: a plain click would leave this tab too.
+    assert.doesNotMatch(link, /target=|rel=/, row.key);
+    // The link holds the title, branch and meta only; the row's buttons stay outside it.
+    const inside = html.slice(html.indexOf(link), html.indexOf("</a>"));
+    assert.doesNotMatch(inside, /<button|<a [\s\S]*<a /, `${row.key}: no control nested in the link`);
+    assert.match(html, /<\/a>(<span class="session-tree-actions">|<\/div>)/, row.key);
+  }
+  // A fork's two-span title sits inside the link the same way.
+  const fork = rowMarkup(render({ rows: [sessionRow(session("copy", { name: "Plan · 3f9a", relation: { kind: "fork", originSessionId: "src" } }))] }), "session:group:copy");
+  assert.match(fork, /<a class="session-tree-main" href="\?session=copy" title="[^"]*"><span class="session-tree-title has-fork-suffix">/);
+  // Rename and delete-confirm rows have no link.
+  assert.doesNotMatch(rowMarkup(render({ rows: [sessionRow(session("r"))], renamingRootId: "r" }), "session:group:r"), /<a /);
+  assert.doesNotMatch(rowMarkup(render({ rows: [sessionRow(session("d"))], confirmDeleteRootId: "d" }), "session:group:d"), /<a /);
+});
+
+test("a plain click on the link selects in this tab; a modified or other-button click on it is the browser's", () => {
+  const view = source.slice(source.indexOf("const SessionRowView = memo("), source.indexOf("function RenameInput("));
+  // The link stops the row from selecting again (or on a modified click), and
+  // keeps the page only for a plain activation: Enter and a primary click.
+  assert.match(view, /href=\{sessionDeepLink\(root\.id\)\}[\s\S]*?onClick=\{\(event\) => \{[^}]*?event\.stopPropagation\(\);\s*if \(!isPlainActivation\(event\)\) return;\s*event\.preventDefault\(\);\s*handlers\.current\.onSelectFamily\(family\);\s*\}\}/);
+  // The row's own handler is unchanged: any click on its empty space (or on a
+  // transient row's button) selects, Ctrl/Cmd-click included, as before.
+  assert.match(view, /data-row-key=\{row\.key\}\s*onClick=\{\(\) => handlers\.current\.onSelectFamily\(family\)\}/);
+  assert.equal((view.match(/isPlainActivation\(/g) ?? []).length, 1, "only the link tells clicks apart");
+  // No middle-click handler, no simulated navigation, no forced new tab.
+  assert.doesNotMatch(view, /onAuxClick|onMouseDown|window\.open|location\.|target=/);
+  // A transient session keeps its button.
+  assert.match(view, /\{status\.transient \? \(\s*\/\/[^\n]*\n\s*<button type="button" className="session-tree-main"/);
+  // The link looks like the button it replaced, and gets the same focus ring.
+  assert.match(cssRule("a.session-tree-main"), /color: inherit;\s*text-decoration: none;\s*cursor: pointer;/);
+  assert.match(css, /\.session-tree button:focus,\s*\.session-tree a\.session-tree-main:focus \{\s*outline: none;\s*\}/);
+  assert.match(css, /\.session-tree button:focus-visible,\s*\.session-tree a\.session-tree-main:focus-visible \{\s*outline: 2px solid var\(--accent\);\s*outline-offset: -2px;\s*\}/);
 });
 
 test("pinned rows name their project and archived rows offer restore with the archive time", () => {
@@ -506,7 +560,8 @@ test("show less scrolls its row back into view and focus stays on the more row",
   assert.match(source, /const fallbackKey = key === PINNED_MORE_KEY \? "pinned-header" : `group:\$\{key\}`;/);
   assert.match(source, /if \(active && active !== document\.body && document\.contains\(active\) && !target\.takeFocusFrom\?\.\(active\)\) \{\s*pendingFocusRef\.current = null;\s*return;\s*\}/);
   assert.match(source, /if \(pending\.focus\) pendingFocusRef\.current = \{ rowKey: pending\.rowKey, fallbackKey: pending\.fallbackKey, tries: 0 \};/, "show more never takes focus from elsewhere");
-  assert.match(source, /querySelector<HTMLElement>\("\[data-more-action=\\"more\\"\]"\)\s*\?\? row\?\.querySelector<HTMLElement>\("button"\)\s*\?\? rowElement\(target\.fallbackKey\)\?\.querySelector<HTMLElement>\("button"\);/);
+  // "show more", else its first control (a saved session's link), else the group (or pinned) header.
+  assert.match(source, /querySelector<HTMLElement>\("\[data-more-action=\\"more\\"\]"\)\s*\?\? row\?\.querySelector<HTMLElement>\("a\[href\], button"\)\s*\?\? rowElement\(target\.fallbackKey\)\?\.querySelector<HTMLElement>\("a\[href\], button"\);/);
   // The focus waits in a ref until a commit has its target mounted, not in a cancellable frame.
   assert.match(source, /\}, \[visibleIndices\]\);/);
   // "Show less" is never clipped on a narrow sidebar.

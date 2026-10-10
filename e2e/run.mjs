@@ -15,6 +15,7 @@ import { checkChatAppearance } from "./chat-appearance.mjs";
 import { checkCodeBackground } from "./code-background.mjs";
 import { checkModelDiscovery } from "./model-discovery.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
+import { checkSessionNavigation } from "./session-navigation.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -506,6 +507,20 @@ try {
     context = undefined;
     page = undefined;
   }
+  // Last, in its own context and tabs, so the checks above run as before. It
+  // restores the sidebar state (pins, archive) and deletes the fork it makes.
+  await checkSessionNavigation({
+    browser,
+    base,
+    artifacts,
+    a: { id: BRANCH, entry: "new", text: "Active branch answer" },
+    b: { id: CODE_BACKGROUND, entry: "answer", text: "const x = 1;" },
+    api,
+    deleteSession: async (id) => {
+      const response = await fetch(`${base}/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE", signal: AbortSignal.timeout(30_000) });
+      assert.ok(response.ok, `DELETE session ${id} -> ${response.status}`);
+    },
+  });
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

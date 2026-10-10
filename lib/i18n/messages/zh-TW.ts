@@ -401,6 +401,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.projectAndWorktree": "專案和 worktree",
     "sidebar.uiStateFailed": "儲存失敗：{error}",
     "sidebar.fork": "分叉",
+    "sidebar.openInNewTab": "在新分頁開啟",
     "sidebar.forkedToast": "已分叉「{title}」",
     "sidebar.forkNotFound": "此工作階段已不存在",
     "sidebar.forkUnsaved": "此工作階段尚未儲存，請先傳送一則訊息。",

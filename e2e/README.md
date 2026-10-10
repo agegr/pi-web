@@ -38,6 +38,14 @@ Coverage:
   General › File browser brings back the Sessions | Files tabs and returns,
   without remounting the file tree (its file search keeps its query).
 - Unknown sessions and paths outside the fixture project are rejected.
+- Sidebar sessions open in browser tabs (`session-navigation.mjs`, desktop
+  Chromium, one context so tabs share storage): a plain click and Enter
+  select in place without a page load; Ctrl+click, middle-click and the row
+  menu's Open in new tab (right-click, ⋯, T; just before Delete) open the clicked row's session in
+  a new tab while the original keeps its own; both tabs keep their session
+  through reloads; pinned and archived rows link the same way; nothing
+  creates, copies or prompts a session; a missing session's link selects none
+  in a fresh profile; a keyboard Fork puts focus on the copy row's link.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
 

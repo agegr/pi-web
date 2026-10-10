@@ -84,11 +84,13 @@
   cursor: pointer;
 }
 
-.session-tree button:focus {
+.session-tree button:focus,
+.session-tree a.session-tree-main:focus {
   outline: none;
 }
 
-.session-tree button:focus-visible {
+.session-tree button:focus-visible,
+.session-tree a.session-tree-main:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -237,6 +239,14 @@
   height: 100%;
   padding: 0;
   text-align: left;
+}
+
+/* A saved session's main control is a link (middle-click, Ctrl/Cmd-click open
+   it in a new tab): it looks exactly like the button it replaced. */
+a.session-tree-main {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .session-tree-unread {

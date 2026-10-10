@@ -29,6 +29,7 @@ import {
   type SidebarRow,
 } from "@/lib/session-tree";
 import type { SessionInfo } from "@/lib/types";
+import { isPlainActivation, sessionDeepLink } from "@/lib/session-links";
 import { formatRelativeTime, formatShortRelativeTime } from "@/lib/i18n/format";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { useGroupDrag, type GroupDragHandlers } from "@/hooks/useGroupDrag";
@@ -80,7 +81,7 @@ export interface SessionTreeReveal {
   /** Any row's key: a session row, a group header. */
   rowKey: string;
   /**
-   * Also focus the row's first button once it is on the page: when focus has
+   * Also focus the row's first control once it is on the page: when focus has
    * fallen to <body>, or when this says the element that has it may give it
    * up (it is still where the request came from). Omitted: focus stays put.
    */
@@ -372,9 +373,10 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     const root = scrollRef.current;
     const rowElement = (key: string) => root?.querySelector(`[data-row-key="${CSS.escape(key)}"]`) ?? null;
     const row = rowElement(target.rowKey);
+    // A saved session row's first control is its link, the others' a button.
     const button = row?.querySelector<HTMLElement>("[data-more-action=\"more\"]")
-      ?? row?.querySelector<HTMLElement>("button")
-      ?? rowElement(target.fallbackKey)?.querySelector<HTMLElement>("button");
+      ?? row?.querySelector<HTMLElement>("a[href], button")
+      ?? rowElement(target.fallbackKey)?.querySelector<HTMLElement>("a[href], button");
     if (button) {
       button.focus({ preventScroll: true });
       pendingFocusRef.current = null;
@@ -601,6 +603,26 @@ const SessionRowView = memo(function SessionRowView({
   // family, which would come straight back.
   const quickAction = layout === "desktop" && (context === "archive" || !status.running);
 
+  const mainContent = (
+    <>
+      {forkTitle ? (
+        <span className="session-tree-title has-fork-suffix">
+          <span className="session-tree-title-base">{forkTitle.base}</span>
+          <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
+        </span>
+      ) : (
+        <span className="session-tree-title">{title}</span>
+      )}
+      {branch && (
+        <span className="session-tree-branch">
+          <BranchIcon size={10} className="session-tree-branch-icon" />
+          {branch}
+        </span>
+      )}
+      <span className={`session-tree-meta${metaState}`} title={metaTitle}>{meta}</span>
+    </>
+  );
+
   return (
     <div
       className={className}
@@ -609,23 +631,32 @@ const SessionRowView = memo(function SessionRowView({
       onClick={() => handlers.current.onSelectFamily(family)}
       onContextMenu={(event) => handlers.current.onRowContextMenu(row, event)}
     >
-      <button type="button" className="session-tree-main" title={tooltip} aria-current={status.selected ? "true" : undefined}>
-        {forkTitle ? (
-          <span className="session-tree-title has-fork-suffix">
-            <span className="session-tree-title-base">{forkTitle.base}</span>
-            <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
-          </span>
-        ) : (
-          <span className="session-tree-title">{title}</span>
-        )}
-        {branch && (
-          <span className="session-tree-branch">
-            <BranchIcon size={10} className="session-tree-branch-icon" />
-            {branch}
-          </span>
-        )}
-        <span className={`session-tree-meta${metaState}`} title={metaTitle}>{meta}</span>
-      </button>
+      {status.transient ? (
+        // No file yet: a link would open a session no other tab can load.
+        <button type="button" className="session-tree-main" title={tooltip} aria-current={status.selected ? "true" : undefined}>
+          {mainContent}
+        </button>
+      ) : (
+        // A real link, so middle-click, Ctrl/Cmd-click and the browser's own
+        // gestures open the session in another tab. A plain click (or Enter)
+        // stays here and selects it as before; never `target`, which would
+        // send plain clicks away too.
+        <a
+          className="session-tree-main"
+          href={sessionDeepLink(root.id)}
+          title={tooltip}
+          aria-current={status.selected ? "true" : undefined}
+          onClick={(event) => {
+            // The row's handler must not select it again, nor on a modified click.
+            event.stopPropagation();
+            if (!isPlainActivation(event)) return;
+            event.preventDefault();
+            handlers.current.onSelectFamily(family);
+          }}
+        >
+          {mainContent}
+        </a>
+      )}
       {!status.transient && (
         <span className="session-tree-actions">
           {quickAction && (context === "archive" ? (

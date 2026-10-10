@@ -401,6 +401,7 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.projectAndWorktree": "项目和 worktree",
     "sidebar.uiStateFailed": "保存失败：{error}",
     "sidebar.fork": "分叉",
+    "sidebar.openInNewTab": "在新标签页打开",
     "sidebar.forkedToast": "已分叉「{title}」",
     "sidebar.forkNotFound": "该会话已不存在",
     "sidebar.forkUnsaved": "该会话尚未保存，请先发送一条消息。",

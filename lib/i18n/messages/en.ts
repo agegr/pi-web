@@ -401,6 +401,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.projectAndWorktree": "Project and worktree",
     "sidebar.uiStateFailed": "Couldn’t save: {error}",
     "sidebar.fork": "Fork",
+    "sidebar.openInNewTab": "Open in new tab",
     "sidebar.forkedToast": "Forked “{title}”",
     "sidebar.forkNotFound": "This session no longer exists",
     "sidebar.forkUnsaved": "This session hasn’t been saved yet. Send a message first.",
