@@ -15,6 +15,7 @@ export type SessionMenuActionId =
   | "unpin"
   | "rename"
   | "fork"
+  | "merge"
   | "mark-read"
   | "mark-unread"
   | "archive"
@@ -41,6 +42,7 @@ export function sessionMenuEntries(
       { kind: "action", id: "pin", shortcut: "P" },
       { kind: "action", id: "rename", shortcut: "R" },
       { kind: "action", id: "fork", shortcut: "F" },
+      { kind: "action", id: "merge", shortcut: "M" },
       { kind: "separator" },
       { kind: "action", id: "delete", shortcut: "D" },
     ];
@@ -49,6 +51,7 @@ export function sessionMenuEntries(
     { kind: "action", id: context === "pinned" ? "unpin" : "pin", shortcut: "P" },
     { kind: "action", id: "rename", shortcut: "R" },
     { kind: "action", id: "fork", shortcut: "F" },
+    { kind: "action", id: "merge", shortcut: "M" },
     { kind: "action", id: status.unread ? "mark-read" : "mark-unread", shortcut: "U" },
     // A running family would come straight back: archiving waits for the run.
     status.running
