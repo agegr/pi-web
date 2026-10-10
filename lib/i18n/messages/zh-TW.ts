@@ -529,6 +529,7 @@ export const zhTWLocale: LocalePlugin = {
     "terminal.close": "終止終端機",
     "terminal.restart": "重新啟動終端機",
     "terminal.reconnect": "重新連線終端機",
+    "terminal.extraKeys": "終端機按鍵",
     "terminal.connecting": "連線中",
     "terminal.ready": "已連線",
     "terminal.exited": "終端機已關閉",
