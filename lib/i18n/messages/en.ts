@@ -85,6 +85,8 @@ export const enLocale: LocalePlugin = {
     "skills.groupSwitchOff": "Show every skill in {group} in the model prompt",
     "skills.groupSwitchOn": "Hide every skill in {group} from the model prompt. They stay manually invocable.",
     "skills.bulkFailed": "Could not change {count} of {total} skills:",
+    "skills.instructions": "Instructions",
+    "skills.noInstructions": "This skill has no instructions.",
     "plugins.groupSwitchOff": "Enable every {group} package",
     "plugins.groupSwitchOn": "Disable every {group} package. A package with resource filters stays on, since disabling it removes them; use its own switch.",
     "plugins.bulkKeptFiltered": "{count} filtered package(s) stayed on: disabling one removes its resource filters, so use its own switch.",

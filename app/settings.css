@@ -1075,6 +1075,27 @@
   line-height: 1.5;
 }
 
+.skill-instructions {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-subtle);
+  font-size: 13px;
+}
+
+.skill-instructions > :first-child { margin-top: 0; }
+.skill-instructions > :last-child { margin-bottom: 0; }
+
+.skill-instructions-status {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.skill-instructions-status.is-error {
+  color: #ef4444;
+  overflow-wrap: anywhere;
+}
+
 .skill-update-indicator {
   flex-shrink: 0;
   font-size: 13px;
