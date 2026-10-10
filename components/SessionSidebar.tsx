@@ -4,6 +4,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback,
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, type SessionFamily } from "@/lib/session-family";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
+import { sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import {
@@ -94,6 +95,7 @@ import {
   FolderIcon,
   MessageIcon,
   ForkIcon,
+  OpenInNewTabIcon,
   PencilIcon,
   PinIcon,
   PinOffIcon,
@@ -302,6 +304,7 @@ const SESSIONS_SECTION_MIN_HEIGHT = 120;
 const SIDEBAR_HEADER_HEIGHT = 36;
 
 const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
+  "open-new-tab": "sidebar.openInNewTab",
   pin: "sidebar.pin",
   unpin: "sidebar.unpin",
   rename: "sidebar.rename",
@@ -315,6 +318,7 @@ const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
 
 function sessionActionIcon(id: SessionMenuActionId): ReactNode {
   switch (id) {
+    case "open-new-tab": return <OpenInNewTabIcon />;
     case "pin": return <PinIcon />;
     case "unpin": return <PinOffIcon />;
     case "rename": return <PencilIcon />;
@@ -1904,9 +1908,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [loadSessions, showToast, t]);
 
+  // Open in new tab (the row menu's T): the row's session in a browser tab of
+  // its own, by the same link its title carries. This tab's selection, cwd and
+  // file tabs stay as they are, and nothing is asked of the server here: the
+  // new tab loads the session as a reload would. Synchronous inside the menu's
+  // click or key press, so the browser counts it as the user's and does not
+  // block it as a popup. Its return value says nothing: with noopener the
+  // browser returns null whether the tab opened or not.
+  const openFamilyInNewTab = useCallback((family: SessionFamily) => {
+    if (family.root.transient) return;
+    window.open(sessionDeepLink(family.root.id), "_blank", "noopener,noreferrer");
+  }, []);
+
   const runSessionAction = (id: SessionMenuActionId, row: SessionRow, shiftKey: boolean) => {
     const { family } = row;
     switch (id) {
+      case "open-new-tab": openFamilyInNewTab(family); break;
       case "pin": setFamilyPinned(family, true); break;
       case "unpin": setFamilyPinned(family, false); break;
       case "rename": startRename(family); break;

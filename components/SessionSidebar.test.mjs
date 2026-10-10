@@ -954,6 +954,21 @@ test("right-click lets the downstream hook claim the row before the built-in men
   assert.equal((treeSource.match(/onContextMenu=/g) ?? []).length, 1);
 });
 
+test("Open in new tab opens the clicked row's session link and leaves this tab alone", () => {
+  // The row the menu was opened on, not the selected session; the same link as its title.
+  assert.match(source, /case "open-new-tab": openFamilyInNewTab\(family\); break;/);
+  const body = callbackBody("openFamilyInNewTab");
+  assert.match(body, /if \(family\.root\.transient\) return;\s*window\.open\(sessionDeepLink\(family\.root\.id\), "_blank", "noopener,noreferrer"\);/);
+  // Synchronous, so the browser takes it as the user's: no await before it,
+  // and no selection, cwd move or request of its own.
+  assert.doesNotMatch(body, /await|async|fetch\(|setSelectedCwd|handleSelect|onSelectSession|setMenu/);
+  // It is a built-in menu item with its own label and icon, in both menus
+  // (right-click and ⋯ share sessionMenuItems()).
+  assert.match(source, /"open-new-tab": "sidebar\.openInNewTab",/);
+  assert.match(source, /case "open-new-tab": return <OpenInNewTabIcon \/>;/);
+  assert.equal((source.match(/sessionMenuEntries\(row\.context, row\.status\)/g) ?? []).length, 1);
+});
+
 test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(callbackBody("openRowMenu"), /if \(row\.status\.transient\) return;/);
   assert.match(callbackBody("startRename"), /if \(family\.root\.transient\) return;/);
