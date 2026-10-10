@@ -529,6 +529,7 @@ export const enLocale: LocalePlugin = {
     "terminal.close": "Terminate terminal",
     "terminal.restart": "Restart terminal",
     "terminal.reconnect": "Reconnect terminal",
+    "terminal.extraKeys": "Terminal keys",
     "terminal.connecting": "Connecting",
     "terminal.ready": "Connected",
     "terminal.exited": "Terminal closed",

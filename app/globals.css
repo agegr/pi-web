@@ -428,6 +428,52 @@ html.dark .web-login-error {
   height: 100%;
 }
 
+.terminal-extra-keys {
+  grid-row: 4;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: 36px;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid #2f3540;
+  background: #181b21;
+}
+
+.terminal-xterm:has(+ .terminal-extra-keys) {
+  padding-bottom: 6px;
+}
+
+html[data-keyboard-open] .terminal-extra-keys {
+  padding-bottom: 0;
+}
+
+.terminal-extra-keys button {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #d7dce5;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.terminal-extra-keys button:active {
+  background: #242932;
+}
+
+.terminal-extra-keys .is-rotated {
+  display: inline-block;
+  transform: rotate(90deg);
+}
+
+.terminal-extra-keys button.is-active {
+  color: #60a5fa;
+}
+
 .terminal-xterm-host {
   width: 100%;
   height: 100%;
