@@ -6,7 +6,7 @@ import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 export const dynamic = "force-dynamic";
 
 /** Skill instructions should stay small enough to inspect without a large API response. */
-export const SKILL_CONTENT_MAX_BYTES = 1024 * 1024;
+const SKILL_CONTENT_MAX_BYTES = 1024 * 1024;
 
 // GET /api/skills/content?cwd=<path>&filePath=<loaded skill path>
 // The resource loader is the allow-list: accepting any readable Markdown path
