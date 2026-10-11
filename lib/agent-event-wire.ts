@@ -147,6 +147,14 @@ export function toClientAgentEvent(
   // whole prompt plus every tool schema and are never rendered, so drop them
   // before they cost the browser bandwidth.
   if (isSystemMessageEvent(event)) return null;
+  // The agent loop announces a finished message (a tool result, a delivered
+  // user message) with `message_start` and `message_end` back to back. The
+  // browser builds only an assistant reply from its start and reads nothing
+  // but the role of the others, so their body (an image read's base64) went
+  // out twice.
+  if (event.type === "message_start" && isObject(event.message) && event.message.role !== "assistant") {
+    return { type: "message_start", message: { role: event.message.role } };
+  }
 
   if (event.type === "message_update") {
     const assistantMessageEvent = event.assistantMessageEvent;

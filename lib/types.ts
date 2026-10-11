@@ -399,6 +399,8 @@ export interface SessionContext {
   entryIds: string[]; // parallel to messages — the session entry id for each message
   oldestEntryId: string | null;
   hasMore: boolean;
+  /** Turns on the branch before `oldestEntryId`, not loaded (the minimap numbers from it). */
+  turnsBefore: number;
   thinkingLevel: string;
   model: { provider: string; modelId: string } | null;
 }

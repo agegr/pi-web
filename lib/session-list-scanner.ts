@@ -370,6 +370,7 @@ export async function listSessionsIncremental(
 
 	const sessionsDir = join(getAgentDir(), "sessions");
 	const files = await enumerateSessionFiles(sessionsDir);
+	globalThis.__piSessionMembership = { files: new Set(files) };
 
 	const index = getIndex();
 	const present = new Set(files);
@@ -454,4 +455,51 @@ export function resetSessionScanIndexForTests(): void {
 	globalThis.__piWebScanIndex = undefined;
 	globalThis.__piWebScanIndexLoaded = undefined;
 	globalThis.__piWebScanIndexSaveQueued = undefined;
+	globalThis.__piSessionMembership = undefined;
+	globalThis.__piSessionMembershipCheck = undefined;
+}
+
+// ============================================================================
+// Filename membership: sessions another process creates or deletes.
+// ============================================================================
+
+declare global {
+	/** The session files the last scan listed (or the last change a check reported). */
+	var __piSessionMembership: { files: Set<string> } | undefined;
+	var __piSessionMembershipCheck: { at: number; busy: boolean } | undefined;
+}
+
+export const SESSION_MEMBERSHIP_CHECK_MS = 1_000;
+
+/**
+ * Compare the session files on disk with the last scan's and call `onChange`
+ * once when they differ. Directory reads only: appends to a transcript never
+ * change its name, so a running session costs nothing here. At most one check
+ * per SESSION_MEMBERSHIP_CHECK_MS, never two at once, and none before the
+ * first scan. Returns the check's promise, or undefined when none started.
+ */
+export function checkSessionMembership(
+	sessionsDir: string,
+	onChange: () => void,
+	now = Date.now(),
+): Promise<void> | undefined {
+	const known = globalThis.__piSessionMembership;
+	const state = (globalThis.__piSessionMembershipCheck ??= { at: Number.NEGATIVE_INFINITY, busy: false });
+	if (!known || state.busy || now - state.at < SESSION_MEMBERSHIP_CHECK_MS) return undefined;
+	state.busy = true;
+	state.at = now;
+	return enumerateSessionFiles(sessionsDir)
+		.then((files) => {
+			// A scan recorded while this read ran replaces the baseline: drop this
+			// result, the next check compares against the scan's own listing.
+			if (globalThis.__piSessionMembership !== known) return;
+			if (known.files.size === files.length && files.every((file) => known.files.has(file))) return;
+			// Record the change so it bumps once, not on every check until a rescan.
+			globalThis.__piSessionMembership = { files: new Set(files) };
+			onChange();
+		})
+		.catch(() => undefined)
+		.finally(() => {
+			state.busy = false;
+		});
 }

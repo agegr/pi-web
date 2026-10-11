@@ -1555,6 +1555,11 @@
   line-height: 1.5;
 }
 
+/* A note on the options above it, not an introduction to them. */
+.settings-chat-options + .settings-general-description {
+  margin: 6px 0 0;
+}
+
 .settings-theme-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

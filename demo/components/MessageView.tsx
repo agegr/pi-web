@@ -1690,11 +1690,35 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
             fontSize: 12,
           }}
         >
-          <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            {title}
-          </span>
-           {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("i18n.hiddenExtensionMessage")}</span>}
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
+          <button
+            type="button"
+            onClick={() => setContentExpanded((v) => !v)}
+            aria-expanded={contentExpanded}
+            title={contentExpanded ? t("i18n.collapse") : t("i18n.expand")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
+              flex: 1,
+              padding: 0,
+              border: "none",
+              background: "none",
+              color: "inherit",
+              cursor: "pointer",
+              fontSize: "inherit",
+              textAlign: "left",
+            }}
+          >
+            <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
+              {title}
+            </span>
+             {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("i18n.hiddenExtensionMessage")}</span>}
+            {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10, flexShrink: 0 }}>{time}</span>}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, transform: contentExpanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+              <polyline points="2 3.5 5 6.5 8 3.5" />
+            </svg>
+          </button>
         </div>
 
         {contentExpanded ? (
@@ -1763,12 +1787,9 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                {copied ? t("i18n.copied") : t("i18n.copy")}
             </button>
           ) : null}
-          {(hasDetails || isHiddenDisplay) && (
+          {hasDetails && !isHiddenDisplay && (
             <button
-              onClick={() => {
-                if (isHiddenDisplay) setContentExpanded((v) => !v);
-                else setDetailsExpanded((v) => !v);
-              }}
+              onClick={() => setDetailsExpanded((v) => !v)}
               style={{
                 marginLeft: "auto",
                 padding: "3px 7px",
@@ -1779,9 +1800,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                 fontSize: 11,
               }}
             >
-              {isHiddenDisplay
-                 ? (contentExpanded ? t("i18n.collapse") : t("i18n.expand"))
-                 : (detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails"))}
+              {detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails")}
             </button>
           )}
         </div>

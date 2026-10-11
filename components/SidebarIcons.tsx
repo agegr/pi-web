@@ -88,9 +88,14 @@ export function PinOffIcon(props: SidebarIconProps) {
   );
 }
 
-/** Points right; a class on it turns it down for an expanded section. */
-export function ChevronIcon(props: SidebarIconProps) {
-  return <SidebarIcon {...props}><path d="m9 6 6 6-6 6" /></SidebarIcon>;
+/**
+ * Points right; a class on it turns it down for an expanded section. Section
+ * headers pass `strokeWidth={3}`: at their 12px that is a 1.5px line, as
+ * firm as their bold label. Elsewhere (menus, the archive's Back, the
+ * pickers) it keeps the stroke of the icons beside it.
+ */
+export function ChevronIcon({ strokeWidth, ...props }: SidebarIconProps & { strokeWidth?: number }) {
+  return <SidebarIcon {...props} strokeWidth={strokeWidth}><path d="m9 6 6 6-6 6" /></SidebarIcon>;
 }
 
 export function BranchIcon(props: SidebarIconProps) {

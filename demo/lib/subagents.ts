@@ -16,6 +16,7 @@ export const SUBAGENT_RESULT_TYPE = "pi-web:subagent-result";
 export const SUBAGENT_CONTROL_TOOL_NAMES = ["Agent", "get_subagent_result", "steer_subagent"] as const;
 
 export type SubagentStatus = SubagentSessionStatus;
+export type SubagentCodemode = "inherit" | "on" | "off";
 export type SubagentScope = "builtin" | "global" | "workspace" | "project";
 export type SubagentWritableScope = Extract<SubagentScope, "global" | "project">;
 
@@ -28,6 +29,8 @@ export interface SubagentProfile {
   extensionTools?: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  /** Whether this profile enables Pi Web's codemode tool. Omitted profiles are disabled. */
+  codemode?: SubagentCodemode;
   model?: string;
   thinking?: ThinkingLevel;
   maxTurns?: number;
@@ -63,6 +66,7 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  codemode?: true;
   exactSystemPrompt?: string;
 }
 
@@ -71,6 +75,7 @@ export interface SubagentSessionResources {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  codemode?: true;
   exactSystemPrompt?: string;
 }
 
@@ -125,6 +130,7 @@ const MANAGED_FRONTMATTER_KEYS = new Set([
   "tools",
   "load_skills",
   "load_extensions",
+  "codemode",
   "enabled",
   "inherit_context",
   "run_in_background",
@@ -155,6 +161,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     tools: DEFAULT_TOOLS,
     loadSkills: false,
     loadExtensions: false,
+    codemode: "off",
     promptMode: "append",
     inheritContext: false,
     runInBackground: false,
@@ -169,6 +176,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     tools: [...PRESET_READ_ONLY],
     loadSkills: false,
     loadExtensions: false,
+    codemode: "off",
     promptMode: "append",
     inheritContext: false,
     runInBackground: false,
@@ -183,6 +191,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
     tools: [...PRESET_READ_ONLY],
     loadSkills: false,
     loadExtensions: false,
+    codemode: "off",
     promptMode: "append",
     inheritContext: false,
     runInBackground: false,
@@ -202,6 +211,18 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
 function resourceBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") return value;
   return Array.isArray(value) || typeof value === "string" ? true : fallback;
+}
+
+function parseCodemode(value: unknown): SubagentCodemode {
+  if (value === "on" || value === true) return "on";
+  if (value === "inherit") return "inherit";
+  return "off";
+}
+
+function validateSavedCodemode(value: unknown): SubagentCodemode {
+  if (value === undefined) return "off";
+  if (value === "on" || value === "inherit" || value === "off") return value;
+  throw new Error("codemode must be one of: inherit, on, off");
 }
 
 function stringList(value: unknown): string[] {
@@ -289,6 +310,7 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
     const disallowedExtensionTools = new Set(parseExtensionToolSelectors(data?.disallowed_tools).map((tool) => tool.toLowerCase()));
     const extensionTools = parseExtensionToolSelectors(data?.tools)
       .filter((tool) => !disallowedExtensionTools.has(tool.toLowerCase()));
+    const codemode = parseCodemode(data?.codemode);
     return {
       name,
       displayName: stringValue(data?.display_name) ?? name,
@@ -298,6 +320,7 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       ...(extensionTools.length > 0 ? { extensionTools } : {}),
       loadSkills: resourceBoolean(data?.load_skills ?? data?.skills, false),
       loadExtensions: resourceBoolean(data?.load_extensions ?? data?.extensions, extensionTools.length > 0),
+      codemode,
       ...(stringValue(data?.model) ? { model: stringValue(data?.model) } : {}),
       ...(thinkingValue && THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
@@ -412,6 +435,7 @@ export function saveSubagentProfile(
   const name = assertProfileName(profile.name);
   const tools = [...new Set(profile.tools.filter((tool) => BUILTIN_TOOLS.has(tool)))];
   const extensionTools = [...new Set(profile.extensionTools ?? [])];
+  const codemode = validateSavedCodemode(profile.codemode);
   if (profile.thinking && !THINKING_LEVELS.has(profile.thinking)) {
     throw new Error(`Invalid thinking level: ${profile.thinking}`);
   }
@@ -441,6 +465,7 @@ export function saveSubagentProfile(
     tools: composeToolsField([...tools, ...extensionTools], stored.tools),
     load_skills: loadSkills,
     load_extensions: loadExtensions,
+    codemode,
     enabled: profile.enabled,
     inherit_context: profile.inheritContext,
     run_in_background: profile.runInBackground,
@@ -471,6 +496,7 @@ export function saveSubagentProfile(
     ...(extensionTools.length > 0 ? { extensionTools } : {}),
     loadSkills,
     loadExtensions,
+    codemode,
     ...(model ? { model } : { model: undefined }),
     ...(maxTurns ? { maxTurns } : { maxTurns: undefined }),
     promptMode,
@@ -523,6 +549,7 @@ export function readSubagentSessionResources(
   const snapshot = data.resourceSnapshot;
   const loadSkills = isRecord(snapshot) && snapshot.loadSkills === true;
   const loadExtensions = isRecord(snapshot) && snapshot.loadExtensions === true;
+  const codemode = isRecord(snapshot) && snapshot.codemode === true;
   if (
     isRecord(snapshot)
     && snapshot.version === 1
@@ -533,7 +560,7 @@ export function readSubagentSessionResources(
       typeof item === "string"
       && item.length > 0
       && !SUBAGENT_CONTROL_TOOLS.has(item)
-      && (BUILTIN_TOOLS.has(item) || loadExtensions)
+      && ((item === "codemode" && codemode) || BUILTIN_TOOLS.has(item) || loadExtensions)
     )
   ) {
     return {
@@ -541,6 +568,7 @@ export function readSubagentSessionResources(
       tools: [...new Set(snapshot.tools)],
       loadSkills,
       loadExtensions,
+      ...(codemode ? { codemode: true as const } : {}),
       ...(typeof snapshot.exactSystemPrompt === "string" ? { exactSystemPrompt: snapshot.exactSystemPrompt } : {}),
     };
   }

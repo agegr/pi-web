@@ -67,7 +67,10 @@ Normal sessions add the three factories to `extensionFactories` as
 `builtin:<name>` paths, so the shared `-builtin:<name>` setting, project
 `+`/`-`/`!` overrides, `noExtensions`, and replacement by a third-party
 extension that registers `/mcp`, `codemode`, or `tool_search` all behave as in
-the CLI. Chat-only and subagent sessions do not load them.
+the CLI. Chat-only sessions do not load them. Subagent profiles can now select
+`codemode: inherit | on | off` (missing means `off`): they load only the Code mode factory, retain their
+profile tool allow-list, and save the resolved choice in their resource snapshot.
+They still do not load the normal session's MCP host or tool-search.
 
 ### Pi Web decides which MCP servers a session connects
 

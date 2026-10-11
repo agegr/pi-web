@@ -27,6 +27,33 @@ test("editor draft preserves named and empty selections independently of activat
   }
 });
 
+test("draft backfills code mode for legacy profiles and keeps an explicit choice", () => {
+  const declaration = source.slice(source.indexOf("function editableProfile("), source.indexOf("function profileKey("));
+  const code = ts.transpileModule(declaration, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const editable = vm.runInNewContext(`${code}; editableProfile`);
+  // Profiles written before the setting existed have no value: code mode stays disabled.
+  assert.equal(editable({ name: "legacy", tools: [], loadSkills: false, loadExtensions: false }).codemode, "off");
+  // An explicit choice survives the draft, so duplicating a profile keeps it too.
+  for (const codemode of ["on", "off", "inherit"]) {
+    const draft = editable({ name: "reviewer", tools: [], loadSkills: false, loadExtensions: false, codemode });
+    assert.equal(draft.codemode, codemode);
+  }
+});
+
+test("shows code mode as its own field with a plain-language hint", async () => {
+  assert.match(source, /<Field label=\{t\("agents\.codemode"\)\}>/);
+  assert.match(source, /<select\s+aria-label=\{t\("agents\.codemode"\)\}\s+value=\{draft\.codemode \?\? "off"\}[\s\S]*?<option value="inherit">[\s\S]*?<option value="on">[\s\S]*?<option value="off">/);
+  assert.match(source, /\{t\("agents\.codemodeHint"\)\}/);
+  assert.match(source, /codemode: "off",/);
+  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+    const text = await readFile(new URL(`../lib/i18n/messages/${locale}.ts`, import.meta.url), "utf8");
+    assert.match(text, /"agents\.codemodeHint": "/);
+    assert.match(text, /"agents\.codemode\.inherit": "/);
+    assert.match(text, /"agents\.codemode\.on": "/);
+    assert.match(text, /"agents\.codemode\.off": "/);
+  }
+});
+
 test("keeps same-name profiles selectable by scope and groups writable sources first", () => {
   assert.match(source, /return `\$\{profile\.scope\}:\$\{profile\.name\}`/);
   assert.match(source, /\["project", "global", "workspace", "builtin"\] as const/);
@@ -136,6 +163,7 @@ test("uses the same form controls for editable and readonly profiles", () => {
   assert.match(source, /<Toggle label=\{t\("agents\.background"\)\} disabled=\{disabled\}/);
   assert.match(source, /<Toggle label=\{t\("agents\.loadSkills"\)\} disabled=\{disabled\}/);
   assert.match(source, /<Toggle label=\{t\("agents\.loadExtensions"\)\} disabled=\{disabled\}/);
+  assert.match(source, /<select\s+aria-label=\{t\("agents\.codemode"\)\}[\s\S]*?disabled=\{disabled\}/);
   assert.doesNotMatch(source, /ReadonlyValue|readonlyPromptStyle|agents-readonly/);
 });
 

@@ -29,7 +29,7 @@ function formatRelativeTime(value: string, locale: string): string {
   return formatter.format(Math.round(elapsedHours / 24), "day");
 }
 
-function statusColor(status: SubagentSessionStatus): string {
+export function statusColor(status: SubagentSessionStatus): string {
   if (status === "running" || status === "starting") return "var(--accent)";
   if (status === "completed") return "#16a34a";
   if (status === "failed") return "#dc2626";
@@ -37,7 +37,7 @@ function statusColor(status: SubagentSessionStatus): string {
   return "var(--text-dim)";
 }
 
-function StatusIcon({ status }: { status: SubagentSessionStatus }) {
+export function StatusIcon({ status }: { status: SubagentSessionStatus }) {
   if (status === "running" || status === "starting") {
     return (
       <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">

@@ -49,6 +49,7 @@ const EMPTY_PROFILE: EditableProfile = {
   tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
   loadSkills: false,
   loadExtensions: false,
+  codemode: "off",
   promptMode: "append",
   inheritContext: false,
   runInBackground: false,
@@ -83,6 +84,7 @@ function editableProfile(profile: SubagentProfile): EditableProfile {
     tools: [...profile.tools],
     loadSkills: profile.loadSkills,
     loadExtensions: profile.loadExtensions,
+    codemode: profile.codemode ?? "off",
     promptMode: profile.promptMode,
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.thinking ? { thinking: profile.thinking } : {}),
@@ -606,6 +608,25 @@ export function AgentsConfig({
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px" }}>
                       <Toggle label={t("agents.loadSkills")} disabled={disabled} checked={draft.loadSkills} onChange={(checked) => update("loadSkills", checked)} />
                       <Toggle label={t("agents.loadExtensions")} disabled={disabled} checked={draft.loadExtensions} onChange={(checked) => update("loadExtensions", checked)} />
+                    </div>
+                  </Field>
+
+                  <Field label={t("agents.codemode")}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <select
+                        aria-label={t("agents.codemode")}
+                        value={draft.codemode ?? "off"}
+                        disabled={disabled}
+                        onChange={(event) => update("codemode", event.target.value as EditableProfile["codemode"])}
+                        style={{ ...controlStyle, width: "auto", minWidth: 180, alignSelf: "flex-start" }}
+                      >
+                        <option value="inherit">{t("agents.codemode.inherit")}</option>
+                        <option value="on">{t("agents.codemode.on")}</option>
+                        <option value="off">{t("agents.codemode.off")}</option>
+                      </select>
+                      <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.4 }}>
+                        {t("agents.codemodeHint")}
+                      </span>
                     </div>
                   </Field>
 

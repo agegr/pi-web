@@ -77,7 +77,7 @@ Pi Web 按 project root 分组会话，所以 main checkout 和 linked worktree 
 ## 常见问题
 
 **为什么我看不到 worktree 切换器？**
-请确认当前选择的是 Git 仓库根目录。非 Git 目录和仓库子目录会显示一行轻提示，而不是切换器。
+请确认当前选择的是 Git 仓库根目录。仓库子目录会显示一行轻提示，而不是切换器；非 Git 目录只显示项目选择器。
 
 **为什么某个 branch 不能创建 worktree？**
 Git 不允许同一个 branch 同时被多个 worktree checkout。你可以切到已有的 worktree，或者先删除那个 checkout。

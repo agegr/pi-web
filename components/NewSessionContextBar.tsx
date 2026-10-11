@@ -26,8 +26,9 @@ interface Props {
   onCreateWorktree: (project: ProjectChoice, branch: string) => Promise<{ path: string } | { error: string }>;
 }
 
-// The home folder the paths show as ~, asked for once per page: the bar
-// mounts again with every move of the fresh composer.
+// The home folder the paths (the menus', a detached checkout's in the
+// worktree button) show as ~, asked for once per page: the bar mounts again
+// with every move of the fresh composer.
 let homeDirCheck: Promise<string> | null = null;
 let homeDirFound = "";
 function loadHomeDir(): Promise<string> {
@@ -45,13 +46,14 @@ function loadHomeDir(): Promise<string> {
 }
 
 /**
- * The project and worktree a fresh composer starts its session in, in the
- * empty new-session page's header row above the composer (beside the brand,
- * or under it where the row is narrow): the files tab's picker
- * (components/ProjectWorktreePicker.tsx), its two boxes side by side. Every pick starts the
- * composer over in the new folder (the shell remounts it, carrying the draft
- * and its model picks), so this bar only reports what was chosen; the sidebar
- * keeps the cwd.
+ * The project and worktree a fresh composer starts its session in: a row of
+ * its own in the empty new-session page's header, under the brand and right
+ * above the composer. The files tab's picker
+ * (components/ProjectWorktreePicker.tsx) laid out inline: the project's name
+ * and the worktree's branch as text, its group named by the label alone (no
+ * visible one: the folder icon says it). Every pick starts the composer over
+ * in the new folder (the shell remounts it, carrying the draft and its model
+ * picks), so this bar only reports what was chosen; the sidebar keeps the cwd.
  */
 export function NewSessionContextBar({
   context,

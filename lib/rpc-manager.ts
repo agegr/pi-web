@@ -8,12 +8,13 @@ import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { findDeferredModel, rememberProviderModels } from "./deferred-provider-models";
+import { isBlockingExtensionUiRequest } from "./extension-ui-queue";
 import {
   createProjectCommandBashExtension,
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
-import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -34,6 +35,7 @@ import {
 } from "./subagent-extension";
 import {
   listSubagentProfiles,
+  hasSubagentResourceSnapshot,
   readSubagentRun,
   readSubagentSessionResources,
   subagentExtensionLoaderOptions,
@@ -45,7 +47,7 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
-import { createPiWebBuiltinExtensions } from "./builtin-extensions";
+import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
@@ -68,7 +70,8 @@ export interface AgentEvent {
 }
 
 type EventListener = (event: AgentEvent) => void;
-type AgentRunCompleteListener = (sessionId: string) => void;
+/** `sessionName`: the live session's own title (its newest `session_info`), read without a disk scan. */
+type AgentRunCompleteListener = (sessionId: string, sessionName: string | undefined) => void;
 
 type PendingUiResponse = {
   resolve: (response: ExtensionUiResponse) => void;
@@ -384,6 +387,21 @@ export class AgentSessionWrapper {
   }
 
   /**
+   * True while an extension's blocking dialog is unanswered: select, confirm,
+   * input, editor, or a custom overlay still open. The run is parked on a promise
+   * only the user can settle, so the sidebar shows awaiting input rather than the
+   * running spinner. Never true for an idle session: a custom overlay that
+   * outlives its turn is not a parked run.
+   */
+  isAwaitingInput(): boolean {
+    if (!this.isRunning()) return false;
+    for (const request of this.pendingUiRequests.values()) {
+      if (isBlockingExtensionUiRequest(request as unknown as ExtensionUiRequest)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Drop this idle wrapper when the on-disk JSONL has an entry the in-memory
    * index never saw (another pi process appended). Rechecks isRunning() so a
    * prompt that started during the probe cannot be disposed.
@@ -453,7 +471,7 @@ export class AgentSessionWrapper {
     // A stopped run did not finish a task, as pi's own status reporting has it: nothing to announce.
     if (this.suppressCompletionNotifications || this.lastRunAborted) return;
     try {
-      this.onAgentRunComplete?.(this.sessionId);
+      this.onAgentRunComplete?.(this.sessionId, this.inner.sessionManager.getSessionName());
     } catch (error) {
       console.error("[pi-web] completion listener failed:", error instanceof Error ? error.message : error);
     }
@@ -2250,7 +2268,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
       created,
       modified: new Date(lastActivityMs).toISOString(),
       messageCount: messages.length,
-      firstMessage: firstUserMessage ? runtimeMessageText(firstUserMessage) || "(no messages)" : "(no messages)",
+      firstMessage: catalogFirstMessage(firstUserMessage ? runtimeMessageText(firstUserMessage) || "(no messages)" : "(no messages)"),
       ...(subagent ? {
         parentSessionId: subagent.parentSessionId,
         relation: {
@@ -2288,6 +2306,19 @@ export function getRunningRpcSessionIds(): string[] {
   const ids = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {
     if (session.isRunning()) ids.add(session.sessionId || sessionId);
+  }
+  return [...ids];
+}
+
+/**
+ * The running sessions parked on an extension's dialog, a subset of
+ * getRunningRpcSessionIds(): same poll, so the sidebar can tell a run that needs
+ * a person from one that is still working.
+ */
+export function getAwaitingInputRpcSessionIds(): string[] {
+  const ids = new Set<string>();
+  for (const [sessionId, session] of getRegistry()) {
+    if (session.isAwaitingInput()) ids.add(session.sessionId || sessionId);
   }
   return [...ids];
 }
@@ -2347,20 +2378,23 @@ export async function startRpcSession(
     sessionManager = SessionManager.create(cwd, undefined);
   }
   const sessionCwd = sessionManager.getCwd();
+  const sessionEntries = sessionManager.getEntries() as unknown as SessionEntry[];
+  const hasPersistedSubagentSnapshot = sessionFile && hasSubagentResourceSnapshot(sessionEntries);
   const subagentResources = sessionFile
-    ? readSubagentSessionResources(
-        sessionManager.getEntries() as unknown as SessionEntry[],
-      )
+    ? readSubagentSessionResources(sessionEntries)
     : null;
+  if (hasPersistedSubagentSnapshot && !subagentResources) {
+    throw new Error("Invalid subagent resource snapshot");
+  }
   const persistedToolNames = subagentResources
     ? undefined
-    : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
+    : readSessionToolSelection(sessionEntries);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
   const subagentLoadsResources = Boolean(
-    subagentResources?.loadExtensions || subagentResources?.loadSkills,
+    subagentResources?.loadExtensions || subagentResources?.loadSkills || subagentResources?.codemode,
   );
   const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
   const finishStartingSession = trackStartingSession(sessionCwd);
@@ -2407,12 +2441,23 @@ export async function startRpcSession(
     const builtins = subagentResources || chatOnly
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
+    const subagentCodemode = subagentResources?.codemode
+      ? await createSubagentCodemodeExtension({
+          agentDir,
+          cwd: sessionCwd,
+          projectTrusted: () => settingsManager.isProjectTrusted(),
+        })
+      : undefined;
     const skillsBinding = subagentResources ? createSubagentSkillsBinding({
       loadSkills: subagentResources.loadSkills,
       skills: subagentResources.skills,
       exactSystemPrompt: subagentResources.exactSystemPrompt
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
+    const subagentExtensionFactories = [
+      ...(subagentCodemode ? [subagentCodemode] : []),
+      ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
+    ];
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -2421,6 +2466,7 @@ export async function startRpcSession(
         ? {
             ...subagentExtensionLoaderOptions(subagentResources),
             ...skillsBinding!.loaderOptions,
+            ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
@@ -2452,6 +2498,10 @@ export async function startRpcSession(
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
+    if (subagentResources?.codemode
+      && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
+      throw new Error("Code mode is unavailable: builtin:codemode was not registered");
+    }
     const scope = await resolveVisibleModels(
       services.modelRuntime,
       services.settingsManager.getEnabledModels(),
@@ -2536,8 +2586,8 @@ export async function startRpcSession(
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
-      onAgentRunComplete: (completedSessionId) => {
-        void notifySessionComplete(completedSessionId).catch((error) => {
+      onAgentRunComplete: (completedSessionId, sessionName) => {
+        void notifySessionComplete(completedSessionId, sessionName).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });
       },

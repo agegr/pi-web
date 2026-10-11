@@ -168,6 +168,54 @@ function dispatchFetch(url, { mode = "cors", method = "GET" } = {}) {
   return { pending, background };
 }
 
+test("install precaches offline assets but not the runtime manifest", async () => {
+  let pending;
+  let precached;
+  let skipped = false;
+  globalThis.caches = {
+    open: async () => ({ addAll: async (urls) => { precached = urls; } }),
+  };
+  self.skipWaiting = async () => { skipped = true; };
+  listeners.get("install")({ waitUntil: (promise) => { pending = promise; } });
+  await pending;
+
+  assert.deepEqual(precached, [
+    "/offline.html",
+    "/icons/icon-192.png",
+    "/icons/icon-512.png",
+    "/icons/apple-touch-icon.png",
+  ]);
+  assert.equal(skipped, true);
+});
+
+test("manifest requests bypass the worker even with query strings and old cached entries", async () => {
+  const stale = new Response('{"name":"Old Pi"}');
+  let cacheReads = 0;
+  globalThis.caches = {
+    match: async () => { cacheReads++; return stale.clone(); },
+    open: async () => assert.fail("manifest must not be cached"),
+  };
+  const networkRequests = [];
+  globalThis.fetch = async (request) => {
+    networkRequests.push(request.url);
+    return new Response('{"name":"New Pi"}');
+  };
+
+  for (const path of ["/manifest.webmanifest", "/manifest.webmanifest?v=old"]) {
+    for (const mode of ["cors", "navigate"]) {
+      const url = `https://pi.test${path}`;
+      const { pending, background } = dispatchFetch(url, { mode });
+      assert.equal(pending, undefined, "no respondWith: leave the request to the browser");
+      assert.deepEqual(background, []);
+      // Model the browser's normal network fallback when respondWith is absent.
+      const response = await fetch(new Request(url));
+      assert.deepEqual(await response.json(), { name: "New Pi" });
+    }
+  }
+  assert.equal(cacheReads, 0, "old cached manifests must never be read");
+  assert.equal(networkRequests.length, 4);
+});
+
 /** fetch() that never settles until the signal it was handed is aborted. */
 function installHungNetwork() {
   let aborted = false;

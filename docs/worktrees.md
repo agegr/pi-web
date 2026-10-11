@@ -77,7 +77,7 @@ Each session still remembers the working directory it was created with. That mea
 ## Troubleshooting
 
 **I do not see the worktree switcher.**
-Select a Git repository root. Non-Git directories and repo subdirectories show a small hint instead of the switcher.
+Select a Git repository root. A repo subdirectory shows a small hint instead of the switcher; a non-Git directory shows the project picker alone.
 
 **A branch cannot be added as a worktree.**
 Git allows a branch to be checked out in only one worktree at a time. Switch to the existing worktree for that branch, or remove it first.

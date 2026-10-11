@@ -53,6 +53,7 @@ const EMPTY_PROFILE: EditableProfile = {
   tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
   loadSkills: false,
   loadExtensions: false,
+  codemode: "off",
   promptMode: "append",
   inheritContext: false,
   runInBackground: false,
@@ -88,6 +89,7 @@ function editableProfile(profile: SubagentProfile): EditableProfile {
     loadSkills: profile.loadSkills,
     ...(profile.skills !== undefined ? { skills: [...profile.skills] } : {}),
     loadExtensions: profile.loadExtensions,
+    codemode: profile.codemode ?? "off",
     ...(profile.extensions !== undefined ? { extensions: [...profile.extensions] } : {}),
     promptMode: profile.promptMode,
     ...(profile.model ? { model: profile.model } : {}),
@@ -628,6 +630,25 @@ export function AgentsConfig({
                           : t("agents.extensionsNone")}
                       </span>
                     )}
+                  </Field>
+
+                  <Field label={t("agents.codemode")}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <select
+                        aria-label={t("agents.codemode")}
+                        value={draft.codemode ?? "off"}
+                        disabled={disabled}
+                        onChange={(event) => update("codemode", event.target.value as EditableProfile["codemode"])}
+                        style={{ ...controlStyle, width: "auto", minWidth: 180, alignSelf: "flex-start" }}
+                      >
+                        <option value="inherit">{t("agents.codemode.inherit")}</option>
+                        <option value="on">{t("agents.codemode.on")}</option>
+                        <option value="off">{t("agents.codemode.off")}</option>
+                      </select>
+                      <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.4 }}>
+                        {t("agents.codemodeHint")}
+                      </span>
+                    </div>
                   </Field>
 
                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.5fr) minmax(120px, 0.75fr) minmax(100px, 0.5fr)", gap: 12 }}>

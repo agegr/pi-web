@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { showSidebarFiles, showSidebarSessions } from "./sidebar.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 assert.ok(!existsSync(join(root, ".next/dev/lock")), "Run in a checkout without an active dev server");
@@ -88,12 +89,10 @@ try {
       const button = page.getByRole("button", { name: "Show sidebar", exact: true });
       if (await button.count()) await button.click();
     };
-    // The explorer and its terminal button are in the Files tab, the session rows in the Sessions tab.
-    const showTab = async (name) => {
-      const tab = page.getByRole("tab", { name, exact: true });
-      if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
-    };
-    const filesPanel = page.getByRole("tabpanel", { name: "Files", exact: true });
+    // The explorer and its terminal button are in the sidebar's files, the
+    // session rows in its sessions: one above the other on a desktop, tabs on a phone.
+    const showTab = (name) => (name === "Files" ? showSidebarFiles(page) : showSidebarSessions(page));
+    const filesPanel = page.locator("#session-sidebar-panel-files");
     const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
     const hidePanel = async () => {
       const button = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true, includeHidden: true });
@@ -217,7 +216,7 @@ try {
       await run("export PR695_WORKSPACE=retained");
       await hidePanel();
       await showSidebar();
-      // Switch projects with the Files tab's project menu (its button and items carry the root as title;
+      // Switch projects with the files' project menu (its button and items carry the root as title;
       // the menu is portaled to the body, outside the panel).
       await showTab("Files");
       await filesPanel.getByRole("button").and(page.getByTitle(workspace, { exact: true })).first().click();

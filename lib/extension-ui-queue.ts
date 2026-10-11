@@ -1,3 +1,5 @@
+import type { BlockingExtensionUiRequest, ExtensionUiRequest } from "./types";
+
 /**
  * Blocking extension UI waits in arrival order, one entry per request id: the
  * dialogs (select / confirm / input / editor) in one queue, `ctx.ui.custom()`
@@ -9,6 +11,29 @@
  * Every helper returns the queue it was given when nothing changes, so a
  * replayed request or a repeated close does not re-render.
  */
+
+/**
+ * A request whose answer gates the run: pi's select / confirm / input / editor,
+ * or a custom overlay that has not been closed. Everything else (notify,
+ * setStatus, setWidget, setTitle, …) only tells the UI something. The TUI blocks
+ * on exactly these methods, so a host can tell a session parked on a person from
+ * one that is only working.
+ */
+export function isBlockingExtensionUiRequest(
+  request: ExtensionUiRequest,
+): request is BlockingExtensionUiRequest {
+  switch (request.method) {
+    case "select":
+    case "confirm":
+    case "input":
+    case "editor":
+      return true;
+    case "custom":
+      return request.closed !== true;
+    default:
+      return false;
+  }
+}
 
 /** Appends a request unless its id is already waiting (SSE reconnects replay every pending request). */
 export function enqueueExtensionUiRequest<T extends { id: string }>(queue: T[], request: T): T[] {

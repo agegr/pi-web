@@ -18,6 +18,25 @@
   user-select: text;
 }
 
+.earlier {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 82%, transparent);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.earlier:hover {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+}
+
 .turn {
   position: relative;
   display: grid;

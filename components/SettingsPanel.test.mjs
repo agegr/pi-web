@@ -162,7 +162,7 @@ test("groups fonts, chat font size and width in one section, chat behavior in an
   );
   const chatSection = panelSource.slice(
     panelSource.indexOf('{t("settings.chat")}'),
-    panelSource.indexOf("{shellSettings?.isWindows"),
+    panelSource.indexOf('{t("settings.sidebar")}'),
   );
 
   assert.doesNotMatch(appearanceSection, /settings-chat-content|<FontSettings/);
@@ -182,6 +182,28 @@ test("groups fonts, chat font size and width in one section, chat behavior in an
   const chatOptionStyles = cssSource.match(/\.settings-chat-option \{[\s\S]*?\}/)?.[0] ?? "";
   assert.match(chatOptionStyles, /font-size: 12px/);
   assert.doesNotMatch(chatOptionStyles, /background/);
+});
+
+test("General's Sidebar section picks where the file browser goes, as the send key's options look", () => {
+  const sidebarSection = panelSource.slice(
+    panelSource.indexOf('{t("settings.sidebar")}'),
+    panelSource.indexOf("{shellSettings?.isWindows"),
+  );
+  // After Chat, before the Windows-only shell section.
+  assert.ok(panelSource.indexOf('{t("settings.chat")}') < panelSource.indexOf('{t("settings.sidebar")}'));
+  assert.match(sidebarSection, /className="settings-chat-option settings-chat-switch-option"\n\s*role="radiogroup"\n\s*aria-label=\{t\("settings\.filesPlacement"\)\}\n\s*aria-describedby="settings-files-placement-description"/);
+  assert.equal((sidebarSection.match(/className="settings-send-mode-option"/g) ?? []).length, 2);
+  for (const placement of ["below", "tab"]) {
+    assert.match(sidebarSection, new RegExp(`checked=\\{filesPlacement === "${placement}"\\}\\n\\s*onChange=\\{\\(\\) => setFilesPlacement\\("${placement}"\\)\\}`));
+  }
+  // The note on phones sits under the options and describes the group.
+  assert.match(sidebarSection, /<\/div>\n\s*<p id="settings-files-placement-description" className="settings-general-description">\{t\("settings\.filesPlacementDescription"\)\}<\/p>/);
+  assert.match(cssSource, /\.settings-chat-options \+ \.settings-general-description \{\n\s*margin: 6px 0 0;/);
+  for (const source of [enSource, zhSource]) {
+    for (const key of ["sidebar", "filesPlacement", "filesPlacementBelow", "filesPlacementTab", "filesPlacementDescription"]) {
+      assert.match(source, new RegExp(`"settings\\.${key}": "`));
+    }
+  }
 });
 
 test("keeps General free of divider rows", () => {
