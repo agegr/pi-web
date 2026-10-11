@@ -33,6 +33,10 @@ pi's `navigateTree()` refuses while streaming or compacting: the file has one le
 ## ToolCall field normalization
 Pi stores `{type:"toolCall", id, name, arguments}`; `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` (`lib/normalize.ts`) converts in both `session-reader.ts` (file load) and `handleAgentEvent` (`hooks/useAgentSession.ts`, streaming).
 
+## Provider signatures in browser messages
+
+Browser display copies omit content-block `thinkingSignature`, `textSignature`, and `thoughtSignature` through `lib/message-signatures.ts`. OpenAI reasoning signatures can contain `encrypted_content` needed for model continuation. `entryToUiMessage()` covers history and context pages; `projectTreeForResponse()` covers full navigation trees; `toClientAgentEvent()` covers assistant starts/ends and standalone tool calls. Reconnect snapshots pass through that event projection, while snapshot deduplication compares the original SDK message reference. The projection copies signed assistant messages and blocks, preserving visible content, display flags, and nested tool arguments. SDK state, persisted sessions, forks, and the raw entries embedded in HTML/JSONL exports retain their provider signatures for restoration and continuation.
+
 ## SSE reconnect on page refresh mid-stream
 On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state` (`loadSession(…, includeState)`): `state.isStreaming` or `state.isPromptRunning` resumes the run in the UI, and `thinkingLevel` / `isCompacting` sync from it. No reconnect is needed: the selected session's stream stays open whether or not it runs (`maintainEventsConnected()`, warm-session effect), and its `connected` event carries `isStreaming`.
 

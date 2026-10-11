@@ -275,7 +275,7 @@ export function createAgentEventStream(
           });
           for (const event of bufferedEvents) forwardEvent(event, snapshot);
           if (snapshot !== undefined && snapshot !== null) {
-            encode({ type: "message_start", message: snapshot });
+            forwardEvent({ type: "message_start", message: snapshot }, undefined);
           }
           snapshotPublished = true;
         } catch (error) {

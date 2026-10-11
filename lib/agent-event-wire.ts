@@ -1,4 +1,5 @@
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { withoutContentSignatures, withoutMessageSignatures } from "./message-signatures";
 
 export interface AgentEventLike {
   type: string;
@@ -147,6 +148,10 @@ export function toClientAgentEvent(
   // whole prompt plus every tool schema and are never rendered, so drop them
   // before they cost the browser bandwidth.
   if (isSystemMessageEvent(event)) return null;
+  if (event.type === "message_start" || event.type === "message_end") {
+    const message = withoutMessageSignatures(event.message);
+    if (message !== event.message) return { ...event, message };
+  }
   // The agent loop announces a finished message (a tool result, a delivered
   // user message) with `message_start` and `message_end` back to back. The
   // browser builds only an assistant reply from its start and reads nothing
@@ -157,12 +162,16 @@ export function toClientAgentEvent(
   }
 
   if (event.type === "message_update") {
-    const assistantMessageEvent = event.assistantMessageEvent;
-    if (
-      typeof assistantMessageEvent !== "object"
-      || assistantMessageEvent === null
-      || Array.isArray(assistantMessageEvent)
-    ) return null;
+    const rawAssistantMessageEvent = event.assistantMessageEvent;
+    if (!isObject(rawAssistantMessageEvent)) return null;
+    let assistantMessageEvent = rawAssistantMessageEvent;
+
+    if ("toolCall" in assistantMessageEvent) {
+      const toolCall = withoutContentSignatures(assistantMessageEvent.toolCall);
+      if (toolCall !== assistantMessageEvent.toolCall) {
+        assistantMessageEvent = { ...assistantMessageEvent, toolCall };
+      }
+    }
 
     if (!("partial" in assistantMessageEvent)) {
       return {
