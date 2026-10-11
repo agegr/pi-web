@@ -1,4 +1,3 @@
-import { registerSessionLivenessProvider } from "./session-liveness";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
@@ -541,17 +540,9 @@ export function createSubagentController(
         finishQueuedAbort,
       );
       stored.cancelQueued = queued.cancel;
-      // A background subagent outlives its parent's turn; keep the parent session from
-      // being automatically idle-evicted while the run is still active. Registered here,
-      // after the last call that can throw, so the release below cannot be skipped.
-      const releaseParentLiveness = registerSessionLivenessProvider({
-        name: "pi-web-subagent-run",
-        sessionId: parentSessionId,
-        isActive: () => getSubagentRuns().get(initialRun.sessionId) === stored,
-      });
       void queued.promise.then(resolveCompletion, (error) => {
         resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
-      }).finally(releaseParentLiveness);
+      });
 
       return { run: stored.run, completion: stored.completion };
     } catch (error) {
@@ -672,13 +663,7 @@ export function createSubagentController(
       dependencies.invalidateSessionList();
     }, finishQueuedAbort);
     stored.cancelQueued = queued.cancel;
-    // Keep the resumed run's parent alive past its own turn (see start()).
-    const releaseParentLiveness = registerSessionLivenessProvider({
-      name: "pi-web-subagent-run",
-      sessionId: parentSessionId,
-      isActive: () => getSubagentRuns().get(request.sessionId) === stored,
-    });
-    void queued.promise.then(resolveCompletion, (error) => resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) })).finally(releaseParentLiveness);
+    void queued.promise.then(resolveCompletion, (error) => resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) }));
     return { run: stored.run, completion };
   }
 

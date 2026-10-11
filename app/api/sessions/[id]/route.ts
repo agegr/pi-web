@@ -343,12 +343,10 @@ export async function DELETE(
     for (const deletedId of [...deletedSessionIds].reverse()) {
       if (deletedId === id) continue;
       try { await abortSubagent(deletedId); } catch { /* idle or completed */ }
-      const child = getRpcSession(deletedId);
-      if (!child?.isRunning()) await child?.shutdown();
+      await getRpcSession(deletedId)?.shutdown();
     }
     try { await abortSubagent(id); } catch { /* ordinary session */ }
-    const target = getRpcSession(id);
-    if (!target?.isRunning()) await target?.shutdown();
+    await getRpcSession(id)?.shutdown();
     for (const [deletedId, deletedPath] of deletedPaths) {
       try {
         unlinkSync(deletedPath);
