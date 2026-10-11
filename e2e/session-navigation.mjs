@@ -204,8 +204,10 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
 
     // Keyboard Fork: the copy's row takes focus on its link (the row's first
     // control), not on its archive button. The copy is deleted afterwards.
-    await link(page, b.id).focus();
-    await page.keyboard.press("Shift+F10");
+    // The menu from ⋯, as above: Shift+F10 opens no context menu in Chrome on
+    // macOS. F is still the key that forks.
+    await row(page, b.id).hover();
+    await row(page, b.id).getByRole("button", { name: "More actions" }).click();
     await menu.waitFor();
     const forked = page.waitForResponse((response) => response.url() === `${base}/api/sessions/${b.id}/fork` && response.request().method() === "POST");
     await page.keyboard.press("f");
