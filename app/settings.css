@@ -1076,10 +1076,6 @@
 }
 
 .skill-instructions {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-subtle);
   font-size: 13px;
 }
 
