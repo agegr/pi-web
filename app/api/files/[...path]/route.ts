@@ -646,6 +646,7 @@ export async function GET(
       return new Response(stream, {
         headers: {
           "Content-Type": "text/event-stream",
+          "Content-Encoding": "identity",
           "Cache-Control": "no-cache, no-transform",
           Connection: "keep-alive",
           "X-Accel-Buffering": "no",
