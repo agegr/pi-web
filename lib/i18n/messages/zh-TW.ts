@@ -457,6 +457,7 @@ export const zhTWLocale: LocalePlugin = {
     "files.cancel": "取消",
     "files.checking": "正在檢查檔案",
     "files.uploading": "正在上傳，{progress}%",
+    "files.dropToUpload": "放開滑鼠，上傳至 {directory}",
     "chat.loadingSession": "正在載入工作階段...",
     "chat.runningTool": "正在執行工具...",
     "chat.generatingToolInput": "正在產生參數...",
