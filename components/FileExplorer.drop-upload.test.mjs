@@ -58,3 +58,15 @@ test("the drag hint banner shows which directory receives the drop", () => {
   assert.match(source, /t\("files\.dropToUpload", \{/);
   assert.match(source, /getRelativeFilePath\(dropTargetPath, cwd\) \|\| dropTargetPath/);
 });
+
+test("nested TreeNodes inherit the drop handlers recursively", () => {
+  // Expanded directories render their children from inside TreeNode itself;
+  // the drop props must be forwarded there too or only top-level directories
+  // would accept drops.
+  const recursiveStart = source.indexOf("{children.map((child) => (");
+  assert.notEqual(recursiveStart, -1);
+  const recursiveBlock = source.slice(recursiveStart, source.indexOf("/>", recursiveStart));
+  assert.match(recursiveBlock, /dropTargetPath=\{dropTargetPath\}/);
+  assert.match(recursiveBlock, /onDropFiles=\{onDropFiles\}/);
+  assert.match(recursiveBlock, /onDropTargetChange=\{onDropTargetChange\}/);
+});

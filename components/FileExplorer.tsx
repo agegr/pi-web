@@ -584,6 +584,9 @@ export function TreeNode({
               changedDirectoryPaths={changedDirectoryPaths}
               showHidden={showHidden}
               parentHidden={hidden}
+              dropTargetPath={dropTargetPath}
+              onDropFiles={onDropFiles}
+              onDropTargetChange={onDropTargetChange}
               t={t}
             />
           ))}
