@@ -188,7 +188,8 @@ export async function GET(
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Content-Encoding": "identity",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
     },
   });
