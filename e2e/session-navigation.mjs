@@ -93,9 +93,10 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     assert.equal(context.pages().length, 1);
     console.log("PASS: plain click and Enter select a session in the same tab without a page load");
 
-    // Ctrl-click and middle-click open B in another tab; this one stays on A.
+    // Ctrl/Cmd-click and middle-click open B in another tab; this one stays on A.
+    // ControlOrMeta: on macOS Ctrl-click is a secondary click (the row menu), Cmd opens tabs.
     for (const [label, open] of [
-      ["Ctrl+click", () => link(page, b.id).click({ modifiers: ["Control"] })],
+      ["Ctrl/Cmd+click", () => link(page, b.id).click({ modifiers: ["ControlOrMeta"] })],
       ["middle-click", () => link(page, b.id).click({ button: "middle" })],
     ]) {
       const tab = await newTab(open);
@@ -105,7 +106,7 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
       assert.ok(await documentKept(page), `${label} must not reload the original tab`);
       await tab.close();
     }
-    console.log("PASS: Ctrl+click and middle-click open the session in a new tab; the original tab keeps its session");
+    console.log("PASS: Ctrl/Cmd+click and middle-click open the session in a new tab; the original tab keeps its session");
 
     // The built-in right-click menu offers it and opens the row it was opened on.
     await row(page, b.id).click({ button: "right" });
@@ -150,7 +151,7 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     await link(page, b.id, "pinned").waitFor();
     assert.equal(await link(page, b.id, "pinned").getAttribute("href"), `?session=${b.id}`);
     await expectShows(page, a.id);
-    tab = await newTab(() => link(page, b.id, "pinned").click({ modifiers: ["Control"] }));
+    tab = await newTab(() => link(page, b.id, "pinned").click({ modifiers: ["ControlOrMeta"] }));
     await expectShows(tab, b.id);
     await tab.close();
     await row(page, b.id, "pinned").click({ button: "right" });
@@ -164,7 +165,7 @@ export async function checkSessionNavigation({ browser, base, artifacts, a, b, a
     await panel(page).locator('[data-row-key="footer-archived"] button').click();
     await link(page, b.id, "archive").waitFor();
     assert.equal(await link(page, b.id, "archive").getAttribute("href"), `?session=${b.id}`);
-    tab = await newTab(() => link(page, b.id, "archive").click({ modifiers: ["Control"] }));
+    tab = await newTab(() => link(page, b.id, "archive").click({ modifiers: ["ControlOrMeta"] }));
     await expectShows(tab, b.id, { archived: true });
     await tab.close();
     await row(page, b.id, "archive").hover();
