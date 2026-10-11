@@ -1368,14 +1368,17 @@ function TextFileViewer({
 
   // Large HTML: the source view loads 256 KB chunks, but a half document cannot
   // render, so the preview fetches the whole file once. A new `data` (watch
-  // change, reload) refetches it.
+  // change, reload) refetches it; the previous page stays up meanwhile, so a
+  // live change does not flash "Loading".
   const needsHtmlFull = displayMode === "preview"
     && data?.language === "html"
     && data.truncated
     && data.size <= HTML_PREVIEW_MAX_BYTES;
   useEffect(() => {
-    setHtmlFull(null);
-    if (!needsHtmlFull) return;
+    if (!needsHtmlFull) {
+      setHtmlFull(null);
+      return;
+    }
     const controller = new AbortController();
     fetch(getFileApiUrl(filePath, "download", sourceSessionId), { signal: controller.signal })
       .then(async (r) => {
