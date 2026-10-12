@@ -15,6 +15,7 @@ const {
   placeSidebarMenu,
   findSidebarMenuShortcut,
   menuFocusReturnTarget,
+  menuBodyFocusTarget,
   filterSidebarMenuItems,
   sidebarMenuHasFilter,
   hasCustomMenuBody,
@@ -175,7 +176,7 @@ test("shortcut letters find enabled items, case-insensitively", () => {
 });
 
 /** A stand-in for an element: whether it is laid out, its row, and what it holds. */
-function fakeElement({ rendered = true, connected = true, disabled = false, tabIndex = 0, children = [], row = null } = {}) {
+function fakeElement({ rendered = true, connected = true, disabled = false, tabIndex = 0, children = [], row = null, filterField = false } = {}) {
   const element = {
     isConnected: connected,
     disabled,
@@ -183,6 +184,7 @@ function fakeElement({ rendered = true, connected = true, disabled = false, tabI
     getAttribute: () => null,
     getClientRects: () => ({ length: rendered ? 1 : 0 }),
     closest: (selector) => (selector === "[data-row-key]" ? element.row : null),
+    matches: (selector) => filterField && selector === "[data-sidebar-menu-filter]",
     querySelectorAll: () => children,
     focus() {},
     row,
@@ -215,6 +217,22 @@ test("focus never goes to an opener that is hidden: the row's own button takes i
   assert.equal(menuFocusReturnTarget(fakeElement({ rendered: false })), null);
   const hiddenRow = fakeElement({ children: [fakeElement({ rendered: false })] });
   assert.equal(menuFocusReturnTarget(fakeElement({ rendered: false, row: hiddenRow })), null);
+});
+
+test("a body swapped into an open menu takes the focus from a long list's filter field", () => {
+  // Eight choices show a filter above the list, marked to take focus when the
+  // menu opens. "New worktree…" then adds a form under the list whose branch
+  // field is marked too — and comes after the filter in the page, so the
+  // first marked control would stay the filter. The swap's own target is the
+  // form's field.
+  const filterField = fakeElement({ filterField: true });
+  const branchField = fakeElement();
+  assert.equal(menuBodyFocusTarget(fakeElement({ children: [filterField, branchField] })), branchField);
+
+  // A hidden field cannot take it; with no other body marked, focus falls
+  // back to the opening's target, the filter.
+  assert.equal(menuBodyFocusTarget(fakeElement({ children: [filterField, fakeElement({ rendered: false })] })), filterField);
+  assert.equal(menuBodyFocusTarget(fakeElement({ children: [filterField] })), filterField);
 });
 
 test("menu styles parse on Safari 16.2", () => {
@@ -305,6 +323,12 @@ test("filter markup: a field above the list, the empty label, focus only on a de
   // Too few choices, or a custom body: no field.
   assert.doesNotMatch(surface({ items: projectMenu.slice(1), filter }), /sidebar-menu-filter/);
   assert.doesNotMatch(surface({ items: projectMenu, filter, children: h("input") }), /sidebar-menu-filter/);
+  // A footer form under a filtered list is marked too, after the filter in
+  // the page: when it swaps in, its own field takes the focus
+  // (menuBodyFocusTarget), not the filter above the list.
+  const form = surface({ classic: true, items: projectMenu, filter, footer: h("input", { className: "sidebar-worktree-input", "data-sidebar-menu-autofocus": "" }) });
+  assert.equal((form.match(/data-sidebar-menu-autofocus=""/g) ?? []).length, 2);
+  assert.match(form, /data-sidebar-menu-filter="" data-sidebar-menu-autofocus=""[\s\S]*sidebar-worktree-input" data-sidebar-menu-autofocus=""/);
 });
 
 test("an item's secondary action is its own menu item at the row's end; a badge sits before the note", () => {

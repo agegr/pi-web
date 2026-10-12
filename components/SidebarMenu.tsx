@@ -299,6 +299,19 @@ function initialFocusTarget(surface: HTMLElement): HTMLElement | null {
 }
 
 /**
+ * What focus goes to when the menu's body is swapped while it stays open (the
+ * worktree menu's "New worktree…" form under, or in place of, its list): the
+ * new body's marked control, not the list's filter field above it — first in
+ * the page, it took the focus when the menu opened and would keep it. Back to
+ * the list nothing else is marked, so the filter takes it again.
+ */
+export function menuBodyFocusTarget(surface: HTMLElement): HTMLElement | null {
+  const marked = Array.from(surface.querySelectorAll<HTMLElement>(AUTOFOCUS_SELECTOR))
+    .filter((element) => !element.matches(FILTER_SELECTOR) && isFocusable(element));
+  return marked[0] ?? initialFocusTarget(surface);
+}
+
+/**
  * Whether Tab (or Shift+Tab) from `active` takes focus out of the menu: no
  * tabbable element of the menu follows it (precedes it). Items themselves are
  * not tabbable (arrows move between them), so Tab from an item leaves a plain
@@ -647,10 +660,19 @@ export function SidebarMenu({
 
   // Focus moves into the menu when it opens, and again when its body is
   // swapped (the worktree menu turning into its form, or showing it below).
+  // The opening takes the first marked control (a filter field); a swap hands
+  // the claim to the new body's own, so a long list's filter does not keep it.
+  const openedRef = useRef(false);
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
-    if (!visible || !surface) return;
-    initialFocusTarget(surface)?.focus({ preventScroll: true });
+    if (!visible || !surface) {
+      // Closed: the next run is an opening again.
+      openedRef.current = false;
+      return;
+    }
+    const opening = !openedRef.current;
+    openedRef.current = true;
+    (opening ? initialFocusTarget(surface) : menuBodyFocusTarget(surface))?.focus({ preventScroll: true });
   }, [visible, sheet, custom, focusKey]);
 
   // On close, focus returns to the opener unless the user put it elsewhere.
