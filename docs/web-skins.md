@@ -9,11 +9,13 @@ An opt-in, web-only loading point proposed in [#1204](https://github.com/agegr/p
 3. Start Pi Web with `PI_WEB_SKINS_DIR` pointing at that directory.
 4. Select a pack using the small bottom-right button; its panel opens upward and avoids the composer. Selecting **None** restores the selected built-in appearance. Missing/invalid packs fall back to the built-in appearance.
 
+From this implementation branch:
+
 ```sh
-PI_WEB_SKINS_DIR="$HOME/.pi/web-skins" pi-web --no-open
+PI_WEB_SKINS_DIR="$HOME/.pi/web-skins" npm run dev
 ```
 
-For this source prototype, use the same variable with `npm run dev`. Nothing is installed automatically. There is no package manager, marketplace, upload endpoint, server-side preference write or folder watcher. Copy/replace a pack yourself and reload or focus the page to refresh the catalog.
+The currently published Pi Web package does not include this prototype. The packaged `pi-web` command will recognize the variable only once the feature is included in its build. Nothing is installed automatically. There is no package manager, marketplace, upload endpoint, server-side preference write or folder watcher. Copy/replace a pack yourself and reload or focus the page to refresh the catalog.
 
 Without a configured root or a valid pack, no skin control appears. The client makes a small catalog GET; an unconfigured server returns an empty list **without filesystem reads**. Catalogs contain declarations only: no background-image reads or requests until selection. This does not claim zero extra HTTP requests or zero JavaScript bytes in the default app.
 
