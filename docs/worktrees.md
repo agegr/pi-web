@@ -28,6 +28,8 @@ Existing sessions stay grouped under the same project. Opening an existing sessi
 
 A new session can also pick its checkout right above the message box. While a new chat is still empty, a small bar there shows its project and, at a repository root, its worktree. Choosing another one moves the new chat there, keeping what you have typed, attached images, and the model and reasoning level you picked (a model the other project does not offer goes back to automatic). It offers the same project and worktree menus as the sidebar's Files tab, with `Use default directory` and `Open another project...` for any other folder; only the Files tab removes worktrees. A project's `+` in the sidebar starts the new chat in the worktree you are using for that project (or in the main checkout of another project); use the bar to pick a different one.
 
+The project group's `⋯` menu also offers **Open in new tab**. It opens a fresh composer in the same directory the group's `+` would use, without switching the original browser tab or copying its conversation or draft. Merely opening the new tab does not create a session or send a prompt.
+
 ## Creating a Worktree
 
 Choose `New worktree...` from the worktree menu and enter a branch name. From the bar above an empty new chat, the new chat then moves into the new worktree.

@@ -4,7 +4,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback,
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, type SessionFamily } from "@/lib/session-family";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
-import { sessionDeepLink } from "@/lib/session-links";
+import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import {
@@ -55,6 +55,7 @@ import { splitBeforeForkSuffix } from "@/lib/session-fork-name";
 import {
   mergeProjectChoices,
   newSessionContextKey,
+  newSessionTargetForProject,
   withProjectAlias,
   type NewSessionContext,
   type NewSessionOptions,
@@ -2053,11 +2054,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // pinned project without sessions keeps its server identity.
   const handleGroupNew = useCallback((project: SidebarProject) => {
     setMenu(null);
-    startNewSessionIn({
-      cwd: project.current && selectedCwd ? selectedCwd : project.root,
-      projectKey: project.key,
-      projectRoot: project.root,
-    });
+    startNewSessionIn(newSessionTargetForProject(project, selectedCwd));
   }, [selectedCwd, startNewSessionIn]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -2157,6 +2154,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     revealFiles("project-button");
   };
 
+  const openProjectInNewTab = (project: SidebarProject) => {
+    const { cwd } = newSessionTargetForProject(project, selectedCwd);
+    // Navigation only, synchronous in the menu action so the browser permits it.
+    window.open(newSessionDeepLink(cwd), "_blank", "noopener,noreferrer");
+  };
+
   const handleOpenOtherProject = () => {
     revealFiles("project-list");
   };
@@ -2250,6 +2253,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         label: t("sidebar.openInFilesTab"),
         icon: <FolderIcon />,
         onSelect: () => openProjectInFiles(project),
+      },
+      {
+        type: "item",
+        id: "open-new-tab",
+        label: t("sidebar.openInNewTab"),
+        icon: <OpenInNewTabIcon />,
+        shortcut: "T",
+        onSelect: () => openProjectInNewTab(project),
       },
       { type: "separator", id: "separator-groups" },
       {

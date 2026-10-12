@@ -7,7 +7,7 @@
  * without a DOM.
  */
 
-import { projectNameOf } from "./session-tree";
+import { projectNameOf, type SidebarProject } from "./session-tree";
 
 export interface WorktreeChoice {
   path: string;
@@ -68,6 +68,18 @@ export interface NewSessionMove {
   project: ProjectChoice;
   /** The branch of a worktree the bar just created at `cwd`, which no report lists yet. */
   branch: string | null;
+}
+
+/** The group's + and Open in new tab use the same directory and project identity. */
+export function newSessionTargetForProject(
+  project: Pick<SidebarProject, "key" | "root" | "current">,
+  selectedCwd: string | null,
+): NewSessionTarget {
+  return {
+    cwd: project.current && selectedCwd ? selectedCwd : project.root,
+    projectKey: project.key,
+    projectRoot: project.root,
+  };
 }
 
 /**

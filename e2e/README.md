@@ -13,7 +13,8 @@ The script starts and stops its own Turbopack dev server on an available
 loopback port. Run it in a checkout without an active dev server; Next.js
 shares `.next/dev/lock` within a checkout. All fixtures are created before
 startup in a temporary `PI_CODING_AGENT_DIR` and removed on completion.
-No model credentials or existing Pi sessions are needed.
+No model credentials or existing Pi sessions are needed. Git is required for
+the linked-worktree fixture.
 
 CI runs lint, type checking, and unit tests in one job. A separate job builds
 the application in a clean checkout and runs the same browser tests with
@@ -46,6 +47,13 @@ Coverage:
   through reloads; pinned and archived rows link the same way; nothing
   creates, copies or prompts a session; a missing session's link selects none
   in a fresh profile; a keyboard Fork puts focus on the copy row's link.
+- Project groups offer Open in new tab (`project-navigation.mjs`, desktop
+  and mobile Chromium): the current linked worktree, another project's root,
+  and a pinned project without sessions open as fresh composers. Reload keeps
+  that destination, not a remembered session. The original tab keeps its
+  session, directory, draft, files and group expansion; + still opens in the
+  same tab, and no session is created, copied, prompted or stopped. An
+  unavailable directory shows the validation error instead of another session.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
 

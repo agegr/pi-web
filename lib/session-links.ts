@@ -1,6 +1,6 @@
 /**
- * Links that open one session of this Pi Web, and the click rule that keeps
- * an ordinary click inside the page.
+ * Links that open a session or a fresh composer of this Pi Web, and the click
+ * rule that keeps an ordinary session-link click inside the page.
  *
  * `?session=<id>` alone, resolved against the page the link sits on: the
  * origin and path stay (a sub-path deployment keeps its prefix), and every
@@ -13,6 +13,11 @@
 /** A same-instance link to one session; the id is encoded, never a URL of its own. */
 export function sessionDeepLink(sessionId: string): string {
   return `?session=${encodeURIComponent(sessionId)}`;
+}
+
+/** A same-instance fresh-composer link; cwd wins over any remembered session. */
+export function newSessionDeepLink(cwd: string): string {
+  return `?cwd=${encodeURIComponent(cwd)}`;
 }
 
 export interface ActivationEvent {
