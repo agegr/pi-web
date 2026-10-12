@@ -1,0 +1,54 @@
+/* These selectors have no effect without an explicitly selected external skin. */
+html[data-web-skin] .chat-content {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--bg) var(--web-skin-wash, 100%), transparent),
+    color-mix(in srgb, var(--bg) var(--web-skin-wash, 100%), transparent)
+  ), var(--web-skin-image, none);
+  background-position: right center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+.web-skin-control {
+  position: fixed;
+  z-index: 30;
+  color: var(--text);
+}
+.web-skin-control .web-skin-toggle {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  color: var(--accent);
+}
+.web-skin-panel {
+  position: absolute;
+  right: 0;
+  width: 264px;
+  max-width: calc(100vw - 32px);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  box-shadow: 0 8px 24px #0004;
+}
+.web-skin-heading { padding: 4px 8px 8px; font-weight: 600; }
+.web-skin-panel > button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  text-align: left;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.web-skin-panel > button:hover { background: var(--bg-hover); }
+.web-skin-panel > button[aria-pressed="true"] { background: var(--bg-selected); font-weight: 600; }
+.web-skin-panel > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.web-skin-panel > p { padding: 4px 8px; margin: 0; }
