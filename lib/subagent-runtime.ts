@@ -91,6 +91,7 @@ type StoredSubagentExecution = {
 
 declare global {
   var __piSubagentRuns: Map<string, StoredSubagentExecution> | undefined;
+  var __piSubagentSettledRuns: Map<string, SubagentRunInfo> | undefined;
   var __piSubagentQueue: SubagentQueue<SubagentRunInfo> | undefined;
   var __piSubagentConsumedResults: Map<string, string> | undefined;
 }
@@ -145,6 +146,35 @@ async function prepareChildMcp(session: HostSession | void, stored: StoredSubage
 function getSubagentRuns(): Map<string, StoredSubagentExecution> {
   if (!globalThis.__piSubagentRuns) globalThis.__piSubagentRuns = new Map();
   return globalThis.__piSubagentRuns;
+}
+
+/**
+ * Runs that finished and left the live registry. Their session id is already in the parent's
+ * hands — it is what the `Agent` call returned — so answering "Subagent not found" for one of
+ * them sends the parent chasing a session it knows exists: the wrapper is released once the
+ * child goes idle and the file lookup can miss a just-settled session, and with both gone
+ * there was nothing left to answer from. A read of the session file still wins whenever it
+ * works, so this only ever fills the hole that lookup leaves. Bounded and in insertion order:
+ * the last few results matter, an archive of them does not.
+ */
+const SETTLED_RUNS_LIMIT = 64;
+
+function getSettledSubagentRuns(): Map<string, SubagentRunInfo> {
+  if (!globalThis.__piSubagentSettledRuns) globalThis.__piSubagentSettledRuns = new Map();
+  return globalThis.__piSubagentSettledRuns;
+}
+
+/** Take a finished run out of the live registry, leaving its result findable. */
+function settleSubagentRun(run: SubagentRunInfo): void {
+  const settled = getSettledSubagentRuns();
+  settled.delete(run.sessionId);
+  settled.set(run.sessionId, run);
+  while (settled.size > SETTLED_RUNS_LIMIT) {
+    const oldest = settled.keys().next().value;
+    if (oldest === undefined) break;
+    settled.delete(oldest);
+  }
+  getSubagentRuns().delete(run.sessionId);
 }
 
 function getSubagentQueue(): SubagentQueue<SubagentRunInfo> {
@@ -476,7 +506,7 @@ export function createSubagentController(
           await cleanupWorktree(parent.cwd, isolatedWorktree);
           stored.run = result;
           request.onUpdate?.(result);
-          getSubagentRuns().delete(initialRun.sessionId);
+          settleSubagentRun(stored.run);
           dependencies.invalidateSessionList();
           return result;
         }
@@ -574,7 +604,7 @@ export function createSubagentController(
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, persisted);
         stored.run = result;
         request.onUpdate?.(result);
-        getSubagentRuns().delete(initialRun.sessionId);
+        settleSubagentRun(stored.run);
         dependencies.invalidateSessionList();
         return result;
       };
@@ -587,7 +617,7 @@ export function createSubagentController(
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
         stored.run = finalResult;
         request.onUpdate?.(finalResult);
-        getSubagentRuns().delete(initialRun.sessionId);
+        settleSubagentRun(stored.run);
         dependencies.invalidateSessionList();
         resolveCompletion(finalResult);
       };
@@ -669,7 +699,7 @@ export function createSubagentController(
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
         manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
         stored.run = result;
-        getSubagentRuns().delete(request.sessionId);
+        settleSubagentRun(stored.run);
         resolveCompletion(result);
         return result;
       }
@@ -710,7 +740,7 @@ export function createSubagentController(
       });
       stored.run = result;
       request.onUpdate?.(result);
-      getSubagentRuns().delete(request.sessionId);
+      settleSubagentRun(stored.run);
       dependencies.invalidateSessionList();
       return result;
     };
@@ -720,7 +750,7 @@ export function createSubagentController(
       manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
       stored.run = result;
       request.onUpdate?.(result);
-      getSubagentRuns().delete(request.sessionId);
+      settleSubagentRun(stored.run);
       dependencies.invalidateSessionList();
       resolveCompletion(result);
     };
@@ -749,10 +779,15 @@ export function createSubagentController(
       if (run) return settleOrphanedRun(run);
     }
     const sessionPath = await dependencies.resolveSessionPath(sessionId);
-    if (!sessionPath) return null;
-    const manager = SessionManager.open(sessionPath);
-    const run = readSubagentRun(manager.getEntries() as unknown as SessionEntry[], sessionId, sessionPath);
-    return run && settleOrphanedRun(run);
+    if (sessionPath) {
+      const manager = SessionManager.open(sessionPath);
+      const run = readSubagentRun(manager.getEntries() as unknown as SessionEntry[], sessionId, sessionPath);
+      if (run) return settleOrphanedRun(run);
+    }
+    // Neither a live wrapper nor the session file answered. A run this process finished is
+    // still its own answer: the id came from us, and "not found" here is something the parent
+    // has no way to verify and every reason to act on.
+    return getSettledSubagentRuns().get(sessionId) ?? null;
   }
 
   async function steer(sessionId: string, message: string): Promise<void> {
