@@ -480,6 +480,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.loadEarlier": "向上滚动以加载更早的消息",
     "chat.scrollToLatest": "回到最新消息",
     "chat.extensionRequest": "扩展请求",
+    "chat.extensionMoveDialog": "移动弹窗",
+    "chat.extensionMoveDialogHint": "拖动可移动；方向键微调，Shift 加大步长；Home、Enter、空格或双击复位。",
     "chat.extensionExpiresIn": "{seconds} 秒后过期",
     "chat.extensionPending": "待回答",
     "chat.extensionCollapse": "收起",

@@ -20,6 +20,7 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
+import { useDraggableDialog } from "@/hooks/useDraggableDialog";
 import { phaseLabel } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
@@ -1673,6 +1674,11 @@ function ExtensionDialog({
   // fit (a code block or table that would scroll sideways), so no extension has to ask
   // for room. The maximize button is the user's own override for this dialog (#947).
   const dialogRef = useRef<HTMLDivElement>(null);
+  const drag = useDraggableDialog(collapsed);
+  const setDialogRef = useCallback((element: HTMLDivElement | null) => {
+    dialogRef.current = element;
+    drag.dialogRef.current = element;
+  }, [drag.dialogRef]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [fitWidth, setFitWidth] = useState<number | null>(null);
   const [full, setFull] = useState(false);
@@ -1736,6 +1742,7 @@ function ExtensionDialog({
 
   return (
     <div
+      ref={drag.containerRef}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
         event.preventDefault();
@@ -1794,7 +1801,7 @@ function ExtensionDialog({
         </button>
       ) : (
       <div
-        ref={dialogRef}
+        ref={setDialogRef}
         role="dialog"
         aria-label={request.title}
         style={{
@@ -1813,7 +1820,11 @@ function ExtensionDialog({
         }}
       >
         <div style={{ flexShrink: 1, minHeight: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)", maxHeight: "50vh", overflowY: "auto" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div {...drag.handleProps} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-start", gap: 8, cursor: drag.enabled ? "grab" : undefined, touchAction: drag.enabled ? "none" : undefined }}>
+            {drag.enabled && (
+              <div {...drag.gripProps} data-dialog-drag-grip aria-label={t("chat.extensionMoveDialog")} title={t("chat.extensionMoveDialogHint")} style={{ flexShrink: 0, color: "var(--text-muted)", lineHeight: "20px", fontSize: 18 }}>⠿</div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
             {/* Pi's TUI shows the title verbatim, newlines included; select/input have no
                 separate message field, so extensions put multi-line text here. */}
             <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{request.title}</div>
@@ -1821,6 +1832,7 @@ function ExtensionDialog({
               <span>{t("chat.extensionRequest")}</span>
               <ExtensionWaitingCount count={waitingCount} />
               {countdown}
+            </div>
             </div>
           </div>
           <button
@@ -2046,6 +2058,7 @@ function ExtensionCustomPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
+  const drag = useDraggableDialog(collapsed);
   const displayLines = normalizeCustomPanelLines(request.lines);
   const summary = displayLines.find((line) => line.trim())?.trim();
 
@@ -2055,6 +2068,7 @@ function ExtensionCustomPanel({
 
   return (
     <div
+      ref={drag.containerRef}
       style={{
         position: "absolute",
         inset: 0,
@@ -2106,9 +2120,10 @@ function ExtensionCustomPanel({
         </button>
       ) : (
       <div
+        ref={drag.dialogRef}
         role="dialog"
         onClick={(event) => {
-          if (!(event.target as HTMLElement).closest("button")) inputRef.current?.focus();
+          if (!(event.target as HTMLElement).closest("button, [data-dialog-drag-grip]")) inputRef.current?.focus();
         }}
         style={{
           pointerEvents: "auto",
@@ -2178,7 +2193,12 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-           <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
+          <div {...drag.handleProps} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, cursor: drag.enabled ? "grab" : undefined, touchAction: drag.enabled ? "none" : undefined }}>
+            {drag.enabled && (
+              <div {...drag.gripProps} data-dialog-drag-grip aria-label={t("chat.extensionMoveDialog")} title={t("chat.extensionMoveDialogHint")} style={{ flexShrink: 0, color: "var(--text-muted)", lineHeight: "20px", fontSize: 18 }}>⠿</div>
+            )}
+            <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <ExtensionWaitingCount count={waitingCount} />
             <button

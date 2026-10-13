@@ -480,6 +480,8 @@ export const enLocale: LocalePlugin = {
     "chat.loadEarlier": "Scroll up to load earlier messages",
     "chat.scrollToLatest": "Scroll to latest",
     "chat.extensionRequest": "extension request",
+    "chat.extensionMoveDialog": "Move dialog",
+    "chat.extensionMoveDialogHint": "Drag to move. Arrow keys move; Shift moves farther; Home, Enter, Space or double-click resets.",
     "chat.extensionExpiresIn": "expires in {seconds}s",
     "chat.extensionPending": "Awaiting response",
     "chat.extensionCollapse": "Collapse",
