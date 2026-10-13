@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
+import type { SessionWrittenFileManifest } from "@/lib/session-written-files";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import {
   deleteSessionViewSnapshot,
@@ -57,6 +58,8 @@ export interface SessionData {
   totalActiveMs: number;
   tree: SessionTreeNode[];
   leafId: string | null;
+  /** Complete body-free successful writes on this leaf's ancestor chain. */
+  writtenFileManifest?: SessionWrittenFileManifest;
   toolNames?: string[];
   /** Opaque freshness token for the session view cache (summary tree reads). */
   snapshotRevision?: string | null;
@@ -351,6 +354,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [loading, setLoading] = useState(!isNew);
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
+  const [filesContextLeafId, setFilesContextLeafId] = useState<string | null | undefined>(undefined);
+  const contextRequestIdRef = useRef(0);
+  const pendingLeafChangeRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [activeToolResults, setActiveToolResults] = useState<Map<string, ToolResultMessage>>(new Map());
   const [entryIds, setEntryIds] = useState<string[]>([]);
@@ -638,6 +644,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
     // Single-flight: concurrent reads for the same session (mount + SSE settle +
     // reconcile) share one request unless the caller forces a fresh read.
+    if (pendingLeafChangeRef.current === sid) return null;
+    const requestId = contextRequestIdRef.current;
     const flightKey = options?.force ? `force:${sid}` : sid;
     const inflight = options?.force ? undefined : loadFlightsRef.current.get(flightKey);
     if (inflight) return await inflight;
@@ -648,6 +656,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
       if (options?.force) params.set("force", "1");
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (sessionIdRef.current !== sid || requestId !== contextRequestIdRef.current || pendingLeafChangeRef.current === sid) return null;
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -664,7 +673,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (sessionIdRef.current !== sid || requestId !== contextRequestIdRef.current || pendingLeafChangeRef.current === sid) return null;
       // Freshness check: when the disk snapshot is unchanged (same opaque
       // revision), keep any history the user already paged in instead of
       // collapsing back to the fresh 50-entry window. The state hooks then
@@ -690,6 +699,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         : d);
       setActiveLeafId(d.leafId);
+      setFilesContextLeafId(d.leafId);
       if (revisionUnchanged) {
         // Refresh the cached snapshot with the newest leaf/tree/stats while
         // preserving the wider loaded window.
@@ -779,6 +789,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return null;
       }
     } catch (e) {
+      if (sessionIdRef.current !== sid || requestId !== contextRequestIdRef.current || pendingLeafChangeRef.current === sid) return null;
       setError(String(e));
       return "error";
     } finally {
@@ -793,6 +804,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyContextUsage, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
+    const requestId = before ? contextRequestIdRef.current : ++contextRequestIdRef.current;
+    if (!before) setFilesContextLeafId(undefined);
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
@@ -801,10 +814,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (before) params.set("before", before);
       if (options?.tail) params.set("tail", String(options.tail));
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
+      const manifestParams = new URLSearchParams({ writtenFiles: "1" });
+      if (leafId) manifestParams.set("leafId", leafId);
+      // Branch/context replacement needs its complete baseline; scrolling does not.
+      const manifestRequest = before ? null : fetch(`/api/sessions/${encodeURIComponent(sid)}?${manifestParams}`, { signal: options?.signal })
+        .then(async (response) => response.ok ? await response.json() as Pick<SessionData, "sessionId" | "writtenFileManifest"> : null)
+        .catch(() => null);
       const res = await fetch(url, { signal: options?.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: SessionData["context"] };
-      if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
+      const manifestData = await manifestRequest;
+      if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current
+        || requestId !== contextRequestIdRef.current || activeLeafIdRef.current !== leafId) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
       setEarlierTurnCount(d.context.turnsBefore ?? 0);
@@ -818,7 +839,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           hasMore: d.context.hasMore,
           turnsBefore: d.context.turnsBefore,
         } : d.context;
-        return { ...prev, context };
+        return { ...prev, context, ...(!before ? {
+          writtenFileManifest: manifestData?.sessionId === sid ? manifestData.writtenFileManifest
+            : prev.writtenFileManifest?.leafId === leafId ? prev.writtenFileManifest : undefined,
+        } : {}) };
       });
       if (before) {
         // Older page: prepend so scroll position stays anchored.
@@ -827,12 +851,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else {
         setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);
+        setFilesContextLeafId(leafId);
       }
       return d.context;
     } catch (e) {
       if (!options?.signal?.aborted) console.error("Failed to load context:", e);
     }
   }, []);
+
+  const retrySessionFiles = useCallback(async () => {
+    const sid = data?.sessionId;
+    const leafId = activeLeafId;
+    const requestId = contextRequestIdRef.current;
+    if (!sid || sessionIdRef.current !== sid || activeLeafIdRef.current !== leafId || pendingLeafChangeRef.current === sid) return;
+    const params = new URLSearchParams({ writtenFiles: "1" });
+    if (leafId) params.set("leafId", leafId);
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (!response.ok) return;
+      const result = await response.json() as Pick<SessionData, "sessionId" | "writtenFileManifest">;
+      if (!sessionHookMountedRef.current || sessionIdRef.current !== sid || activeLeafIdRef.current !== leafId
+        || requestId !== contextRequestIdRef.current || result.sessionId !== sid || result.writtenFileManifest?.leafId !== leafId) return;
+      setData(prev => prev?.sessionId === sid ? { ...prev, writtenFileManifest: result.writtenFileManifest } : prev);
+    } catch {
+      // Keep the explicit incomplete state until a later retry succeeds.
+    }
+  }, [activeLeafId, data?.sessionId]);
 
   const loadTools = useCallback(async (sid: string) => {
     try {
@@ -1940,12 +1984,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // appends to. Switching only the view would render the live run under
     // another branch, so the switch waits for the run like the server does.
     if (bashRunningRef.current || agentRunningRef.current || isCompacting) return;
+    activeLeafIdRef.current = leafId;
     setActiveLeafId(leafId);
     const sid = sessionIdRef.current;
     if (!sid) return;
-    await loadContext(sid, leafId);
-    if (leafId) {
-      sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
+    pendingLeafChangeRef.current = sid;
+    const contextRequest = loadContext(sid, leafId);
+    const requestId = contextRequestIdRef.current;
+    try {
+      const context = await contextRequest;
+      if (context && leafId && sessionHookMountedRef.current && sessionIdRef.current === sid && activeLeafIdRef.current === leafId) {
+        await sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId }).catch(() => {});
+      }
+    } finally {
+      if (requestId === contextRequestIdRef.current && pendingLeafChangeRef.current === sid) pendingLeafChangeRef.current = null;
     }
   }, [isCompacting, loadContext]);
 
@@ -2537,6 +2589,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           stats: cached.stats as SessionData["stats"],
         });
         setActiveLeafId(cached.leafId);
+        setFilesContextLeafId(cached.leafId);
         setMessages(cached.messages);
         setEntryIds(cached.entryIds);
         setHistoryCursor(cached.oldestEntryId);
@@ -2751,9 +2804,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const extensionCustomUi = extensionCustomUis[0] ?? null;
   const waitingExtensionCustomUiCount = Math.max(0, extensionCustomUis.length - 1);
 
+  const sessionFilesReady = ((!data && isNew)
+    || (data?.sessionId === sessionIdRef.current && filesContextLeafId === activeLeafId))
+    && (!session || session.id === sessionIdRef.current);
+  const sessionFileWrites = sessionFilesReady && data?.sessionId === sessionIdRef.current && data.writtenFileManifest
+    && data.writtenFileManifest.leafId === activeLeafId
+    ? data.writtenFileManifest.writes : undefined;
+  const sessionFilesFailed = sessionFilesReady && Boolean(data) && sessionFileWrites === undefined;
+
   return {
     // State
-    data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
+    data, loading, error, activeLeafId, messages, activeToolResults, sessionFilesReady, sessionFilesFailed, retrySessionFiles, sessionFileWrites, entryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,

@@ -8,6 +8,7 @@ import {
   invalidateSessionListCache,
   invalidateSessionManagerCache,
   buildSessionContext,
+  sliceActiveBranch,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse, toSummaryTree } from "@/lib/project-tree";
@@ -20,6 +21,7 @@ import { readSubagentRun, readSubagentSessionResources } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
 import { deleteSessions } from "@/lib/session-delete";
+import { collectSessionWrittenFileManifest } from "@/lib/session-written-files";
 
 export async function GET(
   req: Request,
@@ -31,7 +33,8 @@ export async function GET(
     perf?.span("resolve");
     const rpc = getRpcSession(id);
     const searchParams = new URL(req.url).searchParams;
-    const force = searchParams.get("force") === "1";
+    const manifestOnly = searchParams.get("writtenFiles") === "1";
+    const force = !manifestOnly && searchParams.get("force") === "1";
 
     // A live wrapper only reflects the appends pi-web itself made. When another
     // pi process (the TUI) writes the same session file, the in-memory index
@@ -55,6 +58,15 @@ export async function GET(
     const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
     const entries = sm.getEntries();
     const leafId = sm.getLeafId();
+    const header = sm.getHeader();
+    const manifestLeafId = manifestOnly && searchParams.has("leafId")
+      ? searchParams.get("leafId") || null : leafId;
+    const writtenFileManifest = collectSessionWrittenFileManifest(
+      manifestLeafId === null ? [] : sliceActiveBranch(entries as unknown as SessionEntry[], manifestLeafId, entries.length),
+      manifestLeafId,
+      header?.cwd,
+    );
+    if (manifestOnly) return jsonResponse(req, { sessionId: id, writtenFileManifest });
     const summaryTree = searchParams.get("tree") === "summary";
     const tree = summaryTree
       ? toSummaryTree(projectTreeForResponse(sm.getTree()))
@@ -92,7 +104,6 @@ export async function GET(
     const firstUserEntry = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
     const firstUserMessage = firstUserEntry?.type === "message" ? firstUserEntry.message : undefined;
 
-    const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
     try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
     const parentSessionId = header?.parentSession
@@ -137,6 +148,7 @@ export async function GET(
         ...(summaryTree ? { treeFormat: "summary" as const } : {}),
         snapshotRevision,
         context,
+        writtenFileManifest,
         stats,
         totalActiveMs,
         ...(toolNames !== undefined ? { toolNames } : {}),
@@ -153,6 +165,7 @@ export async function GET(
         ...(summaryTree ? { treeFormat: "summary" as const } : {}),
         snapshotRevision,
         context,
+        writtenFileManifest,
         stats,
         totalActiveMs,
         ...(toolNames !== undefined ? { toolNames } : {}),
