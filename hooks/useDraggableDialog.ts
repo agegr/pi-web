@@ -77,6 +77,7 @@ export function useDraggableDialog(collapsed: boolean) {
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (isMobile || event.button !== 0 || dragRef.current) return;
     if ((event.target as HTMLElement).closest("button, a, input, textarea, select, [contenteditable]")) return;
+    if (event.pointerType !== "mouse" && !(event.target as HTMLElement).closest("[data-dialog-drag-grip]")) return;
     event.preventDefault();
     event.stopPropagation();
     const target = event.currentTarget;

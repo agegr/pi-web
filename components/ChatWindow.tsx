@@ -1820,9 +1820,9 @@ function ExtensionDialog({
         }}
       >
         <div style={{ flexShrink: 1, minHeight: 0, display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--border)", maxHeight: "50vh", overflowY: "auto" }}>
-          <div {...drag.handleProps} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-start", gap: 8, cursor: drag.enabled ? "grab" : undefined, touchAction: drag.enabled ? "none" : undefined }}>
+          <div {...drag.handleProps} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "flex-start", gap: 8, cursor: drag.enabled ? "grab" : undefined }}>
             {drag.enabled && (
-              <div {...drag.gripProps} data-dialog-drag-grip aria-label={t("chat.extensionMoveDialog")} title={t("chat.extensionMoveDialogHint")} style={{ flexShrink: 0, color: "var(--text-muted)", lineHeight: "20px", fontSize: 18 }}>⠿</div>
+              <div {...drag.gripProps} data-dialog-drag-grip aria-label={t("chat.extensionMoveDialog")} title={t("chat.extensionMoveDialogHint")} style={{ flexShrink: 0, color: "var(--text-muted)", lineHeight: "20px", fontSize: 18, touchAction: "none" }}>⠿</div>
             )}
             <div style={{ flex: 1, minWidth: 0 }}>
             {/* Pi's TUI shows the title verbatim, newlines included; select/input have no
@@ -2193,9 +2193,9 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div {...drag.handleProps} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, cursor: drag.enabled ? "grab" : undefined, touchAction: drag.enabled ? "none" : undefined }}>
+          <div {...drag.handleProps} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, cursor: drag.enabled ? "grab" : undefined }}>
             {drag.enabled && (
-              <div {...drag.gripProps} data-dialog-drag-grip aria-label={t("chat.extensionMoveDialog")} title={t("chat.extensionMoveDialogHint")} style={{ flexShrink: 0, color: "var(--text-muted)", lineHeight: "20px", fontSize: 18 }}>⠿</div>
+              <div {...drag.gripProps} data-dialog-drag-grip aria-label={t("chat.extensionMoveDialog")} title={t("chat.extensionMoveDialogHint")} style={{ flexShrink: 0, color: "var(--text-muted)", lineHeight: "20px", fontSize: 18, touchAction: "none" }}>⠿</div>
             )}
             <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("chat.extensionPanel")}</div>
           </div>

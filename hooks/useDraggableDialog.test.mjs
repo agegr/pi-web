@@ -38,6 +38,20 @@ export function flush(){const setup=effects;effects=[];return setup.map(fn=>fn()
     let drag = render();
     drag.handleProps.onPointerDown(event({ target: { closest: () => ({ tagName: "BUTTON" }) } }));
     assert.equal(captured.size, 0, "header action buttons are not drag handles");
+    const grip = { closest: selector => selector === "[data-dialog-drag-grip]" ? grip : null };
+    for (const pointerType of ["touch", "pen"]) {
+      let prevented = false;
+      drag.handleProps.onPointerDown(event({ pointerType, preventDefault() { prevented = true; } }));
+      assert.equal(captured.size, 0, "title panning must not start a touch or pen drag");
+      assert.equal(prevented, false, "native title scrolling remains available");
+      drag.handleProps.onPointerDown(event({ pointerType, target: grip }));
+      assert.equal(captured.size, 1, "wide touch and pen devices still drag from the grip");
+      drag.handleProps.onPointerMove(event({ pointerType, clientX: 360, clientY: 245 }));
+      assert.equal(surface.style.transform, "translate(60px, 45px)");
+      drag.handleProps.onPointerUp(event({ pointerType }));
+      assert.equal(captured.size, 0);
+      drag.gripProps.onKeyDown({ key: "Home", nativeEvent: {}, preventDefault() {}, stopPropagation() {} });
+    }
     drag.handleProps.onPointerDown(event());
     assert.equal(body.style.cursor, "grabbing"); assert.equal(captured.size, 1);
     drag.handleProps.onPointerMove(event({ clientX: 1500, clientY: 1200 }));
