@@ -46,7 +46,7 @@ Selection uses a separate browser key, `pi-web:external-skin`. It never rewrites
 
 - Palette application waits for the catalog and optional image decode. A selected skin can appear after the first native paint on refresh; this prototype does not promise flash-free skin restoration.
 - Authors remain responsible for contrast and for permission to redistribute their images. There is no automatic contrast adjustment. Upstream fixtures must use original/cleared artwork; no album covers are supplied here.
-- A skin-storage-key error falls back to an in-memory choice. Fully inaccessible `localStorage` exposes an existing unrelated `useAudio` issue in the host app; this change does not fix or claim to cover that app-wide case.
+- A skin-storage-key error falls back to an in-memory choice. If saving fails while reads still work, this page's choice (including None) takes precedence over stale storage across focus/catalog/storage refreshes; a later successful choice resumes normal storage sync. It is not persisted across a page reload. Fully inaccessible `localStorage` exposes an existing unrelated `useAudio` issue in the host app; this change does not fix or claim to cover that app-wide case.
 - Desktop viewport tests are not a real phone software-keyboard test. The control accounts for `visualViewport`, but device acceptance is still needed.
 - Daily shuffle, alternate layouts, arbitrary CSS/JS, installable npm resources and Settings integration are not part of this first isolated prototype. They require an upstream scope decision.
 
@@ -60,5 +60,7 @@ npm run lint
 # This starts/stops its own isolated dev server. Stop dev in this checkout first.
 E2E_BROWSER_CHANNEL=chrome node e2e/web-skins.mjs
 ```
+
+CI also runs the isolated skin E2E, including write-only quota errors, failed removal, resumed cross-tab sync and first-Escape delivery after a menu disappears on an empty/failed catalog. Recovery must not reopen that menu.
 
 The E2E test uses fresh browser profiles, fake home/agent directories and synthetic non-skin API responses. Only the skin catalog/images reach the test server; it calls no model and uses an original generated raster fixture. Google-font CSS is mocked offline. Artifacts are under ignored `test-results/web-skins/`. Do not run `next build` during development.

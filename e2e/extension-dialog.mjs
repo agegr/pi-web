@@ -154,9 +154,13 @@ export async function checkExtensionDialogSizing(page, width) {
     return dialog;
   };
   const close = async (dialog, mode, result) => {
+    const results = page.getByText(`E2E ${mode} result: ${result}`, { exact: true });
+    const previousCount = await results.count();
     await dialog.getByRole("button", { name: mode === "panel" ? "Close" : "Cancel", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
-    await page.getByText(`E2E ${mode} result: ${result}`, { exact: true }).waitFor();
+    // Prose is exercised twice; wait for this result, not the earlier match.
+    await results.nth(previousCount).waitFor();
+    assert.equal(await results.count(), previousCount + 1);
     await page.getByRole("button", { name: "Stop agent", exact: true }).waitFor({ state: "hidden" });
   };
 

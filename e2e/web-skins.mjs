@@ -34,7 +34,7 @@ const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",he
 await writeFile(join(packs,"paper","cover.png"),png);
 const reserve=createServer();reserve.listen(0,"127.0.0.1");await once(reserve,"listening");const port=reserve.address().port;await new Promise(resolve=>reserve.close(resolve));
 const base=`http://127.0.0.1:${port}`;
-const report={pageErrors:[],checks:[],imageRequests:0,fontFixture:true};
+const report={pageErrors:[],checks:[],regressions:[],imageRequests:0,fontFixture:true};
 const browser=await chromium.launch({channel:process.env.E2E_BROWSER_CHANNEL||undefined});
 let server;
 async function start(configured) {
@@ -62,19 +62,22 @@ process.once("uncaughtException", error => {
   console.error(error);
   void stop().finally(() => process.exit(1));
 });
-async function context(blockStorage=false) {
+async function context(blockedMethods=[]) {
   const ctx=await browser.newContext({viewport:{width:1440,height:1000},locale:"en-US",colorScheme:"light",reducedMotion:"reduce",serviceWorkers:"block"});
-  if(blockStorage)await ctx.addInitScript(()=>{
-    // Scope the failure to this feature. The existing app's useAudio hook does
-    // not catch a globally inaccessible localStorage getter (outside this PR).
+  if(blockedMethods.length)await ctx.addInitScript((methods)=>{
+    // Scope failures to this key; quota errors normally leave reads working.
+    // The host's globally inaccessible localStorage/useAudio case is separate.
+    window.__webSkinBlockedMethods=methods;
     for (const method of ["getItem","setItem","removeItem"]) {
       const original=Storage.prototype[method];
       Storage.prototype[method]=function(key,...args){
-        if(key==="pi-web:external-skin")throw new Error("Blocked skin storage");
+        if(key==="pi-web:external-skin"&&window.__webSkinBlockedMethods.includes(method)) {
+          throw new DOMException("Blocked skin storage",method==="setItem"?"QuotaExceededError":"SecurityError");
+        }
         return original.call(this,key,...args);
       };
     }
-  });
+  },blockedMethods);
   await ctx.route("**/api/**",async(route)=>{
     const request=route.request(), url=new URL(request.url()),path=url.pathname;
     if(path.startsWith("/api/web-skins")){if(path.endsWith("/background"))report.imageRequests++;await route.continue();return;}
@@ -109,6 +112,37 @@ const bg=page=>page.evaluate(()=>{
 });
 const open=page=>page.getByRole("button",{name:"Choose external skin",exact:true}).click();
 const choose=async(page,name)=>{await open(page);await page.getByRole("dialog",{name:"Choose external skin",exact:true}).getByRole("button",{name,exact:true}).click();};
+async function refreshCatalog(page,type="focus") {
+  const response=page.waitForResponse(r=>new URL(r.url()).pathname==="/api/web-skins"&&r.request().method()==="GET");
+  await page.evaluate(type=>window.dispatchEvent(type==="storage"
+    ?new StorageEvent("storage",{key:"pi-web:external-skin",storageArea:localStorage})
+    :new Event("focus")),type);
+  await (await response).finished();
+  // Let the response commit and passive effects settle before checking state.
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+}
+async function regression(name,blockedMethods,check) {
+  const ctx=await context(blockedMethods);
+  try {
+    const page=await load(ctx);
+    await page.getByRole("button",{name:"Choose external skin",exact:true}).waitFor();
+    await check(page,ctx);
+    report.regressions.push({name,passed:true});
+  } catch(error) {
+    report.regressions.push({name,passed:false,error:error.message});
+  } finally { await ctx.close(); }
+}
+async function observeEscape(page) {
+  await page.evaluate(()=>{
+    window.__webSkinEscapes=0;
+    document.addEventListener("keydown",event=>{if(event.key==="Escape")window.__webSkinEscapes++;});
+  });
+}
+async function firstEscapeReachesHost(page) {
+  await page.locator(".web-skin-control").waitFor({state:"detached"});
+  await page.keyboard.press("Escape");
+  assert.equal(await page.evaluate(()=>window.__webSkinEscapes),1,"An invisible skin menu must not swallow the first Escape");
+}
 try {
   await start(false);
   let ctx=await context(), page=await load(ctx);
@@ -145,9 +179,57 @@ try {
   await writeFile(join(packs,"paper","skin.json"),JSON.stringify(manifest));await page.reload();await page.getByRole("button",{name:"Choose external skin",exact:true}).waitFor();
   await rm(join(packs,"paper","cover.png"));await choose(page,"Paper dusk");await page.waitForFunction(()=>localStorage.getItem("pi-web:external-skin")===null);assert.equal(await bg(page),"#1a1a1a");
   report.checks.push("removed manifest and missing image fall back cleanly");await writeFile(join(packs,"paper","cover.png"),png);await ctx.close();
-  ctx=await context(true);page=await load(ctx);await choose(page,"Paper dusk");await page.waitForFunction(()=>document.documentElement.dataset.webSkin==="paper");await choose(page,"None — use built-in appearance");assert.equal(await bg(page),original);report.checks.push("blocked skin-key storage: select and disable still work in memory");await ctx.close();
-  assert.deepEqual(report.pageErrors,[]);
+  ctx=await context(["getItem","setItem","removeItem"]);page=await load(ctx);await choose(page,"Paper dusk");await page.waitForFunction(()=>document.documentElement.dataset.webSkin==="paper");await refreshCatalog(page);await page.waitForFunction(()=>document.documentElement.dataset.webSkin==="paper");await choose(page,"None — use built-in appearance");await refreshCatalog(page);assert.equal(await bg(page),original);report.checks.push("blocked skin-key storage: select, refocus and disable still work in memory");await ctx.close();
+  await regression("write-only quota error preserves selection across focus/storage refresh",["setItem"],async(page,ctx)=>{
+    await choose(page,"Paper dusk");await page.waitForFunction(()=>document.documentElement.dataset.webSkin==="paper");
+    assert.equal(await page.evaluate(()=>localStorage.getItem("pi-web:external-skin")),null);
+    for(const event of ["focus","storage"]) {
+      await refreshCatalog(page,event);
+      assert.equal(await page.evaluate(()=>document.documentElement.dataset.webSkin),"paper");
+      assert.equal(await bg(page),light.bg);
+    }
+    // Once a later choice saves successfully, normal cross-tab sync resumes.
+    await page.evaluate(()=>{window.__webSkinBlockedMethods=[];});
+    await choose(page,"Paper dusk");
+    assert.equal(await page.evaluate(()=>localStorage.getItem("pi-web:external-skin")),"paper");
+    const sibling=await load(ctx);
+    await sibling.getByRole("button",{name:"Choose external skin",exact:true}).waitFor();
+    await sibling.evaluate(()=>localStorage.removeItem("pi-web:external-skin"));
+    await page.waitForFunction(()=>!document.documentElement.dataset.webSkin);
+    assert.equal(await bg(page),original);await sibling.close();
+  });
+  await regression("failed removal keeps None across focus/storage refresh",["removeItem"],async(page)=>{
+    await choose(page,"Paper dusk");await page.waitForFunction(()=>document.documentElement.dataset.webSkin==="paper");
+    await choose(page,"None — use built-in appearance");
+    assert.equal(await page.evaluate(()=>localStorage.getItem("pi-web:external-skin")),"paper");
+    for(const event of ["focus","storage"]) {
+      await refreshCatalog(page,event);
+      assert.equal(await page.evaluate(()=>document.documentElement.dataset.webSkin),undefined);
+      assert.equal(await bg(page),original);
+    }
+  });
+  await regression("removed catalog releases Escape and does not reopen on recovery",[],async(page)=>{
+    await open(page);await observeEscape(page);
+    try {
+      await rm(join(packs,"paper","skin.json"));await refreshCatalog(page);
+      await firstEscapeReachesHost(page);
+    } finally { await writeFile(join(packs,"paper","skin.json"),JSON.stringify(manifest)); }
+    await refreshCatalog(page);
+    assert.equal(await page.getByRole("button",{name:"Choose external skin",exact:true}).getAttribute("aria-expanded"),"false");
+    assert.equal(await page.locator(".web-skin-panel").count(),0);
+  });
+  await regression("unavailable catalog releases Escape and does not reopen on recovery",[],async(page)=>{
+    await open(page);await observeEscape(page);
+    await page.route("**/api/web-skins",route=>route.fulfill({status:503,json:{error:"fixture unavailable"}}));
+    try { await refreshCatalog(page);await firstEscapeReachesHost(page); }
+    finally { await page.unroute("**/api/web-skins"); }
+    await refreshCatalog(page);
+    assert.equal(await page.getByRole("button",{name:"Choose external skin",exact:true}).getAttribute("aria-expanded"),"false");
+    assert.equal(await page.locator(".web-skin-panel").count(),0);
+  });
   console.log(JSON.stringify(report,null,2));
+  assert.deepEqual(report.pageErrors,[]);
+  assert.ok(report.regressions.every(check=>check.passed),"External-skin regressions failed; inspect result.json");
 } finally {
   await stop();await browser.close();await writeFile(join(artifacts,"result.json"),JSON.stringify(report,null,2));await rm(scratch,{recursive:true,force:true});
 }
