@@ -62,23 +62,25 @@ test("partly loaded HTML previews up to the HTML cap; partly loaded markdown doe
   assert.equal(hasPreview({ ...partial, size: cap + 1 }, false, false, true, cap), true);
 });
 
-test("the line-number gutter stays pinned while a wide line scrolls sideways", () => {
+test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT_MAX_LINES rows", () => {
   // Evaluate the module's own style constants (the numbers in the highlighted,
   // plain and diff views all come from these) and the rendered lightweight
   // source rows, instead of matching the component's text.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const constant = (name) => {
-    const statement = file.statements.find((node) =>
-      ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) =>
-        ts.isIdentifier(declaration.name) && declaration.name.text === name,
-      ),
-    );
-    assert.ok(statement, `${name} is declared in the module`);
-    const { outputText } = ts.transpileModule(`${statement.getText(file)}\nreturn ${name};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+  const constants = (...names) => {
+    const statements = names.map((name) => {
+      const statement = file.statements.find((node) =>
+        ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) =>
+          ts.isIdentifier(declaration.name) && declaration.name.text === name,
+        ),
+      );
+      assert.ok(statement, `${name} is declared in the module`);
+      return statement.getText(file);
+    });
+    const { outputText } = ts.transpileModule(`${statements.join("\n")}\nreturn [${names.join(", ")}];`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
     return new Function(outputText)();
   };
-  const codeStyle = constant("FILE_CODE_STYLE");
-  const gutterStyle = constant("FILE_LINE_NUMBER_STYLE");
+  const [codeStyle, gutterStyle, pinnedStyle] = constants("FILE_CODE_STYLE", "FILE_LINE_NUMBER_STYLE", "FILE_PINNED_LINE_NUMBER_STYLE");
 
   // Render the source-view rows without mounting the file-fetching component,
   // with the real gutter style in place.
@@ -101,14 +103,16 @@ test("the line-number gutter stays pinned while a wide line scrolls sideways", (
   const rows = render({ content: "line\n".repeat(1_000), language: "text" }, "source");
   const numberStyle = rows[0].props.children[0].props.style;
 
-  // The gutter is a fixed column: pinned to the left edge of the viewer's
-  // `overflow: auto` content box (the scroller in all three views), above the
-  // tokens that slide behind it.
-  assert.equal(numberStyle.position, "sticky");
-  assert.equal(numberStyle.left, 0);
-  assert.ok(numberStyle.zIndex >= 1, "the pinned gutter must stack above the scrolling text");
-  // Sticky travels within its row, so every row must span the widest line.
-  assert.equal(rows[0].props.style.minWidth, "100%");
+  // The pinned gutter is the same column, pinned to the left edge of the
+  // viewer's `overflow: auto` content box above the tokens that slide behind it.
+  for (const [key, value] of Object.entries(gutterStyle)) assert.equal(pinnedStyle[key], value, key);
+  assert.equal(pinnedStyle.position, "sticky");
+  assert.equal(pinnedStyle.left, 0);
+  assert.ok(pinnedStyle.zIndex >= 1, "the pinned gutter must stack above the scrolling text");
+  // The plain fallback has more rows than that by definition, and the browser
+  // repositions every sticky cell on each scroll: its numbers stay unpinned.
+  assert.equal(numberStyle, gutterStyle);
+  assert.equal(numberStyle.position, undefined);
 
   // The gutter repeats the code line's height in px, so a code-font change
   // without it puts the numbers off the line boxes they belong to.

@@ -89,18 +89,9 @@ const fileViewerDarkTheme = {
 };
 delete fileViewerDarkTheme['pre[class*="language-"]'].background;
 
-// The gutter stays put while a wide line scrolls sideways: `position: sticky`
-// against the viewer's own scrolling box (`.file-viewer-content`; the
-// highlighted <pre> sets `overflow: visible`, so it is the nearest scroller in
-// every view). It has room to travel because every row spans the widest line
-// (the <pre> or wrapper is `width: max-content` and a row is `min-width:
-// 100%`), so no line's number scrolls away behind its text.
 // `lineHeight` is FILE_CODE_STYLE's 13px * 1.6, so both columns share one line
 // box; a code-font change must move it with fontSize.
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
-  position: "sticky",
-  left: 0,
-  zIndex: 1,
   width: 48,
   minWidth: 48,
   padding: "0 10px",
@@ -117,6 +108,24 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   userSelect: "none",
   flexShrink: 0,
   verticalAlign: "top",
+};
+
+// The gutter stays put while a wide line scrolls sideways: `position: sticky`
+// against the viewer's own scrolling box (`.file-viewer-content`; the
+// highlighted <pre> sets `overflow: visible`, so it is the nearest scroller in
+// every view). It has room to travel because every row spans the widest line
+// (the <pre> or wrapper is `width: max-content` and a row is `min-width:
+// 100%`), so no line's number scrolls away behind its text.
+// The browser repositions every sticky number on each scroll, vertical too, so
+// only views of at most SOURCE_HIGHLIGHT_MAX_LINES rows pin it: the highlighted
+// Source view and a diff that short. Pinned, a 24,000-line log in the plain
+// fallback scrolled with 50-67 ms frames; it and longer diffs keep the plain
+// gutter.
+const FILE_PINNED_LINE_NUMBER_STYLE: CSSProperties = {
+  ...FILE_LINE_NUMBER_STYLE,
+  position: "sticky",
+  left: 0,
+  zIndex: 1,
 };
 
 type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0] & {
@@ -343,6 +352,9 @@ function DiffView({ patch }: { patch: string }) {
       visible.add(j);
     }
   }
+  const lineNumberStyle = visible.size <= SOURCE_HIGHLIGHT_MAX_LINES
+    ? FILE_PINNED_LINE_NUMBER_STYLE
+    : FILE_LINE_NUMBER_STYLE;
 
   const segments: Array<{ hidden: true; count: number } | { hidden: false; lines: DiffLine[] }> = [];
   let i = 0;
@@ -420,7 +432,7 @@ function DiffView({ patch }: { patch: string }) {
               }}
             >
               <span
-                style={FILE_LINE_NUMBER_STYLE}
+                style={lineNumberStyle}
               >
                 {line.type === "removed" ? line.oldLineNo : line.newLineNo}
               </span>
@@ -1456,7 +1468,7 @@ function TextFileViewer({
         style={isDark ? fileViewerDarkTheme : vs}
         showLineNumbers
         lineNumberStyle={{
-          ...FILE_LINE_NUMBER_STYLE,
+          ...FILE_PINNED_LINE_NUMBER_STYLE,
         }}
         customStyle={{
           margin: 0,
