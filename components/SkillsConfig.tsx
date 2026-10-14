@@ -328,12 +328,14 @@ function SkillDetail({
 
       <ConfigField label={t("skills.instructions")} ref={instructionsRef}>
         {documents.length > 0 && (
-          <ConfigDetailHeaderInfo>
-            <ConfigButton size="small" onClick={() => { pendingAnchor.current = ""; setDocuments((open) => open.slice(0, -1)); }}>
-              {t("skills.documentBack")}
-            </ConfigButton>
-            <span className="config-detail-path" title={documentPath}>{documentPath}</span>
-          </ConfigDetailHeaderInfo>
+          <ConfigDetailHeader>
+            <ConfigDetailHeaderInfo>
+              <ConfigButton size="small" onClick={() => { pendingAnchor.current = ""; setDocuments((open) => open.slice(0, -1)); }}>
+                {t("skills.documentBack")}
+              </ConfigButton>
+              <span className="config-detail-path" title={documentPath}>{documentPath}</span>
+            </ConfigDetailHeaderInfo>
+          </ConfigDetailHeader>
         )}
         {instructionsError ? (
           <span role="alert" className="skill-instructions-status is-error">{instructionsError}</span>
