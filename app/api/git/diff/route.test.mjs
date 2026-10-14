@@ -135,6 +135,27 @@ test("finds the file's repository when the cwd is a plain folder holding several
   assert.deepEqual(await (await request(parent, path.join(backend, "gone.txt"))).json(), { supported: false });
 });
 
+test("does not run the fsmonitor hook of a checkout other than the cwd's", { skip: process.platform === "win32" }, async () => {
+  const parent = fs.mkdtempSync(path.join(base, "hooked-parent-"));
+  allowFileRoot(parent);
+  const nested = path.join(parent, "nested");
+  fs.mkdirSync(nested);
+  git(nested, "init", "--quiet");
+  fs.writeFileSync(path.join(nested, "app.txt"), "original\n");
+  git(nested, "add", ".");
+  git(nested, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "fixture");
+  const marker = path.join(base, "fsmonitor-ran");
+  const hook = path.join(base, "fsmonitor-hook.sh");
+  fs.writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`, { mode: 0o755 });
+  git(nested, "config", "core.fsmonitor", hook);
+  fs.writeFileSync(path.join(nested, "app.txt"), "updated\n");
+
+  const result = await (await request(parent, path.join(nested, "app.txt"))).json();
+  assert.equal(result.supported, true);
+  assert.ok(result.patch.includes("+updated"));
+  assert.equal(fs.existsSync(marker), false);
+});
+
 test("preserves deleted tracked diffs with existing or missing parents", async () => {
   const root = fixture();
   const nested = path.join(root, "parent", "child");

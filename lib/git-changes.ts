@@ -44,8 +44,12 @@ function toGitPath(filePath: string): string {
   return filePath.split(path.sep).join("/");
 }
 
-async function readStatusEntries(repositoryRoot: string): Promise<GitPorcelainEntry[]> {
+async function readStatusEntries(
+  repositoryRoot: string,
+  gitConfig: readonly string[] = [],
+): Promise<GitPorcelainEntry[]> {
   const output = await git(repositoryRoot, [
+    ...gitConfig,
     "status",
     "--porcelain=v1",
     "-z",
@@ -166,12 +170,14 @@ async function createTrackedFilePatch(
   repositoryRoot: string,
   relativePath: string,
   originalPath?: string,
+  gitConfig: readonly string[] = [],
 ): Promise<string | null> {
   const paths = originalPath && originalPath !== relativePath
     ? [originalPath, relativePath]
     : [relativePath];
   try {
     return await git(repositoryRoot, [
+      ...gitConfig,
       "diff",
       "--no-color",
       "--no-ext-diff",
@@ -201,16 +207,21 @@ async function findFileRepositoryRoot(cwd: string, filePath: string): Promise<st
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
   const repositoryRoot = await findFileRepositoryRoot(cwd, filePath);
   if (!repositoryRoot || !isWithinPath(repositoryRoot, filePath)) return { supported: false };
+  // Reading the index runs a repository-configured fsmonitor hook. Opening a
+  // file in another checkout (one nested in the cwd, say) must not run its hook,
+  // as expanding that folder in the file tree does not (lib/file-tree-visibility.ts);
+  // the cwd's own repository keeps its fsmonitor.
+  const gitConfig = isWithinPath(repositoryRoot, cwd) ? [] : ["-c", "core.fsmonitor=false"];
 
   const resolvedFilePath = path.resolve(filePath);
   const relativePath = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
-  const entries = await readStatusEntries(repositoryRoot);
+  const entries = await readStatusEntries(repositoryRoot, gitConfig);
   const entry = entries.find((candidate) => candidate.path === relativePath);
   if (!entry) return { supported: false };
 
   const { status } = classifyGitStatus(entry);
   if (status === "deleted") {
-    const patch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath);
+    const patch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath, gitConfig);
     if (!patch?.includes("\n@@ ")) return { supported: false };
     return { supported: true, status, patch };
   }
@@ -231,7 +242,7 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
   if (status === "untracked") {
     patch = createAddedFilePatch(relativePath, newContent);
   } else {
-    const trackedPatch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath);
+    const trackedPatch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath, gitConfig);
     if (trackedPatch === null) {
       if (status !== "added") return { supported: false };
       patch = createAddedFilePatch(relativePath, newContent);
