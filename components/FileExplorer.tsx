@@ -1002,7 +1002,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     const files = items.flatMap((item) => (item.kind === "file" ? [item.file] : []));
     const folders = items.flatMap((item) => (item.kind === "folder" ? [item.name] : []));
     void prepareUpload(files, directory).then(() => {
-      if (folders.length > 0) setUploadError(t("chat.dropFoldersUnsupported", { names: folders.join(", ") }));
+      if (folders.length === 0) return;
+      const notice = t("chat.dropFoldersUnsupported", { names: folders.join(", ") });
+      // An error from this upload says why its files did not land: keep it.
+      setUploadError((error) => (error && files.length > 0 ? error : notice));
     });
   }, [prepareUpload, resetFileDrag, t]);
 
