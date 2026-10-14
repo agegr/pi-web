@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { isExistingPathWithinRoots } from "@/lib/path-security";
@@ -47,17 +47,10 @@ export async function GET(req: Request) {
       }
       if (!MARKDOWN_FILE.test(document)) return refuse(415, "Only Markdown documents can be opened");
       target = path.join(skill.baseDir, document);
-      let realTarget: string;
-      try {
-        realTarget = realpathSync(target);
-      } catch {
-        return refuse(404, "Skill document not found");
-      }
-      if (!isExistingPathWithinRoots(target, new Set([skill.baseDir]))) {
-        return refuse(403, "Document is outside the skill folder");
-      }
-      if (!MARKDOWN_FILE.test(realTarget)) return refuse(415, "Only Markdown documents can be opened");
-      const stats = statSync(realTarget);
+      if (!existsSync(target)) return refuse(404, "Skill document not found");
+      if (!isExistingPathWithinRoots(target, new Set([skill.baseDir]))) return refuse(403, "Document is outside the skill folder");
+      if (!MARKDOWN_FILE.test(realpathSync(target))) return refuse(415, "Only Markdown documents can be opened");
+      const stats = statSync(target);
       if (!stats.isFile()) return refuse(400, "Skill document is not a regular file");
       if (stats.size > SKILL_CONTENT_MAX_BYTES) return refuse(413, "Skill document is larger than 1 MiB");
     }
