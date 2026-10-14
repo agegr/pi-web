@@ -1112,33 +1112,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       onDrop={handleExplorerDrop}
     >
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
-      {fileDragActive && (
-        <div
-          role="status"
-          aria-live="polite"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 8px",
-            borderBottom: "1px solid var(--border)",
-            fontSize: 11,
-            color: "var(--accent)",
-            userSelect: "none",
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-            <path d="M12 16V4" />
-            <path d="m7 9 5-5 5 5" />
-            <path d="M5 20h14" />
-          </svg>
-          {t("files.dropToUpload", {
-            directory: dropTargetPath
-              ? (getRelativeFilePath(dropTargetPath, cwd) || dropTargetPath)
-              : (getFileName(cwd) || cwd),
-          })}
-        </div>
-      )}
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
@@ -1391,6 +1364,41 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               {t("files.noFiles")}
             </div>
           )}
+        </div>
+      )}
+      {/* Last, pinned to the bottom: at the top it pushed every row down as
+          a drag came in, so the row under the pointer changed. Drags pass
+          through it to the row it covers. */}
+      {fileDragActive && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "sticky",
+            bottom: 0,
+            zIndex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 8px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg-panel)",
+            fontSize: 11,
+            color: "var(--accent)",
+            userSelect: "none",
+            pointerEvents: "none",
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M12 16V4" />
+            <path d="m7 9 5-5 5 5" />
+            <path d="M5 20h14" />
+          </svg>
+          {t("files.dropToUpload", {
+            directory: dropTargetPath
+              ? (getRelativeFilePath(dropTargetPath, cwd) || dropTargetPath)
+              : (getFileName(cwd) || cwd),
+          })}
         </div>
       )}
     </div>
