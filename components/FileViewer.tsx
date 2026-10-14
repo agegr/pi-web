@@ -72,7 +72,7 @@ const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 const FILE_CODE_STYLE: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontWeight: "var(--font-mono-weight)",
-  fontSize: 12,
+  fontSize: 13,
   lineHeight: 1.6,
 };
 
@@ -95,7 +95,7 @@ delete fileViewerDarkTheme['pre[class*="language-"]'].background;
 // every view). It has room to travel because every row spans the widest line
 // (the <pre> or wrapper is `width: max-content` and a row is `min-width:
 // 100%`), so no line's number scrolls away behind its text.
-// `lineHeight` is FILE_CODE_STYLE's 12px * 1.6, so both columns share one line
+// `lineHeight` is FILE_CODE_STYLE's 13px * 1.6, so both columns share one line
 // box; a code-font change must move it with fontSize.
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   position: "sticky",
@@ -113,7 +113,7 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   fontSize: 11,
   fontStyle: "normal",
   fontVariantNumeric: "tabular-nums",
-  lineHeight: "19.2px",
+  lineHeight: "20.8px",
   userSelect: "none",
   flexShrink: 0,
   verticalAlign: "top",
