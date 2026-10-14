@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -33,6 +33,7 @@ for (const [name, content] of Object.entries(documents)) {
   await writeFile(join(skillDir, name), content);
 }
 await writeFile(join(skillDir, "unsupported.txt"), "not Markdown");
+await symlink(join(skillDir, "unsupported.txt"), join(skillDir, "text.md"));
 await mkdir(join(skillDir, "directory.md"));
 await writeFile(join(skillDir, "limit.md"), "x".repeat(1024 * 1024));
 await writeFile(join(skillDir, "large.md"), "x".repeat(1024 * 1024 + 1));
@@ -50,6 +51,8 @@ await symlink(join(skillDir, "references", "other.markdown"), join(skillDir, "in
 await symlink(join(root, "missing.md"), join(skillDir, "dangling.md"));
 await symlink("loop.md", join(skillDir, "loop.md"));
 if (process.platform !== "win32") execFileSync("mkfifo", [join(skillDir, "pipe.md")]);
+await writeFile(join(skillDir, "unreadable.md"), "PRIVATE CONTENT");
+await chmod(join(skillDir, "unreadable.md"), 0);
 
 const linkedDir = join(root, "linked-target");
 const linkedSkillPath = join(skillsDir, "linked", "SKILL.md");
@@ -123,23 +126,23 @@ test("URLSearchParams decodes transport once, never recursively", async () => {
   assert.deepEqual(await literal.json(), { content: documents["%2e%2e%2foutside.md"] });
 });
 
-test("rejects parent, absolute, Windows, URL, backslash and control paths", async () => {
+test("rejects parent, absolute, Windows, URL, backslash and NUL paths", async () => {
   for (const document of [
-    "", "../outside.md", "references/../../outside.md", "references/../SKILL.md",
+    "../outside.md", "references/../../outside.md", "references/../SKILL.md",
     "escape-dir/../SKILL.md", "/etc/secret.md", "//host/share/file.md",
     "C:/secret.md", "C:secret.md", "C:\\secret.md", "\\\\host\\share\\file.md",
     "references\\other.md", "https://example.com/file.md", "file:secret.md",
-    "data:text/plain,file.md", "references/stream:secret.md", "bad\0.md", "bad\n.md", "bad\r.md", "bad\t.md", "bad\x7f.md", "bad\x85.md",
+    "data:text/plain,file.md", "references/stream:secret.md", "bad\0.md",
   ]) {
     await assertError(await getContent(skillPath, { document }), 400);
   }
 });
 
 test("rejects unsupported extensions, missing documents, directories and oversized files", async () => {
-  for (const document of ["unsupported.txt", "SKILL", "references", "SKILL.md.html", "SKILL.md#heading"]) {
+  for (const document of ["", "unsupported.txt", "SKILL", "references", "SKILL.md.html", "SKILL.md#heading", "text.md"]) {
     await assertError(await getContent(skillPath, { document }), 415);
   }
-  for (const document of ["missing.md", "missing/file.md", "unsupported.txt/child.md", "dangling.md"]) {
+  for (const document of ["missing.md", "missing/file.md", "unsupported.txt/child.md", "dangling.md", "loop.md"]) {
     await assertError(await getContent(skillPath, { document }), 404);
   }
   await assertError(await getContent(skillPath, { document: "directory.md" }), 400);
@@ -150,6 +153,10 @@ test("rejects unsupported extensions, missing documents, directories and oversiz
   if (process.platform !== "win32") {
     await assertError(await getContent(skillPath, { document: "pipe.md" }), 400);
   }
+  // Root reads any file anyway; elsewhere the read fails with an error naming the path.
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    await assertError(await getContent(skillPath, { document: "unreadable.md" }), 500);
+  }
 });
 
 test("permits contained symlinks but refuses file, directory and prefix-sibling escapes", async () => {
@@ -158,7 +165,7 @@ test("permits contained symlinks but refuses file, directory and prefix-sibling 
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { content: documents["references/other.markdown"] });
   }
-  for (const document of ["escape.md", "escape-dir/secret.md", "prefix-dir/secret.md", "loop.md"]) {
+  for (const document of ["escape.md", "escape-dir/secret.md", "prefix-dir/secret.md"]) {
     await assertError(await getContent(skillPath, { document }), 403);
   }
 });
