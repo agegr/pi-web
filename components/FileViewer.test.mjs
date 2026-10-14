@@ -64,8 +64,9 @@ test("partly loaded HTML previews up to the HTML cap; partly loaded markdown doe
 
 test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT_MAX_LINES rows", () => {
   // Evaluate the module's own style constants (the numbers in the highlighted,
-  // plain and diff views all come from these) and the rendered lightweight
-  // source rows, instead of matching the component's text.
+  // plain and diff views all come from these), the highlighted and lightweight
+  // source elements and the Diff view's rows, instead of matching the
+  // component's text.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const constants = (...names) => {
     const statements = names.map((name) => {
@@ -80,13 +81,13 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
     const { outputText } = ts.transpileModule(`${statements.join("\n")}\nreturn [${names.join(", ")}];`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
     return new Function(outputText)();
   };
-  const [codeStyle, gutterStyle, pinnedStyle] = constants("FILE_CODE_STYLE", "FILE_LINE_NUMBER_STYLE", "FILE_PINNED_LINE_NUMBER_STYLE");
+  const [codeStyle, gutterStyle, pinnedStyle, maxRows] = constants("FILE_CODE_STYLE", "FILE_LINE_NUMBER_STYLE", "FILE_PINNED_LINE_NUMBER_STYLE", "SOURCE_HIGHLIGHT_MAX_LINES");
 
-  // Render the source-view rows without mounting the file-fetching component,
-  // with the real gutter style in place.
+  // Build the source views without mounting the file-fetching component, with
+  // the real gutter styles in place.
   const calculations = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "TextFileViewer").body.statements.filter((node) =>
     ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) =>
-      ["isDelimitedTable", "viewerContent", "sourceLines", "language", "isHtml", "isMarkdown", "hasPreview", "effectiveDisplayMode", "useLightweightSource", "lightweightSourceLines"].includes(declaration.name.getText(file)),
+      ["isDelimitedTable", "viewerContent", "sourceLines", "language", "isHtml", "isMarkdown", "hasPreview", "effectiveDisplayMode", "useLightweightSource", "lightweightSourceLines", "prismReady", "highlightedSource"].includes(declaration.name.getText(file)),
     ),
   ).map((node) => node.getText(file)).join("\n");
   const { outputText } = ts.transpileModule(`
@@ -95,13 +96,26 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
       const HTML_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
       const FILE_LINE_NUMBER_STYLE = gutterStyle;
+      const FILE_PINNED_LINE_NUMBER_STYLE = pinnedStyle;
+      // Stand-ins for what the highlighted element only passes on.
+      const [usePrismLanguages, SyntaxHighlighter, SourceCodeRenderer, isDark, vs, fileViewerDarkTheme, FILE_CODE_STYLE] = [() => true, "pre", "span", false, {}, {}, {}];
       ${calculations}
-      return lightweightSourceLines;
+      return { lightweightSourceLines, highlightedSource };
     };
   `, { compilerOptions: { jsx: ts.JsxEmit.React } });
-  const render = new Function("React", "useMemo", "gutterStyle", outputText)(React, (calculate) => calculate(), gutterStyle);
-  const rows = render({ content: "line\n".repeat(1_000), language: "text" }, "source");
+  const render = new Function("React", "useMemo", "gutterStyle", "pinnedStyle", outputText)(React, (calculate) => calculate(), gutterStyle, pinnedStyle);
+  const { lightweightSourceLines: rows, highlightedSource } = render({ content: "line\n".repeat(1_000), language: "text" }, "source");
   const numberStyle = rows[0].props.children[0].props.style;
+  // The Diff view's first row number, with every row an added line.
+  const diffView = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "DiffView");
+  const { outputText: diffOutput } = ts.transpileModule(`return ${diffView.getText(file)}`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } });
+  const diffNumberStyle = (rowCount) => {
+    const added = Array.from({ length: rowCount }, (_, index) => ({ type: "added", text: "line", oldLineNo: null, newLineNo: index + 1 }));
+    const DiffView = new Function("React", "useI18n", "diffLines", "SOURCE_HIGHLIGHT_MAX_LINES", "FILE_CODE_STYLE", "FILE_LINE_NUMBER_STYLE", "FILE_PINNED_LINE_NUMBER_STYLE", diffOutput)(
+      React, () => ({ t: (key) => key }), () => added, maxRows, codeStyle, gutterStyle, pinnedStyle,
+    );
+    return DiffView({ patch: "" }).props.children[0].props.children[0].props.children[0].props.style;
+  };
 
   // The pinned gutter is the same column, pinned to the left edge of the
   // viewer's `overflow: auto` content box above the tokens that slide behind it.
@@ -109,6 +123,11 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
   assert.equal(pinnedStyle.position, "sticky");
   assert.equal(pinnedStyle.left, 0);
   assert.ok(pinnedStyle.zIndex >= 1, "the pinned gutter must stack above the scrolling text");
+  // Views of at most SOURCE_HIGHLIGHT_MAX_LINES rows pin it: the highlighted
+  // Source view (never longer) and a diff up to that many rows.
+  assert.deepEqual(highlightedSource.props.lineNumberStyle, pinnedStyle);
+  assert.equal(diffNumberStyle(maxRows), pinnedStyle);
+  assert.equal(diffNumberStyle(maxRows + 1), gutterStyle);
   // The plain fallback has more rows than that by definition, and the browser
   // repositions every sticky cell on each scroll: its numbers stay unpinned.
   assert.equal(numberStyle, gutterStyle);
