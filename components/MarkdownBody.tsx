@@ -17,7 +17,7 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
-  /** Embedded document navigation: local links, scoped heading anchors and refused targets. */
+  /** A document reader's own links: relative paths and `#headings` stay in the reader. */
   onNavigateLink?: (href: string) => void;
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
@@ -51,16 +51,16 @@ interface MarkdownBlockProps {
   markdown: string;
   remarkPlugins: typeof markdownRemarkPlugins;
   urlTransform: typeof markdownUrlTransform;
+  rehypePlugins: typeof markdownRehypePlugins;
   components: Components;
-  headingAnchors?: boolean;
 }
 
 /** One parse; skipped while its text and renderers stay the same. */
-const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, urlTransform, components, headingAnchors }: MarkdownBlockProps) {
+const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, urlTransform, rehypePlugins, components }: MarkdownBlockProps) {
   return (
     <ReactMarkdown
       remarkPlugins={remarkPlugins}
-      rehypePlugins={headingAnchors ? markdownDocumentRehypePlugins : markdownRehypePlugins}
+      rehypePlugins={rehypePlugins}
       urlTransform={urlTransform}
       components={components}
     >
@@ -111,14 +111,14 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
-      // An explicit HTML anchor is a destination, not an empty navigation button.
-      if (onNavigateLink && href === undefined) return <a {...props}>{children}</a>;
-      if (onNavigateLink && (/^file:/i.test(href ?? "") || !isExternalMarkdownHref(href))) {
+      if (onNavigateLink && href && !isExternalMarkdownHref(href)) {
+        // No href: a middle-click or "Open in new tab" would load the path on the app's own URL.
+        const navigate = () => onNavigateLink(href);
         return (
           <MarkdownLinkContext.Provider value={true}>
-            <button type="button" className="skill-document-link" id={props.id} aria-label={props["aria-label"]} title={props.title ?? href} onClick={() => onNavigateLink(href ?? "")}>
+            <a {...props} role="link" tabIndex={0} onClick={navigate} onKeyDown={(event) => { if (event.key === "Enter") navigate(); }}>
               {children}
-            </button>
+            </a>
           </MarkdownLinkContext.Provider>
         );
       }
@@ -176,9 +176,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           key={index}
           markdown={block}
           remarkPlugins={keepLineBreaks ? markdownUserRemarkPlugins : markdownRemarkPlugins}
-          urlTransform={onOpenFile || onNavigateLink ? markdownUrlTransform : markdownAppUrlTransform}
+          urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
+          rehypePlugins={onNavigateLink ? markdownDocumentRehypePlugins : markdownRehypePlugins}
           components={components}
-          headingAnchors={Boolean(onNavigateLink)}
         />
       ))}
     </div>

@@ -899,6 +899,7 @@ pre, code {
   text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .markdown-body a:hover { text-decoration-color: var(--accent); }
+.markdown-body a[role="link"] { cursor: pointer; }
 .markdown-body img {
   display: block;
   max-width: 100%;

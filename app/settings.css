@@ -1121,20 +1121,6 @@
   overflow-wrap: anywhere;
 }
 
-.skill-document-link {
-  display: inline;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-align: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.skill-document-link:focus-visible,
 .skill-document-body:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

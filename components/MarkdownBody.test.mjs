@@ -10,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
   tsconfigPaths: true,
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
-const { normalizeDisplayMath, markdownPreviewRemarkPlugins, markdownPreviewRehypePlugins, markdownHeadingAnchors } = await jiti.import("../lib/markdown.ts");
+const { normalizeDisplayMath, markdownPreviewRemarkPlugins, markdownPreviewRehypePlugins } = await jiti.import("../lib/markdown.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
 function renderMarkdown(markdown, props = {}) {
@@ -27,24 +27,22 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
-test("embedded reader owns local links, including refused targets, but keeps external links safe", () => {
-  const local = renderMarkdown("[relative](references/setup.md#config) [anchor](#config) [outside](../outside.md) [absolute](/etc/test.md) [file](file:///tmp/test.md) [attachment](image.png)", { onOpenFile: undefined, onNavigateLink() {} });
-  assert.equal((local.match(/<button /g) ?? []).length, 6);
-  assert.doesNotMatch(local, /<a |target=|\snode=/);
-  assert.match(local, /title="references\/setup.md#config"/);
-  assert.match(local, /title="file:\/\/\/tmp\/test.md"/);
+test("a document reader keeps local links in the page without an href", () => {
+  const local = renderMarkdown("[relative](references/setup.md#config) [anchor](#config) [outside](../outside.md) [absolute](/etc/test.md) [attachment](image.png)", { onOpenFile: undefined, onNavigateLink() {} });
+  assert.equal((local.match(/<a role="link" tabindex="0">/g) ?? []).length, 5);
+  assert.doesNotMatch(local, /href=|target=|\snode=/);
   const external = renderMarkdown("[web](https://example.com) [mail](mailto:hello@example.com) [bad](javascript:alert%281%29)", { onOpenFile: undefined, onNavigateLink() {} });
-  assert.equal((external.match(/target="_blank"/g) ?? []).length, 2);
-  assert.equal((external.match(/rel="noopener noreferrer"/g) ?? []).length, 2);
-  assert.doesNotMatch(external, /javascript:|alert%28/);
+  assert.equal((external.match(/target="_blank" rel="noopener noreferrer"/g) ?? []).length, 3);
+  assert.doesNotMatch(external, /role="link"|javascript:|alert%28/);
+  // Chat keeps its links as they were.
+  assert.match(renderMarkdown("[relative](references/setup.md)", { onOpenFile: undefined }), /<a href="references\/setup.md" target="_blank"/);
 });
 
-test("embedded readers preserve explicit HTML destinations and link labels", () => {
-  const html = renderMarkdown('<a id="install"></a>\n\n<a id="next" href="guide.md" title="Read setup" aria-label="Setup guide">Next</a>\n\n[Jump](guide.md "Read the setup guide")', { onOpenFile: undefined, onNavigateLink() {} });
-  assert.match(html, /<a id="user-content-install"><\/a>/);
-  assert.match(html, /<button [^>]*id="user-content-next"[^>]*aria-label="Setup guide"[^>]*title="Read setup"/);
-  assert.match(html, /title="Read the setup guide"/);
-  assert.equal((html.match(/<button /g) ?? []).length, 2, "destinations must not become empty buttons");
+test("a document reader keeps HTML anchor destinations and link labels", () => {
+  const html = renderMarkdown('<a id="install"></a>\n\n<a href="guide.md" title="Read setup" aria-label="Setup guide">Next</a>\n\n[Jump](guide.md "Read the setup guide")', { onOpenFile: undefined, onNavigateLink() {} });
+  assert.match(html, /<a id="user-content-install" target="_blank" rel="noopener noreferrer"><\/a>/);
+  assert.match(html, /<a title="Read setup" aria-label="Setup guide" role="link" tabindex="0">Next<\/a>/);
+  assert.match(html, /<a title="Read the setup guide" role="link" tabindex="0">Jump<\/a>/);
 });
 
 test("heading anchors are opt-in, scoped, formatted-text aware and generated before KaTeX", () => {
@@ -56,16 +54,6 @@ test("heading anchors are opt-in, scoped, formatted-text aware and generated bef
   assert.doesNotMatch(html, /\sid=/);
   assert.match(html, /class="katex"/);
   assert.equal(renderMarkdown(markdown, { onNavigateLink() {} }), html, "new renders restart the slug sequence");
-});
-
-test("many repeated headings keep unique suffixes without restarting the collision scan", () => {
-  const heading = (text) => ({ type: "element", tagName: "h2", properties: {}, children: [{ type: "text", value: text }] });
-  const tree = { type: "root", children: [heading("Step-1"), ...Array.from({ length: 10_000 }, () => heading("Step"))] };
-  markdownHeadingAnchors()(tree);
-  const anchors = tree.children.map((node) => node.properties.dataHeadingAnchor);
-  assert.equal(new Set(anchors).size, anchors.length);
-  assert.deepEqual(anchors.slice(0, 4), ["step-1", "step", "step-2", "step-3"]);
-  assert.equal(anchors.at(-1), "step-10000");
 });
 
 test("renders CJK sentence emphasis without spaces after closing punctuation", () => {

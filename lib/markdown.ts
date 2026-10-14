@@ -603,46 +603,46 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
   remarkCurrencySafeMath,
 ];
 
-function headingText(node: HastContent): string {
-  if (node.type === "text") return node.value;
-  if (node.type !== "element") return "";
-  if (node.tagName === "img") return String(node.properties.alt ?? "");
-  return node.children.map(headingText).join("");
-}
-
-/** Scoped data attributes, not global IDs: multiple Markdown readers may coexist. */
-export function markdownHeadingAnchors() {
-  return (tree: HastRoot) => {
-    const used = new Set<string>();
-    const nextSuffix = new Map<string, number>();
-    function visit(node: HastRoot | HastElement) {
-      for (const child of node.children) {
-        if (child.type !== "element") continue;
-        if (/^h[1-6]$/.test(child.tagName)) {
-          const base = headingText(child).toLowerCase()
-            .replace(/[^\p{L}\p{M}\p{N}_\-\s]/gu, "").replace(/\s/g, "-");
-          let suffix = nextSuffix.get(base) ?? 0;
-          let anchor = suffix ? `${base}-${suffix}` : base;
-          // Start at the last suffix, not zero: many repeated headings stay linear.
-          while (used.has(anchor)) anchor = `${base}-${++suffix}`;
-          nextSuffix.set(base, suffix + 1);
-          used.add(anchor);
-          child.properties["dataHeadingAnchor"] = anchor;
-        }
-        visit(child);
-      }
-    }
-    visit(tree);
-  };
-}
-
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
-// Generate anchors before KaTeX duplicates math into visual and accessible trees.
+function hastText(node: HastContent): string {
+  return node.type === "text" ? node.value : node.type === "element" ? node.children.map(hastText).join("") : "";
+}
+
+/**
+ * GitHub's heading slugs, for `#fragment` links. A data attribute rather than
+ * an id, so two rendered documents never share one.
+ */
+function markdownHeadingAnchors() {
+  return (tree: HastRoot) => {
+    const seen = new Map<string, number>();
+    const visit = (node: HastRoot | HastElement) => node.children.forEach((child) => {
+      if (child.type !== "element") return;
+      if (/^h[1-6]$/.test(child.tagName)) {
+        const base = hastText(child).toLowerCase().replace(/[^\p{L}\p{M}\p{N}_\- ]/gu, "").replace(/ /g, "-");
+        // As github-slugger numbers repeats: "a", "a", "a-1" become a, a-1, a-1-1.
+        let slug = base;
+        while (seen.has(slug)) {
+          seen.set(base, seen.get(base)! + 1);
+          slug = `${base}-${seen.get(base)}`;
+        }
+        seen.set(slug, 0);
+        child.properties.dataHeadingAnchor = slug;
+      }
+      visit(child);
+    });
+    visit(tree);
+  };
+}
+
+/**
+ * For a document whose `#fragment` links lead to its headings (Settings ›
+ * Skills). Anchors come before KaTeX, which writes each formula's text twice.
+ */
 export const markdownDocumentRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
