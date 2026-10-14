@@ -6,7 +6,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { skillInstructionsBody } = await jiti.import("./SkillsConfig.tsx");
+const { skillInstructionsBody } = await jiti.import("./SkillDocumentReader.tsx");
 
 test("skill instructions omit frontmatter and preserve the Markdown body", () => {
   assert.equal(

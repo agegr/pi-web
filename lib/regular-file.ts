@@ -10,6 +10,14 @@ const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK || 0);
  */
 export const PROJECT_SETTINGS_MAX_BYTES = 1024 * 1024;
 
+/** Typed policy failures; filesystem errors retain their original codes. */
+export class RegularFileError extends Error {
+  constructor(public readonly reason: "nonregular" | "too_large", message: string) {
+    super(message);
+    this.name = "RegularFileError";
+  }
+}
+
 function isMissing(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   return code === "ENOENT" || code === "ENOTDIR";
@@ -38,9 +46,9 @@ export function readRegularFileText(path: string, maxBytes?: number): string | u
   }
   try {
     const stats = fstatSync(fd);
-    if (!stats.isFile()) throw new Error(`${path} is not a regular file`);
+    if (!stats.isFile()) throw new RegularFileError("nonregular", `${path} is not a regular file`);
     if (maxBytes === undefined) return readFileSync(fd, "utf8");
-    if (stats.size > maxBytes) throw new Error(`${path} is larger than ${maxBytes} bytes`);
+    if (stats.size > maxBytes) throw new RegularFileError("too_large", `${path} is larger than ${maxBytes} bytes`);
     // One byte past the limit: a file still growing past it is refused rather than cut short.
     const limit = maxBytes + 1;
     const chunks: Buffer[] = [];
@@ -52,7 +60,7 @@ export function readRegularFileText(path: string, maxBytes?: number): string | u
       chunks.push(chunk.subarray(0, read));
       length += read;
     }
-    if (length > maxBytes) throw new Error(`${path} is larger than ${maxBytes} bytes`);
+    if (length > maxBytes) throw new RegularFileError("too_large", `${path} is larger than ${maxBytes} bytes`);
     return Buffer.concat(chunks, length).toString("utf8");
   } finally {
     closeSync(fd);

@@ -4,7 +4,7 @@ import { createContext, memo, useContext, useMemo, type ComponentProps, type Mou
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
-import { markdownAppUrlTransform, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import { isExternalMarkdownHref, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
@@ -17,6 +17,8 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
+  /** Embedded document navigation: local links, scoped heading anchors and refused targets. */
+  onNavigateLink?: (href: string) => void;
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
 }
@@ -50,14 +52,15 @@ interface MarkdownBlockProps {
   remarkPlugins: typeof markdownRemarkPlugins;
   urlTransform: typeof markdownUrlTransform;
   components: Components;
+  headingAnchors?: boolean;
 }
 
 /** One parse; skipped while its text and renderers stay the same. */
-const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, urlTransform, components }: MarkdownBlockProps) {
+const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, urlTransform, components, headingAnchors }: MarkdownBlockProps) {
   return (
     <ReactMarkdown
       remarkPlugins={remarkPlugins}
-      rehypePlugins={markdownRehypePlugins}
+      rehypePlugins={headingAnchors ? markdownDocumentRehypePlugins : markdownRehypePlugins}
       urlTransform={urlTransform}
       components={components}
     >
@@ -66,7 +69,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
   );
 });
 
-export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onNavigateLink, keepLineBreaks }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // A streaming reply grows by a few characters per chunk; parsing all of it
   // each time made a long reply quadratic. Its finished blocks keep their
@@ -108,6 +111,17 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
+      // An explicit HTML anchor is a destination, not an empty navigation button.
+      if (onNavigateLink && href === undefined) return <a {...props}>{children}</a>;
+      if (onNavigateLink && (/^file:/i.test(href ?? "") || !isExternalMarkdownHref(href))) {
+        return (
+          <MarkdownLinkContext.Provider value={true}>
+            <button type="button" className="skill-document-link" id={props.id} aria-label={props["aria-label"]} title={props.title ?? href} onClick={() => onNavigateLink(href ?? "")}>
+              {children}
+            </button>
+          </MarkdownLinkContext.Provider>
+        );
+      }
       const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
       const openFile = onOpenFile;
       if (!filePath || !openFile) {
@@ -153,7 +167,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, isStreaming, onOpenFile, onNavigateLink]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
@@ -162,8 +176,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           key={index}
           markdown={block}
           remarkPlugins={keepLineBreaks ? markdownUserRemarkPlugins : markdownRemarkPlugins}
-          urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
+          urlTransform={onOpenFile || onNavigateLink ? markdownUrlTransform : markdownAppUrlTransform}
           components={components}
+          headingAnchors={Boolean(onNavigateLink)}
         />
       ))}
     </div>

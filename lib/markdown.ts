@@ -1,4 +1,5 @@
 import type { Content, Link, Parent, Root } from "mdast";
+import type { Element as HastElement, Root as HastRoot, RootContent as HastContent } from "hast";
 import { defaultUrlTransform, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -602,9 +603,50 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
   remarkCurrencySafeMath,
 ];
 
+function headingText(node: HastContent): string {
+  if (node.type === "text") return node.value;
+  if (node.type !== "element") return "";
+  if (node.tagName === "img") return String(node.properties.alt ?? "");
+  return node.children.map(headingText).join("");
+}
+
+/** Scoped data attributes, not global IDs: multiple Markdown readers may coexist. */
+export function markdownHeadingAnchors() {
+  return (tree: HastRoot) => {
+    const used = new Set<string>();
+    const nextSuffix = new Map<string, number>();
+    function visit(node: HastRoot | HastElement) {
+      for (const child of node.children) {
+        if (child.type !== "element") continue;
+        if (/^h[1-6]$/.test(child.tagName)) {
+          const base = headingText(child).toLowerCase()
+            .replace(/[^\p{L}\p{M}\p{N}_\-\s]/gu, "").replace(/\s/g, "-");
+          let suffix = nextSuffix.get(base) ?? 0;
+          let anchor = suffix ? `${base}-${suffix}` : base;
+          // Start at the last suffix, not zero: many repeated headings stay linear.
+          while (used.has(anchor)) anchor = `${base}-${++suffix}`;
+          nextSuffix.set(base, suffix + 1);
+          used.add(anchor);
+          child.properties["dataHeadingAnchor"] = anchor;
+        }
+        visit(child);
+      }
+    }
+    visit(tree);
+  };
+}
+
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
+  [rehypeKatex, { throwOnError: false, strict: false }],
+];
+
+// Generate anchors before KaTeX duplicates math into visual and accessible trees.
+export const markdownDocumentRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
+  rehypeRaw,
+  [rehypeSanitize, markdownSanitizeSchema],
+  markdownHeadingAnchors,
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
