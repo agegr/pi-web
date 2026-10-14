@@ -102,8 +102,8 @@ lib/
   session-ui-state-shared.ts client-safe types and rules of that state: request parsing, apply, undo snapshot
   sidebar-prefs.ts          per-browser sidebar tab, group expand choices, pinned-section collapse, files-section fold, folders found outside git
   sidebar-actions.ts        session row menu entries, a project group's name entries and rename request, fork refusal messages, delete-all requests
-  session-links.ts          a session's same-instance link (?session=<id>) and the plain-click rule the sidebar keeps in the page
-  new-session-context.ts    client-safe: what the project/worktree pickers show (project, worktrees, project list), lag-safe contextForCwd
+  session-links.ts          same-instance links: a session's (?session=<id>), a fresh composer's (?cwd=<dir>); the plain-click rule the sidebar keeps in the page
+  new-session-context.ts    client-safe: what the project/worktree pickers show (project, worktrees, project list), lag-safe contextForCwd, the directory a group's + and Open in new tab use
   normalize.ts              normalizeToolCalls(): file-format vs our toolCall field names
   types.ts                  shared TypeScript types
   pi-types.ts               local structural types for pi SDK objects
