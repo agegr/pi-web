@@ -44,6 +44,7 @@ import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-sett
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -259,6 +260,23 @@ function parentContextText(parent: HostSession): string {
   return `${serialized.slice(0, SUBAGENT_CONTEXT_LIMIT)}\n[Parent context truncated]`;
 }
 
+/**
+ * pi creates a session file only once the session holds a user or assistant message, so a run
+ * that ended before its prompt reached the model (stopped while queued or connecting MCP servers,
+ * a provider without credentials) kept its metadata and result in memory only. Once the idle
+ * child's wrapper was released, `get_subagent_result` and `resume` answered `Subagent not found`
+ * for an id the parent had been given, and the session left the sidebar. Write the file when the
+ * child is dispatched; `setSessionFile()` reloads it, so pi appends every later entry to it.
+ */
+function persistChildSession(sessionManager: SessionManager): void {
+  const sessionFile = sessionManager.getSessionFile();
+  const header = sessionManager.getHeader();
+  if (!sessionFile || !header || existsSync(sessionFile)) return;
+  const lines = [header, ...sessionManager.getEntries()].map((entry) => JSON.stringify(entry));
+  writeFileSync(sessionFile, `${lines.join("\n")}\n`, { flag: "wx" });
+  sessionManager.setSessionFile(sessionFile);
+}
+
 async function cleanupWorktree(
   parentCwd: string,
   worktree: { path: string; branch: string } | undefined,
@@ -457,6 +475,7 @@ export function createSubagentController(
         ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
         ...subagentToolOptions({ tools: activeTools, allExtensionTools, mcp: mcpEnabled }),
       });
+      persistChildSession(sessionManager);
       skillsBinding.setActiveToolsGetter(() => inner.getActiveToolNames());
       const childSession = dependencies.registerSession(inner, {
         ...(skillsBinding.getExactSystemPrompt !== undefined
