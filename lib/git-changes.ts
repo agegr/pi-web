@@ -185,8 +185,21 @@ async function createTrackedFilePatch(
   }
 }
 
+// The file's own repository, not the cwd's: a session may start in a plain folder
+// holding several repositories. A deleted file's folder may be gone too, so start
+// from its nearest existing ancestor; fall back to the cwd.
+async function findFileRepositoryRoot(cwd: string, filePath: string): Promise<string | null> {
+  let directory = path.dirname(path.resolve(filePath));
+  while (!fs.existsSync(directory)) {
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return (await findRepositoryRoot(directory)) ?? (await findRepositoryRoot(cwd));
+}
+
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
+  const repositoryRoot = await findFileRepositoryRoot(cwd, filePath);
   if (!repositoryRoot || !isWithinPath(repositoryRoot, filePath)) return { supported: false };
 
   const resolvedFilePath = path.resolve(filePath);
