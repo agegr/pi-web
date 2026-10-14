@@ -613,10 +613,7 @@ function hastText(node: HastContent): string {
   return node.type === "text" ? node.value : node.type === "element" ? node.children.map(hastText).join("") : "";
 }
 
-/**
- * GitHub's heading slugs, for `#fragment` links. A data attribute rather than
- * an id, so two rendered documents never share one.
- */
+/** GitHub's heading slugs for `#fragment` links, as a data attribute: two rendered documents never share an id. */
 function markdownHeadingAnchors() {
   return (tree: HastRoot) => {
     const seen = new Map<string, number>();
@@ -639,10 +636,8 @@ function markdownHeadingAnchors() {
   };
 }
 
-/**
- * For a document whose `#fragment` links lead to its headings (Settings ›
- * Skills). Anchors come before KaTeX, which writes each formula's text twice.
- */
+// A document whose `#fragment` links lead to its headings (Settings › Skills).
+// Anchors come before KaTeX, which writes each formula's text twice.
 export const markdownDocumentRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],

@@ -219,9 +219,9 @@ export function ConfigSectionTitle({ children }: { children: ReactNode }) {
   return <div className="config-section-title">{children}</div>;
 }
 
-export function ConfigField({ label, children, style }: { label: ReactNode; children: ReactNode; style?: CSSProperties }) {
+export function ConfigField({ label, children, style, ref }: { label: ReactNode; children: ReactNode; style?: CSSProperties; ref?: Ref<HTMLDivElement> }) {
   return (
-    <div className="config-field" style={style}>
+    <div ref={ref} className="config-field" style={style}>
       <span className="config-field-label">{label}</span>
       {children}
     </div>

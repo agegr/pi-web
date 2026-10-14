@@ -178,9 +178,7 @@ function SkillDetail({
     const root = instructionsRef.current;
     if (anchor === null || (instructions === null && !instructionsError) || !root) return;
     pendingAnchor.current = null;
-    const heading = anchor
-      ? Array.from(root.querySelectorAll<HTMLElement>("[data-heading-anchor]")).find((element) => element.dataset.headingAnchor === anchor)
-      : undefined;
+    const heading = anchor ? root.querySelector(`[data-heading-anchor="${CSS.escape(anchor)}"]`) : null;
     (heading ?? root).scrollIntoView({ block: "start" });
   }, [instructions, instructionsError, anchorRequest]);
 
@@ -328,39 +326,27 @@ function SkillDetail({
         </span>
       </ConfigField>
 
-      <div ref={instructionsRef}>
-        <ConfigField label={t("skills.instructions")}>
-          {documents.length > 0 && (
-            <ConfigDetailHeaderInfo>
-              <ConfigButton
-                size="small"
-                onClick={() => {
-                  pendingAnchor.current = "";
-                  setDocuments((open) => open.slice(0, -1));
-                }}
-              >
-                {t("skills.documentBack")}
-              </ConfigButton>
-              <span className="config-detail-path" title={documentPath}>{documentPath}</span>
-            </ConfigDetailHeaderInfo>
-          )}
-          {instructionsError ? (
-            <span role="alert" className="skill-instructions-status is-error">{instructionsError}</span>
-          ) : instructions === null ? (
-            <span role="status" className="skill-instructions-status">{t("i18n.loading")}</span>
-          ) : instructions ? (
-            <MarkdownBody
-              className="skill-instructions"
-              cwd={[skill.baseDir, ...documentPath.split("/").slice(0, -1)].join("/")}
-              onNavigateLink={openLink}
-            >
-              {instructions}
-            </MarkdownBody>
-          ) : (
-            <span className="skill-instructions-status">{t("skills.noInstructions")}</span>
-          )}
-        </ConfigField>
-      </div>
+      <ConfigField label={t("skills.instructions")} ref={instructionsRef}>
+        {documents.length > 0 && (
+          <ConfigDetailHeaderInfo>
+            <ConfigButton size="small" onClick={() => { pendingAnchor.current = ""; setDocuments((open) => open.slice(0, -1)); }}>
+              {t("skills.documentBack")}
+            </ConfigButton>
+            <span className="config-detail-path" title={documentPath}>{documentPath}</span>
+          </ConfigDetailHeaderInfo>
+        )}
+        {instructionsError ? (
+          <span role="alert" className="skill-instructions-status is-error">{instructionsError}</span>
+        ) : instructions === null ? (
+          <span role="status" className="skill-instructions-status">{t("i18n.loading")}</span>
+        ) : instructions ? (
+          <MarkdownBody className="skill-instructions" cwd={[skill.baseDir, ...documentPath.split("/").slice(0, -1)].join("/")} onNavigateLink={openLink}>
+            {instructions}
+          </MarkdownBody>
+        ) : (
+          <span className="skill-instructions-status">{t("skills.noInstructions")}</span>
+        )}
+      </ConfigField>
     </ConfigDetailStack>
   );
 }
