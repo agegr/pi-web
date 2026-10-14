@@ -13,10 +13,11 @@ import {
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
-import { uploadFiles, type UploadConflictStrategy, type UploadError, type UploadResponse } from "@/lib/file-upload-client";
+import { uploadFiles, type DroppedItem, type UploadConflictStrategy, type UploadError, type UploadResponse } from "@/lib/file-upload-client";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import type { FileTreeHiddenReason } from "@/lib/file-tree-visibility";
 import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
+import { droppedItems } from "@/hooks/useDragDrop";
 import { useI18n } from "@/hooks/useI18n";
 type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -235,7 +236,7 @@ export function TreeNode({
   /** Set inside a hidden directory: Git has no answer there, so its entries inherit the reason. */
   parentHidden?: HiddenReason;
   dropTargetPath?: string | null;
-  onDropFiles?: (directory: string, files: File[]) => void;
+  onDropFiles?: (directory: string, items: DroppedItem[]) => void;
   onDropTargetChange?: (path: string | null) => void;
   t: Translate;
 }) {
@@ -360,8 +361,7 @@ export function TreeNode({
           event.preventDefault();
           event.stopPropagation();
           onDropTargetChange?.(null);
-          const droppedFiles = Array.from(event.dataTransfer.files);
-          if (droppedFiles.length > 0) onDropFiles?.(node.fullPath, droppedFiles);
+          onDropFiles?.(node.fullPath, droppedItems(event.dataTransfer));
         } : undefined}
         style={{
           position: "relative",
@@ -994,20 +994,23 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     }
   }, []);
 
+  const handleDropFiles = useCallback((directory: string, items: DroppedItem[]) => {
+    resetFileDrag();
+    // The endpoint writes files only: a dropped folder would fail the whole
+    // upload, so folders are left out with the chat drop's notice.
+    const files = items.flatMap((item) => (item.kind === "file" ? [item.file] : []));
+    const folders = items.flatMap((item) => (item.kind === "folder" ? [item.name] : []));
+    void prepareUpload(files, directory).then(() => {
+      if (folders.length > 0) setUploadError(t("chat.dropFoldersUnsupported", { names: folders.join(", ") }));
+    });
+  }, [prepareUpload, resetFileDrag, t]);
+
   const handleExplorerDrop = useCallback((event: React.DragEvent) => {
     if (!event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     event.stopPropagation();
-    const target = dropTargetPath ?? cwd;
-    const files = Array.from(event.dataTransfer.files);
-    resetFileDrag();
-    if (files.length > 0) void prepareUpload(files, target);
-  }, [cwd, dropTargetPath, prepareUpload, resetFileDrag]);
-
-  const handleDropFiles = useCallback((directory: string, files: File[]) => {
-    resetFileDrag();
-    void prepareUpload(files, directory);
-  }, [prepareUpload, resetFileDrag]);
+    handleDropFiles(dropTargetPath ?? cwd, droppedItems(event.dataTransfer));
+  }, [cwd, dropTargetPath, handleDropFiles]);
 
   const handleDropTargetChange = useCallback((path: string | null) => {
     setDropTargetPath((prev) => (prev === path ? prev : path));

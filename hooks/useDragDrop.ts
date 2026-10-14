@@ -12,7 +12,7 @@ function hasDraggedFiles(e: React.DragEvent): boolean {
  * the drop event, so this has to run inside the handler. A folder is told by
  * its entry first: some browsers return no `File` for it.
  */
-function droppedItems(dataTransfer: DataTransfer): DroppedItem[] {
+export function droppedItems(dataTransfer: DataTransfer): DroppedItem[] {
   const items: DroppedItem[] = [];
   for (const item of Array.from(dataTransfer.items)) {
     if (item.kind !== "file") continue;
