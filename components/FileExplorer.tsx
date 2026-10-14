@@ -304,11 +304,12 @@ export function TreeNode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-fetch children when the tree refreshes and the directory is open.
+  // Re-fetch children when the tree refreshes: an open directory now, a
+  // collapsed one when it next opens (a file dropped onto its row).
   useEffect(() => {
-    if (refreshToken !== undefined && open && loaded && !pendingLinkTarget) {
-      loadChildren(true);
-    }
+    if (refreshToken === undefined || !loaded || pendingLinkTarget) return;
+    if (open) loadChildren(true);
+    else setLoaded(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
 
