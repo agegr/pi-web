@@ -18,7 +18,7 @@ These are declined however well they are implemented:
 - **Pi Web-only configuration or extension API.** This means new config files only Pi Web reads, new `ctx.ui.*` options or `extension_ui_request` fields, and new meanings for existing fields. The web client decides how to display what pi's protocol already expresses.
 - **IDE or Git client features.** This covers editing files, file management (create, rename, delete), commit history and a second diff view. The file viewer is read-only. Editing is left to the agent or to your own editor.
 - **New subsystems or operating modes.** Examples are schedulers, long-running background agents, a plugin or UI-slot system, a second "lite" mode, and multi-pane layouts.
-- **Visual customization beyond the built-in themes.** That rules out custom themes, skins, chat backgrounds and extra accent colors. Appearance is one of the built-in themes (Light, Mist, Rose, Sand, Lilac, Dark, Pine, Slate, Dusk, Ember, high contrast light or dark, Zenburn, or following the system), plus a few typography settings.
+- **Visual customization beyond the built-in themes.** That rules out custom themes, skins, chat backgrounds and extra accent colors. Appearance is one of the built-in themes (Light, Mist, Rose, Sand, Lilac, Dark, Pine, Slate, Dusk, Ember, high contrast light or dark, Zenburn, GitHub Light or Dark, One Half Light or Dark, or following the system), plus a few typography settings.
 - **More session management.** The sidebar's session management is kept small on purpose: list, pin, archive, rename, fork, delete, and project order. Discuss anything beyond that in an issue first.
 - **Patching pi's private methods or internal state.** These change without notice between pi releases. Ask upstream for an API instead.
 

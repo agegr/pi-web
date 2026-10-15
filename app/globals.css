@@ -283,6 +283,86 @@ html[data-theme="zenburn"],
   --bg-subtle: rgba(220,220,204,0.04);
 }
 
+html[data-theme="github-light"],
+[data-theme="github-light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-panel: #f6f8fa;
+  --bg-hover: #eaeef2;
+  --bg-selected: #ddf4ff;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-muted: #646c75;
+  --text-dim: #646c75;
+  --accent: #0968d8;
+  --accent-hover: #0550ae;
+  --accent-contrast: #ffffff;
+  --user-bg: #ddf4ff;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f6f8fa;
+  --bg-subtle: rgba(31,35,40,0.04);
+}
+
+html[data-theme="github-dark"],
+[data-theme="github-dark"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg-panel: #161b22;
+  --bg-hover: #21262d;
+  --bg-selected: #1f2937;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #9ca6b5;
+  --text-dim: #9ca6b5;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-contrast: #0d1117;
+  --user-bg: #13233a;
+  --assistant-bg: #0d1117;
+  --tool-bg: #161b22;
+  --bg-subtle: rgba(230,237,243,0.04);
+}
+
+html[data-theme="one-half-light"],
+[data-theme="one-half-light"] {
+  color-scheme: light;
+  --bg: #fafafa;
+  --bg-panel: #f0f0f0;
+  --bg-hover: #e5e5e5;
+  --bg-selected: #dbe4ff;
+  --border: #d4d4d4;
+  --text: #383a42;
+  --text-muted: #5e616b;
+  --text-dim: #5e616b;
+  --accent: #006d9c;
+  --accent-hover: #00577d;
+  --accent-contrast: #ffffff;
+  --user-bg: #e7f3f8;
+  --assistant-bg: #fafafa;
+  --tool-bg: #f0f0f0;
+  --bg-subtle: rgba(56,58,66,0.04);
+}
+
+html[data-theme="one-half-dark"],
+[data-theme="one-half-dark"] {
+  color-scheme: dark;
+  --bg: #282c34;
+  --bg-panel: #313640;
+  --bg-hover: #373c45;
+  --bg-selected: #353e4d;
+  --border: #454b56;
+  --text: #dcdfe4;
+  --text-muted: #aab4c4;
+  --text-dim: #aab4c4;
+  --accent: #61afef;
+  --accent-hover: #78bdf5;
+  --accent-contrast: #282c34;
+  --user-bg: #303c4d;
+  --assistant-bg: #282c34;
+  --tool-bg: #313640;
+  --bg-subtle: rgba(220,223,228,0.04);
+}
+
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
    home-screen apps even though the layout still starts at the screen's top.
    In standalone mode there is no browser toolbar to make vh unstable, and vh
