@@ -1174,6 +1174,28 @@ pre, code {
   margin: 8px 0;
   border-radius: 6px;
 }
+/* Firefox draws its audio controls without a background (bare buttons on the
+   page), Chrome inside a grey pill: both get the same frame from the theme. */
+.markdown-body audio {
+  display: block;
+  width: min(360px, 100%);
+  height: 36px;
+  margin: 8px 0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  clip-path: inset(0 round 18px);
+}
+.markdown-body audio::-webkit-media-controls-enclosure {
+  background: transparent;
+}
+.markdown-body video {
+  display: block;
+  max-width: min(640px, 100%);
+  max-height: 360px;
+  margin: 8px 0;
+  border-radius: 6px;
+}
 .markdown-body .markdown-inline-code {
   background: var(--bg-subtle);
   border-radius: 5px;
