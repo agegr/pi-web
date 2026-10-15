@@ -279,3 +279,15 @@ test("a chime the browser held back for longer than AUDIO_STALE_CHIME_MS is drop
   await resolveResumes(ctx);
   assert.equal(ctx.tones, 2, "a resume within the limit still plays");
 });
+
+test("blocked storage leaves sound on, and the toggle still applies to the page", () => {
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() { throw new DOMException("blocked", "SecurityError"); },
+  });
+  const view = renderHook(() => useAudio());
+  assert.equal(view.result.soundEnabled, true, "sound stays on when storage cannot be read");
+  view.result.onSoundToggle();
+  view.flush();
+  assert.equal(view.result.soundEnabled, false, "the toggle applies though it cannot be saved");
+});
