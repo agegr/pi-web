@@ -27,6 +27,7 @@ import {
   type SidebarProject,
   type SidebarRow,
 } from "@/lib/session-tree";
+import { getSessionFamily } from "@/lib/session-family";
 import {
   forgetRetiredSidebarKeys,
   loadFilesCollapsed,
@@ -284,7 +285,6 @@ type SidebarMenuState =
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean };
 
-const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
@@ -351,29 +351,6 @@ function saveLastCustomCwd(cwd: string): void {
     window.localStorage.setItem(LAST_CUSTOM_CWD_STORAGE_KEY, cwd);
   } catch {
     // Persistence is best-effort.
-  }
-}
-
-function loadUnreadSessionIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(UNREAD_SESSIONS_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) return new Set(parsed.filter((id): id is string => typeof id === "string"));
-    return new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function saveUnreadSessionIds(ids: Set<string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (ids.size === 0) window.localStorage.removeItem(UNREAD_SESSIONS_STORAGE_KEY);
-    else window.localStorage.setItem(UNREAD_SESSIONS_STORAGE_KEY, JSON.stringify([...ids]));
-  } catch {
-    // ignore storage quota / privacy-mode errors
   }
 }
 
@@ -522,7 +499,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
-  const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
   const previousSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -638,6 +614,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     noteRevision: noteUiRevision,
   } = useSessionUiState();
 
+  // Unread markers live with the pins and archive in the server's ui state
+  // (pi-web-session-state.json), keyed by family ROOT id, so every tab and
+  // every device sees the same set.
+  const unreadSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, entry] of Object.entries(uiState.sessions)) {
+      if (entry.unreadAt !== undefined) ids.add(id);
+    }
+    return ids;
+  }, [uiState]);
+
   // The explorer's scroll container is always mounted (empty without a cwd),
   // so the scrollbar hook stays bound to the element that is on the page.
   const headerRef = useRef<HTMLDivElement>(null);
@@ -740,18 +727,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
       }
-      // Drop markers for deleted sessions and for subagents, whose completion
-      // is intentionally silent even if an older client marked them unread.
-      const unreadEligibleIds = new Set(
-        data.sessions
-          .filter((session) => session.relation?.kind !== "subagent")
-          .map((session) => session.id),
-      );
-      setUnreadSessionIds((prev) => {
-        if (prev.size === 0) return prev;
-        const next = new Set([...prev].filter((id) => unreadEligibleIds.has(id)));
-        return next.size === prev.size ? prev : next;
-      });
       setError(null);
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
@@ -844,12 +819,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const fileManagerErrorMessage = fileManagerError
     ? t(FILE_MANAGER_ERROR_KEYS[fileManagerError] ?? fileManagerError)
     : null;
-
-  // Persist unread markers so they survive a browser refresh before the user
-  // has actually opened the completed session.
-  useEffect(() => {
-    saveUnreadSessionIds(unreadSessionIds);
-  }, [unreadSessionIds]);
 
   useEffect(() => {
     let stopped = false;
@@ -948,12 +917,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const newlyRunning = [...runningSessionIds].filter((id) => !previous.has(id));
 
     if (completedWithNotifications.length > 0 || newlyRunning.length > 0) {
-      setUnreadSessionIds((prev) => {
-        const next = new Set(prev);
-        runningSessionIds.forEach((id) => next.delete(id));
-        completedWithNotifications.forEach((id) => next.add(id));
-        return next;
-      });
+      // Markers live on family ROOT ids in the server state: resolve each
+      // completed or running session to its family, then write once per side.
+      const unreadRoots = new Set<string>();
+      for (const id of completedWithNotifications) {
+        const family = getSessionFamily(allSessions, id);
+        if (family) unreadRoots.add(family.root.id);
+      }
+      const readRoots = new Set<string>();
+      for (const id of runningSessionIds) {
+        const family = getSessionFamily(allSessions, id);
+        if (family && !unreadRoots.has(family.root.id)) readRoots.add(family.root.id);
+      }
+      if (unreadRoots.size > 0) void applyUiStateRequest({ action: "set", ids: [...unreadRoots], unread: true });
+      // A family that runs again is dealt with; only families still marked
+      // unread need the clearing write.
+      const toClear = [...readRoots].filter((id) => Object.hasOwn(uiState.sessions, id) && uiState.sessions[id].unreadAt !== undefined);
+      if (toClear.length > 0) void applyUiStateRequest({ action: "set", ids: toClear, unread: false });
     }
     const hasUnlistedRunningSession = newlyRunning.some(
       (id) => !allSessions.some((session) => session.id === id),
@@ -974,17 +954,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         (id) => currentSuppressedCompletionSessionIdsRef.current.has(id) || knownSubagentIds.has(id),
       ),
     );
-  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
+  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone, applyUiStateRequest, uiState]);
 
+  // Opening a session reads its whole family: the marker lives on the root.
   useEffect(() => {
     if (!selectedSessionId) return;
-    setUnreadSessionIds((prev) => {
-      if (!prev.has(selectedSessionId)) return prev;
-      const next = new Set(prev);
-      next.delete(selectedSessionId);
-      return next;
-    });
-  }, [selectedSessionId]);
+    const family = getSessionFamily(allSessions, selectedSessionId);
+    if (!family) return;
+    const entry = Object.hasOwn(uiState.sessions, family.root.id) ? uiState.sessions[family.root.id] : undefined;
+    if (entry?.unreadAt === undefined) return;
+    void applyUiStateRequest({ action: "set", ids: [family.root.id], unread: false });
+  }, [selectedSessionId, allSessions, uiState, applyUiStateRequest]);
 
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
@@ -1664,56 +1644,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [applyUiState]);
 
   const markFamilyRead = useCallback((family: SessionFamily, read: boolean) => {
-    setUnreadSessionIds((prev) => {
-      const next = new Set(prev);
-      if (read) {
-        for (const id of familyIds(family)) next.delete(id);
-      } else {
-        // Subagents never carry the marker (loadSessions prunes them).
-        next.add(family.root.id);
-      }
-      return next;
-    });
-  }, []);
-
-  // Unread markers coming back (Undo, a refused archive), except on the
-  // session that is open by now: it has been read.
-  const restoreUnread = useCallback((ids: readonly string[]) => {
-    if (ids.length === 0) return;
-    setUnreadSessionIds((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) {
-        if (id !== selectedSessionIdRef.current) next.add(id);
-      }
-      return next.size === prev.size ? prev : next;
-    });
-  }, []);
+    void applyUiState({ action: "set", ids: [family.root.id], unread: !read });
+  }, [applyUiState]);
 
   const archiveFamilies = useCallback((families: readonly SessionFamily[]) => {
     const archivable = families.filter((family) => !family.root.transient);
     if (archivable.length === 0) return;
+    // The snapshot carries the flags as they are now, unreadAt included: the
+    // server's archive clears the marker, and a refused write or an Undo
+    // restores it with the same entries.
     const snapshot = snapshotUiState(archivable.map((family) => family.root.id));
-    // Archived means dealt with: its unread markers go, and Undo brings them back.
-    const memberIds = archivable.flatMap((family) => familyIds(family));
-    const unreadBefore = memberIds.filter((id) => unreadSessionIds.has(id));
     // A request carries at most MAX_SESSION_UI_IDS_PER_REQUEST families, so a
     // big "Archive sessions older than 7 days" goes in parts; the write queue
     // of useSessionUiState keeps them, and an Undo after them, in order.
     for (const part of chunkForSessionUiRequests(archivable)) {
       const ids = part.map((family) => family.root.id);
-      void applyUiState({ action: "set", ids, archived: true }).then((ok) => {
-        // A refused part is back in the tree (rolled back): so are its markers.
-        if (ok || unreadBefore.length === 0) return;
-        const partIds = new Set(part.flatMap((family) => familyIds(family)));
-        restoreUnread(unreadBefore.filter((id) => partIds.has(id)));
-      });
-    }
-    if (unreadBefore.length > 0) {
-      setUnreadSessionIds((prev) => {
-        const next = new Set(prev);
-        for (const id of memberIds) next.delete(id);
-        return next;
-      });
+      void applyUiState({ action: "set", ids, archived: true });
     }
     const message = archivable.length === 1
       ? t("sidebar.archivedToast", { title: shortTitle(sessionRowTitle(archivable[0].root), TOAST_TITLE_MAX) })
@@ -1726,14 +1672,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           for (const entries of chunkForSessionUiRequests(snapshot)) {
             void applyUiState({ action: "restore", entries });
           }
-          restoreUnread(unreadBefore);
           // The toast held focus; the first family back in the tree takes it.
           focusAfterCommit(() => familyRowButton(archivable[0].root.id));
         },
       },
       { id: "view", label: t("sidebar.viewArchive"), onClick: openArchiveView },
     ]);
-  }, [applyUiState, focusAfterCommit, familyRowButton, openArchiveView, restoreUnread, showToast, snapshotUiState, t, unreadSessionIds]);
+  }, [applyUiState, focusAfterCommit, familyRowButton, openArchiveView, showToast, snapshotUiState, t]);
 
   // The row's archive button. A running family would come straight back, so
   // it is not archived (the row offers no button for it either).
@@ -1906,7 +1851,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         // copy waits in its group, unread (so it shows beyond the group's
         // limit), and the toast offers to open it.
         setAllSessions((current) => (current.some((session) => session.id === forked.id) ? current : [forked, ...current]));
-        setUnreadSessionIds((prev) => new Set(prev).add(forked.id));
+        void applyUiStateRequest({ action: "set", ids: [forked.id], unread: true });
         void loadSessions();
         showToast(message, [{ id: "open", label: t("sidebar.open"), onClick: () => openForkedRef.current(forked, null) }], tail);
         return;
@@ -1918,7 +1863,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } finally {
       forkingIdsRef.current.delete(source.id);
     }
-  }, [loadSessions, showToast, t]);
+  }, [applyUiStateRequest, loadSessions, showToast, t]);
 
   // Open in new tab (the row menu's T): the row's session in a browser tab of
   // its own, by the same link its title carries. This tab's selection, cwd and
