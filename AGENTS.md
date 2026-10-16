@@ -50,7 +50,7 @@ app/api/
   sessions/[id]/auto-name/route.ts POST generate a session title
   sessions/search/route.ts         GET session search
   agent/new/route.ts               POST { cwd, type: prompt|ensure_session (start only), message?, toolNames?, provider?, modelId?, thinkingLevel? }
-  agent/[id]/route.ts              GET state | POST any command
+  agent/[id]/route.ts              GET state (?systemPrompt=0: without the prompt) | POST any command
   agent/[id]/events/route.ts       GET SSE stream
   agent/running/route.ts           GET running + awaiting-input session ids, sidebar pins/archive revision
   auth/api-key/[provider]/route.ts POST/DELETE stored provider API key

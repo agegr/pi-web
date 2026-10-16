@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Script, createContext } from "node:vm";
 import ts from "typescript";
+import { createJiti } from "jiti";
+
+const { agentStatusUrl } = await createJiti(import.meta.url, { interopDefault: true }).import("../lib/agent-client.ts");
 
 const source = ts.createSourceFile("useAgentSession.ts", await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 const nodes = [];
@@ -20,7 +23,7 @@ function setup() {
     sessionHookMountedRef: { current: true }, sessionIdRef: { current: "a" },
     promptRunIdRef: { current: 1 }, contextUsageRequestIdRef: { current: 0 }, contextUsageAppliedIdRef: { current: 0 },
     agentRunningRef: { current: true }, sdkAgentActiveRef: { current: true }, rpcPromptPendingRef: { current: true },
-    setContextUsage: (value) => writes.push(value),
+    setContextUsage: (value) => writes.push(value), agentStatusUrl,
     fetch: (url) => { const request = Promise.withResolvers(); requests.push({ ...request, url }); return request.promise; },
     syncLiveModel() {}, setIsCompacting() {}, setAutoCompactionEnabled() {}, setQueuedMessages() {},
     normalizeQueuedMessages: (value) => value, finishPromptWithoutStream: () => { throw new Error("busy run settled"); },
@@ -40,6 +43,8 @@ test("a busy reconciliation refreshes context usage without settling the run", a
   await pending;
   assert.deepEqual(state.writes, [usage(100)]);
   assert.equal(state.context.agentRunningRef.current, true);
+  // Status reads leave out the system prompt, nearly all of the state (#1302).
+  assert.equal(state.requests[0].url, "/api/agent/a?systemPrompt=0");
 });
 
 test("a newer assistant usage read wins over a delayed poll", async () => {
