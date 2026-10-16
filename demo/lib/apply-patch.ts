@@ -88,6 +88,7 @@ interface RowSink {
   context(text: string, lineNo: number | null): void;
   removed(text: string, lineNo: number | null): void;
   added(text: string, lineNo: number | null): void;
+  gap(): void;
   finish(): void;
 }
 
@@ -127,14 +128,17 @@ function createRowSink(): RowSink {
     added(text, lineNo) {
       pendingAdded.push({ lineNo, text, type: "added" });
     },
+    gap() {
+      flushChanges();
+      // Only between lines: never before the first one or twice in a row.
+      if (rows.length > 0 && rows[rows.length - 1].type !== "gap") rows.push({ type: "gap", count: null });
+    },
     finish() {
       flushChanges();
-      // Drop files whose body produced no renderable line (e.g. an empty
-      // Add section while streaming) — mutate in place, callers already hold
-      // a reference to this array.
-      for (let i = rows.length - 1; i >= 0; i--) {
-        if (rows[i].type !== "line") rows.splice(i, 1);
-      }
+      // A gap with no line after it (a trailing or still-streaming @@) marks
+      // nothing. Mutate in place, callers already hold a reference to this
+      // array; a file left with no rows is dropped by its caller.
+      if (rows.length > 0 && rows[rows.length - 1].type === "gap") rows.pop();
     },
   };
 }
@@ -183,7 +187,12 @@ export function parseApplyPatchInput(patchText: string): SplitDiffFile[] | null 
     if (!sink || !current) continue;
     const body: RowSink = sink;
     if (rawLine.startsWith("*** ")) continue; // Begin/End Patch markers
-    if (operation === "update" && rawLine.startsWith("@@")) continue; // hunk context markers carry no line numbers here
+    // Each @@ starts a chunk at another place in the file. It carries no line
+    // numbers, so the gap before a later chunk has no count.
+    if (operation === "update" && rawLine.startsWith("@@")) {
+      body.gap();
+      continue;
+    }
 
     if (operation === "update") {
       const prefix = rawLine[0];

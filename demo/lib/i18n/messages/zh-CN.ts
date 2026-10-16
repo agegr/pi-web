@@ -712,6 +712,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.thinkingUnavailable": "思考内容不可用",
     "i18n.before": "之前",
     "i18n.after": "之后",
+    "diff.unchangedLine": "1 行未改动",
+    "diff.unchangedLines": "{count} 行未改动",
     "i18n.sessionComplete": "任务完成",
     "i18n.taskFinished": "任务已完成。",
     "i18n.attentionNeeded": "Pi 需要你的操作",

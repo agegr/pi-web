@@ -26,7 +26,7 @@ import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
-import { parseUnifiedPatch } from "@/lib/patch";
+import { diffGapLabel, parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -288,18 +288,22 @@ type DiffLine = {
   newLineNo: number | null;
 };
 
+// Unchanged lines the patch leaves out between two hunks.
+type DiffGap = { type: "gap"; count: number | null };
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function diffLines(patch: string): DiffLine[] {
+function diffLines(patch: string): Array<DiffLine | DiffGap> {
   const files = parseUnifiedPatch(patch);
   if (!files) return [];
 
-  return files.flatMap((file) => file.rows.flatMap((row): DiffLine[] => {
+  return files.flatMap((file) => file.rows.flatMap((row): Array<DiffLine | DiffGap> => {
     if (row.type === "hunk") return [];
+    if (row.type === "gap") return [row];
     if (row.left.type === "context" && row.right.type === "context") {
       return [{
         type: "unchanged",
@@ -334,7 +338,8 @@ function DiffView({ patch }: { patch: string }) {
   const { t } = useI18n();
   const diff = diffLines(patch);
 
-  const hasChanges = diff.some((l) => l.type !== "unchanged");
+  const isChange = (l: DiffLine | DiffGap) => l.type === "added" || l.type === "removed";
+  const hasChanges = diff.some(isChange);
   if (!hasChanges) {
     return (
       <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
@@ -345,7 +350,7 @@ function DiffView({ patch }: { patch: string }) {
 
   // Render with context: show 3 lines around each change, collapse the rest
   const CONTEXT = 3;
-  const changed = new Set(diff.flatMap((l, i) => (l.type !== "unchanged" ? [i] : [])));
+  const changed = new Set(diff.flatMap((l, i) => (isChange(l) ? [i] : [])));
   const visible = new Set<number>();
   for (const ci of changed) {
     for (let j = Math.max(0, ci - CONTEXT); j <= Math.min(diff.length - 1, ci + CONTEXT); j++) {
@@ -356,20 +361,26 @@ function DiffView({ patch }: { patch: string }) {
     ? FILE_PINNED_LINE_NUMBER_STYLE
     : FILE_LINE_NUMBER_STYLE;
 
-  const segments: Array<{ hidden: true; count: number } | { hidden: false; lines: DiffLine[] }> = [];
+  // Collapsed lines and the lines the patch leaves out between hunks share one
+  // marker; its count is unknown when a gap's is.
+  const isShown = (j: number) => diff[j].type !== "gap" && visible.has(j);
+  const segments: Array<{ hidden: true; count: number | null } | { hidden: false; lines: DiffLine[] }> = [];
   let i = 0;
   while (i < diff.length) {
-    if (visible.has(i)) {
+    if (isShown(i)) {
       const block: DiffLine[] = [];
-      while (i < diff.length && visible.has(i)) {
-        block.push(diff[i]);
+      while (i < diff.length && isShown(i)) {
+        const line = diff[i];
+        if (line.type !== "gap") block.push(line);
         i++;
       }
       segments.push({ hidden: false, lines: block });
     } else {
-      let count = 0;
-      while (i < diff.length && !visible.has(i)) {
-        count++;
+      let count: number | null = 0;
+      while (i < diff.length && !isShown(i)) {
+        const item = diff[i];
+        const skipped = item.type === "gap" ? item.count : 1;
+        count = count === null || skipped === null ? null : count + skipped;
         i++;
       }
       segments.push({ hidden: true, count });
@@ -399,7 +410,7 @@ function DiffView({ patch }: { patch: string }) {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              ... {seg.count} unchanged lines ...
+              {seg.count === null ? "⋯" : `⋯ ${diffGapLabel(seg.count, t)}`}
             </div>
           );
           return result;
