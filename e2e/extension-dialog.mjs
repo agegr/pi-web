@@ -10,7 +10,7 @@ export const extensionSource = `export default function (pi) {
         result = await ctx.ui.input("E2E after timeout");
       } else if (mode === "select") {
         result = await ctx.ui.select("E2E select", Array.from({ length: 30 }, (_, i) => "Option " + (i + 1)));
-      } else if (mode === "prose") {
+      } else if (mode === "prose" || mode === "prose-again") {
         result = await ctx.ui.confirm("E2E prose", "A long sentence that wraps. ".repeat(60));
       } else if (mode === "code") {
         result = await ctx.ui.confirm("E2E code", "Run this?\\n\\n\`\`\`sql\\n" + "CREATE TABLE t (" + Array.from({ length: 2 }, (_, i) => "column_" + i + " VARCHAR(255) NOT NULL").join(", ") + ");\\n\`\`\`");
@@ -181,9 +181,11 @@ export async function checkExtensionDialogSizing(page, width) {
   await close(code, "code", "false");
 
   // The next dialog starts from its own content, not from the last maximize or fit.
-  const again = await start("prose");
+  // Give its result a distinct label: the first prose notice may still be visible, and must
+  // neither make the strict locator ambiguous nor satisfy this second command's result check.
+  const again = await start("prose-again", "E2E prose");
   assert.ok(Math.abs((await settledWidth(page, again)) - proseWidth) <= 1, "A later dialog does not inherit the previous size");
-  await close(again, "prose", "false");
+  await close(again, "prose-again", "false");
 
   const huge = await start("huge");
   assert.ok(Math.abs((await settledWidth(page, huge)) - available) <= 1, "Content wider than the screen caps at the content region");
