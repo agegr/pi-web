@@ -1736,6 +1736,13 @@
   padding-right: 4px;
 }
 
+/* A weight's name, not its number: wide enough for the longest so the name field keeps its width while dragging. */
+.settings-chat-range-header.settings-font-header output {
+  min-width: 11ch;
+  font-family: inherit;
+  text-align: right;
+}
+
 /* Drawn in the font it names: the live preview. */
 .settings-chat-range-option .settings-font-input {
   height: 26px;
