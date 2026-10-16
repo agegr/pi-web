@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { SelectorRow } from "./SelectorRow";
@@ -33,49 +32,6 @@ interface ModelSelectorProps {
 
 const MODEL_FILTER_THRESHOLD = 8;
 
-type SelectorAnchor = { top: number; bottom: number; left: number; width: number };
-type SelectorViewport = { top: number; left: number; width: number; height: number };
-
-/** Fixed coordinates belong to the layout viewport, including when iOS pans/zooms it. */
-function readSelectorViewport(): SelectorViewport {
-  const viewport = window.visualViewport;
-  return {
-    top: viewport?.offsetTop ?? 0,
-    left: viewport?.offsetLeft ?? 0,
-    width: viewport?.width ?? window.innerWidth,
-    height: viewport?.height ?? window.innerHeight,
-  };
-}
-
-/** Keep even an off-screen/hidden anchor's menu inside the visible viewport. */
-export function getModelSelectorPosition(anchor: SelectorAnchor, viewport: SelectorViewport, mobile: boolean, placement: "up" | "auto") {
-  const minTop = viewport.top + Math.min(8, viewport.height / 2);
-  const minLeft = viewport.left + Math.min(8, viewport.width / 2);
-  const availableHeight = Math.max(0, viewport.height - 16);
-  const availableWidth = Math.max(0, viewport.width - 16);
-  const maxBottom = minTop + availableHeight;
-  const clampY = (value: number) => Math.max(minTop, Math.min(value, maxBottom));
-  const aboveEnd = clampY(anchor.top - 6);
-  const belowStart = clampY(anchor.bottom + 6);
-  const spaceAbove = aboveEnd - minTop;
-  const spaceBelow = maxBottom - belowStart;
-  // Prefer up for the composer, but do not force a tiny/empty menu above a
-  // trigger near the top. No minimum height may exceed the visible space.
-  const openAbove = placement === "up"
-    ? spaceAbove >= Math.min(120, availableHeight) || spaceAbove >= spaceBelow
-    : spaceAbove > spaceBelow;
-  const minWidth = mobile ? 0 : Math.min(anchor.width, availableWidth);
-  const left = mobile ? minLeft : Math.max(minLeft, Math.min(anchor.left, minLeft + availableWidth - minWidth));
-  return {
-    left,
-    top: openAbove ? aboveEnd : belowStart,
-    minWidth,
-    maxWidth: minLeft + availableWidth - left,
-    maxHeight: Math.min(openAbove ? spaceAbove : spaceBelow, viewport.height * 0.6),
-    openAbove,
-  };
-}
-
 export function filterModelOptions(options: ModelSelectorOption[], query: string): ModelSelectorOption[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   if (!normalizedQuery) return options;
@@ -106,10 +62,9 @@ export function ModelSelector({
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const rootRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [geometry, setGeometry] = useState<{ anchor: SelectorAnchor; viewport: SelectorViewport } | null>(null);
+  const [anchorRect, setAnchorRect] = useState<{ top: number; right: number; bottom: number; left: number; width: number } | null>(null);
   const [filter, setFilter] = useState("");
   const locked = disabled || busy;
   // Options arrive in pi's /model order (orderSelectorModels()); never re-sort
@@ -142,51 +97,28 @@ export function ModelSelector({
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
-  useLayoutEffect(() => {
+  // While the picker is open, a phone keyboard shrinks the app height
+  // (useViewportHeight writes the root's style, sometimes with no viewport
+  // event) and moves the trigger; follow it instead of the rect from the tap.
+  useEffect(() => {
     if (!open) return;
+    const remeasure = () => {
+      const rect = rootRef.current?.querySelector("button")?.getBoundingClientRect();
+      // A new object even for an unmoved trigger: the panel also reads the
+      // visual viewport, which may have changed alone.
+      if (rect?.height) setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
+    };
     const viewport = window.visualViewport;
-    let frame: number | null = null;
-    const update = () => {
-      frame = null;
-      const rect = buttonRef.current?.getBoundingClientRect();
-      const nextViewport = readSelectorViewport();
-      setGeometry((current) => {
-        if (!current) return current;
-        // The keyboard hides the toolbar. A zero rect would move the menu
-        // to the page's origin; keep its last real anchor and clamp instead.
-        const anchor = rect && rect.width > 0 && rect.height > 0
-          ? { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width }
-          : current.anchor;
-        if (anchor.top === current.anchor.top && anchor.bottom === current.anchor.bottom
-          && anchor.left === current.anchor.left && anchor.width === current.anchor.width
-          && nextViewport.top === current.viewport.top && nextViewport.left === current.viewport.left
-          && nextViewport.width === current.viewport.width && nextViewport.height === current.viewport.height) return current;
-        return { anchor, viewport: nextViewport };
-      });
-    };
-    const schedule = () => {
-      if (frame === null) frame = window.requestAnimationFrame(update);
-    };
-    update();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
-    if (buttonRef.current) observer?.observe(buttonRef.current);
-    // useViewportHeight rereads WebKit/IME geometry after the animation even
-    // when no viewport event arrives. Follow its height writes, not a second
-    // polling/settling loop, while the trigger is hidden by the keyboard.
-    const heightObserver = new MutationObserver(schedule);
-    heightObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    viewport?.addEventListener("resize", schedule);
-    viewport?.addEventListener("scroll", schedule);
+    const rootObserver = new MutationObserver(remeasure);
+    rootObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-keyboard-open"] });
+    window.addEventListener("resize", remeasure);
+    viewport?.addEventListener("resize", remeasure);
+    viewport?.addEventListener("scroll", remeasure);
     return () => {
-      observer?.disconnect();
-      heightObserver.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-      viewport?.removeEventListener("resize", schedule);
-      viewport?.removeEventListener("scroll", schedule);
-      if (frame !== null) window.cancelAnimationFrame(frame);
+      rootObserver.disconnect();
+      window.removeEventListener("resize", remeasure);
+      viewport?.removeEventListener("resize", remeasure);
+      viewport?.removeEventListener("scroll", remeasure);
     };
   }, [open]);
 
@@ -254,15 +186,13 @@ export function ModelSelector({
       style={{ position: "relative", width: variant === "field" || isMobile ? "100%" : undefined, minWidth: 0, flex: variant === "toolbar" && isMobile ? "1 1 auto" : undefined }}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
-        event.stopPropagation();
-        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         event.preventDefault();
+        event.stopPropagation();
         setFilter("");
         setOpen(false);
       }}
     >
       <button
-        ref={buttonRef}
         type="button"
         aria-label={ariaLabel}
         aria-haspopup="listbox"
@@ -273,10 +203,7 @@ export function ModelSelector({
         style={buttonStyle}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
-          setGeometry({
-            anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
-            viewport: readSelectorViewport(),
-          });
+          setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
           setOpen((current) => {
             if (current) setFilter("");
             return !current;
@@ -319,22 +246,40 @@ export function ModelSelector({
         )}
       </button>
 
-      {open && geometry && (() => {
-        const { openAbove, ...position } = getModelSelectorPosition(geometry.anchor, geometry.viewport, isMobile, placement);
-        const panel = (
+      {open && anchorRect && (() => {
+        // Fixed coordinates belong to the layout viewport, which a phone
+        // keyboard does not shrink: measure from the visible part's top and
+        // hang an upward panel from `top` rather than from `bottom`.
+        const viewportTop = window.visualViewport?.offsetTop ?? 0;
+        const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+        const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+        // A trigger the keyboard covers (a Settings field) still gets a
+        // panel ending above the keyboard.
+        const aboveEnd = Math.min(anchorRect.top - 6, viewportTop + viewportHeight - 8);
+        const spaceAbove = aboveEnd - viewportTop - 8;
+        const spaceBelow = viewportTop + viewportHeight - anchorRect.bottom - 6 - 8;
+        const openAbove = placement === "up" || spaceAbove > spaceBelow;
+        const maxHeight = Math.max(120, Math.min(openAbove ? spaceAbove : spaceBelow, viewportHeight * 0.6));
+        const verticalPosition: CSSProperties = openAbove
+          ? { top: aboveEnd, transform: "translateY(-100%)" }
+          : { top: anchorRect.bottom + 6 };
+        const horizontalPosition: CSSProperties = isMobile
+          ? { left: 8, right: 8, maxWidth: "calc(100vw - 16px)" }
+          : { left: anchorRect.left, width: "max-content", minWidth: anchorRect.width, maxWidth: Math.max(anchorRect.width, viewportWidth - anchorRect.left - 8) };
+
+        return (
           <div
             ref={panelRef}
             role="listbox"
             aria-label={ariaLabel}
             style={{
               position: "fixed",
-              ...position,
-              width: isMobile ? position.maxWidth : "max-content",
-              transform: openAbove ? "translateY(-100%)" : undefined,
-              boxSizing: "border-box",
+              ...verticalPosition,
+              ...horizontalPosition,
               zIndex: 500,
               display: "flex",
               flexDirection: "column",
+              maxHeight,
               overflow: "hidden",
               border: "1px solid var(--border)",
               borderRadius: 8,
@@ -414,9 +359,6 @@ export function ModelSelector({
             </div>
           </div>
         );
-        // Fixed positioning alone cannot escape display:none on the mobile
-        // toolbar (#1271). Fields stay in their Settings stacking context.
-        return variant === "toolbar" ? createPortal(panel, document.body) : panel;
       })()}
     </div>
   );

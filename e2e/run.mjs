@@ -506,8 +506,6 @@ try {
     await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });
     await page.locator(".markdown-code-block pre").waitFor();
     await checkCodeBackground(page);
-    // Last in this context: the Settings field check remembers Sub-agents,
-    // while earlier appearance checks rely on a fresh profile's General tab.
     await checkModelSelector(page, { base, project, artifacts });
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
