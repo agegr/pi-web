@@ -15,6 +15,8 @@ interface ModelSelectorProps {
   options: ModelSelectorOption[];
   value?: { provider: string; modelId: string } | null;
   onChange: (provider: string, modelId: string) => void;
+  /** Live sessions can reapply saved metadata by choosing their current model again. */
+  onReselect?: (provider: string, modelId: string) => void;
   onClear?: () => void;
   emptyLabel?: string;
   selectedLabel?: string;
@@ -47,6 +49,7 @@ export function ModelSelector({
   options,
   value,
   onChange,
+  onReselect,
   onClear,
   emptyLabel,
   selectedLabel,
@@ -146,6 +149,7 @@ export function ModelSelector({
     setOpen(false);
     setFilter("");
     if (!active || isAutoSelection) onChange(option.provider, option.modelId);
+    else onReselect?.(option.provider, option.modelId);
   };
 
   const saveDefault = (option: ModelSelectorOption) => {

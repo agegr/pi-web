@@ -4,6 +4,7 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { isDeepStrictEqual } from "util";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
@@ -20,7 +21,7 @@ import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trus
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
+import type { AgentSessionLike, ExtensionUiContextLike, ModelLike, ToolInfo } from "./pi-types";
 import type {
   ExtensionUiRequest,
   ExtensionUiResponse,
@@ -202,6 +203,10 @@ export function resolveSessionShutdownDeadlineMs(
 
 const SESSION_SHUTDOWN_DEADLINE_MS = resolveSessionShutdownDeadlineMs();
 
+// The SDK races provider callbacks against this signal. Await the refresh itself: its initial
+// file read is not cancellable, and releasing the command lock early would allow overlapping reads.
+const MODEL_CONFIG_REFRESH_TIMEOUT_MS = 30_000;
+
 const SESSION_REPLACEMENT_COMMAND_TYPES = new Set(["fork", "clone"]);
 // pi writes a session file at the first user message, so a session with no
 // conversation on disk has nothing to copy from yet.
@@ -313,6 +318,7 @@ export class AgentSessionWrapper {
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
   private activeMutatingCommands = 0;
+  private modelConfigChange: AbortController | null = null;
   private sessionReplacement: "fork" | "clone" | null = null;
   private agentRunNeedsCompletion = false;
   // Whether the last run ended because it was stopped (pi 1.1's `agent_settled.aborted`), not finished.
@@ -387,7 +393,7 @@ export class AgentSessionWrapper {
   }
 
   isRunning(): boolean {
-    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
+    return this._alive && (this.modelConfigChange !== null || this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
   /**
@@ -807,6 +813,84 @@ export class AgentSessionWrapper {
     }
   }
 
+  /** Re-read the selected provider even when its model id is already in the runtime. */
+  private async refreshModel(provider: string, modelId: string, signal?: AbortSignal): Promise<ModelLike> {
+    signal?.throwIfAborted();
+    const timeout = AbortSignal.timeout(MODEL_CONFIG_REFRESH_TIMEOUT_MS);
+    const bounded = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    let result: Awaited<ReturnType<AgentSessionLike["modelRuntime"]["refresh"]>>;
+    try {
+      result = await this.inner.modelRuntime.refresh({ allowNetwork: false, providers: [provider], signal: bounded });
+    } catch (error) {
+      if (timeout.aborted && !signal?.aborted) {
+        throw new Error(`Timed out refreshing the model configuration of ${provider}`);
+      }
+      signal?.throwIfAborted();
+      // Provider callbacks can include credentials in errors; keep them out of browser notices.
+      throw new Error(`Could not refresh the model configuration of ${provider}`, { cause: error });
+    }
+    signal?.throwIfAborted();
+    if (timeout.aborted) throw new Error(`Timed out refreshing the model configuration of ${provider}`);
+    if (!this.isAlive()) throw new Error("Session closed while refreshing model configuration");
+    // The public SDK exposes only aggregate diagnostics. Fail closed: a malformed file can leave
+    // a built-in model available but silently discard its configured endpoint. Do not echo secrets.
+    if (this.inner.modelRuntime.getError()) {
+      throw new Error("Could not load model configuration. Check models.json in Settings > Models.");
+    }
+    if (result?.aborted) throw new Error("Model configuration refresh was aborted");
+    if (result?.errors.has(provider)) throw new Error(`Could not refresh the model configuration of ${provider}`);
+    const model = this.inner.modelRuntime.getModel(provider, modelId);
+    if (!model) {
+      if (this.chatOnly && findDeferredModel(this.inner.modelRuntime as ModelRuntime, provider, modelId)) {
+        throw chatOnlyExtensionModelError(provider, modelId);
+      }
+      throw new Error(`Model not found: ${provider}/${modelId}`);
+    }
+    return model;
+  }
+
+  /**
+   * Bind a refreshed model. A same-id edit is metadata, not a new model choice: the user's thinking
+   * level is kept (the SDK still clamps it to the new capabilities), and an unchanged definition is
+   * not bound again, so a `/reload` or a reselect writes no `model_change` and notifies no extension.
+   */
+  private async applyModel(model: ModelLike): Promise<boolean> {
+    const previous = this.inner.model;
+    const sameId = previous?.provider === model.provider && previous.id === model.id;
+    if (sameId && isDeepStrictEqual(previous, model)) return false;
+    const thinkingLevel = this.inner.agent.state?.thinkingLevel;
+    await this.inner.setModel(model);
+    if (sameId && thinkingLevel !== undefined) this.inner.setThinkingLevel(thinkingLevel);
+    return true;
+  }
+
+  private async refreshCurrentModel(signal?: AbortSignal): Promise<void> {
+    const current = this.inner.model;
+    if (!current) return; // A model-free session stays model-free; never choose a fallback here.
+    const model = await this.refreshModel(current.provider, current.id, signal);
+    if (!(await this.applyModel(model))) return;
+    invalidateModelsCache();
+    invalidateSessionListCache();
+  }
+
+  /**
+   * The resources are reloaded by now; failing to re-read the model must not report the reload
+   * itself as failed. The session keeps the model definition it had, and the browser is told why.
+   */
+  private async reapplyCurrentModelAfterReload(signal?: AbortSignal): Promise<void> {
+    try {
+      await this.refreshCurrentModel(signal);
+    } catch (error) {
+      this.emit({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "notify",
+        notifyType: "warning",
+        message: `Reloaded, but the current model was not updated: ${error instanceof Error ? error.message : String(error)}`,
+      } as ExtensionUiRequest as AgentEvent);
+    }
+  }
+
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
@@ -818,12 +902,27 @@ export class AgentSessionWrapper {
     }
 
     const tracksMutation = !allowedDuringReplacement;
+    const changesModelConfig = type === "set_model" || type === "reload";
+    if (this.modelConfigChange && tracksMutation && type !== "abort" && type !== "abort_compaction" && type !== "abort_bash") {
+      throw new Error("Wait for the model configuration change to finish before sending another command");
+    }
+    if (changesModelConfig && this.isSessionRunningForReplacement()) {
+      throw new Error(type === "reload"
+        ? "Wait for the current response to finish before reloading."
+        : "Wait for the current response to finish before changing models.");
+    }
+    if (changesModelConfig && this.activeMutatingCommands > 0) {
+      throw new Error("Cannot change model configuration while another session command is running");
+    }
+    const modelConfigChange = changesModelConfig ? new AbortController() : null;
+    if (modelConfigChange) this.modelConfigChange = modelConfigChange;
     if (tracksMutation) this.activeMutatingCommands += 1;
 
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
       if (type !== "get_state") this.resetIdleTimer();
-      if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
+      if (this.shouldWaitForExtensions(type) || changesModelConfig) await this.waitForExtensionsBound();
+      modelConfigChange?.signal.throwIfAborted();
       if (this.sessionReplacement && !allowedDuringReplacement) {
         throw new Error("Session is being copied to a new session");
       }
@@ -969,6 +1068,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
+        this.modelConfigChange?.abort();
         this.forceShutdownOnIdle = true;
         // Arm the forced cleanup now: the reset above ran before this flag,
         // and the final reset only runs once the SDK run has unwound.
@@ -1026,19 +1126,11 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
-        if (!model) {
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
-          model = this.inner.modelRuntime.getModel(provider, modelId);
+        const model = await this.refreshModel(provider, modelId, modelConfigChange!.signal);
+        if (await this.applyModel(model)) {
+          invalidateModelsCache();
+          invalidateSessionListCache();
         }
-        if (!model) {
-          throw this.chatOnly && findDeferredModel(this.inner.modelRuntime as ModelRuntime, provider, modelId)
-            ? chatOnlyExtensionModelError(provider, modelId)
-            : new Error(`Model not found: ${provider}/${modelId}`);
-        }
-        await this.inner.setModel(model);
-        invalidateModelsCache();
-        invalidateSessionListCache();
         return { id: model.id, provider: model.provider };
       }
 
@@ -1298,6 +1390,7 @@ export class AgentSessionWrapper {
         invalidateModelsCache();
         // /reload is how an edited extension is picked up; the provider lists' runtime follows.
         invalidateModelRuntimeWithExtensions();
+        await this.reapplyCurrentModelAfterReload(modelConfigChange!.signal);
         return { success: true };
       }
 
@@ -1357,6 +1450,10 @@ export class AgentSessionWrapper {
       }
     } finally {
       if (tracksMutation) this.activeMutatingCommands = Math.max(0, this.activeMutatingCommands - 1);
+      if (modelConfigChange && this.modelConfigChange === modelConfigChange) {
+        this.modelConfigChange = null;
+        this.resetIdleTimer();
+      }
     }
   }
 
@@ -1378,6 +1475,7 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    this.modelConfigChange?.abort();
     this.disposeMcpHost();
     // Tell attached SSE listeners to drop this instance so the browser
     // EventSource errors and reconnects instead of staying OPEN on a dead wrapper.
@@ -1432,6 +1530,7 @@ export class AgentSessionWrapper {
     // Closing starts before the first await, so a request that arrives while
     // extensions shut down starts a fresh wrapper instead of prompting this one.
     this.closing = true;
+    this.modelConfigChange?.abort();
 
     this.shutdownPromise = (async () => {
       try {
@@ -2058,6 +2157,7 @@ export class AgentSessionWrapper {
         });
         // As the `reload` command: the provider lists' runtime follows.
         invalidateModelRuntimeWithExtensions();
+        await this.reapplyCurrentModelAfterReload(this.extensionUiAbortController.signal);
       },
     };
   }
