@@ -54,6 +54,10 @@ Coverage:
   session, directory, draft, files and group expansion; + still opens in the
   same tab, and no session is created, copied, prompted or stopped. An
   unavailable directory shows the validation error instead of another session.
+- The model picker, with a synthetic catalog: on a phone, a simulated keyboard
+  (visual viewport shrink, pan, a late height with no event) keeps the same
+  filter focused and the list in the visible viewport. Native phone keyboards
+  still need real-device verification.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
 

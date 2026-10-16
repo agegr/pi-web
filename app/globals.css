@@ -2731,8 +2731,13 @@ span.token.table {
    touch screens opt in too; tablets keep their controls because the keyboard
    leaves them enough height. */
 @media (max-width: 640px), (pointer: coarse) and (max-height: 500px) {
-  html[data-keyboard-open] .chat-input-controls,
   html[data-keyboard-open] .extension-status-shelf {
+    display: none !important;
+  }
+  /* Except while its model picker is open: the picker's filter is the field
+     the keyboard is for, and hiding its row would hide the picker (#1271).
+     Its own rule, so a browser without :has() drops only this one. */
+  html[data-keyboard-open] .chat-input-controls:not(:has(.model-selector [role="listbox"])) {
     display: none !important;
   }
   html[data-keyboard-open] .chat-content {
