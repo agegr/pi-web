@@ -809,6 +809,16 @@ html[data-keyboard-open] .terminal-extra-keys {
   }
 }
 
+/* The file panel's tab strip hides its scrollbar: a scrollbar takes its height
+   out of the 36px bar and squeezes the tabs (#1225). A wheel, a swipe or the
+   arrow keys scroll it, and TabBar keeps the active tab in view. */
+.tabbar-scroll {
+  scrollbar-width: none;
+}
+.tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 /* The terminal picks its surface apart from the app theme, so --text-dim
    could disappear against it. */
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
