@@ -492,6 +492,71 @@ html.dark .web-login-error {
   }
 }
 
+/* The file panel's tab strip hides its native scrollbar; TabBar draws a thin
+   overlay one along its top edge instead (no layout height). */
+.tabbar-scroll {
+  scrollbar-width: none;
+}
+.tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+.tabbar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.tabbar-overlay:not([data-overflow]) {
+  display: none;
+}
+.tabbar-wrap:hover .tabbar-overlay,
+.tabbar-wrap[data-active] .tabbar-overlay {
+  opacity: 1;
+}
+/* Only the thumb takes the pointer, as in JetBrains IDEs: the rest of the
+   strip's top edge still belongs to the tabs under it. */
+.tabbar-track {
+  height: 100%;
+}
+.tabbar-thumb {
+  position: relative;
+  height: 100%;
+  touch-action: none;
+}
+.tabbar-wrap:hover .tabbar-thumb,
+.tabbar-wrap[data-active] .tabbar-thumb {
+  pointer-events: auto;
+}
+.tabbar-thumb::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 3px;
+  background-color: color-mix(in srgb, var(--text-dim) 45%, transparent);
+  transition: height 0.12s ease;
+}
+.tabbar-thumb:hover::before,
+.tabbar-wrap[data-dragging] .tabbar-thumb::before {
+  height: 6px;
+  background-color: color-mix(in srgb, var(--text-dim) 72%, transparent);
+}
+.tabbar-wrap[data-dragging] .tabbar-thumb::before {
+  background-color: var(--text-dim);
+}
+@media (pointer: coarse) {
+  .tabbar-thumb:hover::before {
+    height: 3px;
+  }
+}
+
 /* The terminal keeps its dark surface in every theme, so --text-dim (a dark
    grey in the light themes) would disappear against it. */
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
