@@ -54,6 +54,12 @@ Coverage:
   session, directory, draft, files and group expansion; + still opens in the
   same tab, and no session is created, copied, prompted or stopped. An
   unavailable directory shows the validation error instead of another session.
+- Model selection uses a synthetic catalog on desktop and mobile: tapping the
+  filter and a simulated keyboard resize/pan keep the same input focused and
+  the list in the visible viewport, even while composer controls hide.
+  Selection, default stars, clear, outside click, Escape/IME cancellation and
+  Settings field layering are covered; no model prompt is sent. Native phone
+  keyboards still need real-device verification.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
 
