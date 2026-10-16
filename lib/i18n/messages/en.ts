@@ -183,6 +183,7 @@ export const enLocale: LocalePlugin = {
     "codemode.status.error": "Failed",
     "codemode.status.cancelled": "Cancelled",
     "agentSwitcher.title": "Agents",
+    "agentSwitcher.titleRunning": "Agents: {count} running",
     "agentSwitcher.main": "Main agent",
     "agentSwitcher.subagent": "Sub-agent",
     "agentSwitcher.current": "Current",

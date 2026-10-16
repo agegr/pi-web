@@ -106,6 +106,7 @@ export const enLocale: LocalePlugin = {
     "agents.overridden": "Overridden",
     "subagent.open": "Open sub-agent session",
     "agentSwitcher.title": "Agents",
+    "agentSwitcher.titleRunning": "Agents: {count} running",
     "agentSwitcher.main": "Main agent",
     "agentSwitcher.subagent": "Sub-agent",
     "agentSwitcher.current": "Current",

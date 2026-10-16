@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { countRunningSubagents } from "@/lib/session-family";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
 
 interface Props {
@@ -167,7 +168,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
           .some((value) => value?.toLowerCase().includes(normalizedQuery));
       })
     : sortedSubagents;
-  const runningCount = subagents.filter((session) => runningSessionIds.has(session.id)).length;
+  const runningCount = countRunningSubagents(subagents, runningSessionIds);
 
   return (
     <div

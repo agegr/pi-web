@@ -106,6 +106,7 @@ export const zhTWLocale: LocalePlugin = {
     "agents.overridden": "已被覆寫",
     "subagent.open": "開啟子代理工作階段",
     "agentSwitcher.title": "Agents",
+    "agentSwitcher.titleRunning": "Agents：{count} 個執行中",
     "agentSwitcher.main": "主 Agent",
     "agentSwitcher.subagent": "子 Agent",
     "agentSwitcher.current": "目前",

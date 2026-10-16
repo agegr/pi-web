@@ -106,6 +106,7 @@ export const zhCNLocale: LocalePlugin = {
     "agents.overridden": "被覆盖",
     "subagent.open": "打开子代理会话",
     "agentSwitcher.title": "Agents",
+    "agentSwitcher.titleRunning": "Agents：{count} 个运行中",
     "agentSwitcher.main": "主 Agent",
     "agentSwitcher.subagent": "子 Agent",
     "agentSwitcher.current": "当前",

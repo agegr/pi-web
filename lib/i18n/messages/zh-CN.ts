@@ -183,6 +183,7 @@ export const zhCNLocale: LocalePlugin = {
     "codemode.status.error": "失败",
     "codemode.status.cancelled": "已取消",
     "agentSwitcher.title": "Agents",
+    "agentSwitcher.titleRunning": "Agents：{count} 个运行中",
     "agentSwitcher.main": "主 Agent",
     "agentSwitcher.subagent": "子 Agent",
     "agentSwitcher.current": "当前",
