@@ -471,6 +471,36 @@ test("shows and locks the optimistic model while a switch is pending", () => {
   assert.match(html, /animation:spin 0\.8s linear infinite/);
 });
 
+test("the live model selector can reapply its current model without changing draft-field selection behavior", () => {
+  const source = ts.createSourceFile("ModelSelector.tsx", readFileSync(new URL("./ModelSelector.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findChoose(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "choose") return node.initializer;
+    return ts.forEachChild(node, findChoose);
+  }
+  const script = new Script(ts.transpileModule(findChoose(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+  const option = { provider: "fixture", modelId: "same-id", name: "Fixture" };
+  for (const [active, automatic, live, expected] of [
+    [true, false, true, "reselect"],
+    [true, false, false, null],
+    [true, true, true, "change"],
+    [false, false, true, "change"],
+  ]) {
+    const calls = [];
+    const choose = script.runInNewContext({
+      value: active ? option : null, isAutoSelection: automatic,
+      setOpen: (value) => calls.push(["open", value]),
+      setFilter: (value) => calls.push(["filter", value]),
+      onChange: (provider, id) => calls.push(["change", provider, id]),
+      onReselect: live ? (provider, id) => calls.push(["reselect", provider, id]) : undefined,
+    });
+    choose(option);
+    assert.deepEqual(calls, [["open", false], ["filter", ""], ...(expected ? [[expected, option.provider, option.modelId]] : [])]);
+  }
+  assert.match(readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), /onReselect=\{onModelChange\}/);
+});
+
 test("filters model options by name and id", () => {
   const options = [
     { provider: "ollama", modelId: "qwen3:latest", name: "Qwen 3" },
