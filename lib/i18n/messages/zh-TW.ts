@@ -1335,7 +1335,7 @@ export const zhTWLocale: LocalePlugin = {
     "models.contextForModel": "{model} 的上下文視窗",
     "models.contextInvalid": "{model} 的上下文視窗：請輸入正整數 Token 數量。",
     "models.contextOverrideHelp": "上下文視窗（Token），留空使用預設值。",
-    "models.applyHelp": "儲存後，請在閒置的工作階段中重新選擇模型或執行 /reload 以套用變更。進行中的請求不受影響。",
+    "models.applyHelp": "已開啟的工作階段在重新選擇該模型後套用儲存的變更。",
     "models.maxOutputTokens": "最大輸出 Token 數",
     "models.costPerMillion": "每百萬 Token 費用",
     "models.costInput": "輸入",

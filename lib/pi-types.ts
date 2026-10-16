@@ -7,7 +7,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage as PiAgentMessage } from "@earendil-works/pi-agent-core";
-import type { ImageContent, ModelsRefreshOptions, ModelsRefreshResult, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 
 export interface ContextUsage {
   percent: number | null;
@@ -137,8 +137,7 @@ export interface AgentSessionLike {
   readonly model: ModelLike | undefined;
   readonly modelRuntime: {
     getModel: (provider: string, modelId: string) => ModelLike | undefined;
-    getError: () => string | undefined;
-    refresh: (options?: ModelsRefreshOptions) => Promise<ModelsRefreshResult | void>;
+    refresh: (options?: { allowNetwork?: boolean; providers?: string[]; signal?: AbortSignal }) => Promise<unknown>;
   };
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;

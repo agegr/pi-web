@@ -1335,7 +1335,7 @@ export const zhCNLocale: LocalePlugin = {
     "models.contextForModel": "{model} 的上下文窗口",
     "models.contextInvalid": "{model} 的上下文窗口：请输入正整数 tokens 数量。",
     "models.contextOverrideHelp": "上下文窗口（tokens），留空使用默认值。",
-    "models.applyHelp": "保存后，请在空闲会话中重新选择模型或执行 /reload 以应用更改。进行中的请求不受影响。",
+    "models.applyHelp": "已打开的会话在重新选择该模型后应用保存的更改。",
     "models.maxOutputTokens": "最大输出 tokens",
     "models.costPerMillion": "每百万 tokens 价格",
     "models.costInput": "输入",

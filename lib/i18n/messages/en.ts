@@ -1335,7 +1335,7 @@ export const enLocale: LocalePlugin = {
     "models.contextForModel": "Context window for {model}",
     "models.contextInvalid": "Context window of {model}: enter a positive whole number of tokens.",
     "models.contextOverrideHelp": "Context window in tokens; blank uses the default.",
-    "models.applyHelp": "After saving, reselect the model or run /reload in an idle session to apply changes. Active requests are unchanged.",
+    "models.applyHelp": "Open sessions apply saved changes to a model when you select it again.",
     "models.maxOutputTokens": "Max output tokens",
     "models.costPerMillion": "Cost per million tokens",
     "models.costInput": "Input",
