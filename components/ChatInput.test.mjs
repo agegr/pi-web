@@ -471,17 +471,20 @@ test("shows and locks the optimistic model while a switch is pending", () => {
   assert.match(html, /animation:spin 0\.8s linear infinite/);
 });
 
-test("filters model options by name and id", () => {
+test("filters model options by name, id, provider and provider/id", () => {
   const options = [
     { provider: "ollama", modelId: "qwen3:latest", name: "Qwen 3" },
     { provider: "anthropic", modelId: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
     { provider: "openai", modelId: "gpt-5.4", name: "GPT-5.4" },
+    { provider: "relay-a", modelId: "gpt-5.4", name: "GPT-5.4" },
   ];
 
   assert.deepEqual(filterModelOptions(options, "QWEN"), [options[0]]);
   assert.deepEqual(filterModelOptions(options, "claude-sonnet"), [options[1]]);
-  assert.equal(filterModelOptions(options, "OpenAI").length, 0);
-  assert.equal(filterModelOptions(options, "anthropic/claude").length, 0);
+  assert.deepEqual(filterModelOptions(options, "OpenAI"), [options[2]]);
+  assert.deepEqual(filterModelOptions(options, " anthropic/claude "), [options[1]]);
+  assert.deepEqual(filterModelOptions(options, "Relay-A/GPT"), [options[3]]);
+  assert.deepEqual(filterModelOptions(options, "gpt-5.4"), [options[2], options[3]]);
   assert.equal(filterModelOptions(options, "missing").length, 0);
   assert.equal(filterModelOptions(options, "  "), options);
 });

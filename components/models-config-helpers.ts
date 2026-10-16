@@ -168,3 +168,9 @@ export function renameProviderEntry<T extends ModelsConfigDraft>(
   entries[index] = [newName, entries[index][1]];
   return { ...config, providers: Object.fromEntries(entries) };
 }
+
+/** Add provider's search: a provider matches by its id or its shown name, case-insensitive. */
+export function providerMatchesSearch(search: string, id: string, label: string): boolean {
+  const query = search.trim().toLowerCase();
+  return !query || label.toLowerCase().includes(query) || id.toLowerCase().includes(query);
+}

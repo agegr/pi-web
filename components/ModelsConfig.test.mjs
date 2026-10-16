@@ -8,6 +8,7 @@ const {
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
+  providerMatchesSearch,
   renameProviderEntry,
   savedModelIds,
   serializeHeaderRows,
@@ -170,4 +171,12 @@ test("a provider added since the last save is renamed without a settings rewrite
   const renamed = renameProviderEntry(config, state, "new-provider", "house");
   assert.deepEqual(Object.keys(renamed.providers), ["house"]);
   assert.deepEqual([...state.renames], []);
+});
+
+test("Add provider's search matches a provider by id or name", () => {
+  const oauth = { id: "fixture-subscription-id", name: "Fixture Subscription" };
+  assert.equal(providerMatchesSearch("subscription", oauth.id, oauth.name), true);
+  assert.equal(providerMatchesSearch(" FIXTURE-SUBSCRIPTION-ID ", oauth.id, oauth.name), true);
+  assert.equal(providerMatchesSearch("missing", oauth.id, oauth.name), false);
+  assert.equal(providerMatchesSearch("  ", oauth.id, oauth.name), true);
 });
