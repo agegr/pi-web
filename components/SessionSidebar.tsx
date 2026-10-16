@@ -59,6 +59,7 @@ import {
   mergeProjectChoices,
   newSessionContextKey,
   newSessionTargetForProject,
+  projectForCwd,
   withProjectAlias,
   type NewSessionContext,
   type NewSessionOptions,
@@ -1022,34 +1023,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const restoredRef = useRef(false);
 
-  const projectSelection = useCallback((root: string, key: string): ProjectSelection => ({
-    root,
-    key,
-  }), []);
-
   /** Resolve both display root and stable identity from server-provided data. */
-  const projectFor = useCallback((cwd: string | null): ProjectSelection | null => {
-    if (!cwd) return null;
-    // /api/cwd/validate resolves identity before a custom path becomes active,
-    // preventing one render with a raw path key from looking like a switch.
-    if (validatedProject?.cwd === cwd) {
-      return projectSelection(validatedProject.root, validatedProject.key);
-    }
-    if (worktreeState && worktreeState.forCwd === cwd) {
-      return projectSelection(worktreeState.projectRoot, worktreeState.projectKey);
-    }
-    // Any path in the loaded worktree list belongs to that project — covers
-    // worktrees without sessions, so switching to them keeps the row mounted.
-    if (worktreeState?.worktrees.some((w) => w.path === cwd)) {
-      return projectSelection(worktreeState.projectRoot, worktreeState.projectKey);
-    }
-    const match = allSessions.find((session) => (
-      session.cwd === cwd || (session.projectRoot ?? session.cwd) === cwd
-    ));
-    return match
-      ? projectSelection(match.projectRoot ?? match.cwd, workspaceKeyOf(match))
-      : projectSelection(cwd, cwd);
-  }, [validatedProject, worktreeState, allSessions, projectSelection]);
+  const projectFor = useCallback((cwd: string | null): ProjectSelection | null => (
+    cwd ? projectForCwd(cwd, { validated: validatedProject, listing: worktreeState, sessions: allSessions }) : null
+  ), [validatedProject, worktreeState, allSessions]);
 
   // The project of the sidebar's cwd: the files tab shows it, and its group in
   // the sessions tab exists even before it has a session.
