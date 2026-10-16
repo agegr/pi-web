@@ -101,3 +101,28 @@ test("a hand-edited override pi accepts does not block saving an unrelated provi
   assert.equal(response.status, 200);
   assert.deepEqual(await (await GET()).json(), edited);
 });
+
+test("model-level endpoints round-trip through Save, override only that model, and can return to inheritance", async () => {
+  const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+  const config = { providers: { relay: {
+    baseUrl: "https://synthetic.invalid", api: "anthropic-messages", apiKey: "synthetic-not-a-key",
+    models: [
+      { id: "one", api: "openai-responses", baseUrl: "https://synthetic.invalid/v1", headers: { "x-example": "keep" } },
+      { id: "two" },
+    ],
+  } } };
+  const options = { authPath: join(testAgentDir, "auth.json"), modelsPath, modelsStorePath: join(testAgentDir, "models-store.json"), refreshOnCreate: false };
+  assert.equal((await PUT(put(config))).status, 200);
+  assert.deepEqual(await (await GET()).json(), config);
+  const runtime = await ModelRuntime.create(options);
+  assert.equal(runtime.getError(), undefined);
+  assert.equal(runtime.getModel("relay", "one").baseUrl, "https://synthetic.invalid/v1");
+  assert.equal(runtime.getModel("relay", "two").baseUrl, "https://synthetic.invalid");
+  assert.equal(runtime.getModel("relay", "two").api, "anthropic-messages");
+  delete config.providers.relay.models[0].baseUrl;
+  assert.equal((await PUT(put(config))).status, 200);
+  assert.deepEqual(await (await GET()).json(), config);
+  const reset = await ModelRuntime.create(options);
+  assert.equal(reset.getModel("relay", "one").baseUrl, "https://synthetic.invalid");
+  assert.equal(reset.getModel("relay", "one").api, "openai-responses");
+});

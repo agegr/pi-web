@@ -1351,6 +1351,8 @@ export const zhCNLocale: LocalePlugin = {
     "models.compatSummary": "兼容性：{count}",
     "models.thinkingSummary": "思考等级：{count}",
     "models.apiOverride": "API 覆盖",
+    "models.baseUrlOverride": "Base URL 覆盖",
+    "models.baseUrlHelp": "仅该模型使用此地址；留空则继承 Provider 地址。仅在 Provider 要求时填写 /v1，不会自动补充路径。",
     "models.headers": "Headers",
     "models.headersHelp": "仅添加到该模型的请求中，并覆盖 Provider 的同名 Header。",
     "models.compatibility": "兼容性",
