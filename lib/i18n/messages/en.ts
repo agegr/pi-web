@@ -1352,7 +1352,7 @@ export const enLocale: LocalePlugin = {
     "models.thinkingSummary": "Thinking levels: {count}",
     "models.apiOverride": "API override",
     "models.baseUrlOverride": "Base URL override",
-    "models.baseUrlHelp": "Only this model uses this URL. Leave blank to inherit the provider endpoint. Include /v1 only if your provider requires it; Pi Web does not add /v1 automatically.",
+    "models.baseUrlHelp": "Only this model uses this URL. Leave blank to use the provider's.",
     "models.headers": "Headers",
     "models.headersHelp": "Added to this model's requests and overrides provider headers.",
     "models.compatibility": "Compatibility",
