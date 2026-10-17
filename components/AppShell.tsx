@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } fr
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
+import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuSelectEvent, type SidebarMenuItem } from "./SidebarMenu";
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
@@ -28,6 +29,8 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
+import { preferenceWithLevel, preferenceWithModel, titleMenuEntries, type TitleMenuModel } from "@/lib/title-menu";
+import type { TitleModelPreference } from "@/lib/title-model-preference";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
@@ -88,6 +91,19 @@ const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const TOOL_END_REFRESH_MS = 1000;
+// How long a press on the Generate title button (a phone's right-click) waits
+// before its model menu opens.
+const TITLE_MENU_LONG_PRESS_MS = 500;
+// A level's name, as the composer's own model control shows it.
+const TITLE_THINKING_LEVEL_KEYS: Record<string, string> = {
+  off: "chat.thinkingOff",
+  minimal: "chat.thinkingMinimal",
+  low: "chat.thinkingLow",
+  medium: "chat.thinkingMedium",
+  high: "chat.thinkingHigh",
+  xhigh: "chat.thinkingXhigh",
+  max: "chat.thinkingMax",
+};
 
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
@@ -355,6 +371,15 @@ export function AppShell() {
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The Generate title button's model menu: the instance's title model, the list
+  // to pick one from, and where the menu hangs (see lib/title-model-preference.ts).
+  const [titleMenu, setTitleMenu] = useState<{ anchor: SidebarMenuAnchor; opener: HTMLElement | null } | null>(null);
+  const [titleModel, setTitleModel] = useState<TitleModelPreference | null>(null);
+  const [titleMenuModels, setTitleMenuModels] = useState<TitleMenuModel[] | null>(null);
+  const [titleMenuError, setTitleMenuError] = useState<string | null>(null);
+  // The press that opens that menu on a phone: `fired` tells the click that
+  // follows the release that the menu, not the button, was asked for.
+  const titlePressRef = useRef<{ timer: ReturnType<typeof setTimeout>; fired: boolean } | null>(null);
   const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
   activeSessionIdRef.current = selectedSession?.id ?? null;
   const handleSessionStatsChange = useCallback((stats: SessionStatsInfo | null) => {
@@ -1097,6 +1122,116 @@ export function AppShell() {
     setAutoNameStatus({ kind: "idle" });
   }, [selectedSession?.id]);
 
+  /** Stores the instance's title model; false when the write failed, already reported. */
+  const saveTitleModel = useCallback(async (next: TitleModelPreference | null): Promise<boolean> => {
+    setTitleModel(next);
+    try {
+      const response = await fetch("/api/title-model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ titleModel: next }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return true;
+    } catch (error) {
+      // The button's own status line is where this feature reports failure.
+      if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
+      setAutoNameStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
+      return false;
+    }
+  }, []);
+
+  /** A model row: store the choice, then name the session with it. */
+  const applyTitleModel = useCallback(async (next: TitleModelPreference | null) => {
+    if (await saveTitleModel(next)) void handleAutoName();
+  }, [handleAutoName, saveTitleModel]);
+
+  const openTitleMenu = useCallback((anchor: SidebarMenuAnchor, opener: HTMLElement | null) => {
+    setTitleMenu({ anchor, opener });
+    setTitleMenuModels(null);
+    setTitleMenuError(null);
+    // Read both on every open: another browser may have changed the choice since
+    // the last menu, and a model enabled since then belongs in the list.
+    const cwd = selectedSession?.cwd;
+    if (!cwd) return;
+    void (async () => {
+      try {
+        const [preferenceResponse, modelsResponse] = await Promise.all([
+          fetch("/api/title-model"),
+          fetch(`/api/models?cwd=${encodeURIComponent(cwd)}`),
+        ]);
+        if (!preferenceResponse.ok) throw new Error(`HTTP ${preferenceResponse.status}`);
+        if (!modelsResponse.ok) throw new Error(`HTTP ${modelsResponse.status}`);
+        const preference = await preferenceResponse.json() as { titleModel?: TitleModelPreference | null };
+        const models = await modelsResponse.json() as {
+          modelList?: { id: string; name: string; provider: string }[];
+          thinkingLevels?: Record<string, string[]>;
+        };
+        setTitleModel(preference.titleModel ?? null);
+        setTitleMenuModels((models.modelList ?? []).map((model) => ({
+          provider: model.provider,
+          modelId: model.id,
+          name: model.name,
+          levels: models.thinkingLevels?.[`${model.provider}:${model.id}`] ?? [],
+        })));
+      } catch (error) {
+        // The list stays unread (null): the menu says so rather than showing none.
+        setTitleMenuError(error instanceof Error ? error.message : String(error));
+      }
+    })();
+  }, [selectedSession?.cwd]);
+
+  const endTitlePress = useCallback(() => {
+    if (titlePressRef.current) clearTimeout(titlePressRef.current.timer);
+  }, []);
+
+  const titleMenuItems = useMemo<SidebarMenuItem[]>(() => {
+    const naming = autoNameStatus.kind === "naming";
+    return titleMenuEntries({ preference: titleModel, models: titleMenuModels, failed: titleMenuError !== null })
+      .map((entry): SidebarMenuItem => {
+        if (entry.kind === "separator") return { type: "separator", id: "title-menu-separator" };
+        if (entry.kind === "header") {
+          const labels = { model: "title.modelMenu", level: "title.thinkingLevel", unavailable: "title.modelsUnavailable" };
+          return { type: "header", id: `title-menu-${entry.id}`, label: translate(labels[entry.id]) };
+        }
+        if (entry.kind === "session-model") {
+          return {
+            type: "item",
+            id: "title-model-session",
+            label: translate("title.followSessionModel"),
+            checked: entry.checked,
+            disabled: naming,
+            onSelect: () => void applyTitleModel(preferenceWithModel(titleModel, null)),
+          };
+        }
+        if (entry.kind === "model") {
+          return {
+            type: "item",
+            id: `title-model:${entry.provider}:${entry.modelId}`,
+            label: entry.name,
+            note: entry.provider,
+            title: `${entry.provider}/${entry.modelId}`,
+            checked: entry.checked,
+            disabled: naming,
+            onSelect: () => void applyTitleModel(preferenceWithModel(titleModel, entry)),
+          };
+        }
+        // A level is stored without naming the session: the menu stays open, so a
+        // model and its level are picked in one visit and the model row generates.
+        return {
+          type: "item",
+          id: `title-thinking:${entry.level ?? "auto"}`,
+          label: entry.level ? translate(TITLE_THINKING_LEVEL_KEYS[entry.level] ?? entry.level) : translate("title.thinkingAuto"),
+          checked: entry.checked,
+          onSelect: (event: SidebarMenuSelectEvent) => {
+            event.keepOpen();
+            void saveTitleModel(preferenceWithLevel(titleModel, entry.level));
+          },
+        };
+      });
+  }, [applyTitleModel, autoNameStatus.kind, saveTitleModel, titleMenuError, titleMenuModels, titleModel, translate]);
+
   const handleExplorerRefresh = useCallback(() => {
     setExplorerRefreshKey((k) => k + 1);
   }, []);
@@ -1648,9 +1783,40 @@ export function AppShell() {
             <button
               type="button"
               onClick={() => {
+                const pressed = titlePressRef.current;
+                titlePressRef.current = null;
+                // A held press opened the model menu; it is not a click.
+                if (pressed?.fired) return;
                 void handleAutoName();
                 if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
               }}
+              onContextMenu={(event) => {
+                if (disabled) return;
+                event.preventDefault();
+                openTitleMenu({ kind: "point", x: event.clientX, y: event.clientY }, event.currentTarget);
+              }}
+              onPointerDown={(event) => {
+                // A phone has no right-click: press and hold opens the same menu.
+                // A press that turns into a scroll is ended by pointercancel.
+                if (disabled || event.pointerType === "mouse") return;
+                endTitlePress();
+                const opener = event.currentTarget;
+                const press = {
+                  fired: false,
+                  timer: setTimeout(() => {
+                    press.fired = true;
+                    const rect = opener.getBoundingClientRect();
+                    openTitleMenu({
+                      kind: "rect",
+                      rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+                      align: "start",
+                    }, opener);
+                  }, TITLE_MENU_LONG_PRESS_MS),
+                };
+                titlePressRef.current = press;
+              }}
+              onPointerUp={endTitlePress}
+              onPointerCancel={endTitlePress}
               disabled={disabled}
               title={title}
               aria-label={label}
@@ -2820,6 +2986,20 @@ export function AppShell() {
         onStatus={setProjectTrust}
       />
     )}
+    {/* The Generate title button's choice of model: a right-click, or a long press on a phone. */}
+    <SidebarMenu
+      open={titleMenu !== null}
+      anchor={titleMenu?.anchor ?? null}
+      sheet={isMobile}
+      ariaLabel={translate("title.modelMenu")}
+      title={translate("title.modelMenu")}
+      items={titleMenuItems}
+      filter={{ placeholder: translate("title.modelsFilter"), emptyLabel: translate("title.noMatchingModels") }}
+      cancelLabel={translate("sidebar.cancel")}
+      onClose={() => setTitleMenu(null)}
+      returnFocusTo={titleMenu?.opener ?? null}
+      width={280}
+    />
     </>
   );
 }
