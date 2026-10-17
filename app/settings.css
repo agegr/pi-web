@@ -2616,3 +2616,39 @@ select.mcp-add-input {
     }
   }
 }
+
+/* Shortcuts are read-only here: they live in pi's keybindings.json, so the
+   row shows what is bound rather than offering an editor Pi Web cannot save. */
+.settings-shortcut-keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-shortcut-key {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.settings-shortcut-unbound {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.settings-shortcut-path {
+  overflow-wrap: anywhere;
+}
+
+.settings-shortcut-path code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

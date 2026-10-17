@@ -65,6 +65,9 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["mobile Alt+Enter keeps native behavior", { altKey: true }, { isMobile: true }, "native"],
     ["mobile composition grace cannot send", { altKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "native"],
     ["mobile Ctrl+Alt+Enter follows up", { altKey: true, ctrlKey: true }, { isMobile: true }, "followup"],
+    ["mobile Ctrl+Enter alone still steers", { ctrlKey: true }, { isMobile: true }, "steer"],
+    ["desktop Ctrl+Enter steers unless keybindings.json says otherwise", { ctrlKey: true }, {}, "steer"],
+    ["desktop Ctrl+Enter follows up when the file binds it", { ctrlKey: true }, { followUpKeysId: "alt+enter\u0000ctrl+enter" }, "followup"],
     ["mobile Cmd+Alt+Enter follows up", { altKey: true, metaKey: true }, { isMobile: true }, "followup"],
     ["mobile modified Enter respects composition grace", { altKey: true, ctrlKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "prevented"],
     ["Enter falls back to follow-up", {}, { onSteer: undefined }, "followup"],
@@ -96,6 +99,14 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
       slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [{}], slashActiveIndex: 0,
       atMenuOpen: false, atQuery: null, atMatches: [{}], atActiveIndex: 0,
       onSteer() {}, onFollowUp() {},
+      // The handler asks the keybindings module whether the key is a follow-up.
+      followUpKeysId: "alt+enter",
+      matchesKeyId: (event, keys) => keys.includes(
+        [...(event.ctrlKey ? ["ctrl"] : []), ...(event.altKey ? ["alt"] : []),
+         ...(event.shiftKey ? ["shift"] : []), ...(event.metaKey ? ["super"] : []),
+         event.key.toLowerCase()].join("+"),
+      ),
+      keysFromSignature: (signature) => signature.split("\u0000"),
       sendQueued(mode) { action = mode; }, handleSend() { action = "send"; },
       applySlashCommand() { action = "slash"; },
       submitsSlashCommandOnEnter, value: "", setSlashMenuOpen() {},
@@ -272,7 +283,9 @@ test("shows the follow-up shortcut in the button tooltip", () => {
     })),
   );
 
-  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
+  // The follow-up key is pi's app.message.followUp (Alt+Enter by default);
+  // its hint names that key rather than a hard-coded one.
+  assert.match(html, /title="Queue this message after the agent finishes \((Alt|Option)\+Enter\)"/);
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
 });
 

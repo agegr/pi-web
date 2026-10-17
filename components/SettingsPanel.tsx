@@ -14,7 +14,11 @@ import {
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
+import { useKeybindings, WEB_KEYBINDINGS, type WebKeybinding } from "@/hooks/useKeybindings";
+import { bindingKeysFor } from "@/lib/keybindings-config";
+import { formatKeyId } from "@/lib/key-id";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { platformKeyNames } from "./ChatInput";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -74,12 +78,23 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
 }
 
+/**
+ * The bindings Pi Web acts on, in the order Settings lists them. Every one is
+ * pi's own keybinding id, read from the user's `keybindings.json`; Pi Web adds
+ * no shortcuts of its own.
+ */
+const SHORTCUT_ROWS: { binding: WebKeybinding; label: string }[] = [
+  { binding: WEB_KEYBINDINGS.newSession, label: "settings.shortcutNewSession" },
+  { binding: WEB_KEYBINDINGS.followUp, label: "settings.shortcutFollowUp" },
+];
+
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const filesPlacement = useFilesPlacement();
+  const keybindings = useKeybindings();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -418,6 +433,28 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
           </div>
         </div>
         <p id="settings-files-placement-description" className="settings-general-description">{t("settings.filesPlacementDescription")}</p>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.shortcuts")}</h3>
+        <p className="settings-general-description">{t("settings.shortcutsDescription")}</p>
+        <div className="settings-chat-options">
+          {SHORTCUT_ROWS.map(({ binding, label }) => (
+            <div key={binding} className="settings-chat-option settings-chat-switch-option">
+              <span>{t(label)}</span>
+              <span className="settings-shortcut-keys">
+                {bindingKeysFor(keybindings.config, binding).length
+                  ? bindingKeysFor(keybindings.config, binding).map((key) => (
+                    <kbd key={key} className="settings-shortcut-key">{formatKeyId(key, platformKeyNames())}</kbd>
+                  ))
+                  : <span className="settings-shortcut-unbound">{t("settings.shortcutsUnbound")}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="settings-general-description settings-shortcut-path">
+          <code>~/.pi/agent/keybindings.json</code>
+        </p>
       </section>
 
       {shellSettings?.isWindows && (
