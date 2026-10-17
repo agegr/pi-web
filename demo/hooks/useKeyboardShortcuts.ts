@@ -1,20 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import { matchesKeyId } from "@/lib/key-id";
+import { bindingKeysFor, keybindingsSignature, keysFromSignature } from "@/lib/keybindings-config";
+import { loadKeybindings, useKeybindings, WEB_KEYBINDINGS } from "./useKeybindings";
+import { handleGlobalEscape, registerAbortHandler } from "@/lib/global-escape";
 
-// ---------------------------------------------------------------------------
-// Module-level registry — ChatWindow registers the abort handler here so that
-// the global Esc listener in AppShell can call it without prop-drilling.
-// ---------------------------------------------------------------------------
-let globalAbortHandler: (() => void) | null = null;
-
-/**
- * Register (or clear) the abort handler for the global Esc shortcut.
- * Call this from ChatWindow whenever agentRunning or handleAbort changes.
- */
-export function registerAbortHandler(handler: (() => void) | null): void {
-  globalAbortHandler = handler;
-}
+export { handleGlobalEscape, registerAbortHandler };
 
 // ---------------------------------------------------------------------------
 // Hook: global keyboard shortcuts
@@ -43,24 +35,19 @@ export function useGlobalKeyboardShortcuts(
   options: UseGlobalKeyboardShortcutsOptions,
 ): void {
   const { onNewSession, activeCwd } = options;
+  // AppShell mounts this once per page, so it is where the file is read.
+  useEffect(() => { void loadKeybindings(); }, []);
+  const keybindings = useKeybindings();
+  const newSessionKeys = bindingKeysFor(keybindings.config, WEB_KEYBINDINGS.newSession);
+  const newSessionKeysId = keybindingsSignature(newSessionKeys);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      // ---- Esc: stop agent ----
       if (e.key === "Escape") {
-        if (!globalAbortHandler) return;
-
-        const tag = (e.target as HTMLElement)?.tagName;
-        // Let textarea/input handle Esc internally (ChatInput menus / stop).
-        if (tag === "TEXTAREA" || tag === "INPUT") return;
-
-        e.preventDefault();
-        globalAbortHandler();
+        handleGlobalEscape(e);
         return;
       }
-
-      // ---- Ctrl+Alt+N: new session ----
-      if (e.key === "n" && e.ctrlKey && e.altKey) {
+      if (matchesKeyId(e, keysFromSignature(newSessionKeysId))) {
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
@@ -69,5 +56,5 @@ export function useGlobalKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeCwd, onNewSession]);
+  }, [activeCwd, newSessionKeysId, onNewSession]);
 }

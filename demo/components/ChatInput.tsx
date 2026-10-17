@@ -25,6 +25,9 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useKeybindings, WEB_KEYBINDINGS } from "@/hooks/useKeybindings";
+import { bindingKeysFor, keybindingsSignature, keysFromSignature } from "@/lib/keybindings-config";
+import { matchesKeyId, formatKeyId, normalizeKeyId, parseKeyId } from "@/lib/key-id";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import type { ToolPreset } from "@/lib/tool-presets";
@@ -243,6 +246,63 @@ export function canRunBuiltinSlashCommandWhileStreaming(message: string): boolea
 
 export function isExactSlashCommand(message: string, command: SlashCommandPaletteItem): boolean {
   return command.source === "builtin" && message.trim() === `/${command.name}`;
+}
+
+/** Apple keyboards name the modifiers their own way in hints. */
+export function platformKeyNames(): "apple" | "other" {
+  if (typeof navigator === "undefined") return "other";
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent) ? "apple" : "other";
+}
+
+/**
+ * `aria-keyshortcuts` for a binding: the ARIA spelling of each key id, e.g.
+ * `Alt+Enter`. Key ids without a modifier that ARIA names (`pageUp`) are left
+ * out rather than announced wrongly.
+ */
+export function ariaKeyShortcuts(keys: string[]): string | undefined {
+  const names: Record<string, string> = {
+    ctrl: "Control", alt: "Alt", shift: "Shift", super: "Meta",
+  };
+  const spelled = keys.flatMap((key) => {
+    const parsed = parseKeyId(normalizeKeyId(key));
+    if (!parsed) return [];
+    const base = parsed.base.length === 1 ? parsed.base.toUpperCase() : parsed.base[0].toUpperCase() + parsed.base.slice(1);
+    return [[...parsed.modifiers.map((modifier) => names[modifier]), base].join("+")];
+  });
+  return spelled.length ? spelled.join(" ") : undefined;
+}
+
+/**
+ * The follow-up button's tooltip: pi's own hint plus the keys that queue one.
+ * A phone sends with Ctrl/Cmd+Enter, so its queue key is that plus Alt.
+ */
+export function followUpHint(
+  keys: string[],
+  isMobile: boolean,
+  t: (key: string) => string,
+): string {
+  const platform = platformKeyNames();
+  const spelled = isMobile
+    ? [`Ctrl/Cmd+${platform === "apple" ? "Option" : "Alt"}+Enter`]
+    : keys.map((key) => formatKeyId(key, platform));
+  return spelled.length ? `${t("chat.followUpHint")} (${spelled.join(", ")})` : t("chat.followUpHint");
+}
+
+/** The follow-up button's `aria-keyshortcuts`, matching what the hint names. */
+export function followUpAriaKeys(keys: string[], isMobile: boolean): string | undefined {
+  return isMobile ? "Control+Alt+Enter Meta+Alt+Enter" : ariaKeyShortcuts(keys);
+}
+
+export const RUN_END_CLICK_GUARD_MS = 600;
+
+/**
+ * When a run ends, Compact (and the tools button) take the place Stop held in
+ * the controls row, so the second click of a double click on Stop, or a click
+ * aimed at Stop just as the run ends, lands on them. Such a pointer click is
+ * ignored; a keyboard one (Enter/Space, `detail` 0) never is.
+ */
+export function isRunEndStrayClick(detail: number, msSinceRunEnd: number): boolean {
+  return detail > 0 && msSinceRunEnd < RUN_END_CLICK_GUARD_MS;
 }
 
 export function canClearBuiltinCommandInput(message: string, imageCount: number, submittedMessage: string): boolean {
@@ -564,6 +624,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
   const isMobile = useIsMobile();
+  // The follow-up key is pi's `app.message.followUp` from keybindings.json
+  // (Alt+Enter by default), read here so the composer's hint and its handler
+  // always agree.
+  const keybindings = useKeybindings();
+  const followUpKeys = bindingKeysFor(keybindings.config, WEB_KEYBINDINGS.followUp);
+  const followUpKeysId = keybindingsSignature(followUpKeys);
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
@@ -1372,13 +1438,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (sendShortcut) {
         e.preventDefault();
         if (isStreaming && (onSteer || onFollowUp)) {
-          sendQueued((e.altKey && onFollowUp) || !onSteer ? "followup" : "steer");
+          // A follow-up is whatever `app.message.followUp` names in pi's
+          // keybindings.json (Alt+Enter by default); Enter steers. Reading the
+          // same file as the CLI keeps one set of shortcuts, and a user can add
+          // `ctrl+enter` there for the main key area. A phone has no Alt of its
+          // own to press with the send key, so there the send shortcut plus Alt
+          // keeps working.
+          const queueFollowUp = Boolean(onFollowUp) && (
+            matchesKeyId(e, keysFromSignature(followUpKeysId))
+            || (isMobile && e.altKey && (e.ctrlKey || e.metaKey))
+          );
+          sendQueued(queueFollowUp || !onSteer ? "followup" : "steer");
         } else {
           handleSend();
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, followUpKeysId]
   );
 
   const handleInput = useCallback(() => {
@@ -2206,8 +2282,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
-                  title={`${t("chat.followUpHint")} (${isMobile ? "Ctrl/Cmd+" : ""}Alt/Option+Enter)`}
-                  aria-keyshortcuts={isMobile ? "Control+Alt+Enter Meta+Alt+Enter" : "Alt+Enter"}
+                  title={followUpHint(followUpKeys, isMobile, t)}
+                  aria-keyshortcuts={followUpAriaKeys(followUpKeys, isMobile)}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",

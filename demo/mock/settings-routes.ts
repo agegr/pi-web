@@ -299,6 +299,10 @@ export async function settingsRoutes(request: MockRequest): Promise<Response> {
       if (request.method === "PUT") return error("PowerShell tool settings are only available on Windows", 404);
       return json({ isWindows: false, powerShellEnabled: settings.powerShellEnabled });
     }
+    case "keybindings":
+      // The demo has no pi agent directory; the defaults are what a fresh
+      // install shows. Visitors can still open Settings to see the bindings.
+      return json({ bindings: {} });
     case "web-auth":
       return request.method === "GET" ? json({ enabled: false, authenticated: true }) : json({ ok: true });
     default:
