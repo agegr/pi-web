@@ -347,6 +347,18 @@ export function canClearBuiltinCommandInput(message: string, imageCount: number,
   return imageCount === 0 && message.trim() === submittedMessage;
 }
 
+/**
+ * Whether the composer box stacks its draft above its buttons instead of sitting
+ * them side by side. A phone has no room for the steer and follow-up buttons next
+ * to the draft: in one row the two of them take more than half the width and the
+ * placeholder is cut to "立即引导 / 排队后...". So while a run streams they move to
+ * their own right-aligned row below the draft. Quote mode (`compact`) stacks for
+ * its own reason: it is a short excerpt, not a full composer.
+ */
+export function stacksComposerLayout(compact: boolean, isMobile: boolean, isStreaming: boolean): boolean {
+  return compact || (isMobile && isStreaming);
+}
+
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
 
 const SLASH_SOURCE_GROUP_LABEL_KEYS: Record<SlashCommandSource, string> = {
@@ -1107,6 +1119,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const stackedComposer = stacksComposerLayout(compact, isMobile, isStreaming);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
@@ -2242,9 +2255,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             style={{
               minWidth: 0,
               display: "flex",
-              flexDirection: compact ? "column" : "row",
+              flexDirection: stackedComposer ? "column" : "row",
               gap: 8,
-              alignItems: compact ? "stretch" : "center",
+              alignItems: stackedComposer ? "stretch" : "center",
               background: "var(--bg)",
               border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
@@ -2290,7 +2303,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }
             rows={1}
             style={{
-              flex: compact ? "none" : 1,
+              flex: stackedComposer ? "none" : 1,
               minWidth: 0,
               width: "100%",
               background: "none",

@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
@@ -38,6 +38,19 @@ test("preserves pasted HTML links as Markdown without changing plain text layout
     "Engineer and [Engineer](https://example.com/job)",
   );
   assert.equal(replaceLinksWithMarkdown("plain text", [link("missing", "https://example.com")]), null);
+});
+
+test("a phone stacks the streaming buttons under the draft instead of beside it", () => {
+  // Two buttons in the draft's row leave the placeholder about 150px on a 360px
+  // phone. Only a streaming run has those buttons; idle keeps the icon-only send
+  // button in the row, and a desktop has width for the row either way.
+  assert.equal(stacksComposerLayout(false, false, false), false);
+  assert.equal(stacksComposerLayout(false, false, true), false);
+  assert.equal(stacksComposerLayout(false, true, false), false);
+  assert.equal(stacksComposerLayout(false, true, true), true);
+  // Quote mode always stacks: it is a short excerpt, whichever platform shows it.
+  assert.equal(stacksComposerLayout(true, false, false), true);
+  assert.equal(stacksComposerLayout(true, true, false), true);
 });
 
 test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
