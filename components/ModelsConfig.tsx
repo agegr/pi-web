@@ -1032,8 +1032,8 @@ function ModelDetail({
   }
   compatibilityOverrideCount += remainingCompatKeys.size;
   const advancedSummaryParts = [
-    model.api ? `API: ${model.api}` : null,
     model.baseUrl ? t("models.baseUrlOverride") : null,
+    model.api ? `API: ${model.api}` : null,
     Object.keys(model.headers ?? {}).length
       ? t("models.headersSummary", { count: Object.keys(model.headers ?? {}).length })
       : null,
@@ -1257,16 +1257,16 @@ function ModelDetail({
 
         {advancedOpen && (
           <div id="model-advanced-settings" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0 16px" }}>
-            <Field label={t("models.apiOverride")}>
-              <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
-            </Field>
-
             <Field label={t("models.baseUrlOverride")}>
               <TextInput value={model.baseUrl ?? ""} onChange={(v) => set("baseUrl", v.trim() || undefined)}
                 placeholder={provider.baseUrl ?? t("models.providerDefaults")} mono />
               <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
                 {t("models.baseUrlHelp")}
               </span>
+            </Field>
+
+            <Field label={t("models.apiOverride")}>
+              <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
             </Field>
 
             <Field label={t("models.headers")}>
