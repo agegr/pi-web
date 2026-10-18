@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -133,16 +133,30 @@ test("keeps the PowerShell switch Windows-only", { skip: isWindows }, async () =
   assert.equal((await response.json()).reason, "invalid-request");
 });
 
-test("reports a settings file it cannot parse instead of overwriting it", async () => {
+test("preserves a settings file it cannot parse as a timestamped backup instead of overwriting it", async () => {
   await writeFile(settingsPath, "{ not json");
   const read = await GET();
   assert.equal(read.status, 500);
-  assert.equal((await read.json()).reason, "internal");
+  const readRefusal = await read.json();
+  assert.equal(readRefusal.reason, "internal");
+  // The panel shows the diagnostic of an internal failure, naming the backup.
+  assert.match(readRefusal.error, /Invalid settings\.json: .*preserved as .*settings\.json\.broken-/);
+
+  const backups = (await readdir(agentDir)).filter((name) => name.startsWith("settings.json.broken-"));
+  assert.equal(backups.length, 1);
+  assert.match(backups[0], /^settings\.json\.broken-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/);
+  assert.equal(await readFile(path.join(agentDir, backups[0]), "utf8"), "{ not json");
+  assert.deepEqual(await readdir(agentDir), backups);
+
+  // The bad file is out of the way, so the next read starts from an empty configuration.
+  assert.equal((await GET()).status, 200);
+
+  // A write against a corrupt file is refused the same way, and preserves it too.
+  await writeFile(settingsPath, "{ not json");
   const write = await put({ codemode: "always" });
   assert.equal(write.status, 500);
-  const refusal = await write.json();
-  // The panel shows the diagnostic of an internal failure.
-  assert.equal(refusal.reason, "internal");
-  assert.match(refusal.error, /JSON/);
-  assert.equal(await readFile(settingsPath, "utf8"), "{ not json");
+  const writeRefusal = await write.json();
+  assert.equal(writeRefusal.reason, "internal");
+  assert.match(writeRefusal.error, /preserved as/);
+  assert.equal((await readdir(agentDir)).filter((name) => name.startsWith("settings.json.broken-")).length, 2);
 });

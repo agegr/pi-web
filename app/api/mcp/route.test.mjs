@@ -212,12 +212,17 @@ test("Code mode reports the global preference and a self-test nobody has run yet
   await writeFile(settingsPath, "{ not json");
   const response = await get();
   assert.equal(response.status, 200, "an unreadable settings file does not fail the listing");
+  // The first read of the corrupt file moves it to a timestamped backup and reports
+  // that. The reads after it see no file, so they show pi's defaults.
   assert.equal(response.body.codemode.preference, undefined);
-  assert.match(response.body.codemode.preferenceError, /JSON/);
-  assert.equal(response.body.codemode.mode, undefined);
-  assert.match(response.body.codemode.modeError, /JSON/);
-  assert.equal(response.body.codemode.inlineBudget, undefined);
-  assert.match(response.body.codemode.inlineBudgetError, /JSON/);
+  assert.match(response.body.codemode.preferenceError, /preserved as .*settings\.json\.broken-/);
+  assert.deepEqual(response.body.codemode.mode, { settingsPath, value: "on" });
+  assert.equal(response.body.codemode.modeError, undefined);
+  assert.deepEqual(response.body.codemode.inlineBudget, { settingsPath, default: 3000, max: 1_000_000 });
+  assert.equal(response.body.codemode.inlineBudgetError, undefined);
+  const backups = (await readdir(agentDir)).filter((name) => name.startsWith("settings.json.broken-"));
+  assert.equal(backups.length, 1);
+  assert.equal(existsSync(settingsPath), false);
   assert.deepEqual(response.body.servers.map((server) => server.name), ["docs", "shared"]);
 });
 
