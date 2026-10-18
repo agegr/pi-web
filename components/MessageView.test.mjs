@@ -182,7 +182,7 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.equal(getTokenEstimateText(block), block.rawInput);
 });
 
-test("renders write tool content as readable file text", () => {
+test("renders a write as its arguments, not as a JSON blob", () => {
   const block = {
     type: "toolCall",
     toolCallId: "call-write-file",
@@ -199,31 +199,116 @@ test("renders write tool content as readable file text", () => {
       content: [block],
     });
 
+    // The path was the argument this card never showed.
     assert.ok(html.includes("src/example.ts"));
     assert.match(html, /first line\nsecond line\n/);
-    assert.doesNotMatch(html, /"content":/);
+    assert.ok(html.includes("<table"));
+    assert.doesNotMatch(textOf(html), /"content":/);
   } finally {
     clearExpandedToolCalls();
   }
 });
 
-test("keeps the input JSON for a write with another argument, an empty file or streamed input", () => {
+test("every flat argument gets a row, so an extra one cannot hide", () => {
   const cases = [
-    { id: "call-write-mode", input: { path: "notes.md", content: "text", mode: "append" } },
-    { id: "call-write-empty", input: { path: "empty.txt", content: "" } },
-    { id: "call-write-streaming", input: {}, rawInput: "{\"path\":\"a.ts\",\"content\":\"one\\ntwo" },
+    { id: "call-write-mode", input: { path: "notes.md", content: "text", mode: "append" }, expect: "append" },
+    { id: "call-write-empty", input: { path: "empty.txt", content: "" }, expect: "(empty)" },
   ];
-  for (const { id, input, rawInput } of cases) {
-    const block = { type: "toolCall", toolCallId: id, toolName: "write", input, ...(rawInput === undefined ? {} : { rawInput }) };
+  for (const { id, input, expect } of cases) {
+    const block = { type: "toolCall", toolCallId: id, toolName: "write", input };
     clearExpandedToolCalls();
     setToolCallExpanded(id, true);
     try {
       const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
-      assert.equal(textOf(html).includes(getToolCallInputText(block)), true, id);
+      assert.ok(textOf(html).includes(expect), id);
+      assert.doesNotMatch(textOf(html), /"path":/, id);
     } finally {
       clearExpandedToolCalls();
     }
   }
+});
+
+test("input that is still streaming keeps its raw text", () => {
+  const rawInput = "{\"path\":\"a.ts\",\"content\":\"one\\ntwo";
+  const block = { type: "toolCall", toolCallId: "call-write-streaming", toolName: "write", input: {}, rawInput };
+  clearExpandedToolCalls();
+  setToolCallExpanded(block.toolCallId, true);
+  try {
+    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+    assert.equal(textOf(html).includes(getToolCallInputText(block)), true);
+    assert.ok(!html.includes("<table"));
+  } finally {
+    clearExpandedToolCalls();
+  }
+});
+
+test("a nested argument keeps the JSON body: a row cannot hold a subtree", () => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-mcp-nested",
+    toolName: "mcp__issues__search",
+    input: { query: "open bugs", filter: { labels: ["bug"], assignee: "me" }, limit: 10 },
+  };
+  clearExpandedToolCalls();
+  setToolCallExpanded(block.toolCallId, true);
+  try {
+    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+    assert.ok(!html.includes("<table"));
+    assert.ok(textOf(html).includes('"filter"'));
+    assert.ok(textOf(html).includes('"labels"'));
+  } finally {
+    clearExpandedToolCalls();
+  }
+});
+
+test("an edit call shows no table: its arguments are a list of patches", () => {
+  const input = {
+    path: "src/app/page.tsx",
+    edits: [{ oldText: "const a = 1", newText: "const a = 2" }],
+  };
+  const block = { type: "toolCall", toolCallId: "call-edit-nested", toolName: "edit", input };
+  clearExpandedToolCalls();
+  setToolCallExpanded(block.toolCallId, true);
+  try {
+    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+    assert.ok(!html.includes("<table"));
+  } finally {
+    clearExpandedToolCalls();
+  }
+});
+
+test("a read, a subagent and a flat MCP call show one row per argument", (t) => {
+  const cases = [
+    { id: "call-read-rows", toolName: "read", input: { path: "lib/tool-fields.ts", offset: 120, limit: 80 }, expect: [">path</td>", "lib/tool-fields.ts", ">120</td>"] },
+    { id: "call-agent-rows", toolName: "Agent", input: { subagent_type: "Explore", prompt: "Find the parser" }, expect: [">subagent_type</td>", "Find the parser"] },
+    { id: "call-mcp-flat-rows", toolName: "mcp__issues__search", input: { query: "open bugs", limit: 10 }, expect: [">query</td>", "open bugs", ">10</td>"] },
+  ];
+  for (const { id, toolName, input, expect } of cases) {
+    const block = { type: "toolCall", toolCallId: id, toolName, input };
+    setToolCallExpanded(id, true);
+    t.after(() => setToolCallExpanded(id, false));
+    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+    assert.ok(html.includes("<table"), id);
+    for (const needle of expect) assert.ok(html.includes(needle), `${id}: ${needle}`);
+  }
+});
+
+test("a long or multi-line value stays inside the card", (t) => {
+  const content = Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n");
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-write-long",
+    toolName: "write",
+    input: { path: "a".repeat(200), content },
+  };
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
+  // A single-line value wraps in its cell; a value with lines of its own scrolls in a block.
+  assert.match(html, /overflow-wrap:anywhere/);
+  assert.match(html, /max-height:260px/);
+  assert.match(html, /overflow:auto/);
+  assert.ok(textOf(html).includes("line 39"));
 });
 
 test("renders subagents as standard tool calls with only an extra side-panel button", () => {
@@ -706,7 +791,7 @@ test("shows a running script's calls without an empty output", (t) => {
   assert.doesNotMatch(text, /No output/i);
 });
 
-test("keeps the generic view for a codemode call whose input is still streaming or has no script", (t) => {
+test("a codemode call with no script or streaming input falls back to a plain body", (t) => {
   const streaming = { ...codemodeCall("call-codemode-streaming", ""), input: {}, rawInput: "{\"code\":\"const secret" };
   setToolCallExpanded(streaming.toolCallId, true);
   t.after(() => setToolCallExpanded(streaming.toolCallId, false));
@@ -718,7 +803,12 @@ test("keeps the generic view for a codemode call whose input is still streaming 
   const other = { type: "toolCall", toolCallId: "call-codemode-other", toolName: "codemode", input: { script: "x" } };
   setToolCallExpanded(other.toolCallId, true);
   t.after(() => setToolCallExpanded(other.toolCallId, false));
-  assert.match(textOf(renderCodemode(other)), /"script": "x"/);
+  // An argument this view does not understand is still an argument: no script box,
+  // but the flat row shows it.
+  const otherHtml = renderCodemode(other);
+  assert.match(otherHtml, /<table/);
+  assert.match(otherHtml, />x<\/td>/);
+  assert.doesNotMatch(textOf(otherHtml), /"script": "x"/);
 });
 
 test("labels an MCP call server/tool and indents a JSON result", (t) => {
