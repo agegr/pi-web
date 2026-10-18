@@ -22,8 +22,15 @@ const appLinkSchemes = [
 ];
 const appLinkPattern = new RegExp(`^(?:${appLinkSchemes.join("|")}):`, "i");
 
+// The anti-clobber prefix the sanitizer puts in front of every `id` in
+// rendered content, so untrusted Markdown cannot shadow the page's own
+// elements. The fragment-link fix below must use the identical value, so the
+// schema that produces the prefixed ids pins the same constant.
+const markdownClobberPrefix = defaultSchema.clobberPrefix ?? "user-content-";
+
 const markdownSanitizeSchema = {
   ...defaultSchema,
+  clobberPrefix: markdownClobberPrefix,
   attributes: {
     ...defaultSchema.attributes,
     code: [["className", /^language-./, "math-inline", "math-display"]],
@@ -603,9 +610,50 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
   remarkCurrencySafeMath,
 ];
 
+interface SanitizedNode {
+  type?: string;
+  properties?: Record<string, unknown>;
+  children?: SanitizedNode[];
+}
+
+/**
+ * GitHub rewrites both sides of a content anchor. cmark-gfm prefixes rendered
+ * `id`s with `user-content-` (anti-clobber) and rewrites same-document fragment
+ * links to match, so a hand-written pair like `<a id="toc"></a>` with
+ * `[ToC](#toc)` still lands after rendering. `rehype-sanitize` copies only the
+ * `id` half of that — `defaultSchema`'s `clobber` + `clobberPrefix` — which on
+ * its own breaks every in-document anchor pair: the element gains the prefix
+ * and the link pointing at it does not.
+ *
+ * This plugin runs after sanitizing and prefixes fragment links exactly as
+ * unconditionally as sanitizing prefixes ids, so an id and an href that matched
+ * before sanitizing still match afterwards. Footnote references need it for the
+ * same reason: `mdast-util-to-hast` generates both their sides already prefixed
+ * and sanitizing prefixes the id once more, so an unprefixed href would strand
+ * the footnote link behind the doubled prefix.
+ *
+ * Links to page elements keep being unreachable from Markdown — that is the
+ * clobber protection doing its job, not this plugin. A bare `#` has no fragment
+ * to pair and stays as written.
+ */
+function rehypeMatchClobberedIds(): (tree: unknown) => void {
+  return (tree: unknown): void => {
+    const visit = (node: SanitizedNode): void => {
+      if (!node || typeof node !== "object") return;
+      const href = node.properties?.href;
+      if (node.type === "element" && typeof href === "string" && href.startsWith("#") && href.length > 1) {
+        node.properties!.href = `#${markdownClobberPrefix}${href.slice(1)}`;
+      }
+      for (const child of node.children ?? []) visit(child);
+    };
+    visit(tree as SanitizedNode);
+  };
+}
+
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
+  rehypeMatchClobberedIds,
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
@@ -648,5 +696,6 @@ export const markdownDocumentRehypePlugins: ReactMarkdownOptions["rehypePlugins"
 export const markdownPreviewRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
+  rehypeMatchClobberedIds,
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
