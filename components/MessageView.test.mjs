@@ -13,6 +13,7 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const {
   CompactionSummaryDetails,
   MessageView,
+  PatchDiffFiles,
   ThinkingBlock,
   formatToolDuration,
   getModelDisplayName,
@@ -23,6 +24,7 @@ const {
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
+const { parseUnifiedPatch } = await jiti.import("@/lib/patch");
 
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
@@ -802,4 +804,92 @@ test("collapses the compaction summary to its title and token count, as pi's TUI
   assert.match(details, /File context: 1 read, 1 modified/);
   assert.match(details, /lib\/read\.ts/);
   assert.match(details, /lib\/changed\.ts/);
+});
+
+// ── A tool card's patch: two columns where there is room, one where there is not ──
+
+const EDIT_PATCH = `--- a/src/demo.ts
++++ b/src/demo.ts
+@@ -10,3 +10,3 @@
+ const keep = true;
+-const value = "old";
++const value = "new";
+done();
+`;
+
+const TWO_COLUMN_GRID = "grid-template-columns:minmax(0, 1fr) minmax(0, 1fr)";
+
+function renderPatchFiles(files, layout) {
+  return renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(PatchDiffFiles, { files, layout })),
+  );
+}
+
+function countIn(haystack, needle) {
+  return haystack.split(needle).length - 1;
+}
+
+test("an edit card draws the applied patch in two columns while there is room", () => {
+  const block = { type: "toolCall", toolCallId: "call-edit-columns", toolName: "edit", input: { path: "src/demo.ts" } };
+  const result = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    toolName: "edit",
+    content: [{ type: "text", text: "ok" }],
+    details: { patch: EDIT_PATCH },
+  };
+  setToolCallExpanded(block.toolCallId, true);
+  try {
+    const html = renderMessage(
+      { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] },
+      { toolResults: new Map([[block.toolCallId, result]]) },
+    );
+    assert.ok(html.includes(TWO_COLUMN_GRID), "the card reaches the patch view");
+    assert.ok(html.includes("const value = &quot;new&quot;;"));
+  } finally {
+    clearExpandedToolCalls();
+  }
+});
+
+test("the same patch in one column: no line twice, the removed line above what replaces it", () => {
+  const stacked = renderPatchFiles(parseUnifiedPatch(EDIT_PATCH), "stacked");
+
+  assert.ok(!stacked.includes("grid-template-columns"), "nothing stands beside anything");
+  assert.equal(countIn(stacked, "const keep = true;"), 1);
+  assert.equal(countIn(stacked, "const value = &quot;old&quot;;"), 1);
+  assert.equal(countIn(stacked, "const value = &quot;new&quot;;"), 1);
+  assert.ok(stacked.indexOf("&quot;old&quot;;") < stacked.indexOf("&quot;new&quot;;"));
+
+  // The two columns pay for themselves by printing every context line twice.
+  const split = renderPatchFiles(parseUnifiedPatch(EDIT_PATCH), "split");
+  assert.ok(split.includes(TWO_COLUMN_GRID));
+  assert.equal(countIn(split, "const keep = true;"), 2);
+});
+
+test("one column names a file section by the file's own path, not by Before and After", () => {
+  const files = parseUnifiedPatch(`--- a/one.ts
++++ b/one.ts
+@@ -1 +1 @@
+-a
++b
+--- a/two.ts
++++ b/two.ts
+@@ -1 +1 @@
+-c
++d
+`);
+  const html = renderPatchFiles(files, "stacked");
+
+  assert.ok(html.includes("b/one.ts"), "the first file names its section");
+  assert.ok(html.includes("b/two.ts"), "the second file names its section");
+  assert.ok(!html.includes(">Before<") && !html.includes(">After<"), "two labels over one column read as two columns");
+});
+
+test("the layout is the viewport's choice, taken once for both the patch input and the patch result", () => {
+  const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
+
+  // Both the applied-patch card and a result's patch render through SplitFilesView,
+  // so a phone never gets one of each.
+  assert.match(source, /const layout: PatchDiffLayout = useIsMobile\(\) \? "stacked" : "split";/);
+  assert.equal(countIn(source, "<SplitFilesView"), 2);
 });

@@ -129,6 +129,43 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
   return parsed.length > 0 ? parsed : null;
 }
 
+/** One line of a single-column diff: old and new numbering, whichever applies. */
+export interface UnifiedDiffLine {
+  type: "context" | "removed" | "added";
+  text: string;
+  oldLineNo: number | null;
+  newLineNo: number | null;
+}
+
+/**
+ * One file's rows as a single column. A pair the split view puts side by side
+ * becomes its own line in patch order (removed first, then added), and a
+ * context row becomes one line instead of two copies of itself. Hunk headers
+ * carry no file content, as in the split view.
+ */
+export function unifiedDiffLines(file: SplitDiffFile): UnifiedDiffLine[] {
+  const lines: UnifiedDiffLine[] = [];
+  for (const row of file.rows) {
+    if (row.type === "hunk") continue;
+    if (row.left.type === "context" && row.right.type === "context") {
+      lines.push({
+        type: "context",
+        text: row.right.text,
+        oldLineNo: row.left.lineNo,
+        newLineNo: row.right.lineNo,
+      });
+      continue;
+    }
+    if (row.left.type !== "empty") {
+      lines.push({ type: "removed", text: row.left.text, oldLineNo: row.left.lineNo, newLineNo: null });
+    }
+    if (row.right.type !== "empty") {
+      lines.push({ type: "added", text: row.right.text, oldLineNo: null, newLineNo: row.right.lineNo });
+    }
+  }
+  return lines;
+}
+
 function cleanPatchPath(path: string): string {
   return path.split("\t")[0].trim();
 }

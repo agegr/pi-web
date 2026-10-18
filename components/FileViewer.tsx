@@ -26,7 +26,7 @@ import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
-import { parseUnifiedPatch } from "@/lib/patch";
+import { parseUnifiedPatch, unifiedDiffLines, type UnifiedDiffLine } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -281,12 +281,8 @@ function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceS
   );
 }
 
-type DiffLine = {
-  type: "unchanged" | "removed" | "added";
-  text: string;
-  oldLineNo: number | null;
-  newLineNo: number | null;
-};
+// The same rows the tool card's split diff parses, in one column; see `unifiedDiffLines()`.
+type DiffLine = UnifiedDiffLine;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -297,44 +293,14 @@ function formatSize(bytes: number): string {
 function diffLines(patch: string): DiffLine[] {
   const files = parseUnifiedPatch(patch);
   if (!files) return [];
-
-  return files.flatMap((file) => file.rows.flatMap((row): DiffLine[] => {
-    if (row.type === "hunk") return [];
-    if (row.left.type === "context" && row.right.type === "context") {
-      return [{
-        type: "unchanged",
-        text: row.right.text,
-        oldLineNo: row.left.lineNo,
-        newLineNo: row.right.lineNo,
-      }];
-    }
-
-    const lines: DiffLine[] = [];
-    if (row.left.type === "removed") {
-      lines.push({
-        type: "removed",
-        text: row.left.text,
-        oldLineNo: row.left.lineNo,
-        newLineNo: null,
-      });
-    }
-    if (row.right.type === "added") {
-      lines.push({
-        type: "added",
-        text: row.right.text,
-        oldLineNo: null,
-        newLineNo: row.right.lineNo,
-      });
-    }
-    return lines;
-  }));
+  return files.flatMap(unifiedDiffLines);
 }
 
 function DiffView({ patch }: { patch: string }) {
   const { t } = useI18n();
   const diff = diffLines(patch);
 
-  const hasChanges = diff.some((l) => l.type !== "unchanged");
+  const hasChanges = diff.some((l) => l.type !== "context");
   if (!hasChanges) {
     return (
       <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
@@ -345,7 +311,7 @@ function DiffView({ patch }: { patch: string }) {
 
   // Render with context: show 3 lines around each change, collapse the rest
   const CONTEXT = 3;
-  const changed = new Set(diff.flatMap((l, i) => (l.type !== "unchanged" ? [i] : [])));
+  const changed = new Set(diff.flatMap((l, i) => (l.type !== "context" ? [i] : [])));
   const visible = new Set<number>();
   for (const ci of changed) {
     for (let j = Math.max(0, ci - CONTEXT); j <= Math.min(diff.length - 1, ci + CONTEXT); j++) {
