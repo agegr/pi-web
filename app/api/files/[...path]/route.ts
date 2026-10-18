@@ -20,6 +20,7 @@ import {
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
 import { getFileTreeHiddenReasons } from "@/lib/file-tree-visibility";
+import { invalidateGitStatusCache } from "@/lib/git-status-cache";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import {
@@ -255,6 +256,8 @@ export async function POST(
         errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
       }
     }
+
+    if (uploaded.length > 0) invalidateGitStatusCache();
 
     return NextResponse.json(
       { uploaded, skipped, errors },
