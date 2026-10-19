@@ -22,6 +22,10 @@
 ## Sidebar breakpoint (`components/AppShell.tsx`)
 - The mobile drawer starts closed on entering the mobile breakpoint. Desktop open state is remembered separately, seeded from the URL's initial `sidebarCollapsed` value and updated only by explicit desktop toggles. Returning to desktop restores that preference; mobile drawer toggles, backdrop clicks and toolbar actions must not replace it.
 
+## Global shortcuts (`hooks/useKeyboardShortcuts.ts`)
+- Ctrl+Alt+N starts a new session in the active project's cwd. Match it on `event.code === "KeyN"`, never on `event.key` alone: macOS treats Option as a character-input modifier, so `Option+N` is a dead key (`˜`) in the U.S., ABC and British layouts and Chrome reports `key === "Dead"` with `ctrlKey`/`altKey` intact. A key-only match never fired on macOS (#1335), and `code` also keeps the shortcut on Dvorak and Colemak. `event.key` stays as the fallback for a `KeyboardEvent` with no `code` (older Safari, hand-built events in tests). `isNewSessionShortcut()` is the one place that decides.
+- Esc stops the running agent unless the event is already `defaultPrevented` (a nearer Settings, menu or viewer closed on it) or the focus is a `TEXTAREA`/`INPUT`, which ChatInput owns. See [mcp-settings.md](mcp-settings.md) for the Escape stacking that depends on this.
+
 ## Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
 - Autoplay policy requires unlocking sound from a user gesture: `ChatInput` calls the unlock hook from interactive controls, and `ChatWindow` plays the tone from `onAgentEnd`.
