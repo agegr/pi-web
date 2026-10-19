@@ -19,22 +19,25 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 /**
  * Whether a keydown is the Ctrl+Alt+N "new session" shortcut.
  *
- * macOS treats Option as a character-input modifier, so with Option held the
- * letter arrives as a character rather than itself: `Option+N` is a dead key
- * (`˜`) in the U.S., ABC and British layouts, and Chrome reports
- * `event.key === "Dead"`. The physical key is the stable fact, so match
- * `event.code` too: it is "KeyN" whatever the layout or the input method makes
- * of the letter. `event.key` stays as the fallback for a `KeyboardEvent` built
- * without a `code`.
+ * The letter decides (`event.key`), so the shortcut follows the layout. Two
+ * platforms bend that:
+ * - macOS treats Option as a character-input modifier: `Option+N` is a dead
+ *   key (`˜`) in the U.S., ABC and British layouts, and Chrome reports
+ *   `key === "Dead"` with `ctrlKey`/`altKey` intact (#1335). A dead key types
+ *   nothing yet, so the physical key (`code === "KeyN"`) decides there.
+ * - Windows reports AltGr as Ctrl+Alt. When the combination types a character
+ *   (Polish AltGr+N is `ń`), that `key` is the user's text: matching `code`
+ *   alone would swallow it and open a session instead.
  */
 export function isNewSessionShortcut(event: {
   key: string;
-  code?: string;
+  code?: string | null;
   ctrlKey: boolean;
   altKey: boolean;
 }): boolean {
   if (!event.ctrlKey || !event.altKey) return false;
-  return event.code === "KeyN" || event.key.toLowerCase() === "n";
+  if (event.key.toLowerCase() === "n") return true;
+  return event.key === "Dead" && event.code === "KeyN";
 }
 
 // ---------------------------------------------------------------------------

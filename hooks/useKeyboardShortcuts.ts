@@ -40,15 +40,15 @@ export function handleGlobalEscape(event: KeyboardEvent): boolean {
 /**
  * Whether a keydown is the Ctrl+Alt+N "new session" shortcut.
  *
- * macOS treats Option as a character-input modifier, so with Option held the
- * letter arrives as a character rather than itself: `Option+N` is a dead key
- * (`˜`) in the U.S., ABC and British layouts, and Chrome reports
- * `event.key === "Dead"`. A shortcut that matched `event.key === "n"` alone
- * could therefore never fire on macOS (#1335). The physical key is the stable
- * fact, so match `event.code` too: it is "KeyN" whatever the layout or the
- * input method makes of the letter, which also keeps the shortcut in place on
- * Dvorak and Colemak. `event.key` stays as the fallback for a `KeyboardEvent`
- * built without a `code` (older Safari, synthetic events in tests).
+ * The letter decides (`event.key`), so the shortcut follows the layout. Two
+ * platforms bend that:
+ * - macOS treats Option as a character-input modifier: `Option+N` is a dead
+ *   key (`˜`) in the U.S., ABC and British layouts, and Chrome reports
+ *   `key === "Dead"` with `ctrlKey`/`altKey` intact (#1335). A dead key types
+ *   nothing yet, so the physical key (`code === "KeyN"`) decides there.
+ * - Windows reports AltGr as Ctrl+Alt. When the combination types a character
+ *   (Polish AltGr+N is `ń`), that `key` is the user's text: matching `code`
+ *   alone would swallow it and open a session instead.
  */
 export function isNewSessionShortcut(event: {
   key: string;
@@ -57,7 +57,8 @@ export function isNewSessionShortcut(event: {
   altKey: boolean;
 }): boolean {
   if (!event.ctrlKey || !event.altKey) return false;
-  return event.code === "KeyN" || event.key.toLowerCase() === "n";
+  if (event.key.toLowerCase() === "n") return true;
+  return event.key === "Dead" && event.code === "KeyN";
 }
 
 // ---------------------------------------------------------------------------
@@ -77,8 +78,7 @@ interface UseGlobalKeyboardShortcutsOptions {
  * Shortcuts handled here:
  *   Esc          – stop the running agent (via module-level abort handler)
  *   Ctrl+Alt+N   – create a new session in the active project directory
- *                  (matched by `event.code`, so it also fires on macOS where
- *                  Option+N is a dead key; see `isNewSessionShortcut()`)
+ *                  (see `isNewSessionShortcut()` for macOS and AltGr)
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping

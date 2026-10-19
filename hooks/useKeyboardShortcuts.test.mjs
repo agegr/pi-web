@@ -62,8 +62,15 @@ test("macOS reports a dead key for Option+N, so the physical key decides", () =>
   // Option+N is `˜` in the U.S., ABC and British layouts. Chrome sends
   // key="Dead" with the modifiers intact, which the old key-only match missed.
   assert.equal(shortcut({ key: "Dead" }), true);
-  // The same holds for the other Option letters that produce a character.
-  assert.equal(shortcut({ key: "\u00f1" }), true);
+});
+
+test("a character Ctrl+Alt types is the user's text, not the shortcut", () => {
+  // Windows reports AltGr as Ctrl+Alt: Polish AltGr+N types `\u0144`, Czech `}`.
+  assert.equal(shortcut({ key: "\u0144" }), false);
+  assert.equal(shortcut({ key: "}" }), false);
+  // Dvorak's physical N is `b`; its `n` (KeyL) still matches by the letter.
+  assert.equal(shortcut({ key: "b" }), false);
+  assert.equal(shortcut({ key: "n", code: "KeyL" }), true);
 });
 
 test("the shortcut needs both Ctrl and Alt", () => {
