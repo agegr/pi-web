@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
@@ -11,7 +11,8 @@ import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
-import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
+import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
+import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -1100,11 +1101,16 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
     setToolCallExpanded(block.toolCallId, next);
     setExpanded(next);
   };
-  const inputStr = getToolCallInputText(block);
+  const writtenFileText = getWrittenFileText(block);
+  const inputStr = writtenFileText ?? getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
   const patchFiles = getApplyPatchFiles(block, result);
+  // Flat arguments as rows instead of a JSON blob, unless the card has a view of
+  // its own (a write's file text, an applied patch). See `lib/tool-fields.ts`.
+  const toolFields =
+    !isStreamingInput && writtenFileText === null && patchFiles === null ? toolFieldsOfInput(block.input) : null;
   const patchLabel = isApplyPatchToolName(block.toolName)
     ? summarizeApplyPatchInput(block)
     : null;
@@ -1176,22 +1182,34 @@ function ToolCallBlock({ block, result, duration, onOpenSession }: { block: Tool
 
       {/* ── Expanded: input args (only when no richer view exists) ── */}
       {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
-        <pre
-          style={{
-            margin: 0,
-            padding: "8px 10px",
-            color: "var(--text-muted)",
-            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-            lineHeight: 1.5,
-            overflow: "auto",
-            background: "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >
-          {inputStr}
-        </pre>
+        toolFields ? (
+          <div
+            style={{
+              padding: "6px 10px 8px",
+              background: "var(--bg-subtle)",
+              borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
+            }}
+          >
+            <ToolFieldRows fields={toolFields} />
+          </div>
+        ) : (
+          <pre
+            style={{
+              margin: 0,
+              padding: "8px 10px",
+              color: "var(--text-muted)",
+              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+              lineHeight: 1.5,
+              overflow: "auto",
+              background: "var(--bg-subtle)",
+              borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {inputStr}
+          </pre>
+        )
       )}
 
       {/* ── Result images — always visible, independent of the collapsed details ── */}
@@ -1876,6 +1894,66 @@ function safeJson(value: unknown): string {
 
 export function getToolCallInputText(block: ToolCallContent): string {
   return block.rawInput ?? JSON.stringify(block.input, null, 2);
+}
+
+const WRITE_VIEW_KEYS = new Set(["path", "file_path", "content"]);
+
+// A write's file text in place of its JSON: the header already shows the path.
+// Streamed input is still incomplete JSON, and any other argument (a mode, a
+// title) would vanish from this view, so those calls, and an empty file, keep
+// the generic view.
+function getWrittenFileText(block: ToolCallContent): string | null {
+  if (block.rawInput !== undefined || !isWriteToolName(block.toolName)) return null;
+  const { content } = block.input;
+  if (typeof content !== "string" || content === "") return null;
+  return Object.keys(block.input).every((key) => WRITE_VIEW_KEYS.has(key)) ? content : null;
+}
+
+const TOOL_FIELD_LABEL: CSSProperties = {
+  padding: "4px 12px 4px 0",
+  color: "var(--text-dim)",
+  fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
+  whiteSpace: "nowrap",
+  verticalAlign: "top",
+};
+
+const TOOL_FIELD_VALUE: CSSProperties = {
+  padding: "4px 0",
+  color: "var(--text-muted)",
+  fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+  fontFamily: "var(--font-mono)",
+  overflowWrap: "anywhere",
+};
+
+// A value with newlines of its own keeps them, scrolled in place.
+const TOOL_FIELD_BLOCK: CSSProperties = {
+  margin: 0,
+  padding: "8px 10px",
+  maxHeight: 260,
+  overflow: "auto",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  background: "var(--bg)",
+  font: "inherit",
+  lineHeight: 1.5,
+  whiteSpace: "pre-wrap",
+};
+
+function ToolFieldRows({ fields }: { fields: ToolField[] }) {
+  return (
+    <table style={{ borderCollapse: "collapse" }}>
+      <tbody>
+        {fields.map((field) => (
+          <tr key={field.key}>
+            <td style={TOOL_FIELD_LABEL}>{field.key}</td>
+            <td style={TOOL_FIELD_VALUE}>
+              {field.multiline ? <pre style={TOOL_FIELD_BLOCK}>{field.value}</pre> : field.value}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 function formatCustomType(type: string): string {
