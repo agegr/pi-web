@@ -15,6 +15,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { ProjectFilterSetting } from "./ProjectFilterSetting";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -384,6 +385,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.sidebar")}</h3>
         <div className="settings-chat-options">
+          {/* The row renders itself and shares the sidebar's live state. */}
+          <ProjectFilterSetting />
           <div
             className="settings-chat-option settings-chat-switch-option"
             role="radiogroup"
