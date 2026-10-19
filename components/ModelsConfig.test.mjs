@@ -5,6 +5,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const {
   collectModelRenames,
+  deleteProviderEntry,
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
@@ -192,6 +193,47 @@ test("a provider added since the last save is renamed without a settings rewrite
   const state = { savedProviders: new Set(), renames: new Map(), slots: new Map() };
   const renamed = renameProviderEntry(config, state, "new-provider", "house");
   assert.deepEqual(Object.keys(renamed.providers), ["house"]);
+  assert.deepEqual([...state.renames], []);
+});
+
+test("deleting a renamed or saved provider forgets its rename tracking", () => {
+  const config = {
+    providers: {
+      stepfun: { models: [{ id: "aaa" }] },
+      other: { models: [{ id: "bbb" }] },
+    },
+  };
+  const state = tracking(config);
+  const renamed = renameProviderEntry(config, state, "stepfun", "house");
+  const afterDelete = deleteProviderEntry(renamed, state, "house");
+
+  assert.deepEqual(Object.keys(afterDelete.providers), ["other"]);
+  assert.deepEqual([...state.renames], []);
+  assert.deepEqual([...state.savedProviders], ["other"]);
+  assert.equal(state.slots.has("house"), false);
+
+  // Another saved provider can now take the deleted id and move on cleanly.
+  const movedOther = renameProviderEntry(afterDelete, state, "other", "house");
+  const movedAgain = renameProviderEntry(movedOther, state, "house", "final");
+  assert.deepEqual(Object.keys(movedAgain.providers), ["final"]);
+  assert.deepEqual([...state.renames], [["other", "final"]]);
+});
+
+test("a new provider taking a renamed or deleted provider's old id stays untracked", () => {
+  const config = { providers: { stepfun: { models: [{ id: "aaa" }] } } };
+  const state = tracking(config);
+  const moved = renameProviderEntry(config, state, "stepfun", "house");
+  const withNew = { providers: { ...moved.providers, "new-provider": {} } };
+  const tookOldId = renameProviderEntry(withNew, state, "new-provider", "stepfun");
+  const renamedAgain = renameProviderEntry(tookOldId, state, "stepfun", "fresh");
+
+  assert.deepEqual([...state.renames], [["stepfun", "house"]]);
+  const afterDeletingNew = deleteProviderEntry(renamedAgain, state, "fresh");
+  assert.deepEqual([...state.renames], [["stepfun", "house"]]);
+
+  const afterDeletingSaved = deleteProviderEntry(afterDeletingNew, state, "house");
+  const readded = { providers: { ...afterDeletingSaved.providers, stepfun: {} } };
+  renameProviderEntry(readded, state, "stepfun", "later");
   assert.deepEqual([...state.renames], []);
 });
 
