@@ -1,5 +1,17 @@
 import type { AgentPhase } from "@/hooks/useAgentSession";
 
+/**
+ * The phase a coarse run state (`GET /api/sessions/[id]/state`, a `connected`
+ * event) implies. A tool call the client already knows is running outranks it:
+ * the state only says the run is active, and reporting "waiting for model" while
+ * a tool executes blames provider latency for tool time. The stream replays a
+ * running call after `connected`, so keeping the phase costs nothing.
+ */
+export function runStatePhase(prev: AgentPhase, isStreaming: boolean): AgentPhase {
+  if (prev?.kind === "running_tools" && prev.tools.length > 0) return prev;
+  return isStreaming ? { kind: "waiting_model" } : { kind: "running_command" };
+}
+
 /** The i18n translate function shape this module needs. */
 export type Translate = (key: string, params?: Record<string, string | number>) => string;
 

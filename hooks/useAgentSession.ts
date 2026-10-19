@@ -30,6 +30,7 @@ import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
+import { runStatePhase } from "@/lib/chat-phase-label";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
@@ -1250,7 +1251,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           rpcPromptPendingRef.current = Boolean(state?.isPromptRunning);
           agentRunningRef.current = true;
           setAgentRunning(true);
-          setAgentPhase(state?.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+          setAgentPhase((prev) => runStatePhase(prev, Boolean(state?.isStreaming)));
           return;
         }
 
@@ -1448,7 +1449,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           sdkAgentActiveRef.current = true;
           agentRunningRef.current = true;
           setAgentRunning(true);
-          setAgentPhase({ kind: "waiting_model" });
+          setAgentPhase((prev) => runStatePhase(prev, true));
         }
         // Opening the stream is what resumes an idle-reaped session, so the
         // mount's state read may have found no runtime and no usage to show.
@@ -2570,7 +2571,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
             agentRunningRef.current = true;
             setAgentRunning(true);
-            setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+            setAgentPhase((prev) => runStatePhase(prev, agentState.state?.isStreaming === true));
             dispatch({ type: "resume" });
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               void waitForPromptSettlement(session.id);
