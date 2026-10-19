@@ -12,7 +12,7 @@ const FONT_FIELDS = [
 
 /**
  * Rows for the Fonts & layout section, shaped like the size and width rows below:
- * label, name field, weight value and reset in the header line, the weight slider under it.
+ * label, name field, weight name (Light, Regular, …) and reset in the header line, the weight slider under it.
  * The name field is drawn in the font it names, so it doubles as the preview.
  */
 export function FontSettings() {
@@ -41,7 +41,7 @@ export function FontSettings() {
             spellCheck={false}
             onChange={(event) => fonts.setFontPreference(kind, event.target.value)}
           />
-          <output htmlFor={`settings-font-${kind}-weight`}>{weight}</output>
+          <output htmlFor={`settings-font-${kind}-weight`} title={`${t(weightLabel)}: ${weight}`}>{t(FONT_WEIGHT_OPTIONS[weightIndex].label)}</output>
           <ConfigButton
             variant="ghost"
             size="small"

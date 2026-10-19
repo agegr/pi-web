@@ -39,7 +39,7 @@ export function filterModelOptions(options: ModelSelectorOption[], query: string
   if (!normalizedQuery) return options;
 
   return options.filter((option) => (
-    `${option.name} ${option.modelId}`
+    `${option.name} ${option.modelId} ${option.provider}/${option.modelId}`
       .toLocaleLowerCase()
       .includes(normalizedQuery)
   ));

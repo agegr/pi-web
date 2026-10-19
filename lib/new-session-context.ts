@@ -8,6 +8,7 @@
  */
 
 import { projectNameOf, type SidebarProject } from "./session-tree";
+import { workspaceKeyOf } from "./workspace-memory";
 
 export interface WorktreeChoice {
   path: string;
@@ -120,6 +121,50 @@ export function contextForCwd(
     currentWorktreePath: null,
     projects,
   };
+}
+
+/** The sidebar's listing of its cwd (`GET /api/worktrees?cwd=`), as `projectForCwd()` reads it. */
+export interface WorktreeListing {
+  forCwd: string;
+  projectRoot: string;
+  projectKey: string;
+  isTopLevel: boolean;
+  worktrees: readonly { path: string }[];
+}
+
+/**
+ * The project of a sidebar cwd, from what the sidebar knows: a folder it just
+ * validated, its worktree listing, then the session list. The listing can be
+ * the previous cwd's for a commit after a move; its checkouts belong to its
+ * project only at the top of a checkout. A subdirectory's listing names the
+ * repository's checkouts under the subdirectory's own identity, so taking
+ * them would give a session of the repository root that subdirectory's key,
+ * and the shell would close it as a project switch (#1289).
+ */
+export function projectForCwd(
+  cwd: string,
+  known: {
+    validated: { cwd: string; root: string; key: string } | null;
+    listing: WorktreeListing | null;
+    sessions: readonly { cwd: string; projectRoot?: string | null; projectKey?: string | null }[];
+  },
+): ProjectChoice {
+  const { validated, listing, sessions } = known;
+  // /api/cwd/validate resolves identity before a custom path becomes active,
+  // preventing one render with a raw path key from looking like a switch.
+  if (validated?.cwd === cwd) return { root: validated.root, key: validated.key };
+  if (listing?.forCwd === cwd) return { root: listing.projectRoot, key: listing.projectKey };
+  // Any path in a checkout's worktree list belongs to that project — covers
+  // worktrees without sessions, so switching to them keeps the row mounted.
+  if (listing?.isTopLevel && listing.worktrees.some((worktree) => worktree.path === cwd)) {
+    return { root: listing.projectRoot, key: listing.projectKey };
+  }
+  const match = sessions.find((session) => (
+    session.cwd === cwd || (session.projectRoot ?? session.cwd) === cwd
+  ));
+  return match
+    ? { root: match.projectRoot ?? match.cwd, key: workspaceKeyOf(match) }
+    : { root: cwd, key: cwd };
 }
 
 /** A picker's project list: the current project first when the list does not have it (a folder just opened). */

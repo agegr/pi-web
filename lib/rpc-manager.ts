@@ -4,6 +4,7 @@ import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@e
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { isDeepStrictEqual } from "util";
 import { validateAgentImages } from "./image-attachments";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
@@ -201,6 +202,9 @@ export function resolveSessionShutdownDeadlineMs(
 }
 
 const SESSION_SHUTDOWN_DEADLINE_MS = resolveSessionShutdownDeadlineMs();
+
+/** Bounds `set_model`'s offline provider refresh, as pi's model selector bounds its own. */
+const MODEL_REFRESH_TIMEOUT_MS = 15_000;
 
 const SESSION_REPLACEMENT_COMMAND_TYPES = new Set(["fork", "clone"]);
 // pi writes a session file at the first user message, so a session with no
@@ -1026,17 +1030,28 @@ export class AgentSessionWrapper {
 
       case "set_model": {
         const { provider, modelId } = command as { provider: string; modelId: string };
-        let model = this.inner.modelRuntime.getModel(provider, modelId);
-        if (!model) {
-          await this.inner.modelRuntime.refresh({ allowNetwork: false });
-          model = this.inner.modelRuntime.getModel(provider, modelId);
-        }
+        // As pi's /model, which refreshes before listing: re-read models.json even for a known id,
+        // so reselecting a model applies a saved edit of it (#1273). Like the TUI, a failed or
+        // timed-out refresh leaves the cached definitions in use.
+        await this.inner.modelRuntime.refresh({
+          allowNetwork: false,
+          providers: [provider],
+          signal: AbortSignal.timeout(MODEL_REFRESH_TIMEOUT_MS),
+        }).catch(() => undefined);
+        const model = this.inner.modelRuntime.getModel(provider, modelId);
         if (!model) {
           throw this.chatOnly && findDeferredModel(this.inner.modelRuntime as ModelRuntime, provider, modelId)
             ? chatOnlyExtensionModelError(provider, modelId)
             : new Error(`Model not found: ${provider}/${modelId}`);
         }
+        const previous = this.inner.model;
+        // Reselecting an unchanged model writes nothing.
+        if (isDeepStrictEqual(previous, model)) return { id: model.id, provider: model.provider };
+        const sameId = previous?.provider === model.provider && previous.id === model.id;
+        const thinkingLevel = this.inner.agent.state?.thinkingLevel;
         await this.inner.setModel(model);
+        // A reselect to apply an edit is not a new model choice: keep the level (clamped by the SDK).
+        if (sameId && thinkingLevel) this.inner.setThinkingLevel(thinkingLevel);
         invalidateModelsCache();
         invalidateSessionListCache();
         return { id: model.id, provider: model.provider };

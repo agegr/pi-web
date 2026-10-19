@@ -8,10 +8,12 @@ const {
   hasModelCostDraftValue,
   modelCostToDraft,
   parseCompleteModelCost,
+  providerMatchesSearch,
   renameProviderEntry,
   savedModelIds,
   serializeHeaderRows,
   setCompatBool,
+  setCompatFlag,
   trackAddedModels,
   updateHeaderRow,
 } = await jiti.import("./models-config-helpers.ts");
@@ -21,6 +23,27 @@ test("disabling the developer role writes an explicit false override", () => {
     setCompatBool({ compat: { supportsStore: true } }, "supportsDeveloperRole", false),
     { compat: { supportsStore: true, supportsDeveloperRole: false } },
   );
+});
+
+test("switching adaptive thinking off removes the override instead of writing false", () => {
+  const on = setCompatFlag({ id: "claude-opus-5-5" }, "forceAdaptiveThinking", true);
+  assert.deepEqual(on, { id: "claude-opus-5-5", compat: { forceAdaptiveThinking: true } });
+  assert.deepEqual(setCompatFlag(on, "forceAdaptiveThinking", false), { id: "claude-opus-5-5", compat: undefined });
+  assert.deepEqual(
+    setCompatFlag({ compat: { supportsStore: true, forceAdaptiveThinking: true } }, "forceAdaptiveThinking", false),
+    { compat: { supportsStore: true } },
+  );
+});
+
+test("a model switches off adaptive thinking its provider turns on with an explicit false", () => {
+  assert.deepEqual(
+    setCompatFlag({ id: "claude-haiku-4-5" }, "forceAdaptiveThinking", false, true),
+    { id: "claude-haiku-4-5", compat: { forceAdaptiveThinking: false } },
+  );
+  const entry = { id: "claude-opus-5-5", compat: { forceAdaptiveThinking: false } };
+  assert.deepEqual(setCompatFlag(entry, "forceAdaptiveThinking", true, true), { id: "claude-opus-5-5", compat: undefined });
+  const plain = { id: "claude-opus-5-5" };
+  assert.equal(setCompatFlag(plain, "forceAdaptiveThinking", false), plain);
 });
 
 test("editing a header preserves row order and stable identities", () => {
@@ -170,4 +193,12 @@ test("a provider added since the last save is renamed without a settings rewrite
   const renamed = renameProviderEntry(config, state, "new-provider", "house");
   assert.deepEqual(Object.keys(renamed.providers), ["house"]);
   assert.deepEqual([...state.renames], []);
+});
+
+test("Add provider's search matches a provider by id or name", () => {
+  const oauth = { id: "fixture-subscription-id", name: "Fixture Subscription" };
+  assert.equal(providerMatchesSearch("subscription", oauth.id, oauth.name), true);
+  assert.equal(providerMatchesSearch(" FIXTURE-SUBSCRIPTION-ID ", oauth.id, oauth.name), true);
+  assert.equal(providerMatchesSearch("missing", oauth.id, oauth.name), false);
+  assert.equal(providerMatchesSearch("  ", oauth.id, oauth.name), true);
 });

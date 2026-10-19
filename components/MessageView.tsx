@@ -11,7 +11,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { formatTurnDuration } from "@/lib/turn-duration";
-import { parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type UnifiedDiffLine } from "@/lib/patch";
+import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
@@ -1443,6 +1443,9 @@ export function PatchDiffFiles({ files, layout }: { files: SplitDiffFile[]; layo
               if (row.type === "hunk") {
                 return null;
               }
+              if (row.type === "gap") {
+                return <DiffGapRow key={rowIndex} gap={row} />;
+              }
 
               return (
                 <div key={rowIndex} style={{ display: "contents" }}>
@@ -1455,10 +1458,32 @@ export function PatchDiffFiles({ files, layout }: { files: SplitDiffFile[]; layo
           )}
 
           {layout === "stacked" && unifiedDiffLines(file).map((line, lineIndex) => (
-            <StackedDiffLineView key={lineIndex} line={line} />
+            line.type === "gap"
+              ? <DiffGapRow key={lineIndex} gap={line} />
+              : <StackedDiffLineView key={lineIndex} line={line} />
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Unchanged lines the patch leaves out between two hunks, across the whole width. */
+function DiffGapRow({ gap }: { gap: SplitDiffGap }) {
+  const { t } = useI18n();
+  return (
+    <div
+      style={{
+        gridColumn: "1 / -1",
+        padding: "0 10px",
+        color: "var(--text-dim)",
+        background: "var(--bg-panel)",
+        borderTop: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+        userSelect: "none",
+      }}
+    >
+      {gap.count === null ? "⋯" : `⋯ ${diffGapLabel(gap.count, t)}`}
     </div>
   );
 }

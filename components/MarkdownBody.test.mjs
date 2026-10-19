@@ -308,6 +308,29 @@ test("uses a generic preview label when a markdown image has no alt text", () =>
   assert.doesNotMatch(html, /Preview image:/);
 });
 
+test("plays a markdown audio or video file inline instead of showing a broken image", () => {
+  const audioHtml = renderMarkdown("![take 2](out/take2.wav)");
+  assert.match(
+    audioHtml,
+    /<audio (?=[^>]*controls="")(?=[^>]*preload="metadata")(?=[^>]*src="\/api\/files\/home\/me\/project\/out\/take2\.wav\?type=read")(?=[^>]*aria-label="take 2")[^>]*>/,
+  );
+  assert.doesNotMatch(audioHtml, /<img|<button|\snode=/);
+
+  const videoHtml = renderMarkdown("![](https://example.com/clip.mp4?v=2)");
+  assert.match(
+    videoHtml,
+    /<video (?=[^>]*controls="")(?=[^>]*playsInline="")(?=[^>]*preload="metadata")(?=[^>]*src="https:\/\/example\.com\/clip\.mp4\?v=2")[^>]*>/,
+  );
+  assert.doesNotMatch(videoHtml, /aria-label|<img|<button/);
+
+  // A linked clip stays a plain player inside its link, as a linked image does.
+  const linkedHtml = renderMarkdown("[![demo](out/demo.webm)](https://example.com/demo)");
+  assert.match(linkedHtml, /<a [^>]*href="https:\/\/example\.com\/demo"[^>]*><video [^>]*src="\/api\/files\/home\/me\/project\/out\/demo\.webm\?type=read"[^>]*><\/video><\/a>/);
+
+  // Images keep their preview.
+  assert.match(renderMarkdown("![chart](out/chart.png)"), /<button[^>]+aria-label="Preview image: chart"/);
+});
+
 test("keeps CJK prose out of an autolinked URL", () => {
   const html = renderMarkdown("开 http://localhost:4321，或直接开 library/x.png。");
 

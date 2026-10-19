@@ -1564,7 +1564,8 @@
 }
 
 /* The page scrolls across the dialog's full width, so its scrollbar sits at the
-   dialog's edge; only the content keeps a readable column. */
+   dialog's edge; only the content keeps a readable column, centered so a wide
+   dialog leaves its spare width on both sides. */
 .settings-general {
   width: 100%;
   height: 100%;
@@ -1574,6 +1575,7 @@
 
 .settings-general > * {
   max-width: 600px;
+  margin-inline: auto;
 }
 
 .settings-general-section {
@@ -1734,6 +1736,13 @@
 
 .settings-chat-range-header.settings-font-header label {
   padding-right: 4px;
+}
+
+/* A weight's name, not its number: wide enough for the longest so the name field keeps its width while dragging. */
+.settings-chat-range-header.settings-font-header output {
+  min-width: 11ch;
+  font-family: inherit;
+  text-align: right;
 }
 
 /* Drawn in the font it names: the live preview. */
