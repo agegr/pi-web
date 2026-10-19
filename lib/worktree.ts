@@ -65,19 +65,22 @@ async function git(cwd: string, args: string[], timeoutMs = 10_000): Promise<str
   return stdout.trim();
 }
 
+/** Spawn failures that clear up on their own: out of fds, processes or memory. */
+const TRANSIENT_SPAWN_CODES = new Set(["EMFILE", "ENFILE", "EAGAIN", "ENOMEM"]);
+
 /**
- * The one deterministic `rev-parse` failure: a directory outside any
- * repository is its own project, an answer as cacheable as a resolved repo.
- * Every other failure — fd exhaustion, timeouts, an unreadable or broken
- * .git — is transient and must never be cached as project identity (the
- * phantom-project bug). git() pins LC_ALL=C, so matching this text is stable;
- * the DELETE route already matches git error text the same way.
+ * A git run that never gave its answer: the spawn failed for want of
+ * resources, or git was killed (the timeout). Anything git itself exits with
+ * (outside a repository, at a mount point, dubious ownership, a broken .git)
+ * and a missing git binary are the folder's answer for now, cached like a
+ * resolved repo; caching them also keeps a permanently broken cwd from
+ * spawning git and logging on every session list.
  */
-function isNotARepositoryError(error: unknown): boolean {
+function isTransientGitError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const { code, stderr } = error as { code?: unknown; stderr?: unknown };
-  return code === 128
-    && /not a git repository \(or any of the parent directories/.test(String(stderr ?? ""));
+  const { code, killed, signal } = error as { code?: unknown; killed?: unknown; signal?: unknown };
+  return killed === true || (typeof signal === "string" && signal !== "")
+    || (typeof code === "string" && TRANSIENT_SPAWN_CODES.has(code));
 }
 
 function realPathOrSelf(filePath: string): string {
@@ -162,11 +165,10 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
   try {
     info = await resolveProjectUncached(cwd);
   } catch (error) {
-    // Transient git failure (fd exhaustion, timeout, permission, ...): serve a
-    // cwd-only fallback for this request only — never cached, so it cannot
-    // become a lasting project identity, and logged so the cause stays
-    // observable. The next request retries.
-    console.error(`[pi-web] resolveProject: git failed for ${cwd}; using uncached cwd-only fallback`, error);
+    // Transient git failure (fd exhaustion, a killed git): serve a cwd-only
+    // fallback for this request only, never cached, so it cannot become a
+    // lasting project identity. The next request retries.
+    console.error(`[pi-web] resolveProject: git failed for ${cwd}, not cached: ${error instanceof Error ? error.message : String(error)}`);
     return { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
   }
   cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
@@ -225,9 +227,9 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
       isTopLevel,
     };
   } catch (error) {
-    // Only "not inside any repository" is deterministic; every other git
-    // failure propagates so resolveProject can keep it out of the cache.
-    if (!isNotARepositoryError(error)) throw error;
+    // A transient failure propagates so resolveProject keeps it out of the
+    // cache; whatever git itself answered is this folder's identity for now.
+    if (isTransientGitError(error)) throw error;
     info = { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
   }
 
