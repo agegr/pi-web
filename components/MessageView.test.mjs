@@ -182,7 +182,7 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.equal(getTokenEstimateText(block), block.rawInput);
 });
 
-test("renders a write as its arguments, not as a JSON blob", () => {
+test("renders write tool content as readable file text", () => {
   const block = {
     type: "toolCall",
     toolCallId: "call-write-file",
@@ -199,17 +199,16 @@ test("renders a write as its arguments, not as a JSON blob", () => {
       content: [block],
     });
 
-    // The path was the argument this card never showed.
     assert.ok(html.includes("src/example.ts"));
     assert.match(html, /first line\nsecond line\n/);
-    assert.ok(html.includes("<table"));
+    assert.ok(!html.includes("<table"));
     assert.doesNotMatch(textOf(html), /"content":/);
   } finally {
     clearExpandedToolCalls();
   }
 });
 
-test("every flat argument gets a row, so an extra one cannot hide", () => {
+test("a write with another argument or an empty file shows every argument as a row", () => {
   const cases = [
     { id: "call-write-mode", input: { path: "notes.md", content: "text", mode: "append" }, expect: "append" },
     { id: "call-write-empty", input: { path: "empty.txt", content: "" }, expect: "(empty)" },
@@ -297,15 +296,17 @@ test("a long or multi-line value stays inside the card", (t) => {
   const content = Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n");
   const block = {
     type: "toolCall",
-    toolCallId: "call-write-long",
-    toolName: "write",
-    input: { path: "a".repeat(200), content },
+    toolCallId: "call-agent-long",
+    toolName: "Agent",
+    input: { subagent_type: "a".repeat(200), prompt: content },
   };
   setToolCallExpanded(block.toolCallId, true);
   t.after(() => setToolCallExpanded(block.toolCallId, false));
   const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
   // A single-line value wraps in its cell; a value with lines of its own scrolls in a block.
+  assert.ok(html.includes("<table"));
   assert.match(html, /overflow-wrap:anywhere/);
+  assert.match(html, /calc\(12px \+ var\(--chat-font-size-offset, 0px\)\)/);
   assert.match(html, /max-height:260px/);
   assert.match(html, /overflow:auto/);
   assert.ok(textOf(html).includes("line 39"));
