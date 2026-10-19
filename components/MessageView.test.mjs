@@ -893,3 +893,40 @@ test("the layout is the viewport's choice, taken once for both the patch input a
   assert.match(source, /const layout: PatchDiffLayout = useIsMobile\(\) \? "stacked" : "split";/);
   assert.equal(countIn(source, "<SplitFilesView"), 2);
 });
+
+test("one column numbers a removed line by the old file and every other line by the new one", () => {
+  const stacked = renderPatchFiles(parseUnifiedPatch(`--- a/src/demo.ts
++++ b/src/demo.ts
+@@ -10,3 +10,4 @@
+ const keep = true;
+-const value = "old";
++const value = "new";
++const extra = 1;
+ done();
+@@ -30,1 +31,1 @@
+-late
++LATE
+`), "stacked");
+
+  const gutter = [...stacked.matchAll(/width:42px[^>]*>(\d*)</g)].map((match) => match[1]);
+  // done() is old line 12 but new line 13: the new file's number, as in the file viewer's gutter.
+  assert.deepEqual(gutter, ["10", "11", "11", "12", "13", "30", "31"]);
+  // The lines between the hunks stay marked, as in the two-column view.
+  assert.equal(countIn(stacked, "⋯ 17 unchanged lines"), 1);
+});
+
+test("one column names a deleted file's section by its old path", () => {
+  const html = renderPatchFiles(parseUnifiedPatch(`--- a/gone.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-bye
+--- a/kept.ts
++++ b/kept.ts
+@@ -1 +1 @@
+-a
++b
+`), "stacked");
+
+  assert.ok(html.includes(">a/gone.ts<"));
+  assert.ok(!html.includes("/dev/null"));
+});

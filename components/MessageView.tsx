@@ -1488,9 +1488,10 @@ function DiffGapRow({ gap }: { gap: SplitDiffGap }) {
   );
 }
 
-/** The file a stacked section is named for; the new path, which is the one that survives. */
+/** The file a stacked section is named for: the new path, the one that survives, unless the file was deleted. */
 function stackedFilePath(file: SplitDiffFile): string {
-  return file.newPath || file.oldPath || "";
+  if (file.newPath && file.newPath !== "/dev/null") return file.newPath;
+  return file.oldPath || file.newPath || "";
 }
 
 function StackedDiffLineView({ line }: { line: UnifiedDiffLine }) {
@@ -1499,7 +1500,7 @@ function StackedDiffLineView({ line }: { line: UnifiedDiffLine }) {
       side="right"
       cell={{
         // One gutter, so a removed line keeps the old number and everything else the new one.
-        lineNo: line.oldLineNo ?? line.newLineNo,
+        lineNo: line.type === "removed" ? line.oldLineNo : line.newLineNo,
         text: line.text,
         type: line.type,
       }}
