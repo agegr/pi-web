@@ -65,6 +65,21 @@ async function git(cwd: string, args: string[], timeoutMs = 10_000): Promise<str
   return stdout.trim();
 }
 
+/**
+ * The one deterministic `rev-parse` failure: a directory outside any
+ * repository is its own project, an answer as cacheable as a resolved repo.
+ * Every other failure — fd exhaustion, timeouts, an unreadable or broken
+ * .git — is transient and must never be cached as project identity (the
+ * phantom-project bug). git() pins LC_ALL=C, so matching this text is stable;
+ * the DELETE route already matches git error text the same way.
+ */
+function isNotARepositoryError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const { code, stderr } = error as { code?: unknown; stderr?: unknown };
+  return code === 128
+    && /not a git repository \(or any of the parent directories/.test(String(stderr ?? ""));
+}
+
 function realPathOrSelf(filePath: string): string {
   try {
     return realpathSync(filePath);
@@ -126,6 +141,10 @@ export function inferRemovedWorktree(cwd: string): ProjectInfo | null {
  * every project cwd) therefore never wait on git subprocesses once a cwd has
  * been resolved once. Concurrent refreshes for the same cwd share one promise.
  * add/removeWorktree invalidate eagerly via invalidateProjectCache().
+ *
+ * Transient git failures are the exception: the caller gets a cwd-only
+ * fallback for that request only, never cached, so a failing git cannot pin
+ * a phantom project identity (and the error is logged).
  */
 export async function resolveProject(cwd: string): Promise<ProjectInfo> {
   const cache = getProjectCache();
@@ -139,7 +158,17 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     return cached.info;
   }
 
-  const info = await resolveProjectUncached(cwd);
+  let info: ProjectInfo;
+  try {
+    info = await resolveProjectUncached(cwd);
+  } catch (error) {
+    // Transient git failure (fd exhaustion, timeout, permission, ...): serve a
+    // cwd-only fallback for this request only — never cached, so it cannot
+    // become a lasting project identity, and logged so the cause stays
+    // observable. The next request retries.
+    console.error(`[pi-web] resolveProject: git failed for ${cwd}; using uncached cwd-only fallback`, error);
+    return { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
+  }
   cache.set(cwd, { info, expiresAt: Date.now() + PROJECT_CACHE_TTL_MS });
   return info;
 }
@@ -195,7 +224,10 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
       isWorktree: isWorktreeTopLevel,
       isTopLevel,
     };
-  } catch {
+  } catch (error) {
+    // Only "not inside any repository" is deterministic; every other git
+    // failure propagates so resolveProject can keep it out of the cache.
+    if (!isNotARepositoryError(error)) throw error;
     info = { projectRoot: cwd, branch: null, isWorktree: false, isTopLevel: false };
   }
 
