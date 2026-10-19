@@ -4,7 +4,7 @@ import { createContext, memo, useContext, useMemo, type ComponentProps, type Mou
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
-import { isExternalMarkdownHref, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
@@ -117,6 +117,16 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         return (
           <MarkdownLinkContext.Provider value={true}>
             <a {...props} role="link" tabIndex={0} onClick={navigate} onKeyDown={(event) => { if (event.key === "Enter") navigate(); }}>
+              {children}
+            </a>
+          </MarkdownLinkContext.Provider>
+        );
+      }
+      if (href?.startsWith("#")) {
+        // An in-page link: never a second tab of Pi Web.
+        return (
+          <MarkdownLinkContext.Provider value={true}>
+            <a href={href} {...props} onClick={jumpToMarkdownFragment}>
               {children}
             </a>
           </MarkdownLinkContext.Provider>

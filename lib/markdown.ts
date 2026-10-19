@@ -57,6 +57,45 @@ export function isExternalMarkdownHref(href: string | undefined): boolean {
   return Boolean(href && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href));
 }
 
+interface MarkdownFragmentClick {
+  defaultPrevented: boolean;
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  currentTarget: Pick<Element, "getAttribute" | "closest">;
+  preventDefault(): void;
+}
+
+/**
+ * A click on a `#fragment` link in rendered Markdown: brings the element it
+ * names into view within the same rendered document (the closest
+ * `.markdown-body`), as the Skills reader does with its headings. The browser's
+ * own jump searches the whole page, where every chat message with a footnote
+ * has its own `user-content-user-content-fn-1` and the file preview sits beside
+ * the chat, so it could land in another message; it would also put the
+ * fragment in the app's URL as a history entry. Modified clicks stay the
+ * browser's.
+ */
+export function jumpToMarkdownFragment(event: MarkdownFragmentClick): void {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const href = event.currentTarget.getAttribute("href");
+  if (!href?.startsWith("#")) return;
+  event.preventDefault();
+  let id = href.slice(1);
+  if (!id) return;
+  try {
+    id = decodeURIComponent(id);
+  } catch {
+    // A malformed escape is matched as written.
+  }
+  const name = CSS.escape(id);
+  event.currentTarget.closest(".markdown-body")
+    ?.querySelector(`[id="${name}"], a[name="${name}"]`)
+    ?.scrollIntoView({ block: "start" });
+}
+
 /**
  * `value.replace(pattern, replace)` as if `pattern` began with the lookbehind
  * `(?<![notAfter])`: a match starts with `opener` and must not follow any
