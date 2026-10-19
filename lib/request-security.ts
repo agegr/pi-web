@@ -65,7 +65,27 @@ function getRequestOrigin(request: Request): string | null {
   return host ? canonicalOrigin(`${requestUrl.protocol}//${host}`) : null;
 }
 
-function isUserInitiatedSessionExportNavigation(request: Request): boolean {
+function isPdfFileReadUrl(url: URL): boolean {
+  if (!url.pathname.startsWith("/api/files/") || url.searchParams.get("type") !== "read") return false;
+  const lastSegment = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+  try {
+    return decodeURIComponent(lastSegment).toLowerCase().endsWith(".pdf");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A top-level GET the user clicked can arrive marked cross-site with no Origin
+ * when the page holding the link has an opaque origin: a PWA's own window
+ * opening the session export, or Android Chrome's `data:` placeholder for a PDF
+ * it will not render in the viewer's iframe (#1298). Only routes with no side
+ * effect whose response cannot run script in the Pi Web origin qualify: the
+ * export page (framing denied) and `type=read` of a `.pdf`, which the route
+ * always serves as `application/pdf` with nosniff. The opening page cannot
+ * read either response.
+ */
+function isUserInitiatedDocumentNavigation(request: Request): boolean {
   if (
     request.method !== "GET"
     || request.headers.get("sec-fetch-mode") !== "navigate"
@@ -76,7 +96,8 @@ function isUserInitiatedSessionExportNavigation(request: Request): boolean {
   }
 
   try {
-    return /^\/api\/sessions\/[^/]+\/export$/.test(new URL(request.url).pathname);
+    const url = new URL(request.url);
+    return /^\/api\/sessions\/[^/]+\/export$/.test(url.pathname) || isPdfFileReadUrl(url);
   } catch {
     return false;
   }
@@ -150,7 +171,7 @@ export function isApiRequestAllowed(
   configuredHostnames = configuredHostnamesFromEnvironment(),
 ): boolean {
   if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
-  if (isUserInitiatedSessionExportNavigation(request)) return true;
+  if (isUserInitiatedDocumentNavigation(request)) return true;
   return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
 }
 

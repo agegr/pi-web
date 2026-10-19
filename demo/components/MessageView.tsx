@@ -9,7 +9,7 @@ import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
-import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
+import { diffGapLabel, parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
@@ -1292,6 +1292,24 @@ function SplitFilesView({ files }: { files: SplitDiffFile[] }) {
             {file.rows.map((row, rowIndex) => {
               if (row.type === "hunk") {
                 return null;
+              }
+              if (row.type === "gap") {
+                return (
+                  <div
+                    key={rowIndex}
+                    style={{
+                      gridColumn: "1 / -1",
+                      padding: "0 10px",
+                      color: "var(--text-dim)",
+                      background: "var(--bg-panel)",
+                      borderTop: "1px solid var(--border)",
+                      borderBottom: "1px solid var(--border)",
+                      userSelect: "none",
+                    }}
+                  >
+                    {row.count === null ? "⋯" : `⋯ ${diffGapLabel(row.count, t)}`}
+                  </div>
+                );
               }
 
               return (

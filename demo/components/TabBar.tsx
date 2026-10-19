@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
@@ -29,14 +29,42 @@ interface Props {
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // The strip has no scrollbar (globals.css), so a vertical wheel scrolls it
+  // sideways. Non-passive: the page must not scroll as well.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX) || list.scrollWidth <= list.clientWidth) return;
+      event.preventDefault();
+      list.scrollLeft += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? list.clientWidth : 1);
+    };
+    list.addEventListener("wheel", onWheel, { passive: false });
+    return () => list.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Bring an opened or selected tab into view by moving the strip only:
+  // scrollIntoView could also scroll the panels around it.
+  useEffect(() => {
+    const list = listRef.current;
+    const tab = list?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!list || !tab) return;
+    const strip = list.getBoundingClientRect();
+    const { left, right } = tab.getBoundingClientRect();
+    if (left < strip.left) list.scrollLeft -= strip.left - left;
+    else if (right > strip.right) list.scrollLeft += right - strip.right;
+  }, [activeTabId, tabs.length]);
 
   return (
     <div
+      ref={listRef}
       role="tablist"
+      className="tabbar-scroll"
       style={{
-        // The tabs fill the scrollport, not a fixed 36px: once they overflow,
-        // the app's scrollbar (globals.css) takes its height out of the bar,
-        // and 36px tabs were pushed up past its top and clipped (#1225).
+        // The scrollbar is hidden (globals.css): it would take its height out
+        // of the 36px bar, squeezing the tabs or clipping their tops (#1225).
         display: "flex",
         alignItems: "stretch",
         background: "var(--bg-panel)",

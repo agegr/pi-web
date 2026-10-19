@@ -492,6 +492,16 @@ html.dark .web-login-error {
   }
 }
 
+/* The file panel's tab strip hides its scrollbar: a scrollbar takes its height
+   out of the 36px bar and squeezes the tabs (#1225). A wheel, a swipe or the
+   arrow keys scroll it, and TabBar keeps the active tab in view. */
+.tabbar-scroll {
+  scrollbar-width: none;
+}
+.tabbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 /* The terminal keeps its dark surface in every theme, so --text-dim (a dark
    grey in the light themes) would disappear against it. */
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {

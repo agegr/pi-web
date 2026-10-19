@@ -3,9 +3,9 @@ import { checkFontPreferences } from "./font-preferences.mjs";
 
 export async function checkChatAppearanceReset(page) {
   const width = page.getByRole("slider", { name: "Chat content width", exact: true });
-  const fontSize = page.getByRole("slider", { name: "Chat font size", exact: true });
+  const fontSize = page.getByRole("slider", { name: "Chat & terminal font size", exact: true });
   const resetWidth = page.getByRole("button", { name: "Reset chat content width", exact: true });
-  const resetFontSize = page.getByRole("button", { name: "Reset chat font size", exact: true });
+  const resetFontSize = page.getByRole("button", { name: "Reset chat & terminal font size", exact: true });
   await width.press("End");
   await fontSize.press("End");
   await resetWidth.click();
@@ -38,7 +38,7 @@ export async function checkChatAppearance(page) {
   const openSettings = () => page.getByRole("button", { name: "Settings", exact: true }).click();
   const closeSettings = () => page.keyboard.press("Escape");
   const width = page.getByRole("slider", { name: "Chat content width", exact: true });
-  const fontSize = page.getByRole("slider", { name: "Chat font size", exact: true });
+  const fontSize = page.getByRole("slider", { name: "Chat & terminal font size", exact: true });
   const font = (locator) => locator.evaluate((el) => getComputedStyle(el).fontSize);
   const fittedHeight = async () => {
     await page.waitForFunction(() => {

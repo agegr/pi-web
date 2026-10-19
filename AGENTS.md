@@ -50,7 +50,7 @@ app/api/
   sessions/[id]/auto-name/route.ts POST generate a session title
   sessions/search/route.ts         GET session search
   agent/new/route.ts               POST { cwd, type: prompt|ensure_session (start only), message?, toolNames?, provider?, modelId?, thinkingLevel? }
-  agent/[id]/route.ts              GET state | POST any command
+  agent/[id]/route.ts              GET state (?systemPrompt=0: without the prompt) | POST any command
   agent/[id]/events/route.ts       GET SSE stream
   agent/running/route.ts           GET running + awaiting-input session ids, sidebar pins/archive revision
   auth/api-key/[provider]/route.ts POST/DELETE stored provider API key
@@ -253,7 +253,7 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read every
 - [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, the source view's languages by extension, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`.
 - [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
 - [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent viewer tab. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SubagentViewer.tsx`, `components/subagent-viewer-state.ts`.
-- [client-platform.md](docs/agents/client-platform.md): mobile software keyboard and viewport height, the terminal's extra keys and its own dark/light theme, completion sound. Files: `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, the keyboard-open CSS.
+- [client-platform.md](docs/agents/client-platform.md): mobile software keyboard and viewport height, the terminal's extra keys, its own dark/light theme and its font size following the chat's, completion sound. Files: `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, `terminalFontSize()` in `hooks/useChatAppearance.ts`, the keyboard-open CSS.
 
 ---
 

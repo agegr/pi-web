@@ -137,7 +137,7 @@ export interface AgentSessionLike {
   readonly model: ModelLike | undefined;
   readonly modelRuntime: {
     getModel: (provider: string, modelId: string) => ModelLike | undefined;
-    refresh: (options?: { allowNetwork?: boolean }) => Promise<unknown>;
+    refresh: (options?: { allowNetwork?: boolean; providers?: string[]; signal?: AbortSignal }) => Promise<unknown>;
   };
   readonly sessionManager: SessionManager;
   readonly settingsManager: SettingsManager;

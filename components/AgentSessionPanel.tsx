@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { countRunningSubagents } from "@/lib/session-family";
 import type { SessionUsageSummary } from "@/lib/session-stats";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
@@ -295,7 +296,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
           .some((value) => value?.toLowerCase().includes(normalizedQuery));
       })
     : sortedSubagents;
-  const runningCount = subagents.filter((session) => runningSessionIds.has(session.id)).length;
+  const runningCount = countRunningSubagents(subagents, runningSessionIds);
   const familyIds = useMemo(() => [rootSession.id, ...subagents.map((session) => session.id)], [rootSession.id, subagents]);
   const runningKey = familyIds.filter((id) => runningSessionIds.has(id)).join(",");
   const usage = useAgentUsage(familyIds, runningKey);
