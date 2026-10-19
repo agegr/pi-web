@@ -2681,10 +2681,36 @@ span.token.table {
   outline-offset: -3px;
 }
 
+/* The strip at a phone's left edge that a swipe pulls the drawer in from (or
+   goes back from, over the full-screen file panel). It sits above the chat but
+   below the drawer, only exists on the mobile breakpoint, and only for a
+   finger: with a mouse there is no swipe, and no dead column either.
+   AppShell turns its pointer events on and off with the drawer's state. */
+.sidebar-edge-swipe {
+  display: none;
+}
+
 /* Mobile sidebar: slide in/out as overlay */
 @media (max-width: 640px) {
   .chat-stats-center {
     display: none !important;
+  }
+  .sidebar-edge-swipe {
+    display: block;
+    position: fixed;
+    /* Below the top bar: the drawer's own button there stays a tap target. */
+    top: calc(36px + env(safe-area-inset-top));
+    left: 0;
+    bottom: 0;
+    /* In the chat's left gutter, where a tap has nothing to do. */
+    width: 16px;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  @media (pointer: fine) {
+    .sidebar-edge-swipe {
+      display: none;
+    }
   }
   .sidebar-container {
     position: fixed !important;
@@ -2695,6 +2721,9 @@ span.token.table {
     max-width: 85vw;
     height: var(--app-viewport-height, 100dvh);
     transition: transform 0.25s ease, box-shadow 0.25s ease;
+    /* Sideways movement belongs to the drawer's swipe-to-close
+       (hooks/useSwipePanel.ts); vertical movement still scrolls the list. */
+    touch-action: pan-y pinch-zoom;
   }
   .sidebar-container.sidebar-open {
     transform: translateX(0);

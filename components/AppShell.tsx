@@ -25,6 +25,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { useSwipePanel } from "@/hooks/useSwipePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
@@ -240,6 +241,10 @@ export function AppShell() {
   }, [rightPanelOpen, isMobile]);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
+  // The mobile touch gestures: the drawer's dim layer, the strip at the screen's
+  // left edge that starts a swipe, and the two panels the swipe moves.
+  const sidebarBackdropRef = useRef<HTMLDivElement | null>(null);
+  const sidebarSwipeEdgeRef = useRef<HTMLDivElement | null>(null);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
   const getResponsiveRightPanelWidth = useCallback(
@@ -293,6 +298,39 @@ export function AppShell() {
   });
   const reclampSidebarWidth = sidebarResizer.reclampWidth;
   const reclampRightPanelWidth = rightPanelResizer.reclampWidth;
+
+  // A gesture must not change the remembered desktop preference, and opening
+  // the drawer by swiping dismisses whatever the toolbar had open.
+  const handleSidebarSwipe = useCallback((open: boolean) => {
+    if (open) {
+      setActiveTopPanel(null);
+      setMobileToolbarMoreOpen(false);
+    }
+    setSidebarOpen(open);
+  }, []);
+  useSwipePanel({
+    enabled: isMobile && !rightPanelOpen,
+    open: sidebarOpen,
+    side: "left",
+    edgeOpens: true,
+    panelSwipe: true,
+    panelRef: sidebarResizer.panelRef,
+    backdropRef: sidebarBackdropRef,
+    edgeRef: sidebarSwipeEdgeRef,
+    onOpenChange: handleSidebarSwipe,
+  });
+  // On a phone the file panel covers the whole screen, so a swipe from the
+  // left edge is its back gesture, the way it is on the platform.
+  useSwipePanel({
+    enabled: isMobile && rightPanelOpen,
+    open: rightPanelOpen,
+    side: "right",
+    edgeOpens: false,
+    panelSwipe: false,
+    panelRef: rightPanelResizer.panelRef,
+    edgeRef: sidebarSwipeEdgeRef,
+    onOpenChange: setRightPanelOpen,
+  });
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   // Mobile drawer actions must not change the remembered desktop preference.
@@ -2146,8 +2184,20 @@ export function AppShell() {
       overflow: "hidden",
       background: "var(--bg)",
     }}>
+      {/* Left screen edge: a swipe here pulls the mobile drawer in, or goes back from the file panel. */}
+      <div
+        ref={sidebarSwipeEdgeRef}
+        className="sidebar-edge-swipe"
+        aria-hidden="true"
+        style={{
+          zIndex: rightPanelOpen ? 260 : 210,
+          pointerEvents: isMobile && (rightPanelOpen || !sidebarOpen) ? "auto" : "none",
+        }}
+      />
+
       {/* Mobile overlay backdrop */}
       <div
+        ref={sidebarBackdropRef}
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
         onClick={() => setSidebarOpen(false)}
         style={{

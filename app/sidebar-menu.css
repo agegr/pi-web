@@ -446,6 +446,9 @@
   box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
   font-size: 15px;
   animation: sidebar-sheet-in 0.12s ease-out;
+  /* Swiping the sheet down dismisses it (components/SidebarMenu.tsx); this
+     finishes the release, and lets a drag that falls short spring back. */
+  transition: transform 0.16s ease, opacity 0.16s ease;
 }
 
 .sidebar-sheet:focus {
@@ -710,6 +713,9 @@ html[data-keyboard-open] .sidebar-sheet {
   .sidebar-sheet-backdrop,
   .sidebar-toast {
     animation: none;
+  }
+  .sidebar-sheet {
+    transition: none;
   }
 }
 

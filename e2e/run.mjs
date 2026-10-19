@@ -19,6 +19,7 @@ import { checkModelSelector } from "./model-selector.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
+import { checkMobileGestures } from "./mobile-gestures.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -485,6 +486,21 @@ try {
     await checkFilePanel(page, previewFile);
     await checkExtensionDialogs(page, artifacts, viewport.width);
     await checkExtensionDialogSizing(page, viewport.width);
+    if (viewport.width <= 600) {
+      // A touch context, apart from the mouse one: hasTouch makes the phone's
+      // coarse-pointer styles and CDP touch gestures behave like a finger's.
+      const touchContext = await browser.newContext({ viewport, hasTouch: true, locale: "en-US" });
+      const touchPage = await touchContext.newPage();
+      touchPage.setDefaultTimeout(30_000);
+      const touchErrors = [];
+      touchPage.on("pageerror", (error) => touchErrors.push(error.message));
+      touchPage.on("console", (event) => { if (event.type() === "error") touchErrors.push(event.text()); });
+      await touchPage.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
+      await touchPage.locator(".markdown-code-block pre").waitFor();
+      await checkMobileGestures(touchPage, previewFile);
+      assert.deepEqual(touchErrors, [], `Browser errors in the touch context at width ${viewport.width}`);
+      await touchContext.close();
+    }
     if (viewport.width > 600) {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();

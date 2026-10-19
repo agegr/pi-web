@@ -60,6 +60,12 @@ Coverage:
   still need real-device verification.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
+- Touch gestures (`mobile-gestures.mjs`, its own `hasTouch` context at 390px,
+  driven through CDP touch events): a swipe from the left edge opens the
+  drawer and it follows the finger, a swipe left closes it, a short drag, a tap
+  and a vertical drag leave it closed, a row menu's bottom sheet is dismissed
+  by a pull from its top and springs back on a short one, and over the
+  full-screen file panel the edge swipe closes it instead.
 
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under

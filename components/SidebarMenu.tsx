@@ -2,6 +2,14 @@
 
 import { Children, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
+import {
+  SHEET_EXIT_MS,
+  SWIPE_VELOCITY_WINDOW_MS,
+  readSwipeIntent,
+  sheetDismisses,
+  velocityOf,
+  type SwipeSample,
+} from "@/lib/swipe-gesture";
 import { CheckIcon } from "./SidebarIcons";
 
 /**
@@ -76,7 +84,7 @@ export type SidebarMenuAnchor =
   | { kind: "point"; x: number; y: number }
   | { kind: "rect"; rect: { left: number; top: number; right: number; bottom: number }; align: "start" | "end" };
 
-export type SidebarMenuCloseReason = "escape" | "outside" | "select" | "cancel";
+export type SidebarMenuCloseReason = "escape" | "outside" | "select" | "cancel" | "swipe";
 
 /**
  * A field above the items that narrows the menu's choices (the items with
@@ -769,6 +777,152 @@ export function SidebarMenu({
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [visible, sheet]);
+
+  // A phone's sheet is pulled down to dismiss it, the way a native sheet is.
+  // Only from its top: below that a downward drag scrolls the sheet as usual.
+  // The touchmove listener arrives with the touch and is not passive, so the
+  // first clearly downward move can stop the browser from scrolling the sheet
+  // and keep the gesture for the dismissal.
+  useEffect(() => {
+    if (!visible || !sheet) return;
+    const currentSurface = surfaceRef.current;
+    if (!currentSurface) return;
+    // A non-null local: the touch handlers below are hoisted functions, and TS
+    // does not carry the check's narrowing into them.
+    const surface: HTMLDivElement = currentSurface;
+    const dim = surface.parentElement?.querySelector<HTMLElement>(".sidebar-sheet-backdrop") ?? null;
+    let touch: {
+      identifier: number;
+      startX: number;
+      startY: number;
+      height: number;
+      claimed: boolean;
+      travel: number;
+      samples: SwipeSample[];
+    } | null = null;
+    let exitTimer: number | null = null;
+
+    const stop = () => {
+      touch = null;
+      surface.removeEventListener("touchmove", onTouchMove);
+      surface.removeEventListener("touchend", onTouchEnd);
+      surface.removeEventListener("touchcancel", onTouchCancel);
+    };
+
+    const settleBack = () => {
+      surface.style.transition = "";
+      surface.style.transform = "";
+      if (dim) {
+        dim.style.transition = "";
+        dim.style.opacity = "";
+      }
+    };
+
+    function onTouchStart(event: TouchEvent) {
+      if (touch) {
+        // A second finger is a pinch, not a dismiss.
+        if (event.touches.length > 1) {
+          if (touch.claimed) settleBack();
+          stop();
+        }
+        return;
+      }
+      if (event.touches.length !== 1 || surface.scrollTop > 0) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      const point = event.touches[0];
+      touch = {
+        identifier: point.identifier,
+        startX: point.clientX,
+        startY: point.clientY,
+        height: surface.getBoundingClientRect().height,
+        claimed: false,
+        travel: 0,
+        samples: [{ travel: 0, time: event.timeStamp }],
+      };
+      surface.addEventListener("touchmove", onTouchMove, { passive: false });
+      surface.addEventListener("touchend", onTouchEnd);
+      surface.addEventListener("touchcancel", onTouchCancel);
+    }
+
+    function onTouchMove(event: TouchEvent) {
+      const current = touch;
+      if (!current) return;
+      const point = Array.from(event.touches).find((item) => item.identifier === current.identifier);
+      if (!point) return;
+      if (!current.claimed) {
+        if (surface.scrollTop > 0) {
+          stop();
+          return;
+        }
+        const dx = point.clientX - current.startX;
+        const dy = point.clientY - current.startY;
+        const intent = readSwipeIntent(dx, dy);
+        if (intent === "pending") return;
+        if (intent === "horizontal" || dy <= 0) {
+          // Sideways, or up into the sheet's own scroll.
+          stop();
+          return;
+        }
+        current.claimed = true;
+        surface.style.transition = "none";
+        // The entrance animation holds transform and opacity; the finger takes them over.
+        surface.style.animation = "none";
+        if (dim) {
+          dim.style.transition = "none";
+          dim.style.animation = "none";
+        }
+      }
+      if (event.cancelable) event.preventDefault();
+      current.travel = Math.max(0, point.clientY - current.startY);
+      current.samples.push({ travel: current.travel, time: event.timeStamp });
+      while (current.samples.length > 2 && event.timeStamp - current.samples[1].time > SWIPE_VELOCITY_WINDOW_MS) {
+        current.samples.shift();
+      }
+      surface.style.transform = `translateY(${current.travel}px)`;
+      if (dim) dim.style.opacity = String(Math.max(0, 1 - current.travel / current.height));
+    }
+
+    function onTouchEnd(event: TouchEvent) {
+      const current = touch;
+      if (!current) return;
+      if (!Array.from(event.changedTouches).some((item) => item.identifier === current.identifier)) return;
+      if (!current.claimed) {
+        stop();
+        return;
+      }
+      const velocity = velocityOf(current.samples, event.timeStamp);
+      stop();
+      if (!sheetDismisses({ travel: current.travel, height: current.height, velocity })) {
+        settleBack();
+        return;
+      }
+      // The sheet leaves the way it came in, then the parent unmounts it.
+      surface.style.transition = "";
+      surface.style.transform = "translateY(100%)";
+      surface.style.opacity = "0";
+      if (dim) {
+        dim.style.transition = "";
+        dim.style.opacity = "0";
+      }
+      exitTimer = window.setTimeout(() => {
+        exitTimer = null;
+        onCloseRef.current("swipe");
+      }, SHEET_EXIT_MS);
+    }
+
+    function onTouchCancel() {
+      if (touch?.claimed) settleBack();
+      stop();
+    }
+
+    surface.addEventListener("touchstart", onTouchStart, { passive: true });
+    return () => {
+      surface.removeEventListener("touchstart", onTouchStart);
+      stop();
+      if (exitTimer !== null) window.clearTimeout(exitTimer);
+    };
   }, [visible, sheet]);
 
   if (!visible || !portalTarget) return null;
