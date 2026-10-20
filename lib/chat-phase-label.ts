@@ -1,11 +1,12 @@
 import type { AgentPhase } from "@/hooks/useAgentSession";
 
 /**
- * The phase a coarse run state (`GET /api/sessions/[id]/state`, a `connected`
- * event) implies. A tool call the client already knows is running outranks it:
- * the state only says the run is active, and reporting "waiting for model" while
- * a tool executes blames provider latency for tool time. The stream replays a
- * running call after `connected`, so keeping the phase costs nothing.
+ * The phase a state read (`GET /api/sessions/[id]/state`, `GET /api/agent/[id]`)
+ * implies. A tool call the stream already reported running outranks it: the
+ * state only says the run is active, and a read landing after `connected` and
+ * the replay of the running calls would otherwise say "waiting for model" for
+ * the rest of a tool that sends nothing more. `connected` itself starts from no
+ * tools, since the replay that follows it lists every call still running.
  */
 export function runStatePhase(prev: AgentPhase, isStreaming: boolean): AgentPhase {
   if (prev?.kind === "running_tools" && prev.tools.length > 0) return prev;

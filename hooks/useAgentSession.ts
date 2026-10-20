@@ -1538,7 +1538,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           sdkAgentActiveRef.current = true;
           agentRunningRef.current = true;
           setAgentRunning(true);
-          setAgentPhase((prev) => runStatePhase(prev, true));
+          // The server replays every tool call still running right after this
+          // event, so start from none: a call that ended while the stream was
+          // down must not stay listed.
+          setAgentPhase({ kind: "waiting_model" });
         }
         // Opening the stream is what resumes an idle-reaped session, so the
         // mount's state read may have found no runtime and no usage to show.
