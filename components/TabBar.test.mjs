@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createJiti } from "jiti";
 
@@ -23,10 +24,14 @@ function styles(html, role) {
     })));
 }
 
-test("the tabs fill the bar above its scrollbar instead of overflowing it upward", () => {
-  // Overflowing tabs show the app's 10px (6px on touch) scrollbar inside the
-  // 36px bar; 36px tabs aligned to its end were pushed up and clipped (#1225).
+test("overflowing tabs keep the whole 36px bar: the strip has no scrollbar", () => {
+  // The app's 10px (6px on touch) scrollbar took its height out of the 36px
+  // bar: 36px tabs were clipped (#1225), stretched ones squeezed to 26px.
   const html = renderTabBar(12);
+  assert.match(html, /<div role="tablist" class="tabbar-scroll"/);
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.tabbar-scroll \{\s*scrollbar-width: none;\s*\}/);
+  assert.match(css, /\.tabbar-scroll::-webkit-scrollbar \{\s*display: none;\s*\}/);
   const [list] = styles(html, "tablist");
   assert.equal(list.height, "36px");
   assert.equal(list["overflow-x"], "auto");

@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
@@ -38,6 +38,19 @@ test("preserves pasted HTML links as Markdown without changing plain text layout
     "Engineer and [Engineer](https://example.com/job)",
   );
   assert.equal(replaceLinksWithMarkdown("plain text", [link("missing", "https://example.com")]), null);
+});
+
+test("a phone stacks the streaming buttons under the draft instead of beside it", () => {
+  // Two buttons in the draft's row leave the placeholder about 150px on a 360px
+  // phone. Only a streaming run has those buttons; idle keeps the icon-only send
+  // button in the row, and a desktop has width for the row either way.
+  assert.equal(stacksComposerLayout(false, false, false), false);
+  assert.equal(stacksComposerLayout(false, false, true), false);
+  assert.equal(stacksComposerLayout(false, true, false), false);
+  assert.equal(stacksComposerLayout(false, true, true), true);
+  // Quote mode always stacks: it is a short excerpt, whichever platform shows it.
+  assert.equal(stacksComposerLayout(true, false, false), true);
+  assert.equal(stacksComposerLayout(true, true, false), true);
 });
 
 test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
@@ -471,17 +484,50 @@ test("shows and locks the optimistic model while a switch is pending", () => {
   assert.match(html, /animation:spin 0\.8s linear infinite/);
 });
 
-test("filters model options by name and id", () => {
+test("the live model selector can reapply its current model without changing draft-field selection behavior", () => {
+  const source = ts.createSourceFile("ModelSelector.tsx", readFileSync(new URL("./ModelSelector.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findChoose(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "choose") return node.initializer;
+    return ts.forEachChild(node, findChoose);
+  }
+  const script = new Script(ts.transpileModule(findChoose(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+  const option = { provider: "fixture", modelId: "same-id", name: "Fixture" };
+  for (const [active, automatic, live, expected] of [
+    [true, false, true, "reselect"],
+    [true, false, false, null],
+    [true, true, true, "change"],
+    [false, false, true, "change"],
+  ]) {
+    const calls = [];
+    const choose = script.runInNewContext({
+      value: active ? option : null, isAutoSelection: automatic,
+      setOpen: (value) => calls.push(["open", value]),
+      setFilter: (value) => calls.push(["filter", value]),
+      onChange: (provider, id) => calls.push(["change", provider, id]),
+      onReselect: live ? (provider, id) => calls.push(["reselect", provider, id]) : undefined,
+    });
+    choose(option);
+    assert.deepEqual(calls, [["open", false], ["filter", ""], ...(expected ? [[expected, option.provider, option.modelId]] : [])]);
+  }
+  assert.match(readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), /onReselect=\{onModelChange\}/);
+});
+
+test("filters model options by name, id, provider and provider/id", () => {
   const options = [
     { provider: "ollama", modelId: "qwen3:latest", name: "Qwen 3" },
     { provider: "anthropic", modelId: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
     { provider: "openai", modelId: "gpt-5.4", name: "GPT-5.4" },
+    { provider: "relay-a", modelId: "gpt-5.4", name: "GPT-5.4" },
   ];
 
   assert.deepEqual(filterModelOptions(options, "QWEN"), [options[0]]);
   assert.deepEqual(filterModelOptions(options, "claude-sonnet"), [options[1]]);
-  assert.equal(filterModelOptions(options, "OpenAI").length, 0);
-  assert.equal(filterModelOptions(options, "anthropic/claude").length, 0);
+  assert.deepEqual(filterModelOptions(options, "OpenAI"), [options[2]]);
+  assert.deepEqual(filterModelOptions(options, " anthropic/claude "), [options[1]]);
+  assert.deepEqual(filterModelOptions(options, "Relay-A/GPT"), [options[3]]);
+  assert.deepEqual(filterModelOptions(options, "gpt-5.4"), [options[2], options[3]]);
   assert.equal(filterModelOptions(options, "missing").length, 0);
   assert.equal(filterModelOptions(options, "  "), options);
 });

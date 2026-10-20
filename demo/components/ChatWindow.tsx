@@ -418,7 +418,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       t("chat.quoteIntro"),
       t("chat.quoteQuestion"),
     ));
-    window.getSelection()?.removeAllRanges();
+    // No `removeAllRanges()` here: inserting focuses the composer, and that
+    // focus already collapses the page's selection. Calling it afterwards also
+    // clears the composer's own selection and drops its caret to offset 0
+    // (#1319), so the quote would be typed in front of instead of after.
     closeQuotedSelection();
   }, [chatInputRef, quotedSelection, closeQuotedSelection, t]);
 

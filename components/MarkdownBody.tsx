@@ -4,7 +4,8 @@ import { createContext, memo, useContext, useMemo, type ComponentProps, type Mou
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
-import { isExternalMarkdownHref, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import { isAudioPath, isVideoPath } from "@/lib/file-types";
+import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
@@ -33,15 +34,25 @@ function MarkdownImage({
   delete props.node;
   const href = typeof src === "string" ? src : undefined;
   const filePath = href ? resolveLocalFileHref(href, cwd) : null;
-  const imageSrc = filePath
+  const mediaSrc = filePath
     ? `/api/files/${encodeFilePathForApi(filePath)}?type=read`
     : href;
+  // `![](take.wav)` is how a model shows a sound or clip it made, and an <img>
+  // cannot play it. The file API already streams both with range requests.
+  const mediaPath = filePath ?? href?.split(/[?#]/, 1)[0] ?? "";
+  const label = alt?.trim() ? alt : undefined;
+  if (isAudioPath(mediaPath)) {
+    return <audio controls preload="metadata" src={mediaSrc} aria-label={label} />;
+  }
+  if (isVideoPath(mediaPath)) {
+    return <video controls playsInline preload="metadata" src={mediaSrc} aria-label={label} />;
+  }
   // Dynamic local paths are served directly by the file API.
   // eslint-disable-next-line @next/next/no-img-element
-  const image = <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
-  if (!imageSrc || insideLink) return image;
+  const image = <img src={mediaSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+  if (!mediaSrc || insideLink) return image;
   return (
-    <ImagePreview src={imageSrc} alt={alt ?? ""} className="markdown-image">
+    <ImagePreview src={mediaSrc} alt={alt ?? ""} className="markdown-image">
       {image}
     </ImagePreview>
   );
@@ -117,6 +128,16 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         return (
           <MarkdownLinkContext.Provider value={true}>
             <a {...props} role="link" tabIndex={0} onClick={navigate} onKeyDown={(event) => { if (event.key === "Enter") navigate(); }}>
+              {children}
+            </a>
+          </MarkdownLinkContext.Provider>
+        );
+      }
+      if (href?.startsWith("#")) {
+        // An in-page link: never a second tab of Pi Web.
+        return (
+          <MarkdownLinkContext.Provider value={true}>
+            <a href={href} {...props} onClick={jumpToMarkdownFragment}>
               {children}
             </a>
           </MarkdownLinkContext.Provider>

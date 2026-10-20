@@ -73,7 +73,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
-import { getSessionFamily } from "@/lib/session-family";
+import { getAgentsBadge, getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
@@ -180,6 +180,10 @@ export function AppShell() {
       return ids;
     });
   }, []);
+  const agentsBadge = activeSessionFamily ? getAgentsBadge(activeSessionFamily.subagents, runningSessionIds) : null;
+  const agentsButtonLabel = agentsBadge?.running
+    ? translate("agentSwitcher.titleRunning", { count: agentsBadge.count })
+    : translate("agentSwitcher.title");
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
@@ -936,6 +940,16 @@ export function AppShell() {
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
+    // The fresh composer takes the caret once it renders (#1313), unless the
+    // move came from the new-session bar, whose control keeps focus instead
+    // (newSessionBarFocusRef), or a phone would raise the keyboard for it.
+    // A dialog still open over the page (Ctrl+Alt+N under Settings) keeps it.
+    if (!isMobile && !newSessionBarFocusRef.current) {
+      requestAnimationFrame(() => {
+        if (document.activeElement?.closest("[aria-modal='true']")) return;
+        chatInputRef.current?.focus();
+      });
+    }
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, isMobile, newSessionCwd, router, selectedSession]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
@@ -1684,12 +1698,12 @@ export function AppShell() {
             </button>
           );
         })()}
-        {hasSubagentSessions && (
+        {hasSubagentSessions && agentsBadge && (
           <button
             type="button"
             onClick={() => toggleTopPanel("agents", mobile)}
-            title={translate("agentSwitcher.title")}
-            aria-label={translate("agentSwitcher.title")}
+            title={agentsButtonLabel}
+            aria-label={agentsButtonLabel}
             aria-pressed={activeTopPanel === "agents"}
             style={{
               position: "relative",
@@ -1710,16 +1724,31 @@ export function AppShell() {
               <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
             </svg>
             {!mobile && <span>{translate("agentSwitcher.title")}</span>}
+            {/* While subagents run: their count, ringed by a spinner; otherwise all of them. */}
             <span
               aria-hidden="true"
               style={{
+                position: "relative",
                 minWidth: 15, height: 15, padding: "0 4px", display: "grid", placeItems: "center",
-                borderRadius: 7, background: "var(--bg-selected)", color: "var(--accent)",
+                borderRadius: 7,
+                background: agentsBadge.running ? "color-mix(in srgb, var(--accent) 22%, var(--bg-panel))" : "var(--bg-selected)",
+                color: "var(--accent)",
                 fontSize: 10, lineHeight: 1, fontVariantNumeric: "tabular-nums",
-                ...(mobile ? { position: "absolute", top: 2, right: 2, minWidth: 13, height: 13, padding: "0 3px", fontSize: 9 } : {}),
+                fontWeight: agentsBadge.running ? 600 : undefined,
+                ...(mobile ? { position: "absolute", top: 3, right: 3, minWidth: 13, height: 13, padding: "0 3px", fontSize: 9 } : {}),
               }}
             >
-              {activeSessionFamily!.subagents.length}
+              {agentsBadge.running && (
+                <svg
+                  className="animate-spin motion-reduce:animate-none"
+                  viewBox="0 0 24 24" fill="none" aria-hidden="true"
+                  style={{ position: "absolute", top: -3, left: -3, width: "calc(100% + 6px)", height: "calc(100% + 6px)", pointerEvents: "none" }}
+                >
+                  <circle cx="12" cy="12" r="11" stroke="currentColor" strokeWidth="2" opacity="0.2" />
+                  <path d="M23 12a11 11 0 0 0-11-11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              )}
+              {agentsBadge.count}
             </span>
           </button>
         )}

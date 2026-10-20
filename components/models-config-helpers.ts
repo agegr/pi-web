@@ -54,6 +54,19 @@ export function setCompatBool<T extends CompatEntry>(entry: T, key: string, valu
   };
 }
 
+/**
+ * Sets a compat flag whose default is off. The entry keeps the key only while
+ * it differs from what the entry inherits (the provider's value, else off), so
+ * switching it back leaves no override behind.
+ */
+export function setCompatFlag<T extends CompatEntry>(entry: T, key: string, value: boolean, inherited = false): T {
+  if (value !== inherited) return setCompatBool(entry, key, value);
+  if (!entry.compat || !Object.prototype.hasOwnProperty.call(entry.compat, key)) return entry;
+  const rest = { ...entry.compat };
+  delete rest[key];
+  return { ...entry, compat: Object.keys(rest).length ? rest : undefined };
+}
+
 export function updateHeaderRow(
   rows: readonly HeaderRow[],
   id: number,
@@ -167,4 +180,10 @@ export function renameProviderEntry<T extends ModelsConfigDraft>(
   const index = entries.findIndex(([name]) => name === oldName);
   entries[index] = [newName, entries[index][1]];
   return { ...config, providers: Object.fromEntries(entries) };
+}
+
+/** Add provider's search: a provider matches by its id or its shown name, case-insensitive. */
+export function providerMatchesSearch(search: string, id: string, label: string): boolean {
+  const query = search.trim().toLowerCase();
+  return !query || label.toLowerCase().includes(query) || id.toLowerCase().includes(query);
 }
