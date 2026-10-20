@@ -69,7 +69,7 @@ function eventStream(req: Request, subscriptions: Subscription[], stateOnly: boo
         if (subscription.error) {
           send(subscription.requestedCwd, { type: "error", error: subscription.error });
         } else if (subscription.cwd) {
-          unsubscribers.push(subscribeProjectDev(subscription.cwd, (event) => send(subscription.cwd, event)));
+          unsubscribers.push(subscribeProjectDev(subscription.cwd, (event) => send(subscription.requestedCwd, event)));
         }
       }
       if (closed) return;
