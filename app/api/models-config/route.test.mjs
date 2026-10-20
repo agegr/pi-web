@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -125,4 +125,27 @@ test("model-level endpoints round-trip through Save, override only that model, a
   const reset = await ModelRuntime.create(options);
   assert.equal(reset.getModel("relay", "one").baseUrl, "https://synthetic.invalid");
   assert.equal(reset.getModel("relay", "one").api, "openai-responses");
+});
+
+test("a symlinked models.json keeps its link: Save writes through it to its target", async () => {
+  const targetPath = join(testAgentDir, "models-target.json");
+  await writeFile(targetPath, JSON.stringify({ providers: { relay: { models: [{ id: "a" }] } } }));
+  await rm(modelsPath, { force: true });
+  await symlink(targetPath, modelsPath);
+
+  const draft = { providers: { relay: { models: [{ id: "a" }, { id: "b" }] } } };
+  assert.equal((await PUT(put(draft))).status, 200);
+  assert.deepEqual(await (await GET()).json(), draft);
+  assert.equal((await lstat(modelsPath)).isSymbolicLink(), true);
+  assert.deepEqual(JSON.parse(await readFile(targetPath, "utf8")), draft);
+});
+
+test("a dangling models.json symbolic link is refused instead of replaced", async () => {
+  await rm(modelsPath, { force: true });
+  await symlink(join(testAgentDir, "models-gone.json"), modelsPath);
+
+  const response = await PUT(put({ providers: {} }));
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /dangling symbolic link/);
+  assert.equal((await lstat(modelsPath)).isSymbolicLink(), true);
 });

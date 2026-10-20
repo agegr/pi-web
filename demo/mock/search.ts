@@ -1,4 +1,4 @@
-/** GET /api/sessions/search — plain substring search over message text. */
+/** GET /api/sessions/search — plain substring search over message text, then the session title. */
 import type { SessionEntry } from "@/lib/types";
 import { allSessions, sessionInfo } from "./sessions/store";
 
@@ -17,6 +17,7 @@ export async function searchSessions(query: string) {
   if (!needle) return { results, truncated: false };
   for (const session of allSessions()) {
     if (session.transient) continue;
+    const found = results.length;
     for (const entry of session.entries) {
       const blocks = blocksOf(entry);
       for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
@@ -34,7 +35,23 @@ export async function searchSessions(query: string) {
         if (results.length >= 50) return { results, truncated: true };
         break;
       }
+      if (results.length > found) break;
     }
+    // As lib/session-search.ts: the displayed title only when no message matched.
+    if (results.length > found) continue;
+    const info = sessionInfo(session);
+    const title = info.name || info.firstMessage;
+    const index = title.toLowerCase().indexOf(needle);
+    if (index < 0) continue;
+    results.push({
+      session: info,
+      blockIndex: 0,
+      titleMatch: true,
+      before: title.slice(0, index),
+      match: title.slice(index, index + needle.length),
+      after: title.slice(index + needle.length),
+    });
+    if (results.length >= 50) return { results, truncated: true };
   }
   return { results, truncated: false };
 }

@@ -37,6 +37,30 @@ export function handleGlobalEscape(event: KeyboardEvent): boolean {
   return true;
 }
 
+/**
+ * Whether a keydown is the Ctrl+Alt+N "new session" shortcut.
+ *
+ * The letter decides (`event.key`), so the shortcut follows the layout. Two
+ * platforms bend that:
+ * - macOS treats Option as a character-input modifier: `Option+N` is a dead
+ *   key (`˜`) in the U.S., ABC and British layouts, and Chrome reports
+ *   `key === "Dead"` with `ctrlKey`/`altKey` intact (#1335). A dead key types
+ *   nothing yet, so the physical key (`code === "KeyN"`) decides there.
+ * - Windows reports AltGr as Ctrl+Alt. When the combination types a character
+ *   (Polish AltGr+N is `ń`), that `key` is the user's text: matching `code`
+ *   alone would swallow it and open a session instead.
+ */
+export function isNewSessionShortcut(event: {
+  key: string;
+  code?: string | null;
+  ctrlKey: boolean;
+  altKey: boolean;
+}): boolean {
+  if (!event.ctrlKey || !event.altKey) return false;
+  if (event.key.toLowerCase() === "n") return true;
+  return event.key === "Dead" && event.code === "KeyN";
+}
+
 // ---------------------------------------------------------------------------
 // Hook: global keyboard shortcuts
 // ---------------------------------------------------------------------------
@@ -54,6 +78,7 @@ interface UseGlobalKeyboardShortcutsOptions {
  * Shortcuts handled here:
  *   Esc          – stop the running agent (via module-level abort handler)
  *   Ctrl+Alt+N   – create a new session in the active project directory
+ *                  (see `isNewSessionShortcut()` for macOS and AltGr)
  *
  * Note: Esc inside <textarea> or <input> is deliberately NOT handled here.
  * ChatInput manages its own Esc logic (closing slash / @ file menus, stopping
@@ -75,7 +100,7 @@ export function useGlobalKeyboardShortcuts(
       }
 
       // ---- Ctrl+Alt+N: new session ----
-      if (e.key === "n" && e.ctrlKey && e.altKey) {
+      if (isNewSessionShortcut(e)) {
         if (!activeCwd || !onNewSession) return;
         e.preventDefault();
         onNewSession(activeCwd);
