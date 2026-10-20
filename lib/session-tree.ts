@@ -55,7 +55,7 @@ export interface SidebarFamilyStatus { running: boolean; awaiting: boolean; unre
 
 export type SidebarRow =
   | { kind: "pinned-header"; key: "pinned-header"; count: number; collapsed: boolean; running: number; unread: number }
-  | { kind: "session"; key: string; family: SessionFamily; context: "pinned" | "group" | "archive"; project: SidebarProject; status: SidebarFamilyStatus; archivedAt: number | null }
+  | { kind: "session"; key: string; family: SessionFamily; context: "pinned" | "group" | "archive"; project: SidebarProject; status: SidebarFamilyStatus }
   | { kind: "pinned-more"; key: "pinned-more"; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group"; key: string; project: SidebarProject; expanded: boolean; running: number; unread: number }
   | { kind: "group-more"; key: string; projectKey: string; hidden: number; canShowLess: boolean; nextShown: number }
@@ -299,7 +299,6 @@ function sessionRow(
   context: "pinned" | "group" | "archive",
   project: SidebarProject,
   input: FamilyFlagsInput,
-  archivedAt: number | null,
 ): SidebarRow {
   return {
     kind: "session",
@@ -308,7 +307,6 @@ function sessionRow(
     context,
     project,
     status: familyStatus(family, input),
-    archivedAt,
   };
 }
 
@@ -452,7 +450,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
     if (!input.pinnedCollapsed) {
       const { visible, revealed, nextShown } = visibleFamilies(sorted, PINNED_VISIBLE_LIMIT, shownMoreFor(input.moreShown, PINNED_MORE_KEY), input);
       for (const family of visible) {
-        rows.push(sessionRow(family, "pinned", resolver.get(familyProjectKey(family)), input, null));
+        rows.push(sessionRow(family, "pinned", resolver.get(familyProjectKey(family)), input));
       }
       const more = moreRowState(sorted.length, visible.length, revealed);
       if (more) rows.push({ kind: "pinned-more", key: "pinned-more", ...more, nextShown });
@@ -525,7 +523,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
         rows.push({ kind: "group-empty", key: `empty:${project.key}`, project });
       } else {
         const { visible, revealed, nextShown } = visibleFamilies(groupFamilies, GROUP_VISIBLE_LIMIT, shownMoreFor(input.moreShown, project.key), input);
-        for (const family of visible) rows.push(sessionRow(family, "group", project, input, null));
+        for (const family of visible) rows.push(sessionRow(family, "group", project, input));
         const more = moreRowState(groupFamilies.length, visible.length, revealed);
         if (more) rows.push({ kind: "group-more", key: `more:${project.key}`, projectKey: project.key, ...more, nextShown });
       }
@@ -597,8 +595,8 @@ export function buildArchiveRows(
     const families = group.families
       .map((entry, index) => ({ ...entry, index }))
       .sort((a, b) => compareDesc(a.archivedAt, b.archivedAt) || a.index - b.index);
-    for (const { family, archivedAt } of families) {
-      rows.push(sessionRow(family, "archive", project, flags, archivedAt));
+    for (const { family } of families) {
+      rows.push(sessionRow(family, "archive", project, flags));
     }
   }
   return rows;

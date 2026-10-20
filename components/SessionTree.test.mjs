@@ -92,7 +92,7 @@ function session(id, extra = {}) {
 
 const project = { key: "/work/app", root: "/work/app", name: "app", pinned: false, current: true };
 
-function sessionRow(root, { context = "group", status = {}, archivedAt = null, rowProject = project } = {}) {
+function sessionRow(root, { context = "group", status = {}, rowProject = project } = {}) {
   return {
     kind: "session",
     key: `session:${context}:${root.id}`,
@@ -100,7 +100,6 @@ function sessionRow(root, { context = "group", status = {}, archivedAt = null, r
     context,
     project: rowProject,
     status: { running: false, awaiting: false, unread: false, selected: false, transient: false, ...status },
-    archivedAt,
   };
 }
 
@@ -260,7 +259,7 @@ test("every saved row's title links to its session, encoded, in every context an
   const cases = [
     [sessionRow(session("a/b?c&d #%")), "?session=a%2Fb%3Fc%26d%20%23%25"],
     [sessionRow(session("pin"), { context: "pinned" }), "?session=pin"],
-    [sessionRow(session("old"), { context: "archive", archivedAt: NOW }), "?session=old"],
+    [sessionRow(session("old"), { context: "archive" }), "?session=old"],
     [sessionRow(session("run"), { status: { running: true } }), "?session=run"],
     [sessionRow(session("ask"), { status: { running: true, awaiting: true } }), "?session=ask"],
     [sessionRow(session("new"), { status: { unread: true } }), "?session=new"],
@@ -285,13 +284,15 @@ test("every saved row's title links to its session, encoded, in every context an
   assert.doesNotMatch(rowMarkup(render({ rows: [sessionRow(session("d"))], confirmDeleteRootId: "d" }), "session:group:d"), /<a /);
 });
 
-test("pinned rows name their project and archived rows offer restore with the archive time", () => {
+test("pinned rows name their project and archived rows offer restore with the family's time", () => {
   const pinned = rowMarkup(render({ rows: [sessionRow(session("pin"), { context: "pinned" })] }), "session:pinned:pin");
   assert.match(pinned, /<span class="session-tree-meta"><span class="session-tree-project">app<\/span><\/span>/);
   assert.match(pinned, /aria-label="Archive"/);
 
+  // Never the archive time: a session whose last message was two hours ago
+  // says 2h however recently it was archived (#1351).
   const archived = rowMarkup(render({
-    rows: [sessionRow(session("old"), { context: "archive", archivedAt: NOW - 2 * 60 * MINUTE })],
+    rows: [sessionRow(session("old", { modified: new Date(NOW - 2 * 60 * MINUTE).toISOString() }), { context: "archive" })],
   }), "session:archive:old");
   assert.match(archived, /class="session-tree-row session-tree-session is-archived"/);
   assert.doesNotMatch(archived, /session-tree-slot/);
