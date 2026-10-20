@@ -75,6 +75,8 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
+import { useProjectDev } from "@/hooks/useProjectDev";
+import { projectDevActive, type ProjectDevAction } from "@/lib/project-dev-types";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -85,6 +87,7 @@ import { archiveViewState, filesFoldState, useSidebarMotion } from "@/hooks/useS
 import { DirectoryPicker } from "./DirectoryPicker";
 import { DismissButton } from "./DismissButton";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { ProjectDevMenu } from "./ProjectDevMenu";
 import { PiWebTitle } from "./PiWebTitle";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
 import { SessionSearch } from "./SessionSearch";
@@ -221,6 +224,7 @@ interface Props {
   ) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
   onOpenTerminal?: (cwd: string) => void;
+  onOpenProjectDev?: (cwd: string, name: string, process?: string) => void;
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
@@ -292,6 +296,7 @@ type SessionRow = Extract<SidebarRow, { kind: "session" }>;
 type SidebarMenuState =
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
+  | { kind: "dev"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; hover: boolean }
   | { kind: "archive-group"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
   | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope };
 
@@ -500,7 +505,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, onOpenProjectDev, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -1428,6 +1433,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     moreShown,
     pinnedCollapsed,
   }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+  const projectDev = useProjectDev(model.projects.map((project) => project.root));
+  const controlProjectDev = useCallback(async (project: SidebarProject, action: ProjectDevAction, process?: string, showLogs = true) => {
+    if (projectDev.busy(project.root)) return;
+    if (showLogs) onOpenProjectDev?.(project.root, project.name, process);
+    try {
+      await projectDev.control(project.root, action, process);
+    } catch (failure) {
+      showToast(t("projectDev.failed", { error: failure instanceof Error ? failure.message : String(failure) }));
+    }
+  }, [onOpenProjectDev, projectDev, showToast, t]);
+
+  const devMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepDevMenuOpen = useCallback(() => {
+    if (devMenuCloseTimer.current) clearTimeout(devMenuCloseTimer.current);
+    devMenuCloseTimer.current = null;
+  }, []);
+  const leaveDevMenu = useCallback(() => {
+    if (devMenuCloseTimer.current) clearTimeout(devMenuCloseTimer.current);
+    devMenuCloseTimer.current = setTimeout(() => {
+      setMenu((current) => current?.kind === "dev" && current.hover ? null : current);
+    }, 300);
+  }, []);
+  useEffect(() => keepDevMenuOpen, [keepDevMenuOpen]);
+  const openDevMenu = useCallback((project: SidebarProject, opener: HTMLElement, hover: boolean) => {
+    keepDevMenuOpen();
+    projectDev.refresh();
+    setMenu((current) => {
+      if (hover && current && current.kind !== "dev") return current;
+      if (current?.kind === "dev" && current.project.key === project.key) return { ...current, hover: current.hover && hover };
+      return { kind: "dev", project, anchor: buttonAnchor(opener, "end"), opener, hover };
+    });
+  }, [keepDevMenuOpen, projectDev]);
+
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -2052,9 +2090,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId]);
 
   const handleGroupMenu = useCallback((project: SidebarProject, opener: HTMLElement) => {
+    projectDev.refresh();
     const olderCount = familiesToArchive(treeSelectionInput, project.key, ARCHIVE_OLDER_THAN_MS, Date.now()).length;
     setMenu({ kind: "group", project, olderCount, anchor: buttonAnchor(opener, "end"), opener });
-  }, [treeSelectionInput]);
+  }, [treeSelectionInput, projectDev]);
 
   const archiveOlderSessions = useCallback((project: SidebarProject) => {
     const ids = familiesToArchive(treeSelectionInput, project.key, ARCHIVE_OLDER_THAN_MS, Date.now());
@@ -2337,8 +2376,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       icon: <RestoreIcon />,
       onSelect: () => { void applyUiState({ action: "rename-project", projectKey: project.key, name: null }); },
     }));
-    // Three groups, by what they act on: the project itself, its place in the
-    // list, its sessions (Delete all last, in red).
+    const dev = projectDev.projects[project.root];
+    const devActive = projectDevActive(dev?.status);
+    const devBusy = projectDev.busy(project.root);
+    // Project operations, development service, layout, then session operations.
     return [
       {
         type: "item",
@@ -2362,6 +2403,32 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         icon: <OpenInNewTabIcon />,
         shortcut: "T",
         onSelect: () => openProjectInNewTab(project),
+      },
+      { type: "separator", id: "separator-dev" },
+      {
+        type: "item", id: "dev-services", label: t("projectDev.services"), icon: <TerminalIcon />,
+        onSelect: ({ keepOpen }) => {
+          if (menu?.kind !== "group") return;
+          keepOpen();
+          openDevMenu(project, menu.opener, false);
+        },
+      },
+      {
+        type: "item",
+        id: "dev-start",
+        label: dev?.found || devActive ? t(devActive ? "projectDev.restart" : "projectDev.start") : t("projectDev.missing"),
+        icon: <RefreshIcon />,
+        disabled: devBusy || !dev?.found || Boolean(dev.configError),
+        onSelect: () => { void controlProjectDev(project, devActive ? "restart" : "start"); },
+      },
+      {
+        type: "item", id: "dev-stop", label: t("projectDev.stop"),
+        disabled: devBusy || (!devActive && dev?.status !== "error"),
+        onSelect: () => { void controlProjectDev(project, "stop"); },
+      },
+      {
+        type: "item", id: "dev-logs", label: t("projectDev.viewLogs"), icon: <TerminalIcon />,
+        onSelect: () => onOpenProjectDev?.(project.root, project.name),
       },
       { type: "separator", id: "separator-layout" },
       {
@@ -2583,6 +2650,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     menuItems = groupMenuItems(project, menu.olderCount);
     if (menu.askDelete) menuBody = projectDeleteBody(project);
     menuWidth = 264;
+  } else if (menu?.kind === "dev") {
+    const project = projectByKey.get(menu.project.key) ?? menu.project;
+    menuTitle = project.name;
+    menuLabel = t("projectDev.services");
+    menuWidth = 208;
+    menuBody = <ProjectDevMenu
+      info={projectDev.projects[project.root]}
+      pending={projectDev.pending.has(project.root)}
+      onPointerEnter={keepDevMenuOpen}
+      onPointerLeave={leaveDevMenu}
+      onAction={(action, process) => { void controlProjectDev(project, action, process, false); }}
+      onLogs={(process) => { keepDevMenuOpen(); setMenu(null); onOpenProjectDev?.(project.root, project.name, process); }}
+    />;
   } else if (menu?.kind === "archive-group") {
     const project = archiveGroups.find((row) => row.project.key === menu.project.key)?.project ?? menu.project;
     menuTitle = project.name;
@@ -2601,7 +2681,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The tree row (and the button in it) that the open menu belongs to.
   const activeMenuRowKey = menu?.kind === "row"
     ? menu.row.key
-    : menu?.kind === "group" ? `group:${menu.project.key}`
+    : menu?.kind === "group" || menu?.kind === "dev" ? `group:${menu.project.key}`
     : menu?.kind === "archive-group" ? `archive:${menu.project.key}` : null;
 
   const treeLayout = isMobile ? "mobile" : "desktop";
@@ -2637,6 +2717,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     },
     onGroupNew: handleGroupNew,
     onGroupMenu: handleGroupMenu,
+    projectDev: projectDev.projects,
+    projectDevPending: projectDev.pending,
+    projectDevMenuKey: menu?.kind === "dev" ? menu.project.key : undefined,
+    onToggleProjectDev: (project: SidebarProject) => {
+      void controlProjectDev(project, projectDevActive(projectDev.projects[project.root]?.status) ? "stop" : "start", undefined, false);
+    },
+    onOpenProjectDevMenu: openDevMenu,
+    onLeaveProjectDevMenu: leaveDevMenu,
     onToggleArchiveGroup: handleToggleArchiveGroup,
     onArchiveGroupMenu: handleArchiveGroupMenu,
     onOpenOtherProject: handleOpenOtherProject,
@@ -3151,7 +3239,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         title={menuTitle}
         items={menuItems}
         cancelLabel={t("sidebar.cancel")}
-        focusCancel={menuBody !== null}
+        focusCancel={menuBody !== null && menu?.kind !== "dev"}
+        autoFocus={menu?.kind !== "dev" || !menu.hover}
+        closeOnOpenerPress={menu?.kind !== "dev"}
         onClose={closeMenu}
         returnFocusTo={menu?.opener ?? null}
         width={menuWidth}

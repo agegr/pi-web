@@ -62,6 +62,21 @@ Coverage:
   collapse/expand draft preservation, countdown display, and server-side expiry.
 
 Model prompts, live model streaming, and agent execution are outside this suite.
+
+`node e2e/project-dev.mjs` separately checks the project group's `Procfile.dev`
+service controls at desktop and phone widths: detection, aggregate start/stop
+on the outer button, hover opening without executing commands or taking composer
+focus, keyboard opening, compact name-and-toggle rows with independent service
+start/stop and sibling pids preserved, filtered logs opened from a service name,
+duplicate starts, closing and reopening logs, browser reload, restart with old
+ports released, invalid replacement configuration preserving the old service,
+stop and directory access denial. By default it runs its own Turbopack server
+with an isolated temporary agent directory. With a dev server already running in
+this checkout, use `PI_WEB_E2E_BASE=http://127.0.0.1:30141 node e2e/project-dev.mjs`.
+The attached run mocks session listings and sidebar preferences only in its own
+browser; real service controls operate temporary fixture directories, and it
+never adds sessions or pins to the user's server. Screenshots and logs go to a
+printed temporary directory.
 Failures save a screenshot, Playwright trace, and server log under
 `test-results/e2e/`; CI uploads that directory. Open a trace with
 `npx playwright show-trace test-results/e2e/trace.zip`.

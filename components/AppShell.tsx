@@ -18,6 +18,7 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { TerminalPanel } from "./TerminalPanel";
+import { ProjectDevPanel } from "./ProjectDevPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
@@ -533,6 +534,7 @@ export function AppShell() {
   const [fileWorkspaceGeneration, setFileWorkspaceGeneration] = useState(0);
   const fileWorkspaceGenerationRef = useRef(0);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
+  const [devTabs, setDevTabs] = useState<{ cwd: string; name: string; process?: string; selection: number }[]>([]);
   const [terminalsRestored, setTerminalsRestored] = useState(false);
   // Subagent work tabs are session-scoped and transient: no persistence, and
   // they are dropped when the project changes (they belong to its sessions).
@@ -545,6 +547,12 @@ export function AppShell() {
       filePath: tab.cwd,
       kind: "terminal" as const,
       closing: Boolean(tab.closing),
+    })),
+    ...devTabs.map((tab) => ({
+      id: `dev:${tab.cwd}`,
+      label: translate("projectDev.tabLabel", { name: tab.name }),
+      filePath: tab.cwd,
+      kind: "dev" as const,
     })),
     ...agentTabs.map((tab) => ({
       id: `agent:${tab.sessionId}`,
@@ -1216,6 +1224,15 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [terminalTabs, isMobile]);
 
+  const handleOpenProjectDev = useCallback((cwd: string, name: string, process?: string) => {
+    setDevTabs((tabs) => tabs.some((tab) => tab.cwd === cwd)
+      ? tabs.map((tab) => tab.cwd === cwd ? { ...tab, name, process, selection: tab.selection + 1 } : tab)
+      : [...tabs, { cwd, name, process, selection: 0 }]);
+    setActiveFileTabId(`dev:${cwd}`);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
   // Subagent work opens in a right-panel tab instead of hijacking the main chat.
   const handleOpenSubagentTab = useCallback((sessionId: string, label: string) => {
     setAgentTabs((prev) => prev.some((tab) => tab.sessionId === sessionId) ? prev : [...prev, { sessionId, label }]);
@@ -1245,11 +1262,18 @@ export function AppShell() {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
-    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
-    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) setRightPanelOpen(false);
+    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs) ?? (devTabs.length ? `dev:${devTabs.at(-1)!.cwd}` : null));
+    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length && !devTabs.length) setRightPanelOpen(false);
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
+    if (tabId.startsWith("dev:")) {
+      const remaining = devTabs.filter((tab) => `dev:${tab.cwd}` !== tabId);
+      setDevTabs(remaining);
+      setActiveFileTabId((current) => current !== tabId ? current : (remaining.length ? `dev:${remaining.at(-1)!.cwd}` : null) ?? fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
+      if (!remaining.length && !fileTabs.length && !terminalTabs.length && !agentTabs.length) setRightPanelOpen(false);
+      return;
+    }
     if (terminalTabs.some((tab) => tab.id === tabId)) {
       setTerminalTabs((tabs) => tabs.map((tab) => tab.id === tabId && !tab.closing ? { ...tab, closing: "close" } : tab));
       return;
@@ -1259,22 +1283,22 @@ export function AppShell() {
       setAgentTabs(remainingAgents);
       setActiveFileTabId((cur) => {
         if (cur !== tabId) return cur;
-        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents);
+        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents) ?? (devTabs.length ? `dev:${devTabs.at(-1)!.cwd}` : null);
       });
-      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
+      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0 && devTabs.length === 0) setRightPanelOpen(false);
       return;
     }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0) setRightPanelOpen(false);
+      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0 && devTabs.length === 0) setRightPanelOpen(false);
       return next;
     });
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
+      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs) ?? (devTabs.length ? `dev:${devTabs.at(-1)!.cwd}` : null);
     });
-  }, [fileTabs, terminalTabs, agentTabs]);
+  }, [fileTabs, terminalTabs, agentTabs, devTabs]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -1413,6 +1437,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
   // Subagent work tabs: like files, only the active one is mounted.
+  const activeDevTab = devTabs.find((tab) => `dev:${tab.cwd}` === activeFileTabId) ?? null;
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
@@ -1446,6 +1471,7 @@ export function AppShell() {
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         onOpenTerminal={handleOpenTerminal}
+        onOpenProjectDev={handleOpenProjectDev}
         explorerRefreshKey={explorerRefreshKey}
         onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}
@@ -2762,7 +2788,7 @@ export function AppShell() {
                 { sourceSessionId: activeFileTab.sourceSessionId, page },
               )}
             />
-          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab ? (
+          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab && !activeDevTab ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
@@ -2778,6 +2804,7 @@ export function AppShell() {
               />
             </div>
           ))}
+          {activeDevTab && <ProjectDevPanel key={activeDevTab.cwd} cwd={activeDevTab.cwd} process={activeDevTab.process} selectionKey={activeDevTab.selection} />}
           {activeAgentTab && (
             <SubagentViewer
               key={activeAgentTab.sessionId}

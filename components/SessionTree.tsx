@@ -35,6 +35,8 @@ import { skillExpansionToCommand } from "@/lib/slash-display";
 import { useGroupDrag, type GroupDragHandlers } from "@/hooks/useGroupDrag";
 import { useI18n } from "@/hooks/useI18n";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
+import { ProjectDevButton } from "./ProjectDevButton";
+import type { ProjectDevInfo } from "@/lib/project-dev-types";
 import type { SidebarMenuAnchor } from "./SidebarMenu";
 import {
   ArchiveIcon,
@@ -128,6 +130,12 @@ export interface SessionTreeProps {
   /** A group's "+": a new session in that project at once. */
   onGroupNew(project: SidebarProject): void;
   onGroupMenu(project: SidebarProject, opener: HTMLElement): void;
+  projectDev?: Record<string, ProjectDevInfo>;
+  projectDevPending?: Set<string>;
+  projectDevMenuKey?: string;
+  onToggleProjectDev?(project: SidebarProject): void;
+  onOpenProjectDevMenu?(project: SidebarProject, opener: HTMLElement, hover: boolean): void;
+  onLeaveProjectDevMenu?(): void;
   /** An archive header's toggle; `all` (Alt+click): every archive group follows this one. */
   onToggleArchiveGroup?(projectKey: string, all: boolean): void;
   /** An archive header's ⋯: Restore all, Delete…. */
@@ -453,8 +461,11 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     row={row}
                     top={top}
                     height={height}
-                    menuOpen={menuOpen}
+                    menuOpen={menuOpen && props.projectDevMenuKey !== row.project.key}
+                    devMenuOpen={props.projectDevMenuKey === row.project.key}
                     renaming={renaming}
+                    devInfo={props.projectDev?.[row.project.root]}
+                    devPending={props.projectDevPending?.has(row.project.root)}
                     // A header that is a name field is no handle to drag.
                     canDrag={canMoveGroups && !renaming && groupsPerBand[row.project.pinned ? "pinned" : "other"] > 1}
                     dragPhase={dragView?.projectKey === row.project.key ? dragView.phase : null}
@@ -849,7 +860,10 @@ const GroupRowView = memo(function GroupRowView({
   top,
   height,
   menuOpen,
+  devMenuOpen,
   renaming,
+  devInfo,
+  devPending,
   canDrag,
   dragPhase,
   drag,
@@ -862,6 +876,9 @@ const GroupRowView = memo(function GroupRowView({
   menuOpen: boolean;
   /** The header is a field for the project's display name. */
   renaming: boolean;
+  devMenuOpen: boolean;
+  devInfo?: ProjectDevInfo;
+  devPending?: boolean;
   /** Its band has another group to move it past. */
   canDrag: boolean;
   /** This group is picked up by a long-press, or being dragged. */
@@ -875,7 +892,7 @@ const GroupRowView = memo(function GroupRowView({
   const className = [
     "session-tree-row session-tree-group",
     project.current ? "is-current" : "",
-    menuOpen ? "is-active" : "",
+    menuOpen || devMenuOpen ? "is-active" : "",
     dragPhase === "armed" ? "is-drag-armed" : "",
   ].filter(Boolean).join(" ");
 
@@ -931,6 +948,10 @@ const GroupRowView = memo(function GroupRowView({
         {project.pinned && <PinIcon size={10} className="session-tree-group-pin" label={t("sidebar.pinnedProject")} />}
         {!expanded && <ActivitySummary running={row.running} unread={row.unread} t={t} />}
       </button>
+      <ProjectDevButton info={devInfo} pending={devPending} expanded={devMenuOpen}
+        onToggle={() => handlers.current.onToggleProjectDev?.(project)}
+        onOpen={(opener, hover) => handlers.current.onOpenProjectDevMenu?.(project, opener, hover)}
+        onLeave={() => handlers.current.onLeaveProjectDevMenu?.()} />
       <span className="session-tree-group-actions">
         <button
           type="button"

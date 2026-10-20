@@ -133,6 +133,10 @@ export interface SidebarMenuProps {
   /** Shown after the items, outside the list (a classic worktree menu's "New worktree…" form). */
   footer?: ReactNode;
   /** Focus goes into the menu again whenever this changes (a body swapped in or out). */
+  /** Hover menus leave the current field focused until explicitly opened. */
+  autoFocus?: boolean;
+  /** A separate action on the opener can leave a hover menu open. */
+  closeOnOpenerPress?: boolean;
   focusKey?: string;
 }
 
@@ -587,6 +591,8 @@ export function SidebarMenu({
   classic = false,
   footer,
   focusKey = "",
+  autoFocus = true,
+  closeOnOpenerPress = true,
 }: SidebarMenuProps) {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   // The one piece of state the menu keeps: its filter field's text, for one
@@ -665,15 +671,15 @@ export function SidebarMenu({
   const openedRef = useRef(false);
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
-    if (!visible || !surface) {
-      // Closed: the next run is an opening again.
+    if (!visible || !surface || !autoFocus) {
+      // Closed or hover-only: the next explicit opening takes focus.
       openedRef.current = false;
       return;
     }
     const opening = !openedRef.current;
     openedRef.current = true;
     (opening ? initialFocusTarget(surface) : menuBodyFocusTarget(surface))?.focus({ preventScroll: true });
-  }, [visible, sheet, custom, focusKey]);
+  }, [visible, sheet, custom, focusKey, autoFocus]);
 
   // On close, focus returns to the opener unless the user put it elsewhere.
   // The opener is taken now, as the menu opens: the parent closes it by
@@ -684,6 +690,7 @@ export function SidebarMenu({
     const opener = returnFocusToRef.current;
     return () => {
       const active = document.activeElement;
+      if (!autoFocus && (!active || !surface.contains(active))) return;
       if (active && active !== document.body && !surface.contains(active)) return;
       const target = menuFocusReturnTarget(opener);
       if (!target) return;
@@ -693,7 +700,7 @@ export function SidebarMenu({
       // takes focus, as if it had never been hidden.
       if (opener && target !== opener && isRendered(opener)) opener.focus({ preventScroll: true });
     };
-  }, [visible, sheet]);
+  }, [visible, sheet, autoFocus]);
 
   // Keys, in the capture phase on `document`: they reach the menu before any
   // bubble-phase listener, including the window-level Escape that stops a
@@ -764,12 +771,13 @@ export function SidebarMenu({
       const target = event.target instanceof Node ? event.target : null;
       if (!surface || (target && surface.contains(target))) return;
       const opener = returnFocusToRef.current;
+      if (opener && target && opener.contains(target) && (!autoFocus || !closeOnOpenerPress)) return;
       if (opener && target && event.button === 0 && opener.contains(target)) swallowNextClickOn(opener);
       onCloseRef.current("outside");
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [visible, sheet]);
+  }, [visible, sheet, autoFocus, closeOnOpenerPress]);
 
   if (!visible || !portalTarget) return null;
 

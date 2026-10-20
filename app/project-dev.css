@@ -1,0 +1,215 @@
+.session-tree .project-dev-button {
+  margin-left: 2px;
+}
+
+.session-tree .project-dev-button.is-active {
+  color: var(--accent);
+}
+
+.session-tree .project-dev-button:disabled,
+.session-tree .project-dev-button[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.project-dev-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.project-dev-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-dev-location {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.project-dev-location strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.project-dev-location span,
+.project-dev-note,
+.project-dev-filter,
+.project-dev-log-name {
+  color: var(--text-muted);
+}
+
+.project-dev-toolbar button,
+.project-dev-filter select {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-size: inherit;
+}
+
+.project-dev-toolbar button:hover:enabled {
+  background: var(--bg-hover);
+}
+
+.project-dev-toolbar button:disabled {
+  opacity: 0.5;
+}
+
+.project-dev-error,
+.project-dev-note {
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.project-dev-error {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.project-dev-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-dev-filter span {
+  flex: 1;
+  font-size: 11px;
+}
+
+.project-dev-logs {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+.project-dev-log {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+}
+
+.project-dev-log-name {
+  flex: 0 0 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-dev-log pre {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.project-dev-log.is-system {
+  color: var(--text-dim);
+}
+
+.project-dev-menu {
+  max-height: min(520px, 70vh);
+  overflow-y: auto;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.project-dev-service {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.project-dev-service:hover {
+  background: var(--bg-hover);
+}
+
+.project-dev-service-name,
+.project-dev-service-toggle {
+  cursor: pointer;
+}
+
+.project-dev-service-name {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dev-service-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  background: transparent;
+}
+
+.session-tree .project-dev-button.is-running,
+.project-dev-service-toggle.is-active {
+  color: var(--text);
+}
+
+.project-dev-service-toggle:hover:enabled {
+  background: var(--bg-selected);
+}
+
+.project-dev-service-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .project-dev-service {
+    min-height: 44px;
+  }
+
+  .project-dev-service-toggle {
+    width: 32px;
+    height: 32px;
+  }
+
+  .project-dev-toolbar button,
+  .project-dev-filter select {
+    min-height: 36px;
+  }
+}
