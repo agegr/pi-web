@@ -24,14 +24,17 @@ import { showSidebarFiles } from "./sidebar.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// --- Fixtures: two projects, one session each; project-a is the most recent. ---
+// --- Fixtures: three projects, one live session each (project-a the most
+// --- recent), and one archived session in project-c. ---
 
 const agentDir = mkdtempSync(join(tmpdir(), "pi-web-filter-"));
 const projectA = join(agentDir, "project-a");
 const projectB = join(agentDir, "project-b");
+const projectC = join(agentDir, "project-c");
 const sessionDir = join(agentDir, "sessions", "filter");
 mkdirSync(projectA);
 mkdirSync(projectB);
+mkdirSync(projectC);
 mkdirSync(sessionDir, { recursive: true });
 
 function writeSession(id, cwd, text, mtime) {
@@ -44,6 +47,19 @@ function writeSession(id, cwd, text, mtime) {
 
 writeSession("filter-a", projectA, "filter project a session", new Date("2026-08-24T00:00:00.000Z"));
 writeSession("filter-b", projectB, "filter project b session", new Date("2026-08-23T00:00:00.000Z"));
+writeSession("filter-c", projectC, "filter project c session", new Date("2026-08-22T00:00:00.000Z"));
+writeSession("filter-c-old", projectC, "filter project c archived session", new Date("2026-08-21T00:00:00.000Z"));
+
+// project-c's older session is archived, so it is only in the archive view.
+writeFileSync(
+  join(agentDir, "pi-web-session-state.json"),
+  JSON.stringify({
+    version: 1,
+    revision: 1,
+    sessions: { "filter-c-old": { archivedAt: Date.parse("2026-08-25T00:00:00.000Z") } },
+    projects: {},
+  }, null, 2),
+);
 
 // --- A dev server of this checkout on a free port. ---
 
@@ -88,7 +104,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), ["filter-a", "filter-b"]);
+      assert.deepEqual(sessions.map((session) => session.id).sort(), ["filter-a", "filter-b", "filter-c", "filter-c-old"]);
       break;
     }
     if (Date.now() > deadline) throw new Error(`Server not ready in 300s:\n${serverLog.join("")}`);
@@ -105,6 +121,7 @@ try {
   page.on("response", (response) => { if (response.url().startsWith(base) && response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
 
   const groupNames = () => page.locator(".session-tree-group-name");
+  const archiveLink = () => page.locator('[data-row-key="footer-archived"] .session-tree-footer-button');
   const filesProjectButton = () => page.locator("#session-sidebar-panel-files .project-picker-button.is-project");
   /** The projects' menu rows: menuitemradio, named by the projects' paths. */
   const projectMenuChoice = (name) => page.getByRole("menuitemradio", { name });
@@ -119,9 +136,10 @@ try {
   await showSidebar.or(page.locator(".session-tree-group-name")).first().waitFor();
   if (await showSidebar.isVisible()) await showSidebar.click();
 
-  // Default: unfiltered, every project a group.
+  // Default: unfiltered, every project a group, the archive count spanning them.
   await groupNames().first().waitFor();
-  assert.equal(await groupNames().count(), 2, "unfiltered, the tree shows every project");
+  assert.equal(await groupNames().count(), 3, "unfiltered, the tree shows every project");
+  assert.equal(await archiveLink().innerText(), "Archived · 1", "the unfiltered archive link counts every project");
   console.log("PASS: the default tree is unfiltered");
 
   // Settings › General: the filter row switches live.
@@ -135,6 +153,7 @@ try {
   await groupNames().first().waitFor();
   assert.equal(await groupNames().count(), 1, "the filter leaves the picked project's group");
   assert.equal(await groupNames().getByText("project-a", { exact: true }).count(), 1, "the most recent project is the one shown");
+  assert.equal(await page.locator('[data-row-key="footer-archived"]').count(), 0, "the picked project has nothing archived, so no archive link");
   console.log("PASS: Settings › General filters the tree to a project");
 
   // The files' picker picks the project; the filtered tree follows it.
@@ -145,6 +164,27 @@ try {
   await groupNames().getByText("project-b", { exact: true }).waitFor();
   assert.equal(await groupNames().count(), 1, "still one group after the switch");
   assert.equal(await groupNames().getByText("project-a", { exact: true }).count(), 0, "the previous project's group is filtered out");
+  assert.equal(await page.locator('[data-row-key="footer-archived"]').count(), 0, "project-b has nothing archived either");
+
+  // project-c holds the only archived session: the link comes back, counting it.
+  await filesProjectButton().click();
+  await projectMenuChoice("/project-c").click();
+  await groupNames().getByText("project-c", { exact: true }).waitFor();
+  assert.equal(await archiveLink().innerText(), "Archived · 1", "the archive link counts the picked project's archived sessions");
+
+  // And the archive view it opens lists that project only.
+  await archiveLink().click();
+  await page.locator(".sidebar-archive-view [data-row-key^='archive:'] .session-tree-group-name").first().waitFor();
+  assert.deepEqual(await page.locator(".sidebar-archive-view .session-tree-group-name").allInnerTexts(), ["project-c"], "the filtered archive lists the picked project's group only");
+  await page.getByText("filter project c archived session").waitFor();
+  assert.equal(await page.locator(".sidebar-archive-count").innerText(), "· 1", "the archive bar counts the picked project's archived sessions");
+  await page.locator(".sidebar-archive-back").click();
+  await groupNames().first().waitFor();
+
+  // Back to project-b for the rest of the check.
+  await filesProjectButton().click();
+  await projectMenuChoice("/project-b").click();
+  await groupNames().getByText("project-b", { exact: true }).waitFor();
   console.log("PASS: the files' picker moves the filter to another project");
 
   // A filtered tree keeps its group open: a fold click is a no-op and saves nothing.
@@ -159,6 +199,7 @@ try {
   await groupNames().first().waitFor();
   assert.equal(await groupNames().count(), 1, "the saved filter survives a reload");
   assert.equal(await groupNames().getByText("project-a", { exact: true }).count(), 1, "back to the most recent project after reload");
+  assert.equal(await page.locator('[data-row-key="footer-archived"]').count(), 0, "project-a still has nothing archived");
   console.log("PASS: the saved filter survives a reload");
 
   // Settings reads the saved filter and switches it off again.
@@ -168,7 +209,8 @@ try {
   await filterShowAll.locator("..").click();
   await page.keyboard.press("Escape");
   await groupNames().filter({ hasText: "project-b" }).waitFor();
-  assert.equal(await groupNames().count(), 2, "every project is back");
+  assert.equal(await groupNames().count(), 3, "every project is back");
+  assert.equal(await archiveLink().innerText(), "Archived · 1", "the archive link counts every project again");
   console.log("PASS: Settings › General switches the filter off again");
 
   assert.deepEqual(errors, [], "no console or server errors along the way");

@@ -14,9 +14,11 @@
  * that narrows the tree's rows to the project in use.
  *
  * The narrowing keeps the picked project's group header, its session rows,
- * its "show more" and its empty note, plus the tree's global footer links
- * (open another project, the archive). Pinned rows are dropped: they render
- * in the pinned section above every group, which is not part of a project.
+ * its "show more" and its empty note, plus the tree's footer link that opens
+ * another project. Pinned rows are dropped: they render in the pinned section
+ * above every group, which is not part of a project. The archive link follows
+ * the filter too — it counts, and opens, the picked project's archived
+ * sessions only, and is left out when that project has none.
  * A null key (no project picked yet) keeps just the footer links; the
  * filter's own switch and the file browser are the way forward then.
  */
@@ -113,26 +115,50 @@ export const projectFilterInternals = { parseProjectFilterMode, readStoredMode }
 // --- Pure helpers.
 
 /**
- * The tree's rows, filtered to the picked project: its group, its rows, its "show
- * more", its empty note, and the footer links that lead elsewhere.
+ * The tree's rows, filtered to the picked project: its group, its rows, its
+ * "show more", its empty note, and the footer links that lead elsewhere.
+ *
+ * The archive link is the picked project's too: it carries that project's
+ * archived count instead of the tree's whole one, and is left out when the
+ * project has nothing archived (`archivedCount` is that count — the archive
+ * view beside it is filtered the same way, so the link opens what it counts).
  */
-export function filterRowsByProject(rows: readonly SidebarRow[], projectKey: string | null): SidebarRow[] {
-  return rows.filter((row) => {
+export function filterRowsByProject(rows: readonly SidebarRow[], projectKey: string | null, archivedCount: number): SidebarRow[] {
+  return rows.flatMap((row): SidebarRow[] => {
     switch (row.kind) {
       case "session":
         // Pinned rows carry their project but render in the pinned section,
         // outside any group; the filter keeps a group's own rows.
-        return row.context === "group" && row.project.key === projectKey;
+        return row.context === "group" && row.project.key === projectKey ? [row] : [];
       case "group":
       case "group-empty":
-        return row.project.key === projectKey;
+        return row.project.key === projectKey ? [row] : [];
       case "group-more":
-        return row.projectKey === projectKey;
+        return row.projectKey === projectKey ? [row] : [];
       case "spacer":
-        return row.key === "footer-spacer";
+        return row.key === "footer-spacer" ? [row] : [];
       case "footer-open":
+        return [row];
       case "footer-archived":
-        return true;
+        return archivedCount > 0 ? [{ ...row, count: archivedCount }] : [];
+      default:
+        return [];
+    }
+  });
+}
+
+/**
+ * The archive view's rows, filtered to the picked project: its group header,
+ * folded or not, and the archived sessions under it. Every project's archive
+ * groups look alike there, so the header alone tells them apart.
+ */
+export function filterArchiveRowsByProject(rows: readonly SidebarRow[], projectKey: string | null): SidebarRow[] {
+  return rows.filter((row) => {
+    switch (row.kind) {
+      case "archive-group":
+        return row.project.key === projectKey;
+      case "session":
+        return row.context === "archive" && row.project.key === projectKey;
       default:
         return false;
     }
