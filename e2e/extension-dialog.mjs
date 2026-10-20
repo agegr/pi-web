@@ -141,7 +141,8 @@ function scrollsSideways(dialog) {
 /**
  * Dialogs fit their code blocks without any hint from the extension (#947): prose keeps
  * the 560px default, code that does not fit makes the dialog just wide enough (or as
- * wide as the screen allows), and maximize/restore is a per-dialog override.
+ * wide as the screen allows, the code wrapping past that, #1360), and maximize/restore
+ * is a per-dialog override.
  */
 export async function checkExtensionDialogSizing(page, width) {
   const start = async (mode, name = `E2E ${mode}`) => {
@@ -171,7 +172,7 @@ export async function checkExtensionDialogSizing(page, width) {
   assert.ok(codeWidth >= proseWidth, "A code block never makes the dialog narrower");
   assert.ok(codeWidth <= available + 1, "The dialog stays inside the content region");
   if (width > 600) assert.ok(codeWidth > 560, `Code that cannot fit in 560px widens the dialog, got ${codeWidth}px`);
-  if (codeWidth < available - 1) assert.equal(await scrollsSideways(code), false, "The code block shows whole unless the screen is the limit");
+  assert.equal(await scrollsSideways(code), false, "The code block shows whole, or wraps where the screen is the limit");
 
   // Maximize is a per-dialog override: full width, and restore goes back to the fitted width.
   await code.getByRole("button", { name: "Maximize", exact: true }).click();
@@ -189,6 +190,7 @@ export async function checkExtensionDialogSizing(page, width) {
 
   const huge = await start("huge");
   assert.ok(Math.abs((await settledWidth(page, huge)) - available) <= 1, "Content wider than the screen caps at the content region");
+  assert.equal(await scrollsSideways(huge), false, "Code wider than the screen wraps instead of scrolling sideways");
   await close(huge, "huge", "false");
 
   // A custom panel shows its lines whole when they are wider than 920px and the screen allows.
