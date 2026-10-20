@@ -90,14 +90,73 @@ async function readTrackedLineStats(
   }
 }
 
+/**
+ * The lines an untracked file holds, remembered while the file is unchanged.
+ * A file's size, times and inode say whether the bytes on disk are the ones
+ * that were counted, so an unchanged file is not read again on the next scan.
+ * The listing itself is never remembered: Git is asked for it every time.
+ */
+interface UntrackedLineCount {
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+  ino: bigint;
+  lines: number;
+}
+
+const untrackedLineCounts = new Map<string, UntrackedLineCount>();
+const MAX_UNTRACKED_LINE_COUNTS = 2048;
+// A file is only remembered once it has been quiet for this long. A filesystem
+// with coarse timestamps (a second, or two) can leave a rewritten file's
+// modification time where it was, so the file's own change time is the signal
+// to trust, because a program cannot set that back. The window is as long as
+// the coarsest timestamp a filesystem reports, so a later change to the file
+// always carries a later stamp than the one remembered here.
+const RECENT_FILE_MS = 2_000;
+
 function countUntrackedTextLines(filePath: string): number {
   try {
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return 0;
+    const stat = fs.lstatSync(filePath, { bigint: true });
+    if (!stat.isFile() || stat.size > BigInt(TEXT_PREVIEW_MAX_BYTES)) return 0;
+    const remembered = untrackedLineCounts.get(filePath);
+    if (
+      remembered
+      && remembered.size === stat.size
+      && remembered.mtimeNs === stat.mtimeNs
+      && remembered.ctimeNs === stat.ctimeNs
+      && remembered.ino === stat.ino
+    ) {
+      // The file is still there, so it moves to the end of the map and the
+      // oldest one is the first to be dropped.
+      untrackedLineCounts.delete(filePath);
+      untrackedLineCounts.set(filePath, remembered);
+      return remembered.lines;
+    }
     const content = fs.readFileSync(filePath);
     if (hasNullByte(content) || content.length === 0) return 0;
-    const text = content.toString("utf8");
-    return text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length;
+    // The lines of a text file are its newlines, and a last line without one
+    // counts as a line of its own.
+    let newlines = 0;
+    for (let i = 0; i < content.length; i++) if (content[i] === 10) newlines++;
+    const lines = content[content.length - 1] === 10 ? newlines : newlines + 1;
+    // Only a file that has been quiet for a while is remembered: a change to it
+    // after this point carries a later stamp, and is therefore seen.
+    const quietMs = Date.now() - Number(stat.ctimeNs / BigInt(1_000_000));
+    if (quietMs >= RECENT_FILE_MS) {
+      untrackedLineCounts.set(filePath, {
+        size: stat.size,
+        mtimeNs: stat.mtimeNs,
+        ctimeNs: stat.ctimeNs,
+        ino: stat.ino,
+        lines,
+      });
+      while (untrackedLineCounts.size > MAX_UNTRACKED_LINE_COUNTS) {
+        const oldest = untrackedLineCounts.keys().next().value;
+        if (oldest === undefined) break;
+        untrackedLineCounts.delete(oldest);
+      }
+    }
+    return lines;
   } catch {
     return 0;
   }
