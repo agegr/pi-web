@@ -237,13 +237,17 @@ test("a folder whose trust would reach other folders is never trusted by the ste
   await mkdir(home, { recursive: true });
   allowFileRoot(home);
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
   t.after(() => {
     process.env.HOME = previousHome;
+    process.env.USERPROFILE = previousUserProfile;
   });
   response = await add({ text: "npx -y @scope/lint-mcp", scope: "project", cwd: home, trustFolder: true });
   assert.deepEqual(response.body.breadth, { kind: "home", path: home });
   process.env.HOME = previousHome;
+  process.env.USERPROFILE = previousUserProfile;
 
   assert.deepEqual(await trustFile(), { [trusted]: true }, "nothing was trusted");
   for (const folder of [outer, root, home]) assert.equal(existsSync(projectPath(folder)), false);
