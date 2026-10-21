@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
@@ -1029,4 +1029,28 @@ test("selector rows keep the default star and the floating save button in one gu
   const active = row({ active: true });
   assert.match(active, /aria-selected="true"/);
   assert.doesNotMatch(active, /border-left/);
+});
+
+test("grows the composer to its text and hides the scrollbar until the text is taller than the box", () => {
+  const fake = (value, scrollHeight, clientHeight) => ({
+    value,
+    style: { height: "", overflowY: "" },
+    get scrollHeight() { return scrollHeight; },
+    clientHeight,
+  });
+
+  const empty = fake("", 48, 24);
+  autoGrowTextarea(empty);
+  assert.equal(empty.style.height, "24px", "an empty box keeps the height CSS gives it, not its placeholder's lines");
+  assert.equal(empty.style.overflowY, "hidden", "a wrapped placeholder never scrolls an empty composer");
+
+  const oneLine = fake("hi", 24, 24);
+  autoGrowTextarea(oneLine);
+  assert.equal(oneLine.style.height, "24px");
+  assert.equal(oneLine.style.overflowY, "hidden");
+
+  const tall = fake("lots", 320, 24);
+  autoGrowTextarea(tall);
+  assert.equal(tall.style.height, "200px", "the box caps at 200 px");
+  assert.equal(tall.style.overflowY, "auto", "capped text scrolls");
 });
