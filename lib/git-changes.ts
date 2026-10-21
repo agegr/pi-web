@@ -13,6 +13,7 @@ import {
   parseGitPorcelainV1,
   type GitPorcelainEntry,
 } from "./git-status";
+import { resolveExistingPath } from "./paths";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
@@ -115,13 +116,22 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
     };
   }
 
+  // Git names the repository by its real path, while the caller asked about a cwd that
+  // may reach it through a link (`/tmp` and `/var/folders/…` are links on macOS). Every
+  // path reported here is therefore rebased onto the cwd as given: the file tree lists
+  // what it was given, and a row can only carry its change if the two spell the path the
+  // same way. `repositoryRoot` stays what Git says, since it is the repository's own
+  // name and is where the git commands run.
+  const resolvedCwd = resolveExistingPath(cwd);
   const [entries, trackedLineStats] = await Promise.all([
     readStatusEntries(repositoryRoot),
-    readTrackedLineStats(repositoryRoot, cwd),
+    readTrackedLineStats(repositoryRoot, resolvedCwd),
   ]);
   const files = entries.flatMap((entry): GitFileStatus[] => {
-    const filePath = path.resolve(repositoryRoot, entry.path);
-    if (!isWithinPath(cwd, filePath)) return [];
+    const relativeToCwd = path.relative(resolvedCwd, path.resolve(repositoryRoot, entry.path));
+    if (!relativeToCwd || relativeToCwd === ".." || relativeToCwd.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relativeToCwd)) return [];
+    const filePath = path.join(cwd, relativeToCwd);
     const classified = classifyGitStatus(entry);
     return [{
       filePath,
@@ -206,18 +216,36 @@ async function findFileRepositoryRoot(cwd: string, filePath: string): Promise<st
 
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
   const repositoryRoot = await findFileRepositoryRoot(cwd, filePath);
-  if (!repositoryRoot || !isWithinPath(repositoryRoot, filePath)) return { supported: false };
+  if (!repositoryRoot) return { supported: false };
+  // The repository names itself by its real path, while the file may have been named
+  // through a link (`/tmp` and `/var/folders/…` are links on macOS): the same place,
+  // spelled two ways. Both spellings are tried, and one that leaves the repository is
+  // dropped — a file outside the repository the caller asked about stays out.
+  const realRoot = resolveExistingPath(repositoryRoot);
+  const realFilePath = resolveExistingPath(filePath);
+  const relativePaths = [
+    path.relative(repositoryRoot, path.resolve(filePath)),
+    path.relative(realRoot, realFilePath),
+  ]
+    .filter((relative) => relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+    .map(toGitPath);
+  if (relativePaths.length === 0) return { supported: false };
   // Reading the index runs a repository-configured fsmonitor hook. Opening a
   // file in another checkout (one nested in the cwd, say) must not run its hook,
   // as expanding that folder in the file tree does not (lib/file-tree-visibility.ts);
   // the cwd's own repository keeps its fsmonitor.
-  const gitConfig = isWithinPath(repositoryRoot, cwd) ? [] : ["-c", "core.fsmonitor=false"];
+  const gitConfig = isWithinPath(repositoryRoot, cwd) || isWithinPath(realRoot, resolveExistingPath(cwd))
+    ? [] : ["-c", "core.fsmonitor=false"];
 
   const resolvedFilePath = path.resolve(filePath);
-  const relativePath = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
   const entries = await readStatusEntries(repositoryRoot, gitConfig);
-  const entry = entries.find((candidate) => candidate.path === relativePath);
+  // The path as given comes first: a link inside the repository is a link of its own
+  // to git, and the file it names is the one the caller asked about.
+  const entry = relativePaths
+    .map((relative) => entries.find((candidate) => candidate.path === relative))
+    .find((candidate) => candidate);
   if (!entry) return { supported: false };
+  const relativePath = entry.path;
 
   const { status } = classifyGitStatus(entry);
   if (status === "deleted") {
