@@ -289,6 +289,17 @@ test("shows the follow-up shortcut in the button tooltip", () => {
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
 });
 
+test("the composer stays editable while compacting and says messages queue", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, isCompacting: true,
+    })),
+  );
+
+  assert.doesNotMatch(html, /<textarea[^>]*\bdisabled\b/);
+  assert.match(html, /placeholder="Compacting… messages queue until it finishes"/);
+});
+
 test("ignores a pointer click that reaches Stop's slot just as the run ends", () => {
   assert.equal(isRunEndStrayClick(1, 0), true);
   assert.equal(isRunEndStrayClick(2, RUN_END_CLICK_GUARD_MS - 1), true);
