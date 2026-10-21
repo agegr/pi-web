@@ -24,6 +24,7 @@ import {
   SUBAGENT_STATUS_TYPE,
   SUBAGENT_RESULT_TYPE,
   selectSubagentExtensionTools,
+  settleOrphanedSubagentStatus,
   subagentExtensionLoaderOptions,
   subagentToolOptions,
   withSubagentExtensionTools,
@@ -223,7 +224,12 @@ function takeResultConsumed(run: SubagentRunIdentity): boolean {
  * `resume` can pick the session up again.
  */
 function settleOrphanedRun(run: SubagentRunInfo): SubagentRunInfo {
-  return run.status === "running" || run.status === "queued" ? { ...run, status: "interrupted" } : run;
+  return { ...run, status: settleOrphanedSubagentStatus(run.status) };
+}
+
+/** The status of a run this process still holds, so a listing does not have to guess from its file. */
+export function getLiveSubagentStatus(sessionId: string): SubagentRunInfo["status"] | undefined {
+  return getSubagentRuns().get(sessionId)?.run.status;
 }
 
 function findSubagentModel(runtime: ModelRuntime, reference: string) {

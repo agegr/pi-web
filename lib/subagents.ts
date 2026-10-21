@@ -961,6 +961,14 @@ export function subagentExtensionLoaderOptions(resources: { loadExtensions: bool
   };
 }
 
+/**
+ * A persisted `running` / `queued` status with no live child was left by a process that
+ * stopped mid-run. Every listing must settle it, or a restart leaves a spinner forever.
+ */
+export function settleOrphanedSubagentStatus(status: SubagentStatus): SubagentStatus {
+  return status === "running" || status === "queued" ? "interrupted" : status;
+}
+
 export function readSubagentRun(entries: readonly SessionEntry[], sessionId: string, sessionPath: string): SubagentRunInfo | null {
   const data = subagentMetadataData(entries);
   if (!data) return null;

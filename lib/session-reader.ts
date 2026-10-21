@@ -14,7 +14,7 @@ import { sessionPathKey } from "./session-path";
 import { skillExpansionToCommand } from "./slash-display";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
-import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
+import { readSubagentRun, settleOrphanedSubagentStatus, SUBAGENT_META_TYPE } from "./subagents";
 import { checkSessionMembership, listSessionsIncremental, scanSessionFileInfo, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
@@ -181,7 +181,16 @@ export function mergeSessionLists(
   const byId = new Map(supplementalSessions.map((session) => [session.id, session]));
   // A disk scan is authoritative once the JSONL exists. In particular, this
   // replaces a transient registry snapshot without briefly rendering two rows.
-  for (const session of persistedSessions) byId.set(session.id, session);
+  for (const session of persistedSessions) {
+    const live = byId.get(session.id);
+    // The file's status is settled (a restart's `running` reads as interrupted), so a
+    // live wrapper's row is the only place that still knows a queued child is queued.
+    if (live?.relation?.kind === "subagent" && session.relation?.kind === "subagent") {
+      byId.set(session.id, { ...session, relation: { ...session.relation, status: live.relation.status } });
+      continue;
+    }
+    byId.set(session.id, session);
+  }
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
@@ -255,7 +264,7 @@ function mapScannedSession(
       : catalogFirstMessage(scanned.firstMessage || "(no messages)"),
     parentSessionId: originSessionId,
     ...(subagent
-      ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
+      ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: settleOrphanedSubagentStatus(subagent.status) } }
       : scanned.parentSessionPath
         ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
         : {}),
