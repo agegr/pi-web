@@ -27,6 +27,64 @@ const TERMINAL_SUBAGENT_STATUSES = new Set<SubagentRunInfo["status"]>(["complete
  * entry carries, so the chat would lose the link to the child session.
  */
 const SUBAGENT_TOOL_EXPOSURE = "model-only" satisfies ToolExposure;
+const AGENT_TOOL_NAME = "Agent";
+
+/**
+ * The delegation policy, in a block of its own at the end of the system prompt.
+ *
+ * It is not the tool's `promptGuidelines`: pi appends those to the one flat `<rules>` list that
+ * every tool and pi's own "be concise" share, where a subagent policy reads as generic advice
+ * next to advice about file paths. Nor is it a `sections` entry: only a `before_agent_start`
+ * handler can name a section, and pi sends a forced prompt instead of the structured sections as
+ * soon as any extension forces one, so a section added by a handler that runs later reached
+ * neither the model nor the System panel. Appending the block to the text the run sends works
+ * whatever the shape of that text is.
+ *
+ * The block carries its own tag because a forced prompt is plain text: pi wraps nothing around
+ * it, so the label the policy is known by has to be in the text.
+ *
+ * `explore` and `plan` get a rule of their own, not just a line in the tool description: the
+ * policy says what each is for and why reaching for it is cheaper, because a generic "prefer a
+ * read-only profile" line named no agent and left the model to connect a word to a subagent it had
+ * never seen. The other profiles are listed by name, so a custom one is still discoverable.
+ */
+const DELEGATION_INTRO = `\`${AGENT_TOOL_NAME}\` runs a whole task in a fresh session and returns only the result, so this conversation stays small. Delegate as soon as the goal is clear; a goal and known paths are enough.`;
+
+const DELEGATION_RULES = [
+  "Use several background `Agent` calls in one response for independent parallel work; their scopes may overlap, and an isolated run can use a worktree.",
+  "Do not duplicate work already delegated to a running subagent.",
+];
+
+/** The policy block, with the enabled subagents the model can choose from (`[]` lists none). */
+export function subagentDelegationBlock(profiles: readonly SubagentProfile[]): string {
+  const available = profiles.filter((profile) => profile.enabled);
+  const named = new Set(available.map((profile) => profile.name));
+  const rules = [DELEGATION_INTRO];
+  if (named.has("explore")) {
+    rules.push("`explore` for any question about existing code: where a symbol lives, how a flow works, which files touch a feature. It only reads and reports paths, so ask it first instead of reading the neighbourhood yourself.");
+  }
+  if (named.has("plan")) {
+    rules.push("`plan` before an edit that spans several files or steps: it reads the repository and returns steps, files, risks and verification, without changing anything.");
+  }
+  rules.push(...DELEGATION_RULES);
+  const others = available.filter((profile) => profile.name !== "explore" && profile.name !== "plan");
+  if (others.length > 0) {
+    rules.push(`Other subagents: ${others.map((profile) => `\`${profile.name}\``).join(", ")}.`);
+  }
+  return ["<delegation>", ...rules.map((rule) => `- ${rule}`), "</delegation>"].join("\n");
+}
+
+export const SUBAGENT_DELEGATION_BLOCK = subagentDelegationBlock([]);
+
+/**
+ * The run's prompt with the delegation block appended.
+ *
+ * `event.systemPrompt` renders the options as they stand when it is read, so a prompt another
+ * extension forced earlier is already in that text and is carried along rather than overwritten.
+ */
+export function withSubagentDelegationPrompt(prompt: string, profiles: readonly SubagentProfile[] = []): string {
+  return `${prompt}\n\n${subagentDelegationBlock(profiles)}`;
+}
 
 export interface SubagentToolDetails {
   kind: "pi-web-subagent";
@@ -183,14 +241,9 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "Agent",
         label: "Agent",
-        description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
-        promptSnippet: "Delegate a focused task to an inspectable subagent session",
+        description: `Delegate a task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Use background mode for independent work and foreground mode when the result is needed immediately.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
+        promptSnippet: "Delegate a task to an inspectable subagent session. Whenever possible, delegate work to subagents instead of doing it yourself. Read the `<delegation>` section of the system prompt for which subagent to pick and when.",
         exposure: SUBAGENT_TOOL_EXPOSURE,
-        promptGuidelines: [
-          "Use Agent for a focused task that benefits from an isolated context.",
-          "Use multiple background Agent calls in the same response for independent parallel work.",
-          "Do not duplicate work already delegated to a running subagent.",
-        ],
         executionMode: "parallel",
         parameters: Type.Object({
           subagent_type: Type.Optional(Type.String({ description: `Configured agent profile. Available types: ${availableTypes}. Default: general-purpose.` })),
@@ -337,6 +390,13 @@ export function createSubagentExtension(
           }
         },
       }));
+
+      // The delegation policy, and the subagents it can pick, ride on every run's prompt; see
+      // subagentDelegationBlock(). The handler reads the rendered prompt and returns it with the
+      // block appended, so whatever pi or an earlier extension produced as text comes first.
+      pi.on("before_agent_start", (event) => {
+        return { systemPrompt: withSubagentDelegationPrompt(event.systemPrompt, profiles) };
+      });
     },
   };
 }
