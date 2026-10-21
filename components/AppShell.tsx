@@ -1890,15 +1890,15 @@ export function AppShell() {
 
     const tooltipParts: string[] = [];
     if (tokens) {
-      tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
-      tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
-      tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
-      tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
+      tooltipParts.push(`${translate("session.input")}: ${tokens.input.toLocaleString(locale)}`);
+      tooltipParts.push(`${translate("session.output")}: ${tokens.output.toLocaleString(locale)}`);
+      tooltipParts.push(`${translate("session.cacheRead")}: ${tokens.cacheRead.toLocaleString(locale)}`);
+      tooltipParts.push(`${translate("session.cacheWrite")}: ${tokens.cacheWrite.toLocaleString(locale)}`);
+      if (cost > 0) tooltipParts.push(`${translate("session.cost")}: $${cost.toFixed(4)}`);
     }
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
-      tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
+      tooltipParts.push(`${translate("session.context")}: ${percent !== null ? `${percent.toFixed(1)}%` : "?"} / ${contextUsage.contextWindow.toLocaleString(locale)}`);
     }
     const tooltip = tooltipParts.join("  |  ");
     const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
