@@ -259,7 +259,7 @@ export function createSubagentExtension(
                   );
                 });
               return {
-                content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. You will be notified when it completes.` }],
+                content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. You will be notified when it completes; its report arrives on its own — do not poll it, call get_subagent_result for it, or wait on it. Do other work that does not need it if you have any; if you have none, stop — no output, no tools — until it arrives. Stopping does not cancel the subagent.` }],
                 details: subagentToolDetails(execution.run),
               };
             }
@@ -283,11 +283,11 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "get_subagent_result",
         label: "Get agent result",
-        description: "Check an inspectable subagent session and retrieve its latest result.",
+        description: "Fetch a subagent's report that is no longer in the conversation, or when the user asks for it. Never call this to check or wait for a run; its report arrives on its own.",
         exposure: SUBAGENT_TOOL_EXPOSURE,
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),
-          wait: Type.Optional(Type.Boolean({ description: "Wait until the subagent finishes." })),
+          wait: Type.Optional(Type.Boolean({ description: "Only when the user asks you to wait for a run." })),
         }),
         async execute(_toolCallId, params, signal) {
           let run = await runtime.get(params.agent_id);
