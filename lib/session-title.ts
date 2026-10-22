@@ -66,17 +66,28 @@ export interface TitleRequest {
 
 /**
  * Naming is a short classification task, so thinking only adds latency and
- * tokens: use the cheapest level the model actually supports. Gemini rejects
- * "minimal" and its SDK emits that level when thinking is disabled, so it
- * skips to the next supported level instead.
+ * tokens: use the cheapest level the model actually supports. An explicitly
+ * requested level wins when that model supports it: a level stored beside one
+ * model means nothing for another, so an unsupported one falls back instead of
+ * failing the request. Gemini rejects "minimal" and its SDK emits that level
+ * when thinking is disabled, so it skips to the next supported level instead.
  */
-export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
-  if (!model.reasoning) return "off";
+export function resolveTitleThinkingLevel(model: Model<Api>, requested?: string): ThinkingLevel {
   // getSupportedThinkingLevels lists levels in ascending cost order.
   const supported = getSupportedThinkingLevels(model);
   const rejectsMinimal = model.api === "google-generative-ai" || /gemini/i.test(model.id);
   const usable = rejectsMinimal ? supported.filter((level) => level !== "off" && level !== "minimal") : supported;
+  if (requested && usable.includes(requested as ThinkingLevel)) return requested as ThinkingLevel;
+  if (!model.reasoning) return "off";
   return usable[0] ?? supported[0] ?? "off";
+}
+
+/** What a caller asks naming to use instead of the session's own model. */
+export interface TitleModelOverride {
+  /** The model to name with; the session's own when absent. */
+  model?: Model<Api>;
+  /** The thinking level to ask for, when that model supports it. */
+  thinkingLevel?: string;
 }
 
 /**
@@ -85,9 +96,9 @@ export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
  * session id, and cacheRetention "none". The request is too small and too
  * unique to reuse the live session's prefix or write a cache nobody will read.
  */
-export function buildTitleRequest(source: Agent, transcript: string): TitleRequest {
-  const model = source.state.model;
-  const thinkingLevel = resolveTitleThinkingLevel(model);
+export function buildTitleRequest(source: Agent, transcript: string, override?: TitleModelOverride): TitleRequest {
+  const model = override?.model ?? source.state.model;
+  const thinkingLevel = resolveTitleThinkingLevel(model, override?.thinkingLevel);
   return {
     model,
     context: {
@@ -278,7 +289,10 @@ function titleFromAssistant(message: AssistantMessage): GeneratedSessionTitle {
   };
 }
 
-export async function generateSessionTitle(source: AgentSession): Promise<GeneratedSessionTitle> {
+export async function generateSessionTitle(
+  source: AgentSession,
+  override?: TitleModelOverride,
+): Promise<GeneratedSessionTitle> {
   const sourceAgent = source.agent;
   // Snapshot whatever the session holds right now. The transcript is plain
   // text the model reads once, so a turn still in flight only means the
@@ -288,7 +302,8 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
     throw new Error("The session has no usable text to name");
   }
 
-  const { model, context, options } = buildTitleRequest(sourceAgent, transcript);
+  const { model, context, options } = buildTitleRequest(sourceAgent, transcript, override);
+  // The key of whichever provider names the session: the override's, or the session's own.
   const apiKey = await sourceAgent.getApiKey?.(model.provider);
   const controller = new AbortController();
   const requestOptions: SimpleStreamOptions = {
