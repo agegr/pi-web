@@ -71,6 +71,7 @@ import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
+import { formatMoney } from "@/lib/money";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getAgentsBadge, getSessionFamily } from "@/lib/session-family";
@@ -1873,7 +1874,7 @@ export function AppShell() {
     const tokens = sessionStats?.tokens;
     const cost = sessionStats?.cost ?? 0;
     const formatCompact = formatCompactCount;
-    const costText = formatCostShort(cost);
+    const costText = formatCostShort(cost, locale);
 
     let contextColor = "var(--text-muted)";
     let desktopContextText: string | null = null;
@@ -1894,7 +1895,7 @@ export function AppShell() {
       tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
       tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
       tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
+      if (cost > 0) tooltipParts.push(`cost: ${formatMoney(cost, locale, 4)}`);
     }
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
@@ -2398,7 +2399,7 @@ export function AppShell() {
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const extraTokenRows = [
-                       ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
+                       ...(sessionStats.cost > 0 ? [[translate("session.cost"), formatMoney(sessionStats.cost, locale, 4)]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompactCount(ctx.contextWindow)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
                        ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input > 0

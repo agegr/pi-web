@@ -25,7 +25,7 @@ const STATUS_STYLE: Record<CodemodeCallStatus, { icon: string; color: string }> 
 };
 
 function CallRow({ call }: { call: CodemodeCallView }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const status = STATUS_STYLE[call.status];
   const duration = formatCodemodeDuration(call.durationMs);
   return (
@@ -49,7 +49,7 @@ function CallRow({ call }: { call: CodemodeCallView }) {
           <span style={{ color: "var(--text-dim)", flexShrink: 0, marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>{duration}</span>
         )}
         {call.cost !== undefined && (
-          <span style={{ color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatCodemodeCost(call.cost)}</span>
+          <span style={{ color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatCodemodeCost(call.cost, locale)}</span>
         )}
       </div>
       {call.error && (
@@ -65,7 +65,7 @@ export function CodemodeCallList({ calls, omitted, isError }: {
   omitted: number;
   isError: boolean;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [showAll, setShowAll] = useState(false);
   if (calls.length === 0 && omitted === 0) return null;
   const hidden = showAll ? 0 : Math.max(0, calls.length - CODEMODE_VISIBLE_CALLS);
@@ -106,7 +106,7 @@ export function CodemodeCallList({ calls, omitted, isError }: {
         ))}
       </ul>
       {totalCost !== null && (
-        <div style={{ color: "var(--text-dim)" }}>{t("codemode.modelCost", { cost: formatCodemodeCost(totalCost) })}</div>
+        <div style={{ color: "var(--text-dim)" }}>{t("codemode.modelCost", { cost: formatCodemodeCost(totalCost, locale) })}</div>
       )}
     </div>
   );

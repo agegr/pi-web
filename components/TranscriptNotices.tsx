@@ -9,21 +9,22 @@ import {
   type CacheMissSummary,
   type TranscriptNotice,
 } from "@/lib/transcript-notices";
+import type { Locale } from "@/lib/i18n/types";
 
 // pi's TUI draws these lines in its warning color, cache warming dim (#1265).
 export const TRANSCRIPT_NOTICE_WARNING_COLOR = "#d97706";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-function costSuffix(t: Translate, cost: number): string {
-  const formatted = formatNoticeCost(cost);
+function costSuffix(t: Translate, cost: number, locale: Locale | string | undefined): string {
+  const formatted = formatNoticeCost(cost, locale);
   return formatted ? t("transcriptNotice.costSuffix", { cost: formatted }) : "";
 }
 
-export function transcriptNoticeText(t: Translate, notice: TranscriptNotice): string {
+export function transcriptNoticeText(t: Translate, notice: TranscriptNotice, locale: Locale | string | undefined): string {
   switch (notice.kind) {
     case "cache_miss": {
-      const params = { tokens: formatNoticeTokens(notice.missedTokens), cost: costSuffix(t, notice.missedCost) };
+      const params = { tokens: formatNoticeTokens(notice.missedTokens), cost: costSuffix(t, notice.missedCost, locale) };
       if (notice.modelChanged) return t("transcriptNotice.cacheMissModelSwitch", params);
       if (notice.idleMinutes !== undefined) return t("transcriptNotice.cacheMissIdle", { ...params, minutes: notice.idleMinutes });
       return t("transcriptNotice.cacheMiss", params);
@@ -31,12 +32,12 @@ export function transcriptNoticeText(t: Translate, notice: TranscriptNotice): st
     case "cache_warm":
       return t("transcriptNotice.cacheWarmed", {
         note: notice.note ? t("transcriptNotice.cacheWarmedNote", { note: notice.note }) : "",
-        cost: formatCacheWarmCost(notice.cost),
+        cost: formatCacheWarmCost(notice.cost, locale),
       });
     case "summary_cost":
       return t(notice.source === "compaction" ? "transcriptNotice.compactionCost" : "transcriptNotice.branchSummaryCost", {
         tokens: formatNoticeTokens(notice.tokens),
-        cost: costSuffix(t, notice.cost),
+        cost: costSuffix(t, notice.cost, locale),
       });
     case "thinking_dropped":
       return t(notice.count === 1 ? "transcriptNotice.thinkingDroppedOne" : "transcriptNotice.thinkingDropped", { count: notice.count });
@@ -44,18 +45,18 @@ export function transcriptNoticeText(t: Translate, notice: TranscriptNotice): st
 }
 
 /** The folded Process details header's part for the cache misses inside it. */
-export function cacheMissSummaryText(t: Translate, summary: CacheMissSummary): string {
+export function cacheMissSummaryText(t: Translate, summary: CacheMissSummary, locale: Locale | string | undefined): string {
   const params = {
     count: summary.count,
     tokens: formatNoticeTokens(summary.missedTokens),
-    cost: costSuffix(t, summary.missedCost),
+    cost: costSuffix(t, summary.missedCost, locale),
   };
   return t(summary.count === 1 ? "transcriptNotice.foldCacheMiss" : "transcriptNotice.foldCacheMisses", params);
 }
 
 /** One line per notice, under the message they follow. A compaction's cost is drawn in its card. */
 export const TranscriptNoticeLines = memo(function TranscriptNoticeLines({ notices }: { notices: readonly TranscriptNotice[] }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const shown = notices.filter((notice) => !(notice.kind === "summary_cost" && notice.source === "compaction"));
   if (shown.length === 0) return null;
   return (
@@ -82,7 +83,7 @@ export const TranscriptNoticeLines = memo(function TranscriptNoticeLines({ notic
                 <line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
             )}
-            <span>{transcriptNoticeText(t, notice)}</span>
+            <span>{transcriptNoticeText(t, notice, locale)}</span>
           </div>
         );
       })}

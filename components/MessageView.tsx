@@ -26,6 +26,8 @@ import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { getTranscriptNotices } from "@/lib/transcript-notices";
+import { formatMoney } from "@/lib/money";
+import type { Locale } from "@/lib/i18n/types";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
 import type {
   AgentMessage,
@@ -680,7 +682,7 @@ function AssistantMessageView({
   isCompacting?: boolean;
   compactError?: string | null;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
@@ -946,7 +948,7 @@ function AssistantMessageView({
         {(message.usage || turnDurationMs !== undefined) && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
             {[
-              message.usage ? formatUsage(message.usage) : null,
+              message.usage ? formatUsage(message.usage, locale) : null,
               turnDurationMs !== undefined ? t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) }) : null,
             ].filter(Boolean).join(" \u00b7 ")}
           </div>
@@ -1799,7 +1801,7 @@ function PairedResult({ text, isEmpty, isError }: {
 }
 
 function CompactionMessageView({ message }: { message: CustomMessage }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   // Collapsed by default, as in pi's TUI: a summary can run to pages.
   const [expanded, setExpanded] = useState(false);
   const summary = getMessageText(message.content);
@@ -1869,7 +1871,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
               )}
               {costNotice && (
                 <span style={{ display: "block", marginTop: 2, color: TRANSCRIPT_NOTICE_WARNING_COLOR, fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
-                  {transcriptNoticeText(t, costNotice)}
+                  {transcriptNoticeText(t, costNotice, locale)}
                 </span>
               )}
             </span>
@@ -2225,13 +2227,13 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+}, locale: Locale | string | undefined): string {
   const parts = [];
   if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
   if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
   if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
   if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
-  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  if (usage.cost?.total) parts.push(formatMoney(usage.cost.total, locale, 4));
   return parts.join(" · ");
 }
 

@@ -1,6 +1,9 @@
 // Client-safe display of session usage: the toolbar's stats button and
 // popover, and the agent switcher's per-agent rows.
 
+import { formatMoneyFromCent } from "./money";
+import type { Locale } from "./i18n/types";
+
 /** 950 · 18k · 1.2M */
 export function formatCompactCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -8,10 +11,9 @@ export function formatCompactCount(value: number): string {
   return String(value);
 }
 
-/** $0.12 · <$0.01 · null when nothing was billed. */
-export function formatCostShort(cost: number): string | null {
-  if (!(cost > 0)) return null;
-  return cost >= 0.01 ? `$${cost.toFixed(2)}` : "<$0.01";
+/** $0.12 · <$0.01 (¥ in Simplified Chinese) · null when nothing was billed. */
+export function formatCostShort(cost: number, locale: Locale | string | undefined): string | null {
+  return formatMoneyFromCent(cost, locale);
 }
 
 /** 0s · 42s · 3m 5s · 1h 20m */
