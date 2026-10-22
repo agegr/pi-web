@@ -1678,25 +1678,33 @@ pre, code {
   user-select: none;
 }
 .mermaid-zoom-viewport {
+  position: relative;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  padding: 24px;
+  overflow: hidden;
   background: var(--bg);
-  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  overscroll-behavior: contain;
+}
+.mermaid-zoom-viewport.is-dragging {
+  cursor: grabbing;
 }
 .mermaid-zoom-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--bg-panel);
-  margin: 0 auto;
-  transition: width 0.15s ease;
+  transform-origin: 0 0;
 }
+/* The viewer pins the svg to its viewBox pixels (MermaidBlock.tsx) and scales
+   the wrapper, so its own max-width and 100% sizing must not apply. */
 .mermaid-zoom-canvas svg {
   display: block;
-  width: 100% !important;
-  height: auto;
   max-width: none !important;
 }
 
@@ -1707,10 +1715,6 @@ pre, code {
 
   .mermaid-zoom-title {
     font-size: 10px;
-  }
-
-  .mermaid-zoom-viewport {
-    padding: 12px;
   }
 }
 
