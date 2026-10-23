@@ -3,6 +3,9 @@
 // mirror the SDK's `CodemodeToolDetails` / `CodemodeNestedCall`, read
 // defensively because a third-party tool may also be called `codemode`.
 
+import { currencySymbol, localAmount } from "./money";
+import type { Locale } from "./i18n/types";
+
 export const CODEMODE_TOOL_NAME = "codemode";
 
 export type CodemodeCallStatus = "running" | "ok" | "error" | "cancelled";
@@ -89,8 +92,9 @@ export function formatCodemodeDuration(ms: number | undefined): string {
 }
 
 /** Cents for larger amounts, two significant digits for the fractions of a cent classifier calls cost. */
-export function formatCodemodeCost(cost: number): string {
-  return `$${cost >= 0.01 ? cost.toFixed(2) : cost.toPrecision(2)}`;
+export function formatCodemodeCost(cost: number, locale: Locale | string | undefined): string {
+  const amount = localAmount(cost, locale);
+  return `${currencySymbol(locale)}${amount >= 0.01 ? amount.toFixed(2) : amount.toPrecision(2)}`;
 }
 
 /** The total cost of the script's model calls, when more than one reported one. */

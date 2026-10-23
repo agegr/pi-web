@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { countRunningSubagents } from "@/lib/session-family";
 import type { SessionUsageSummary } from "@/lib/session-stats";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
+import { formatMoney } from "@/lib/money";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
 
 interface Props {
@@ -76,14 +77,14 @@ function usageTooltip(usage: SessionUsageSummary, t: (key: string) => string, lo
     ...(tokens.cacheRead > 0 ? [`${t("session.cacheRead")}: ${tokens.cacheRead.toLocaleString(locale)}`] : []),
     ...(tokens.cacheWrite > 0 ? [`${t("session.cacheWrite")}: ${tokens.cacheWrite.toLocaleString(locale)}`] : []),
     `${t("session.total")}: ${tokens.total.toLocaleString(locale)}`,
-    ...(usage.cost > 0 ? [`${t("session.cost")}: $${usage.cost.toFixed(4)}`] : []),
+    ...(usage.cost > 0 ? [`${t("session.cost")}: ${formatMoney(usage.cost, locale, 4)}`] : []),
     `${t("session.toolCalls")}: ${usage.toolCalls.toLocaleString(locale)}`,
   ].join("\n");
 }
 
 function UsageLine({ usage, style }: { usage: SessionUsageSummary; style?: React.CSSProperties }) {
   const { locale, t } = useI18n();
-  const cost = formatCostShort(usage.cost);
+  const cost = formatCostShort(usage.cost, locale);
   return (
     <span
       title={usageTooltip(usage, t, locale)}

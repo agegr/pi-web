@@ -3,6 +3,9 @@
 // (lib/transcript-notices-server.ts) and hangs them on the chat message they
 // follow; the chat renders them as one line each.
 
+import { formatMoney, localAmount, SMALLEST_UNIT } from "./money";
+import type { Locale } from "./i18n/types";
+
 export type TranscriptNotice =
   /** An assistant response re-billed prompt tokens a cache should have served. */
   | { kind: "cache_miss"; missedTokens: number; missedCost: number; idleMinutes?: number; modelChanged?: boolean }
@@ -40,14 +43,14 @@ export function formatNoticeTokens(count: number): string {
   return `${Math.round(count / 1_000_000)}M`;
 }
 
-/** The TUI's cost suffix: shown from a cent up, two decimals. */
-export function formatNoticeCost(cost: number): string | undefined {
-  return cost >= 0.01 ? `$${cost.toFixed(2)}` : undefined;
+/** The TUI's cost suffix: shown from a cent up, two decimals (¥ instead of $ in Simplified Chinese). */
+export function formatNoticeCost(cost: number, locale: Locale | string | undefined): string | undefined {
+  return localAmount(cost, locale) >= SMALLEST_UNIT ? formatMoney(cost, locale, 2) : undefined;
 }
 
 /** The TUI's cache-warming cost: six decimals, trailing zeros past the third dropped. */
-export function formatCacheWarmCost(cost: number): string {
-  return `$${cost.toFixed(6).replace(/(\.\d{3}\d*?)0+$/, "$1")}`;
+export function formatCacheWarmCost(cost: number, locale: Locale | string | undefined): string {
+  return formatMoney(cost, locale, 6).replace(/(\.\d{3}\d*?)0+$/, "$1");
 }
 
 export interface CacheMissSummary {
