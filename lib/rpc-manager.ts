@@ -978,6 +978,9 @@ export class AgentSessionWrapper {
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
+          // A queued disposition (parked behind compaction, queued into a run) is
+          // answered with `{ queued: true }`: the message is not a sent one yet.
+          let queuedSubmission = false;
           let acceptPreflight!: () => void;
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
@@ -1042,7 +1045,10 @@ export class AgentSessionWrapper {
               // validation and extension preflight have accepted the submission.
               // Every disposition (handled, queued, started) is an acceptance; a
               // rejected prompt never calls this and rejects `prompt` instead.
-              preflightResult: () => acceptPreflight(),
+              preflightResult: (disposition) => {
+                if (disposition === "queued") queuedSubmission = true;
+                acceptPreflight();
+              },
             });
           } catch (error) {
             finishPrompt();
@@ -1069,6 +1075,7 @@ export class AgentSessionWrapper {
                 images: promptImages,
                 streamingBehavior,
               });
+              queuedSubmission = true;
               acceptPreflight();
               return;
             }
@@ -1092,7 +1099,7 @@ export class AgentSessionWrapper {
           });
 
           await preflight;
-          return null;
+          return queuedSubmission ? { queued: true } : null;
         } finally {
           releaseAdmission();
         }
