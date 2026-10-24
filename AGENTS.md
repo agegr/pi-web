@@ -92,6 +92,7 @@ app/api/
   skills/install/route.ts          POST install skills via npx skills add
   skills/search/route.ts           POST skills.sh search
   subagents/settings/route.ts      GET/PUT built-in subagent switch and maxConcurrent
+  scheduled-prompts/route.ts       GET switch + active jobs | PUT { enabled } | DELETE { cwd, jobId } cancel (lib/scheduled-prompts.ts: the schedule_prompt tool, replaces pi-schedule-prompt; Settings › Scheduled prompts)
   web-auth/route.ts                GET status | POST login | DELETE logout (browser password)
   provider-usage/query/route.ts    POST provider usage quotas
   push/config/route.ts             GET VAPID public key

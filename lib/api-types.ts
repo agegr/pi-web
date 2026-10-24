@@ -11,6 +11,11 @@ export interface SubagentSettingsResponse {
   maxConcurrent: number;
 }
 
+export interface ScheduledPromptsResponse {
+  enabled: boolean;
+  jobs: import("./scheduled-prompts").ActiveScheduledJob[];
+}
+
 /** Code mode's one choice (ADR 0006): Automatic writes nothing, Always on adds `+codemode` to the global defaultTools. */
 export type McpCodemodePreference = "automatic" | "always";
 
