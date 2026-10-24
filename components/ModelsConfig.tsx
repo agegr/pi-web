@@ -13,6 +13,7 @@ import {
 import {
   hasModelCostDraftValue,
   modelCostToDraft,
+  modelSidebarLabel,
   parseCompleteModelCost,
   providerMatchesSearch,
   savedModelIds,
@@ -2258,7 +2259,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
                         >
                           <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
-                             {m.id || t("i18n.newModel")}
+                             {modelSidebarLabel(m) || t("i18n.newModel")}
                           </ConfigSidebarText>
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>

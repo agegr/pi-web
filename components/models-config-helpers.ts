@@ -222,3 +222,8 @@ export function providerMatchesSearch(search: string, id: string, label: string)
   const query = search.trim().toLowerCase();
   return !query || label.toLowerCase().includes(query) || id.toLowerCase().includes(query);
 }
+
+/** Models sidebar: a model shows its models.json name, as the selector does; the id when it has none. */
+export function modelSidebarLabel(model: { id: string; name?: string }): string {
+  return model.name?.trim() || model.id;
+}
