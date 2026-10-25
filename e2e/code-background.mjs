@@ -9,7 +9,8 @@ export async function checkCodeBackground(page) {
     }
   };
   page.on("console", onConsole);
-  const source = page.getByRole("button", { name: "Source", exact: true });
+  // User messages also offer Source; target the Mermaid code block's action.
+  const source = page.locator(".markdown-code-block").getByRole("button", { name: "Source", exact: true });
   await source.click();
   const blocks = page.locator(".markdown-code-block pre");
   await blocks.nth(1).waitFor();
