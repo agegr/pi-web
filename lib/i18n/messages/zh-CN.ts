@@ -1461,6 +1461,8 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.thinking": "思考",
     "i18n.largeMessageReveal": "消息内容过大（{size}）。点击以纯文本查看 — 已禁用 markdown 渲染以避免页面卡顿。",
     "i18n.loadingThinking": "正在加载思考内容...",
+    "chat.messageSource": "原文",
+    "chat.renderMessage": "渲染",
     "i18n.copyMessage": "复制消息",
     "i18n.editFromHere": "从此处编辑",
     "i18n.editFromHereTitle": "从此处编辑，此会话内创建分支",

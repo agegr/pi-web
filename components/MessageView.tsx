@@ -3,6 +3,9 @@
 import { memo, useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
+import { SafeMarkdownBody } from "./SafeMarkdownBody";
+import { UserMessageView } from "./UserMessageView";
+export { replaceUserMessageText } from "./UserMessageView";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
@@ -18,7 +21,6 @@ import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansi
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
-import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
@@ -94,72 +96,6 @@ function estimateUpdatedTokens(previous: TokenEstimateCacheEntry | undefined, te
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
-
-// Messages larger than this skip markdown rendering entirely. react-markdown +
-// KaTeX + syntax highlighting on multi-hundred-KB payloads (e.g. pasted HAR or
-// log dumps) freezes the browser main thread.
-const MAX_MARKDOWN_CHARS = 100_000;
-
-function formatMessageBytes(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)} KB`;
-  return `${n} B`;
-}
-
-/**
- * MarkdownBody with an oversized-content guard: huge messages render as a
- * click-to-reveal plain-text <pre> instead of running the markdown pipeline.
- */
-function SafeMarkdownBody({ children, className, ...props }: React.ComponentProps<typeof MarkdownBody>) {
-  const { t } = useI18n();
-  const [showRaw, setShowRaw] = useState(false);
-
-  if (children.length <= MAX_MARKDOWN_CHARS) {
-    return <MarkdownBody className={className} {...props}>{children}</MarkdownBody>;
-  }
-  if (!showRaw) {
-    return (
-      <button
-        onClick={() => setShowRaw(true)}
-        style={{
-          display: "block",
-          width: "100%",
-          margin: "4px 0",
-          padding: "7px 10px",
-          border: "1px solid var(--border)",
-          borderRadius: 6,
-          background: "var(--bg-panel)",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-      >
-        ⚠ {t("i18n.largeMessageReveal", { size: formatMessageBytes(children.length) })}
-      </button>
-    );
-  }
-  return (
-    <div className={className} style={{ maxHeight: 420, overflow: "auto", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
-      <pre
-        style={{
-          margin: 0,
-          padding: "8px 10px",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          fontFamily: "var(--font-mono)",
-          color: "var(--text-muted)",
-        }}
-      >
-        {children}
-      </pre>
-    </div>
-  );
-}
-
-// Cap the user "sent" bubble's height so an abnormally long message does not
-// push the conversation off screen; overflow scrolls inside the bubble.
-const USER_BUBBLE_MAX_HEIGHT = 300;
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
   const key = `${sessionId}:${entryId}:${blockIndex}`;
@@ -254,25 +190,6 @@ function formatTime(ts?: number): string | null {
   return `${date} ${time}`;
 }
 
-export function replaceUserMessageText(message: UserMessage, text: string): UserMessage {
-  if (typeof message.content === "string") return { ...message, content: text };
-
-  const content: Array<TextContent | ImageContent> = [];
-  let replaced = false;
-  for (const block of message.content) {
-    if (block.type !== "text") {
-      content.push(block);
-      continue;
-    }
-    if (!replaced) {
-      content.push({ ...block, text });
-      replaced = true;
-    }
-  }
-  if (!replaced) content.unshift({ type: "text", text });
-  return { ...message, content };
-}
-
 function haveSameRelevantToolResults(
   message: AgentMessage,
   previous: Map<string, ToolResultMessage> | undefined,
@@ -289,7 +206,7 @@ function haveSameRelevantToolResults(
 
 export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
+    return <UserMessageView time={formatTime(message.timestamp)} message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
@@ -332,316 +249,6 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.isCompacting === next.isCompacting
     && prev.compactError === next.compactError;
 });
-
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing }: {
-  message: UserMessage;
-  cwd?: string;
-  onOpenFile?: (filePath: string, page?: number) => void;
-  entryId?: string;
-  onFork?: (entryId: string) => void;
-  forking?: boolean;
-  onEditContent?: (message: UserMessage, entryId: string) => void;
-  onCancelEdit?: () => void;
-  isEditing?: boolean;
-}) {
-  const { t } = useI18n();
-  const [hovered, setHovered] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  // Session files can hold `\r\n` or lone `\r` line endings (#680). Chrome renders
-  // a lone `\r` as a space even in the pre-wrap command-args and raw-text views.
-  // Copy uses this text too; the session file keeps the original endings.
-  const content = (
-    typeof message.content === "string"
-      ? message.content
-      : message.content
-          .filter((b): b is TextContent => b.type === "text")
-          .map((b) => b.text)
-          .join("\n")
-  ).replace(/\r\n?/g, "\n");
-
-  const imageBlocks: ImageContent[] =
-    typeof message.content === "string"
-      ? []
-      : message.content.filter((b): b is ImageContent => b.type === "image");
-
-  const commandText = skillExpansionToCommand(content);
-  const commandSeparator = commandText?.search(/\s/) ?? -1;
-  const commandName = commandText
-    ? commandSeparator === -1 ? commandText : commandText.slice(0, commandSeparator)
-    : "";
-  const commandArgs = commandText && commandSeparator !== -1
-    ? commandText.slice(commandSeparator + 1)
-    : "";
-
-  const time = formatTime(message.timestamp);
-  const canFork = !!entryId && !!onFork;
-  const copyTarget = commandText ?? content;
-  const editTarget = commandText ? replaceUserMessageText(message, commandText) : message;
-
-  const imageBlocksNode = imageBlocks.length > 0 && (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
-      {imageBlocks.map((img, i) => {
-        // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
-        // pi-ai on-disk format uses flat {data, mimeType} — handle both
-        const flat = img as unknown as { data?: string; mimeType?: string };
-        const src = img.source
-          ? img.source.type === "base64"
-            ? `data:${img.source.media_type};base64,${img.source.data}`
-            : img.source.url ?? ""
-          : flat.data
-            ? `data:${flat.mimeType};base64,${flat.data}`
-            : "";
-        return (
-          <ImagePreview key={i} src={src}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={src}
-              alt=""
-              style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
-            />
-          </ImagePreview>
-        );
-      })}
-    </div>
-  );
-  const canEdit = !!entryId && !!onEditContent;
-  const canCancelEdit = !!isEditing && !!onCancelEdit;
-
-  const copyContent = () => {
-    copyText(copyTarget).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-
-  return (
-    <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: isEditing ? "color-mix(in srgb, var(--accent) 14%, var(--user-bg))" : "var(--user-bg)",
-            border: isEditing ? "1px solid color-mix(in srgb, var(--accent) 62%, var(--user-bg))" : "1px solid rgba(59,130,246,0.2)",
-            boxShadow: isEditing ? "0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent)" : undefined,
-            borderRadius: 12,
-            padding: "8px 12px",
-            fontSize: "calc(14px + var(--chat-font-size-offset, 0px))",
-            lineHeight: 1.6,
-            color: "var(--text)",
-            wordBreak: "break-word",
-            maxHeight: USER_BUBBLE_MAX_HEIGHT,
-            overflowY: "auto",
-          }}
-        >
-          {commandText ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-              {imageBlocksNode}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  onClick={() => setExpanded((prev) => !prev)}
-                  title={expanded ? t("i18n.collapse") : t("i18n.expand")}
-                  aria-expanded={expanded}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                    padding: 0,
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: "var(--accent)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "calc(13px + var(--chat-font-size-offset, 0px))",
-                    textAlign: "left",
-                  }}
-                >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {commandName}
-                  </span>
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
-                    aria-hidden="true"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-                {commandArgs && (
-                  <span style={{
-                    color: "var(--text)",
-                    fontSize: "calc(14px + var(--chat-font-size-offset, 0px))",
-                    lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    minWidth: 0,
-                    flex: 1,
-                  }}>
-                    {commandArgs}
-                  </span>
-                )}
-              </div>
-              {expanded && (
-                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
-              )}
-            </div>
-          ) : (
-          <>
-          {imageBlocksNode}
-          {content && <SafeMarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>}
-          </>
-          )}
-        </div>
-
-      </div>
-
-      {/* Bottom row: action buttons + timestamp */}
-      {(time || canFork || canEdit || true) && (
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "flex-end",
-          gap: 6, marginTop: 3,
-        }}>
-          <div style={{
-            display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
-          }}>
-            <button
-              onClick={copyContent}
-               title={t("i18n.copyMessage")}
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "3px 8px", height: 22,
-                background: "none", border: "none",
-                borderRadius: 5,
-                color: copied ? "var(--accent)" : "var(--text-dim)",
-                cursor: "pointer",
-                fontSize: 11, fontWeight: 400,
-                whiteSpace: "nowrap",
-                transition: "color 0.12s",
-              }}
-              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-            >
-              {copied ? (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              )}
-               {copied ? t("i18n.copied") : t("i18n.copy")}
-            </button>
-          </div>
-          {(canFork || canEdit || canCancelEdit) && (
-            <div style={{
-              display: "flex", gap: 3,
-              opacity: (hovered || forking || canCancelEdit) ? 1 : 0,
-              pointerEvents: (hovered || forking || canCancelEdit) ? "auto" : "none",
-              transition: "opacity 0.12s",
-            }}>
-              {canEdit && !canCancelEdit && (
-                <button
-                  onClick={() => onEditContent!(editTarget, entryId!)}
-                   title={t("i18n.editFromHereTitle")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 10 20 15 15 20" />
-                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-                  </svg>
-                   {t("i18n.editFromHere")}
-                </button>
-              )}
-              {canCancelEdit && (
-                <button
-                  type="button"
-                  onClick={onCancelEdit}
-                  title={t("i18n.cancel")}
-                  aria-label={t("i18n.cancel")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: "var(--accent)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 500,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                  {t("i18n.cancel")}
-                </button>
-              )}
-              {canFork && (
-                <button
-                  onClick={() => { onFork!(entryId!); }}
-                  disabled={forking}
-                   title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: forking ? "var(--accent)" : "var(--text-dim)",
-                    cursor: forking ? "not-allowed" : "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                   {forking ? t("i18n.creating") : t("i18n.newSession")}
-                </button>
-              )}
-            </div>
-          )}
-          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function AssistantMessageView({
   message,

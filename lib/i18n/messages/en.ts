@@ -1461,6 +1461,8 @@ export const enLocale: LocalePlugin = {
     "i18n.thinking": "Thinking",
     "i18n.largeMessageReveal": "Message content is very large ({size}). Click to view as plain text — markdown rendering is disabled to keep the page responsive.",
     "i18n.loadingThinking": "Loading thinking...",
+    "chat.messageSource": "Source",
+    "chat.renderMessage": "Render",
     "i18n.copyMessage": "Copy message",
     "i18n.editFromHere": "Edit from here",
     "i18n.editFromHereTitle": "Edit from here — branches within this session",
