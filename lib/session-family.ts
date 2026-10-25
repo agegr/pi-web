@@ -91,7 +91,7 @@ export function countRunningSubagents(
   subagents: readonly SessionInfo[],
   runningSessionIds: ReadonlySet<string>,
 ): number {
-  return getRunningSubagents(subagents, runningSessionIds).length;
+  return subagents.filter((session) => runningSessionIds.has(session.id)).length;
 }
 
 /** The top bar's Agents badge: how many run while any does, else how many there are. */

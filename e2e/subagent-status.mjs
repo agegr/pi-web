@@ -30,9 +30,24 @@ export async function checkSubagentStatus(page, { base, sessionId, artifacts, wi
   });
   const status = page.getByRole("status").filter({ hasText: "subagent" });
   try {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`${base}/?session=${sessionId}`, { waitUntil: "domcontentloaded" });
     await status.filter({ hasText: "3 subagents running" }).waitFor();
     assert.equal(await status.textContent(), `3 subagents running (${descriptions.join(", ")})`);
+    const spinner = status.locator("svg");
+    assert.equal(await spinner.count(), 1);
+    assert.equal(await spinner.locator("rect").count(), 4);
+    assert.equal(await spinner.getAttribute("aria-hidden"), "true");
+    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).animationName), "spin");
+    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).animationDuration), "2.4s");
+    const initialTransform = await spinner.evaluate((element) => getComputedStyle(element).transform);
+    await page.waitForFunction((initial) => {
+      const icon = document.querySelector('[role="status"] svg');
+      return icon && getComputedStyle(icon).transform !== initial;
+    }, initialTransform);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).animationName), "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     // The parent is idle and Agents was never opened; a nested child still counts.
     assert.equal(await page.getByText("Waiting for model...", { exact: true }).count(), 0);
     await status.scrollIntoViewIfNeeded();
@@ -40,6 +55,8 @@ export async function checkSubagentStatus(page, { base, sessionId, artifacts, wi
     assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width,
       "Long descriptions wrap within the chat on desktop and phone");
     assert.ok(await status.evaluate((element) => element.scrollWidth <= element.clientWidth + 1));
+    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).width), "16px",
+      "The icon does not shrink beside long descriptions");
     await page.screenshot({ path: join(artifacts, `subagent-status-${width}.png`) });
 
     running = ids.slice(1);
@@ -60,10 +77,11 @@ export async function checkSubagentStatus(page, { base, sessionId, artifacts, wi
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.getByRole("status").filter({ hasText: text }).waitFor();
     }
-    console.log(`PASS: ${width}px running subagent count/descriptions, nested family, idle parent, poll removal, wrapping and Chinese locales`);
+    console.log(`PASS: ${width}px running subagents, four-square rotation, reduced motion, poll removal, wrapping and Chinese locales`);
   } finally {
     await page.unroute(listRoute);
     await page.unroute(runningRoute);
+    await page.emulateMedia({ reducedMotion: null });
     await page.evaluate(() => localStorage.setItem("pi-locale", "en"));
     await page.goto(`${base}/?session=${sessionId}`, { waitUntil: "domcontentloaded" });
   }

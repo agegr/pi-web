@@ -17,7 +17,7 @@ import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } fro
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ChatActivityStatus } from "./ChatActivityStatus";
+import { RunningSubagentsStatus } from "./RunningSubagentsStatus";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
@@ -1336,11 +1336,19 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
             )}
 
-            <ChatActivityStatus
-              label={agentRunning && !hasStreamingContent ? phaseLabel(agentPhase, t, isCompacting) : null}
-              commandRunning={bashRunning && !pendingBash}
-              runningSubagents={runningSubagents}
-            />
+            {agentRunning && !hasStreamingContent && (agentPhase || isCompacting) && (
+              <div className="break-words py-2 text-[13px] text-text-muted">
+                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t, isCompacting)}</span>
+              </div>
+            )}
+
+            <RunningSubagentsStatus runningSubagents={runningSubagents} />
+
+            {bashRunning && !pendingBash && (
+              <div className="py-2 text-[13px] text-text-muted">
+                 <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
+              </div>
+            )}
 
             {pendingBash && (
               <MessageView
