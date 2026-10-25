@@ -40,15 +40,15 @@ test("compact summary uses shared thin SVGs, decimal K/M and actual average outp
   assert.doesNotMatch(html, /cache R|cache W|♻|📥|📤/);
 });
 
-test("only message SVGs get theme colors; numbers and shared toolbar icons stay neutral", () => {
+test("message SVGs inherit the counts color and shared toolbar icons stay neutral", () => {
   const withWrite = { ...summary, usage: { ...summary.usage, cacheWrite: 12_000 } };
   const html = render(MessageUsage, { summary: withWrite });
   const icons = [...html.matchAll(/<svg\b[^>]*>/g)].map(([tag]) => tag);
   assert.equal(icons.length, 4);
-  assert.match(icons[0], /color:var\(--accent\)/);
-  assert.match(icons[1], /color:var\(--accent\)/);
-  assert.match(icons[2], /color:var\(--text-muted\)/);
-  assert.match(icons[3], /color:var\(--text-muted\)/);
+  for (const icon of icons) {
+    assert.match(icon, /stroke="currentColor"/);
+    assert.doesNotMatch(icon, /style="[^"]*color:/);
+  }
   const withoutIcons = html.replace(/<svg\b[\s\S]*?<\/svg>/g, "");
   assert.doesNotMatch(withoutIcons, /color:var\(--accent\)|color:var\(--text-muted\)/);
   assert.match(withoutIcons, /color:var\(--text-dim\)/);

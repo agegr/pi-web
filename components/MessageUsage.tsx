@@ -39,7 +39,7 @@ export function MessageUsage({ summary, onShowDetails }: {
     .filter((kind) => usage[kind] > 0)
     .map((kind) => (
       <span key={kind} title={t(`session.${kind}`)} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-        <UsageIcon kind={kind} style={{ color: kind === "input" || kind === "output" ? "var(--accent)" : "var(--text-muted)" }} />{formatUsageTokens(usage[kind])}
+        <UsageIcon kind={kind} />{formatUsageTokens(usage[kind])}
       </span>
     ));
   if (usage.cost?.total) parts.push(<span key="cost">${usage.cost.total.toFixed(4)}</span>);
