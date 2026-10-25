@@ -266,18 +266,75 @@ const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   skill: 3,
 };
 
-function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key: string) => string): number {
-  const name = command.name.toLowerCase();
+export function getCleanSlashName(command: SlashCommandPaletteItem): string {
+  return command.source === "skill" && command.name.startsWith("skill:")
+    ? command.name.slice("skill:".length).toLowerCase()
+    : command.name.toLowerCase();
+}
+
+export function slashMatchRank(
+  command: SlashCommandPaletteItem,
+  query: string,
+  t: (key: string) => string = (k) => k,
+): number {
+  const cleanName = getCleanSlashName(command);
+  const rawName = command.name.toLowerCase();
+  const q = query.toLowerCase();
+
+  if (cleanName === q || rawName === q) return 0;
+  if (cleanName.startsWith(q) || rawName.startsWith(q)) return 1;
+  if (cleanName.includes(`-${q}`) || cleanName.includes(`_${q}`) || rawName.includes(`-${q}`) || rawName.includes(`_${q}`)) return 2;
+  if (cleanName.includes(q) || rawName.includes(q)) return 3;
+
   const description = getSlashDescription(command, t).toLowerCase();
-  if (name === query) return 0;
-  if (name.startsWith(query)) return 1;
-  if (name.includes(query)) return 2;
-  if (description.includes(query)) return 3;
-  return 4;
+  if (description.includes(q)) return 4;
+  return 5;
 }
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
-  return command.source === "builtin" ? t(command.description) : command.description ?? "";
+  if (command.source === "builtin") {
+    return command.description ? (t(command.description) ?? "") : "";
+  }
+  return command.description ?? "";
+}
+
+export function filterSlashCommands(
+  commands: SlashCommandPaletteItem[],
+  query: string,
+  t: (key: string) => string = (k) => k,
+): SlashCommandPaletteItem[] {
+  if (!query) {
+    return [...commands].sort((a, b) => {
+      return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
+        || TEXT_COLLATOR.compare(a.name, b.name);
+    });
+  }
+
+  const normalizedQuery = query.toLowerCase();
+
+  const hasNameMatch = commands.some((command) => {
+    const cleanName = getCleanSlashName(command);
+    const rawName = command.name.toLowerCase();
+    return cleanName.includes(normalizedQuery) || rawName.includes(normalizedQuery);
+  });
+
+  return [...commands]
+    .filter((command) => {
+      const cleanName = getCleanSlashName(command);
+      const rawName = command.name.toLowerCase();
+      const matchesName = cleanName.includes(normalizedQuery) || rawName.includes(normalizedQuery);
+
+      if (hasNameMatch) return matchesName;
+
+      const description = getSlashDescription(command, t).toLowerCase();
+      return matchesName || description.includes(normalizedQuery);
+    })
+    .sort((a, b) => {
+      const rankDelta = slashMatchRank(a, normalizedQuery, t) - slashMatchRank(b, normalizedQuery, t);
+      if (rankDelta !== 0) return rankDelta;
+      return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
+        || TEXT_COLLATOR.compare(a.name, b.name);
+    });
 }
 
 // Skill slash commands are named "skill:<skillName>"; look the skill up in the
@@ -970,18 +1027,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       ? BUILTIN_SLASH_COMMANDS.filter((command) => command.availableWhileStreaming)
       : BUILTIN_SLASH_COMMANDS;
     const commands = [...builtinCommands, ...(slashCommands ?? [])];
-    return [...commands]
-      .filter((command) => {
-        const name = command.name.toLowerCase();
-        const description = getSlashDescription(command, t).toLowerCase();
-        return name.includes(slashQuery) || description.includes(slashQuery);
-      })
-      .sort((a, b) => {
-        const rankDelta = slashMatchRank(a, slashQuery, t) - slashMatchRank(b, slashQuery, t);
-        if (rankDelta !== 0) return rankDelta;
-        return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
-          || TEXT_COLLATOR.compare(a.name, b.name);
-      });
+    return filterSlashCommands(commands, slashQuery, t);
   })();
 
   const {
