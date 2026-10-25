@@ -492,6 +492,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.runningTools": "正在執行 {names}...",
     "chat.runningToolsMore": "正在執行 {names}（另有 {count} 個）...",
     "chat.waitingModel": "正在等待模型...",
+    "chat.runningSubagent": "有 {count} 個子代理正在執行（{descriptions}）",
+    "chat.runningSubagents": "有 {count} 個子代理正在執行（{descriptions}）",
     "chat.runningCommand": "正在執行命令...",
     "chat.thinking": "正在思考...",
     "chat.processDetails": "處理詳細資料",

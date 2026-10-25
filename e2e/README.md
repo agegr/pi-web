@@ -54,6 +54,7 @@ Coverage:
   session, directory, draft, files and group expansion; + still opens in the
   same tab, and no session is created, copied, prompted or stopped. An
   unavailable directory shows the validation error instead of another session.
+- Running subagents appear at the chat tail without opening Agents, even with an idle parent. Synthetic running-id polls check nested descendants, matching counts and descriptions, removal through zero, long-description wrapping at desktop/phone widths, and both Chinese locales without dispatching a model.
 - The model picker, with a synthetic catalog: on a phone, a simulated keyboard
   (visual viewport shrink, pan, a late height with no event) keeps the same
   filter focused and the list in the visible viewport. Native phone keyboards

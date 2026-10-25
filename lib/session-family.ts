@@ -80,11 +80,18 @@ export function getSessionFamily(
 }
 
 /** Subagents of a family that the sidebar's running poll lists. */
+export function getRunningSubagents(
+  subagents: readonly SessionInfo[],
+  runningSessionIds: ReadonlySet<string>,
+): SessionInfo[] {
+  return subagents.filter((session) => runningSessionIds.has(session.id));
+}
+
 export function countRunningSubagents(
   subagents: readonly SessionInfo[],
   runningSessionIds: ReadonlySet<string>,
 ): number {
-  return subagents.filter((session) => runningSessionIds.has(session.id)).length;
+  return getRunningSubagents(subagents, runningSessionIds).length;
 }
 
 /** The top bar's Agents badge: how many run while any does, else how many there are. */
