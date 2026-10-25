@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="12 12 40 40">
+  <style>
+    path {
+      opacity: .3;
+      animation: pi-block-highlight 1.2s steps(1, end) infinite;
+    }
+    #pi-blue { animation-delay: -.4s; }
+    #pi-yellow { animation-delay: -.8s; }
+    @keyframes pi-block-highlight {
+      0% { opacity: 1; }
+      33.333333%, 100% { opacity: .3; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      path { animation: none; opacity: 1; }
+    }
+  </style>
+  <path id="pi-coral" fill="#F19284" d="M13 13H42V32H32V23H13Z"/>
+  <path id="pi-blue" fill="#4C9BBE" d="M13 23H23V32H32V42H23V51H13Z"/>
+  <path id="pi-yellow" fill="#F0BE59" d="M42 32H51V51H42Z"/>
+</svg>

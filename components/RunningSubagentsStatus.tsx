@@ -20,16 +20,15 @@ export function RunningSubagentsStatus({ runningSubagents = [] }: Props) {
 
   return (
     <div role="status" className="flex items-start gap-2 py-2 text-[13px] text-text-muted">
-      <svg
-        className="mt-0.5 shrink-0 origin-center animate-spin [animation-duration:2.4s] motion-reduce:animate-none"
-        width="16" height="16" viewBox="0 0 24 24" fill="currentColor"
-        aria-hidden="true" focusable="false"
-      >
-        <rect x="4" y="4" width="6" height="6" rx="1" />
-        <rect x="14" y="4" width="6" height="6" rx="1" opacity="0.75" />
-        <rect x="14" y="14" width="6" height="6" rx="1" opacity="0.5" />
-        <rect x="4" y="14" width="6" height="6" rx="1" opacity="0.25" />
-      </svg>
+      {/* Native SVG: its three blocks light up in sequence without rotating the silhouette. */}
+      <picture className="mt-0.5 block h-4 w-4 shrink-0">
+        <source media="(prefers-reduced-motion: reduce)" srcSet="/icons/pi-blocks-still.svg" />
+        <img
+          className="block"
+          src="/icons/pi-blocks-running.svg"
+          width="16" height="16" alt="" aria-hidden="true"
+        />
+      </picture>
       <span className="min-w-0 break-words">
         {t(runningSubagents.length === 1 ? "chat.runningSubagent" : "chat.runningSubagents", {
           count: runningSubagents.length, descriptions,

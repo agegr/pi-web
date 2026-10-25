@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { checkPiBlocksIcon } from "./pi-blocks-icon.mjs";
 
 /** Exercise real chat rendering/polling with synthetic run ids, never dispatch a model. */
 export async function checkSubagentStatus(page, { base, sessionId, artifacts, width }) {
@@ -34,20 +35,8 @@ export async function checkSubagentStatus(page, { base, sessionId, artifacts, wi
     await page.goto(`${base}/?session=${sessionId}`, { waitUntil: "domcontentloaded" });
     await status.filter({ hasText: "3 subagents running" }).waitFor();
     assert.equal(await status.textContent(), `3 subagents running (${descriptions.join(", ")})`);
-    const spinner = status.locator("svg");
-    assert.equal(await spinner.count(), 1);
-    assert.equal(await spinner.locator("rect").count(), 4);
-    assert.equal(await spinner.getAttribute("aria-hidden"), "true");
-    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).animationName), "spin");
-    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).animationDuration), "2.4s");
-    const initialTransform = await spinner.evaluate((element) => getComputedStyle(element).transform);
-    await page.waitForFunction((initial) => {
-      const icon = document.querySelector('[role="status"] svg');
-      return icon && getComputedStyle(icon).transform !== initial;
-    }, initialTransform);
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).animationName), "none");
-    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const spinner = status.locator('img[src="/icons/pi-blocks-running.svg"]');
+    await checkPiBlocksIcon(page, spinner);
     // The parent is idle and Agents was never opened; a nested child still counts.
     assert.equal(await page.getByText("Waiting for model...", { exact: true }).count(), 0);
     await status.scrollIntoViewIfNeeded();
@@ -77,7 +66,7 @@ export async function checkSubagentStatus(page, { base, sessionId, artifacts, wi
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.getByRole("status").filter({ hasText: text }).waitFor();
     }
-    console.log(`PASS: ${width}px running subagents, four-square rotation, reduced motion, poll removal, wrapping and Chinese locales`);
+    console.log(`PASS: ${width}px running subagents, three-block chase, reduced motion, poll removal, wrapping and Chinese locales`);
   } finally {
     await page.unroute(listRoute);
     await page.unroute(runningRoute);
