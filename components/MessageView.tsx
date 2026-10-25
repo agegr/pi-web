@@ -953,7 +953,7 @@ function AssistantMessageView({
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
         {!isStreaming && (usageSummary || message.usage) ? (
-          <MessageUsage summary={usageSummary ?? { usage: message.usage!, durationMs: message.durationMs, scope: "response", complete: true }} onShowDetails={onShowUsageDetails} />
+          <MessageUsage summary={usageSummary ?? { usage: message.usage!, durationMs: message.durationMs, scope: "response", complete: true }} response={message} onShowDetails={onShowUsageDetails} />
         ) : !isStreaming && turnDurationMs !== undefined ? (
           <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) })}</span>
         ) : null}

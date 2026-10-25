@@ -92,9 +92,25 @@ const forbidden = [];
 const requests = [];
 const commands = new Set(["prompt", "steer", "follow_up", "fork", "fork_branch", "clone", "new_session"]);
 const footer = (id = "answer") => page.locator(`[data-entry-id="${id}"] .message-usage`);
-const turnDetails = "Turn usage\nInput: 1,004,000\nOutput: 600\nCache Read: 2,300\nCache Write: 60\nTotal: 1,006,960\nCost: $0.0066\nElapsed time: 9s\nAverage output speed: 66.7 t/s";
-const firstDetails = "Response usage\nInput: 1,234\nOutput: 100\nCache Read: 2,000\nCache Write: 10\nTotal: 3,344\nCost: $0.0011\nElapsed time: 2s\nAverage output speed: 50.0 t/s";
-const secondDetails = "Response usage\nInput: 2,766\nOutput: 200\nCache Read: 300\nCache Write: 20\nTotal: 3,286\nCost: $0.0022\nElapsed time: 1s\nAverage output speed: 200.0 t/s";
+function expectedDetails(original, startMs, durationMs, stopReason = "stop") {
+  const lines = original.split("\n");
+  const costIndex = lines.findIndex((line) => line.startsWith("Cost: "));
+  lines.splice(costIndex + 1, 0, "Input cost: $0", "Output cost: $0", "Cache Read cost: $0", "Cache Write cost: $0");
+  if (original.startsWith("Turn usage")) return lines.join("\n");
+  lines.push("Model: usage-fixture", "Provider: test");
+  const time = (ms) => new Date(epoch + ms).toLocaleString("en-US", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZoneName: "short", timeZone: "UTC",
+  });
+  lines.push(`Request started: ${time(startMs)}`);
+  if (durationMs !== undefined) {
+    lines.push(`Response completed: ${time(startMs + durationMs)}`);
+  }
+  lines.push(`Stop reason: ${stopReason}`);
+  return lines.join("\n");
+}
+const turnDetails = expectedDetails("Turn usage\nInput: 1,004,000\nOutput: 600\nCache Read: 2,300\nCache Write: 60\nTotal: 1,006,960\nCost: $0.0066\nElapsed time: 9s\nAverage output speed: 66.7 t/s", 6_000, 3_000);
+const firstDetails = expectedDetails("Response usage\nInput: 1,234\nOutput: 100\nCache Read: 2,000\nCache Write: 10\nTotal: 3,344\nCost: $0.0011\nElapsed time: 2s\nAverage output speed: 50.0 t/s", 1_000, 2_000, "toolUse");
+const secondDetails = expectedDetails("Response usage\nInput: 2,766\nOutput: 200\nCache Read: 300\nCache Write: 20\nTotal: 3,286\nCost: $0.0022\nElapsed time: 1s\nAverage output speed: 200.0 t/s", 4_000, 1_000, "toolUse");
 async function open(id) {
   await page.goto(`${base}/?session=${id}`, { waitUntil: "domcontentloaded" });
   await page.getByText(id === TURN ? "Usage whole-turn final answer" : `${id} answer`, { exact: true }).waitFor();
@@ -204,7 +220,7 @@ Module._load = function(request, parent, isMain) {
   browser = await chromium.launch();
   report(`Chromium ${browser.version()}`);
   for (const viewport of [{ width: 1280, height: 900 }, { width: 375, height: 812 }]) {
-    context = await browser.newContext({ viewport, locale: "en-US" });
+    context = await browser.newContext({ viewport, locale: "en-US", timezoneId: "UTC" });
     await context.tracing.start({ screenshots: true, snapshots: true });
     await context.route("**/*", async (route) => {
       const request = route.request();
@@ -251,18 +267,18 @@ Module._load = function(request, parent, isMain) {
     await open("usage-notice-old");
     await assertParts(footer(), ["1.5K", "1M", "2M"]);
     assert.doesNotMatch(await footer().textContent(), /t\/s|took|NaN|Infinity/);
-    await exactToast(footer(), "Turn usage\nInput: 1,500\nOutput: 1,000,000\nCache Read: 2,000,000\nTotal: 3,001,500\nCost: $0", true);
+    await exactToast(footer(), expectedDetails("Turn usage\nInput: 1,500\nOutput: 1,000,000\nCache Read: 2,000,000\nTotal: 3,001,500\nCost: $0", 0, undefined), true);
     await page.screenshot({ path: join(artifacts, `${viewport.width}-legacy.png`) });
     await open("usage-notice-zero");
     await assertParts(footer(), []);
     assert.equal((await footer().textContent()).trim(), "took 0s");
-    await exactToast(footer(), "Turn usage\nInput: 0\nOutput: 0\nTotal: 0\nCost: $0\nElapsed time: 0s");
+    await exactToast(footer(), expectedDetails("Turn usage\nInput: 0\nOutput: 0\nTotal: 0\nCost: $0\nElapsed time: 0s", 0, 0));
     await open("usage-notice-zero-output");
     await assertParts(footer(), ["999", "0.0 t/s"]);
-    await exactToast(footer(), "Turn usage\nInput: 999\nOutput: 0\nTotal: 999\nCost: $0\nElapsed time: 2s\nAverage output speed: 0.0 t/s", true);
+    await exactToast(footer(), expectedDetails("Turn usage\nInput: 999\nOutput: 0\nTotal: 999\nCost: $0\nElapsed time: 2s\nAverage output speed: 0.0 t/s", 0, 2_000), true);
     await open("usage-notice-rounding");
     await assertParts(footer(), ["1M", "1.1K", "2M", "1050.0 t/s"]);
-    await exactToast(footer(), "Turn usage\nInput: 999,950\nOutput: 1,050\nCache Read: 1,999,950\nTotal: 3,000,950\nCost: $0.000012345\nElapsed time: 1s\nAverage output speed: 1050.0 t/s");
+    await exactToast(footer(), expectedDetails("Turn usage\nInput: 999,950\nOutput: 1,050\nCache Read: 1,999,950\nTotal: 3,000,950\nCost: $0\nElapsed time: 1s\nAverage output speed: 1050.0 t/s", 0, 1_000));
     await open("usage-notice-no-usage");
     assert.equal(await page.locator(".message-usage").count(), 0, "old messages with neither usage nor duration do not invent metadata");
     assert.deepEqual(errors, [], `browser errors at ${viewport.width}px`);

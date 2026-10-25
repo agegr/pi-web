@@ -15,6 +15,16 @@ export function formatUsageTokens(value: number): string {
   return `${Number((value / divisor).toFixed(1))}${divisor === 1_000 ? "K" : "M"}`;
 }
 
+/** Display-only truncation to at most four decimals; never change stored costs. */
+export function formatUsageCost(value: number): string {
+  if (!Number.isFinite(value) || Math.abs(value) < 0.0001) return "0";
+  const [whole, fraction = ""] = value.toLocaleString("en-US", {
+    useGrouping: false, maximumFractionDigits: 20,
+  }).split(".");
+  const digits = fraction.slice(0, 4).replace(/0+$/, "");
+  return digits ? `${whole}.${digits}` : whole;
+}
+
 /** Output and time must describe the same response or the same whole turn. */
 export function averageOutputRate(summary: MessageUsageSummary): number | undefined {
   const { output } = summary.usage;
@@ -61,5 +71,7 @@ export function sameUsageSummary(a?: MessageUsageSummary, b?: MessageUsageSummar
   if (!a || !b || a.scope !== b.scope || a.complete !== b.complete || a.durationMs !== b.durationMs) return false;
   return a.usage.input === b.usage.input && a.usage.output === b.usage.output
     && a.usage.cacheRead === b.usage.cacheRead && a.usage.cacheWrite === b.usage.cacheWrite
-    && a.usage.cost?.total === b.usage.cost?.total;
+    && a.usage.cost?.total === b.usage.cost?.total
+    && (["input", "output", "cacheRead", "cacheWrite"] as const)
+      .every((key) => a.usage.cost?.[key] === b.usage.cost?.[key]);
 }
