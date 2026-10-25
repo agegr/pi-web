@@ -44,8 +44,9 @@ export async function checkSubagentStatus(page, { base, sessionId, artifacts, wi
     assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width,
       "Long descriptions wrap within the chat on desktop and phone");
     assert.ok(await status.evaluate((element) => element.scrollWidth <= element.clientWidth + 1));
-    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).width), "16px",
-      "The icon does not shrink beside long descriptions");
+    assert.equal(await spinner.evaluate((element) => getComputedStyle(element).width),
+      await spinner.evaluate(() => getComputedStyle(document.documentElement).fontSize),
+      "The 1rem icon does not shrink beside long descriptions");
     await page.screenshot({ path: join(artifacts, `subagent-status-${width}.png`) });
 
     running = ids.slice(1);

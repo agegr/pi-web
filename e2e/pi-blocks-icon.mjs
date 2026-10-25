@@ -6,10 +6,11 @@ export async function checkPiBlocksIcon(page, icon) {
   assert.equal(await icon.getAttribute("aria-hidden"), "true");
   assert.equal(await icon.getAttribute("alt"), "");
   await icon.evaluate((element) => element.decode());
+  const size = await icon.evaluate(() => getComputedStyle(document.documentElement).fontSize);
   assert.deepEqual(await icon.evaluate((element) => [
     getComputedStyle(element).width, getComputedStyle(element).height,
     element.naturalWidth, element.naturalHeight,
-  ]), ["16px", "16px", 16, 16]);
+  ]), [size, size, 16, 16], "The rendered icon follows its 1rem box, not its intrinsic SVG size");
   const source = await icon.evaluate((element) => element.currentSrc);
   assert.ok(source.endsWith("/icons/pi-blocks-running.svg"));
 
@@ -37,7 +38,9 @@ export async function checkPiBlocksIcon(page, icon) {
   await page.waitForFunction((element) => element.currentSrc.endsWith("/icons/pi-blocks-still.svg"),
     await icon.elementHandle());
   await icon.evaluate((element) => element.decode());
-  assert.deepEqual(await icon.evaluate((element) => [element.width, element.height]), [16, 16]);
+  assert.deepEqual(await icon.evaluate((element) => [
+    getComputedStyle(element).width, getComputedStyle(element).height,
+  ]), [size, size], "Reduced motion preserves the relative icon size");
   const stillSource = await icon.evaluate((element) => element.currentSrc);
   assert.ok(stillSource.endsWith("/icons/pi-blocks-still.svg"));
   const stillResponse = await page.request.get(stillSource);

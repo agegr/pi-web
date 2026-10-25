@@ -42,7 +42,7 @@ test("shows a small decorative native SVG before the text", () => {
   assert.equal((html.match(/<img\b/g) ?? []).length, 1);
   assert.match(html, /src="\/icons\/pi-blocks-running\.svg"/);
   assert.match(html, /width="16" height="16" alt="" aria-hidden="true"/);
-  assert.match(html, /shrink-0/);
+  assert.match(html, /h-4 w-4 shrink-0/, "The icon uses a 1rem box that follows the root font size");
   assert.doesNotMatch(html, /animate-spin|<svg|<rect/);
   assert.ok(html.indexOf("<img") < html.indexOf("1 subagent running"));
 });
