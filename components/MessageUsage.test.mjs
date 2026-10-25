@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import { createJiti } from "jiti";
+
+const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconfigPaths: true });
+const React = await jiti.import("react");
+const { renderToStaticMarkup } = await jiti.import("react-dom/server");
+const { MessageUsage, usageDetailsText } = await jiti.import("./MessageUsage.tsx");
+const { UsageIcon } = await jiti.import("./UsageIcon.tsx");
+const { MessageView } = await jiti.import("./MessageView.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { getLocalePlugin } = await jiti.import("@/lib/i18n/registry");
+const summary = {
+  usage: {
+    input: 314_138, output: 7_241, cacheRead: 1_600_640, cacheWrite: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.8608 },
+  },
+  scope: "turn", complete: true, durationMs: 10_000,
+};
+const translate = (locale) => (key, params) => {
+  const text = getLocalePlugin(locale).messages[key];
+  assert.ok(text, `missing ${locale} ${key}`);
+  return text.replace(/\{(\w+)\}/g, (_, name) => String(params[name]));
+};
+const render = (component, props) => renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(component, props)));
+
+test("compact summary uses shared thin SVGs, decimal K/M and actual average output rate", () => {
+  const html = render(MessageUsage, { summary, onShowDetails() {} });
+  assert.match(html, /314\.1K/);
+  assert.match(html, /7\.2K/);
+  assert.match(html, /1\.6M/);
+  assert.match(html, /\$0\.8608/);
+  assert.match(html, /724\.1 t\/s/);
+  assert.match(html, /took 10s/);
+  assert.match(html, /<line x1="5" y1="8.5" x2="5" y2="1.5"/);
+  assert.match(html, /<line x1="5" y1="1.5" x2="5" y2="8.5"/);
+  assert.match(html, /<button type="button" class="message-usage"/);
+  assert.equal((html.match(/<svg/g) ?? []).length, 3);
+  assert.doesNotMatch(html, /cache R|cache W|♻|📥|📤/);
+});
+
+test("only message SVGs get theme colors; numbers and shared toolbar icons stay neutral", () => {
+  const withWrite = { ...summary, usage: { ...summary.usage, cacheWrite: 12_000 } };
+  const html = render(MessageUsage, { summary: withWrite });
+  const icons = [...html.matchAll(/<svg\b[^>]*>/g)].map(([tag]) => tag);
+  assert.equal(icons.length, 4);
+  assert.match(icons[0], /color:var\(--accent\)/);
+  assert.match(icons[1], /color:var\(--accent\)/);
+  assert.match(icons[2], /color:var\(--text-muted\)/);
+  assert.match(icons[3], /color:var\(--text-muted\)/);
+  const withoutIcons = html.replace(/<svg\b[\s\S]*?<\/svg>/g, "");
+  assert.doesNotMatch(withoutIcons, /color:var\(--accent\)|color:var\(--text-muted\)/);
+  assert.match(withoutIcons, /color:var\(--text-dim\)/);
+  for (const kind of ["input", "output", "cacheRead", "cacheWrite"]) {
+    const neutral = render(UsageIcon, { kind });
+    assert.doesNotMatch(neutral, /style="[^"]*color:/, `${kind} is not colored by default`);
+    assert.match(neutral, /stroke="currentColor"/);
+  }
+});
+
+test("details contain exact counts, total, cost, timing and scope in all three locales", () => {
+  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+    const text = usageDetailsText(summary, translate(locale), locale);
+    for (const count of ["314,138", "7,241", "1,600,640", "1,922,019", "$0.8608", "724.1 t/s"]) assert.ok(text.includes(count), `${locale}: ${count}`);
+    assert.ok(text.startsWith(translate(locale)("chat.usageTurn")));
+    assert.ok(!text.includes(translate(locale)("session.cacheWrite")), "zero cache write is omitted");
+  }
+});
+
+test("details keep the recorded fee precision, including very small nonzero costs", () => {
+  for (const cost of [0.00001234, 0.123456789, 0]) {
+    const precise = { ...summary, usage: { ...summary.usage, cost: { ...summary.usage.cost, total: cost } } };
+    assert.ok(usageDetailsText(precise, translate("en"), "en").includes(`Cost: $${cost}`));
+  }
+});
+
+test("read-only viewers have no dead button, click label or keyboard focus target", () => {
+  const html = render(MessageUsage, { summary });
+  assert.match(html, /<span class="message-usage"/);
+  assert.doesNotMatch(html, /<button|tabindex=|aria-label="Show exact usage/);
+  assert.match(html, /title="Turn usage/);
+});
+
+test("nonzero cache writes get their own SVG and exact detail", () => {
+  const withWrite = { ...summary, usage: { ...summary.usage, cacheWrite: 12_000 } };
+  const html = render(MessageUsage, { summary: withWrite });
+  assert.match(html, /12K/);
+  assert.match(html, /M1\.5 5a3\.5 3\.5/);
+  assert.match(usageDetailsText(withWrite, translate("en"), "en"), /Cache Write: 12,000/);
+});
+
+test("old or invalid timing and partial totals hide the rate instead of guessing", () => {
+  for (const durationMs of [undefined, 0, -1, NaN, Infinity]) {
+    const html = render(MessageUsage, { summary: { ...summary, durationMs } });
+    assert.doesNotMatch(html, /[\d.] t\/s|NaN|Infinity/);
+  }
+  const partial = { ...summary, complete: false };
+  assert.doesNotMatch(render(MessageUsage, { summary: partial }), /[\d.] t\/s/);
+  assert.match(usageDetailsText(partial, translate("en"), "en"), /Partial usage/);
+});
+
+test("finished message uses supplied turn totals, not the final response's own usage", () => {
+  const message = {
+    role: "assistant", provider: "p", model: "m", timestamp: 1_000, durationMs: 500,
+    content: [{ type: "text", text: "Done" }],
+    usage: { ...summary.usage, input: 12, output: 7 },
+  };
+  const html = render(MessageView, { message, usageSummary: summary, onShowUsageDetails() {} });
+  assert.match(html, /314\.1K/);
+  assert.match(html, /724\.1 t\/s/);
+  assert.doesNotMatch(html, /14\.0 t\/s/);
+  const responseHtml = render(MessageView, { message });
+  assert.match(responseHtml, /14\.0 t\/s/);
+  assert.match(responseHtml, /Response usage/);
+  const liveHtml = render(MessageView, { message, isStreaming: true });
+  assert.doesNotMatch(liveHtml, /class="message-usage"/);
+});
+
+test("derived usage changes and click callbacks participate in MessageView memoization", () => {
+  const props = { message: { role: "assistant", content: [] }, usageSummary: summary };
+  assert.equal(MessageView.compare(props, { ...props, usageSummary: structuredClone(summary) }), true);
+  assert.equal(MessageView.compare(props, { ...props, usageSummary: { ...summary, durationMs: 20_000 } }), false);
+  assert.equal(MessageView.compare(props, { ...props, onShowUsageDetails() {} }), false);
+});
+
+test("chat uses the existing toast path and original turn range for summary and duration", async () => {
+  const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  assert.match(source, /addNotice\(\{ message \}\)/);
+  assert.match(source, /onShowUsageDetails=\{showUsageDetails\}/);
+  assert.match(source, /usageSummary: hasAnchor \? summarizeTurnUsage\(messages, groupStartIdx, endIdx, turnDurationMs\) : undefined/);
+  assert.match(source, /durationMs=\{finalAnswerMessage \? undefined : turnDurationMs\}/);
+});

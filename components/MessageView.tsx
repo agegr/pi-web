@@ -11,6 +11,9 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { formatTurnDuration } from "@/lib/turn-duration";
+import { sameUsageSummary, type MessageUsageSummary } from "@/lib/message-usage";
+import { MessageUsage } from "./MessageUsage";
+import { UsageIcon } from "./UsageIcon";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
 import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
@@ -217,6 +220,8 @@ interface Props {
   writtenFiles?: WrittenFile[];
   /** The whole turn's time, for a final answer with no process details to show it. */
   turnDurationMs?: number;
+  usageSummary?: MessageUsageSummary;
+  onShowUsageDetails?: (message: string) => void;
   onCompact?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
@@ -287,12 +292,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, usageSummary, onShowUsageDetails, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} usageSummary={usageSummary} onShowUsageDetails={onShowUsageDetails} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -327,6 +332,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.prevTimestamp === next.prevTimestamp
     && prev.writtenFiles === next.writtenFiles
     && prev.turnDurationMs === next.turnDurationMs
+    && sameUsageSummary(prev.usageSummary, next.usageSummary)
+    && prev.onShowUsageDetails === next.onShowUsageDetails
     && prev.sessionId === next.sessionId
     && prev.onCompact === next.onCompact
     && prev.isCompacting === next.isCompacting
@@ -658,6 +665,8 @@ function AssistantMessageView({
   searchBlock,
   writtenFiles,
   turnDurationMs,
+  usageSummary,
+  onShowUsageDetails,
   onCompact,
   isCompacting,
   compactError,
@@ -676,6 +685,8 @@ function AssistantMessageView({
   searchBlock?: AssistantContentBlock;
   writtenFiles?: WrittenFile[];
   turnDurationMs?: number;
+  usageSummary?: MessageUsageSummary;
+  onShowUsageDetails?: (message: string) => void;
   onCompact?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
@@ -843,9 +854,7 @@ function AssistantMessageView({
               {est > 0 && (
                 <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("i18n.estimatedTokens")}>
                   <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                    </svg>
+                    <UsageIcon kind="output" size={10} />
                     {est}
                   </span>
                   {tps !== null && (() => {
@@ -943,14 +952,11 @@ function AssistantMessageView({
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
-        {(message.usage || turnDurationMs !== undefined) && !isStreaming && (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {[
-              message.usage ? formatUsage(message.usage) : null,
-              turnDurationMs !== undefined ? t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) }) : null,
-            ].filter(Boolean).join(" \u00b7 ")}
-          </div>
-        )}
+        {!isStreaming && (usageSummary || message.usage) ? (
+          <MessageUsage summary={usageSummary ?? { usage: message.usage!, durationMs: message.durationMs, scope: "response", complete: true }} onShowDetails={onShowUsageDetails} />
+        ) : !isStreaming && turnDurationMs !== undefined ? (
+          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) })}</span>
+        ) : null}
         {textContent && !isStreaming && (
           <button
             onClick={copyContent}
@@ -2217,22 +2223,6 @@ function getToolPreview(block: ToolCallContent): string {
 
   const first = input[keys[0]];
   return String(first).slice(0, 120);
-}
-
-function formatUsage(usage: {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: { total: number };
-}): string {
-  const parts = [];
-  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
-  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
-  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
-  if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
-  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
-  return parts.join(" · ");
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
