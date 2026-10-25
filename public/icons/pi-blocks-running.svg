@@ -2,13 +2,13 @@
   <style>
     path {
       opacity: .3;
-      animation: pi-block-highlight 1.2s steps(1, end) infinite;
+      animation: pi-block-highlight .45s ease-in-out infinite;
     }
-    #pi-blue { animation-delay: -.4s; }
-    #pi-yellow { animation-delay: -.8s; }
+    #pi-blue { animation-delay: -.15s; }
+    #pi-yellow { animation-delay: -.3s; }
     @keyframes pi-block-highlight {
-      0% { opacity: 1; }
-      33.333333%, 100% { opacity: .3; }
+      0%, 100% { opacity: 1; }
+      33.333333%, 66.666667% { opacity: .3; }
     }
     @media (prefers-reduced-motion: reduce) {
       path { animation: none; opacity: 1; }

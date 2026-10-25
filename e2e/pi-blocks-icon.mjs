@@ -19,7 +19,13 @@ export async function checkPiBlocksIcon(page, icon) {
     const response = await svgPage.goto(source, { waitUntil: "load" });
     assert.ok(response?.ok(), "The running SVG asset loads successfully");
     const phases = await svgPage.locator("path").evaluateAll((paths) => {
-      return [0, 400, 800, 1200].map((time) => {
+      for (const path of paths) {
+        const timing = path.getAnimations()[0].effect.getTiming();
+        if (timing.duration !== 450 || getComputedStyle(path).animationTimingFunction !== "ease-in-out") {
+          throw new Error("The icon must use the selected 450ms soft fade");
+        }
+      }
+      return [0, 75, 150, 225, 300, 375, 450].map((time) => {
         for (const path of paths) {
           const animation = path.getAnimations()[0];
           animation.pause();
@@ -28,8 +34,10 @@ export async function checkPiBlocksIcon(page, icon) {
         return paths.map((path) => Number(getComputedStyle(path).opacity));
       });
     });
-    assert.deepEqual(phases, [[1, .3, .3], [.3, .3, 1], [.3, 1, .3], [1, .3, .3]],
-      "Only one block is bright at a time: coral, yellow, blue, then repeat");
+    assert.deepEqual(phases.map((values) => values.map((value) => Number(value.toFixed(4)))), [
+      [1, .3, .3], [.65, .3, .65], [.3, .3, 1], [.3, .65, .65],
+      [.3, 1, .3], [.65, .65, .3], [1, .3, .3],
+    ], "Blocks crossfade clockwise without a jump: coral, yellow, blue, then repeat");
   } finally {
     await svgPage.close();
   }

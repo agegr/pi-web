@@ -69,13 +69,14 @@ test("selects an actually static SVG for reduced motion without JavaScript", () 
   assert.doesNotMatch(still, /animation|<animate\b/);
 });
 
-test("lights the blocks clockwise using CSS only and respects reduced motion", () => {
+test("smoothly crossfades the blocks clockwise every 450ms and respects reduced motion", () => {
   const svg = readFileSync(new URL("../public/icons/pi-blocks-running.svg", import.meta.url), "utf8");
-  assert.match(svg, /animation: pi-block-highlight 1\.2s steps\(1, end\) infinite/);
-  assert.match(svg, /#pi-yellow\s*\{ animation-delay: -\.8s;/);
-  assert.match(svg, /#pi-blue\s*\{ animation-delay: -\.4s;/);
-  assert.match(svg, /0%\s*\{ opacity: 1;/);
-  assert.match(svg, /33\.333333%, 100%\s*\{ opacity: \.3;/);
+  assert.match(svg, /animation: pi-block-highlight \.45s ease-in-out infinite/);
+  assert.match(svg, /#pi-yellow\s*\{ animation-delay: -\.3s;/);
+  assert.match(svg, /#pi-blue\s*\{ animation-delay: -\.15s;/);
+  assert.match(svg, /0%, 100%\s*\{ opacity: 1;/);
+  assert.match(svg, /33\.333333%, 66\.666667%\s*\{ opacity: \.3;/);
+  assert.doesNotMatch(svg, /steps\(|setInterval|requestAnimationFrame/);
   assert.match(svg, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*path\s*\{ animation: none; opacity: 1;/);
 });
 
