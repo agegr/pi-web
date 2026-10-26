@@ -47,6 +47,10 @@ const globalPath = join(agentDir, "mcp.json");
 const projectPath = join(cwd, ".pi", "mcp.json");
 const authPath = join(agentDir, "mcp-auth.json");
 const marker = join(root, "command-ran");
+// The !command runs through a shell, where an unquoted backslash is an escape:
+// a Windows path must be quoted and spelled with forward slashes (Windows
+// takes them too), or the marker lands mangled in the process's own folder.
+const markerCommand = `!touch "${marker.replaceAll("\\", "/")}" && echo probe`;
 const store = new ProjectTrustStore(agentDir);
 
 beforeEach(async () => {
@@ -68,7 +72,7 @@ beforeEach(async () => {
     },
   }, null, 2)}\n`);
   await writeFile(projectPath, `${JSON.stringify({
-    mcpServers: { repo: { url: fake.url, headers: { "X-Probe": `!touch ${marker} && echo probe` } } },
+    mcpServers: { repo: { url: fake.url, headers: { "X-Probe": markerCommand } } },
   }, null, 2)}\n`);
   store.set(cwd, null);
 });

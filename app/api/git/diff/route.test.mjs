@@ -6,7 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { createJiti } from "jiti";
 
-const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-git-diff-route-")));
+// realpath.native, not realpath: on Windows the temp dir can carry an 8.3
+// short name (C:\Users\LINWEI~1\...) that plain realpath keeps, while git
+// reports the fully expanded name — and the route checks the file against the
+// repository root git reports.
+const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-git-diff-route-")));
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousRootsCache = globalThis.__piAllowedRootsCache;
 const previousAdditionalRoots = globalThis.__piAdditionalAllowedRoots;

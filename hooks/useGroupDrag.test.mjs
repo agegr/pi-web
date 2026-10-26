@@ -9,7 +9,12 @@ import { createJiti } from "jiti";
 // objects it touches, so its gestures can be played out without a browser.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-const { renderHook } = await import(shimPath);
+// renderHook comes through jiti's "react" alias too: the shim keeps its render
+// state at module scope, so the test and the hook must see the same instance of
+// it. A plain import() of the shim's absolute path is no good — Node's ESM
+// loader rejects "G:/…" as an unsupported URL scheme on Windows — and a second
+// copy of the shim would not share the one under render.
+const { renderHook } = await jiti.import("react");
 const {
   AUTO_SCROLL_MAX_STEP,
   DRAG_START_PX,
