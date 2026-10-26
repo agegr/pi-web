@@ -1,7 +1,7 @@
 const SESSION_LIVENESS_PROTOCOL_VERSION = 1;
 export const SESSION_LIVENESS_REGISTRY_KEY = "@agegr/pi-web/session-liveness/v1";
 export const SESSION_LIVENESS_LEASE_TTL_MS = 90_000;
-const SESSION_LIVENESS_LEASES_KEY = "@agegr/pi-web/session-liveness-leases/v1";
+const SESSION_LIVENESS_LEASES_KEY = "@agegr/pi-web/session-liveness-leases/v2";
 
 export interface SessionLivenessProvider {
   name: string;
@@ -21,19 +21,15 @@ interface SessionLivenessRegistry {
   hasActiveProvider(session: SessionIdentity): boolean;
 }
 
-export interface SessionLivenessLease {
-  renew(): void;
-  release(): void;
-}
-
-interface LeaseRecord extends SessionLivenessLease {
-  sessionId: string;
+interface LeaseRecord {
   expiresAt: number;
   released: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  release(): void;
 }
 
-type LeaseStore = Map<string, Set<LeaseRecord>>;
+// One lease per page and session, keyed `${holder}\n${sessionId}`.
+type LeaseStore = Map<string, LeaseRecord>;
 
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -133,57 +129,41 @@ function scheduleLeaseExpiry(lease: LeaseRecord): void {
   unref?.call(lease.timer);
 }
 
-/** Keep one selected browser session alive while its lease is being renewed. */
-export function acquireSessionLivenessLease(sessionId: string): SessionLivenessLease {
+/**
+ * Keep a session alive while a page has it selected: one lease per page (`holder`, an id the
+ * page makes up) and session, created or renewed by each call (POST /api/agent/[id]/lease) and
+ * released a TTL after the page's last call. It does not depend on the page's event stream, which
+ * a page hidden for a while lets go of (#1283).
+ */
+export function holdSessionLivenessLease(sessionId: string, holder: string): void {
   const leases = getLeaseStore();
+  const key = `${holder}\n${sessionId}`;
+  const existing = leases.get(key);
+  if (existing && !existing.released && existing.expiresAt > Date.now()) {
+    existing.expiresAt = Date.now() + SESSION_LIVENESS_LEASE_TTL_MS;
+    scheduleLeaseExpiry(existing);
+    return;
+  }
+  existing?.release();
   const providerRelease = registerSessionLivenessProvider({
     name: "pi-web-selected-session",
     sessionId,
     isActive: () => !lease.released && lease.expiresAt > Date.now(),
   });
-  const release = () => {
-    if (lease.released) return;
-    lease.released = true;
-    if (lease.timer) clearTimeout(lease.timer);
-    providerRelease();
-    const sessionLeases = leases.get(sessionId);
-    sessionLeases?.delete(lease);
-    if (sessionLeases?.size === 0) leases.delete(sessionId);
-  };
-  const renew = () => {
-    if (lease.released) return;
-    lease.expiresAt = Date.now() + SESSION_LIVENESS_LEASE_TTL_MS;
-    scheduleLeaseExpiry(lease);
-  };
   const lease: LeaseRecord = {
-    sessionId,
     expiresAt: Date.now() + SESSION_LIVENESS_LEASE_TTL_MS,
     released: false,
     timer: null,
-    renew,
-    release,
+    release: () => {
+      if (lease.released) return;
+      lease.released = true;
+      if (lease.timer) clearTimeout(lease.timer);
+      providerRelease();
+      if (leases.get(key) === lease) leases.delete(key);
+    },
   };
-  const sessionLeases = leases.get(sessionId) ?? new Set<LeaseRecord>();
-  sessionLeases.add(lease);
-  leases.set(sessionId, sessionLeases);
+  leases.set(key, lease);
   scheduleLeaseExpiry(lease);
-  return lease;
-}
-
-/** Renew every live browser lease for a session; expired leases are ignored. */
-export function renewSessionLivenessLeases(sessionId: string): number {
-  const leases = getLeaseStore().get(sessionId);
-  if (!leases) return 0;
-  let renewed = 0;
-  for (const lease of [...leases]) {
-    if (lease.released || lease.expiresAt <= Date.now()) {
-      lease.release();
-      continue;
-    }
-    lease.renew();
-    renewed += 1;
-  }
-  return renewed;
 }
 
 /**

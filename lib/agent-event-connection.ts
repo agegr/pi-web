@@ -31,6 +31,7 @@ type Connection = {
   sessionId: string;
   source: AgentEventSourceLike;
   attempt: Attempt;
+  watchdog: ReturnType<typeof setInterval> | null;
 };
 
 export interface AgentEventConnectionOptions {
@@ -39,6 +40,11 @@ export interface AgentEventConnectionOptions {
   shouldMaintain(sessionId: string): boolean;
   readinessTimeoutMs: number;
   reconnectDelayMs: number;
+  /**
+   * A ready stream that delivers nothing for this long, heartbeats included
+   * (AGENT_EVENT_HEARTBEAT_MS), is dead and reconnects. Omitted: never.
+   */
+  staleAfterMs?: number;
   onUnexpectedError?(error: unknown): void;
 }
 
@@ -134,11 +140,13 @@ export class AgentEventConnection {
         reject(error);
       },
     };
-    const connection: Connection = { sessionId, source, attempt };
+    const connection: Connection = { sessionId, source, attempt, watchdog: null };
     this.current = connection;
+    let lastSeen = Date.now();
 
     source.onmessage = (message) => {
       if (this.current !== connection) return;
+      lastSeen = Date.now();
       let event: AgentEventLike;
       try {
         event = JSON.parse(message.data) as AgentEventLike;
@@ -146,10 +154,21 @@ export class AgentEventConnection {
         return;
       }
 
+      if (event.type === "heartbeat") return;
       if (event.type === "connected") {
         attempt.ready = true;
         attempt.succeed();
         this.stopRetrying();
+        const staleAfterMs = this.options.staleAfterMs;
+        if (staleAfterMs && connection.watchdog === null) {
+          // Checked against the clock, so a background tab's throttled timer
+          // only reconnects later, never wrongly.
+          connection.watchdog = setInterval(() => {
+            if (Date.now() - lastSeen > staleAfterMs) {
+              this.fail(connection, new AgentEventConnectionError("closed"));
+            }
+          }, Math.max(1_000, Math.floor(staleAfterMs / 3)));
+        }
       } else if (event.type === "startup_error") {
         const message = typeof event.errorMessage === "string" ? event.errorMessage : undefined;
         this.fail(connection, new AgentEventConnectionError("startup_error", message));
@@ -172,6 +191,8 @@ export class AgentEventConnection {
   }
 
   private discard(connection: Connection, error: AgentEventConnectionError): void {
+    if (connection.watchdog !== null) clearInterval(connection.watchdog);
+    connection.watchdog = null;
     connection.attempt.fail(error);
     connection.source.close();
     if (this.current === connection) this.current = null;
@@ -199,4 +220,39 @@ export class AgentEventConnection {
     if (this.retry) clearTimeout(this.retry.timer);
     this.retry = null;
   }
+}
+
+/** What `POST /api/agent/[id]/lease` answers besides keeping the session alive. */
+export interface SessionLeaseReply {
+  running?: boolean;
+  awaitingInput?: boolean;
+  subagentsActive?: boolean;
+}
+
+/**
+ * How long a page waits for a lease reply. Over HTTP/1.1 a request queued behind six open
+ * streams never leaves the browser, so no answer in time reads as a starved pool.
+ */
+export const SESSION_LEASE_TIMEOUT_MS = 5_000;
+
+/**
+ * Whether the server reports anything under way in the session: a run, a queued prompt, a `!`
+ * command, a compaction, an extension dialog waiting for an answer, or a subagent left to finish
+ * (its end starts a turn there). A hidden page keeps or reopens the session's stream while it does.
+ */
+export function sessionLeaseShowsActivity(reply: SessionLeaseReply | "unanswered" | null | undefined): boolean {
+  if (!reply || reply === "unanswered") return false;
+  return Boolean(reply.running || reply.awaitingInput || reply.subagentsActive);
+}
+
+/**
+ * Whether a page hidden past its grace may close the selected session's stream (#1283): only when
+ * the lease reply shows nothing under way. `"unanswered"` (no reply within SESSION_LEASE_TIMEOUT_MS,
+ * or no network) releases: the pool is starved, which is what the release is for, or the stream
+ * is down anyway. `null` (the server answered with an error) keeps the stream until the next check.
+ */
+export function canReleaseHiddenEventStream(reply: SessionLeaseReply | "unanswered" | null | undefined): boolean {
+  if (reply === "unanswered") return true;
+  if (!reply) return false;
+  return !sessionLeaseShowsActivity(reply);
 }
