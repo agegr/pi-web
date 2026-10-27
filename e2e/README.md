@@ -58,8 +58,34 @@ Coverage:
   (visual viewport shrink, pan, a late height with no event) keeps the same
   filter focused and the list in the visible viewport. Native phone keyboards
   still need real-device verification.
+- Queued-message composers (`queued-messages.mjs`): the real chat/input with
+  synthetic agent state, events and catalog; 0/3/19/50 rows, steering-only,
+  follow-up-only and mixed queues. At 1440×900, 1366×768, 1280×600 and touch
+  390×844, textarea/Steer/Follow-up/Recall/Stop bounds and hit targets stay in
+  the viewport. Wheel scrolling and desktop Home/End keys reach the first/last
+  rows without changing the draft or queue; actual command clicks preserve
+  payloads and recall order.
+- Long model errors/warnings plus a tall draft remain accessible with the
+  queue and retry feedback, including desktop windows reduced to 400px. A
+  simulated phone keyboard at 450/340/280px (including a late height with no
+  resize event), with 50 queued rows, long diagnostics and retry feedback
+  together, preserves controls, long drafts and page position. Native
+  keyboards, Windows Chrome and old Safari still need device verification.
+  Queue screenshots and bounding boxes are saved as `queued-*.png`/`.json`.
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
+
+### Queue overflow reproduction (#1428)
+
+Run this suite on `e533d9b` with `queued-messages.mjs` and its `run.mjs`
+registration copied in, but no component/CSS changes. At 1280×600, 19 queued
+steers plus retry feedback put the textarea at y=619.75–643.75, outside the
+600px viewport; the bounds/hit-target assertion fails. The same test passes
+with the fix. These screenshots use only synthetic fixture data:
+
+| Before | After |
+| --- | --- |
+| ![19 queued messages hide the composer](../docs/screenshots/queued-messages-before.png) | ![Bounded queue keeps the composer visible](../docs/screenshots/queued-messages-after.png) |
 
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under

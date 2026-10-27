@@ -289,6 +289,33 @@ test("shows the follow-up shortcut in the button tooltip", () => {
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
 });
 
+test("queued messages keep their count, order, recall control and data at every size", () => {
+  const render = (queuedMessages) => renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, onRecallQueue() {},
+      isStreaming: true, queuedMessages,
+    })),
+  );
+  for (const queue of [undefined, null, { steering: [], followUp: [] }]) {
+    assert.doesNotMatch(render(queue), /chat-queued-messages|Recall to input|Queued ·/);
+  }
+  for (const count of [3, 19, 50]) {
+    for (const steerCount of [0, Math.ceil(count / 2), count]) {
+      const queue = Object.freeze({
+        steering: Object.freeze(Array.from({ length: steerCount }, (_, i) => `steer-${i}`)),
+        followUp: Object.freeze(Array.from({ length: count - steerCount }, (_, i) => `follow-up-${i}`)),
+      });
+      const before = structuredClone(queue);
+      const html = render(queue);
+      assert.match(html, new RegExp(`Queued · ${count}<`));
+      assert.match(html, /Recall to input<\/button>/);
+      assert.deepEqual([...html.matchAll(/<div title="([^"]+)"/g)].map((match) => match[1]),
+        [...queue.steering, ...queue.followUp]);
+      assert.deepEqual(queue, before);
+    }
+  }
+});
+
 test("ignores a pointer click that reaches Stop's slot just as the run ends", () => {
   assert.equal(isRunEndStrayClick(1, 0), true);
   assert.equal(isRunEndStrayClick(2, RUN_END_CLICK_GUARD_MS - 1), true);

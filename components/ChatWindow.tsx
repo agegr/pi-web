@@ -1455,7 +1455,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         document.body,
       )}
 
-      <div className="relative shrink-0">
+      <div className="relative flex min-h-0 max-h-full shrink-0 flex-col">
         {!isEmptyNew && (
           <div
             style={{
