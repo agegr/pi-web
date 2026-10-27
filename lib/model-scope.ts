@@ -77,6 +77,22 @@ function exactReferenceMatches(pattern: string, models: readonly Model<Api>[]): 
   return models.filter((model) => model.id.toLowerCase() === normalized);
 }
 
+function isSignedOutExactModel(pattern: string, modelRuntime: ModelRuntime): boolean {
+  if (hasGlob(pattern)) return false;
+  const catalog = modelRuntime.getModels();
+  let matches = exactReferenceMatches(pattern, catalog);
+  if (matches.length === 0) {
+    const colonIndex = pattern.lastIndexOf(":");
+    const suffix = colonIndex >= 0 ? pattern.slice(colonIndex + 1) : "";
+    if (THINKING_LEVEL_SUFFIXES.has(suffix as ThinkingLevel)) {
+      matches = exactReferenceMatches(pattern.slice(0, colonIndex), catalog);
+    }
+  }
+  // Require a real, unambiguous catalog reference: a typo is not a sign-out.
+  // Configured-but-failing credentials must still surface a warning.
+  return matches.length === 1 && !modelRuntime.getProviderAuthStatus(matches[0].provider).configured;
+}
+
 function assertNoAmbiguousExactPatterns(
   patterns: readonly string[],
   models: readonly Model<Api>[],
@@ -132,16 +148,17 @@ export async function resolveVisibleModels(
     getAvailable: async () => available,
   } as ModelRuntime;
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
-  // A leftover valid glob after a model was removed is not a chat-level problem
-  // when other enabledModels entries still matched. Keep exact and malformed
-  // pattern warnings, and keep all no-match warnings for a total miss, where
-  // the UI falls back to every available model and the user needs to know the
-  // scope did not apply.
+  // A leftover valid glob or a known model of a signed-out provider is not a
+  // chat-level problem when other enabledModels entries still matched. Keep
+  // typos, malformed patterns and configured-but-unavailable models visible.
+  // Keep all warnings for a total miss: the UI falls back to every available
+  // model and the user needs to know the scope did not apply.
   const warnings = diagnostics
     .filter((diagnostic) => (
       diagnostic.code !== "no-match"
       || scopedModels.length === 0
-      || !isSuppressibleUnmatchedGlob(diagnostic.pattern)
+      || (!isSuppressibleUnmatchedGlob(diagnostic.pattern)
+        && !isSignedOutExactModel(diagnostic.pattern, modelRuntime))
     ))
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
