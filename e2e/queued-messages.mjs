@@ -247,6 +247,32 @@ export async function checkQueuedMessages({ browser, base, artifacts, sessionId 
       await composer();
     };
 
+    const exerciseShortViewportControls = async () => {
+      const before = structuredClone(queue);
+      const draft = await input.inputValue();
+      await clickCommand(page.getByRole("button", { name: "Steer", exact: true }));
+      await page.waitForFunction(() => document.querySelector("textarea.chat-input-textarea").value === "");
+      await input.fill(draft);
+      await clickCommand(page.getByRole("button", { name: "Follow-up", exact: true }));
+      await page.waitForFunction(() => document.querySelector("textarea.chat-input-textarea").value === "");
+      await input.fill(draft);
+      const recalledDraft = [...before.steering, ...before.followUp, draft].join("\n\n");
+      await clickCommand(recall);
+      await page.waitForFunction((expected) => document.querySelector("textarea.chat-input-textarea").value === expected, recalledDraft);
+      assert.deepEqual(commands.splice(0), [
+        { type: "prompt", message: draft.trim(), streamingBehavior: "steer" },
+        { type: "prompt", message: draft.trim(), streamingBehavior: "followUp" },
+        { type: "clear_queue" },
+      ]);
+      await setQueue(before);
+      await input.fill(draft);
+      await composer();
+      await clickCommand(page.getByRole("button", { name: "Stop", exact: true }));
+      assert.deepEqual(commands.splice(0), [{ type: "abort" }]);
+      assert.equal(await input.inputValue(), draft, "Stop must preserve the unsent draft");
+      assert.deepEqual(await rows.evaluateAll((rows) => rows.map((row) => row.title)), [...before.steering, ...before.followUp]);
+    };
+
     try {
       await page.goto(`${base}/?session=${sessionId}`, { waitUntil: "domcontentloaded" });
       await page.getByRole("button", { name: "Steer", exact: true }).waitFor();
@@ -322,31 +348,52 @@ export async function checkQueuedMessages({ browser, base, artifacts, sessionId 
         await page.getByText("Model scope warnings", { exact: true }).waitFor();
         await setQueue(queued(25, 25));
         await emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, errorMessage: "Synthetic retry: no provider request" });
-        await input.fill(draft);
-        await input.click();
-        const setViewport = (height, notify = true) => page.evaluate(({ height, notify }) => {
-          Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => height });
-          if (notify) window.visualViewport.dispatchEvent(new Event("resize"));
-        }, { height, notify });
-        for (const height of [450, 340, 280]) {
-          await setViewport(height, height !== 280);
-          if (height === 280) await input.dispatchEvent("compositionupdate", { data: "x" });
-          await page.waitForFunction((height) => document.documentElement.style.getPropertyValue("--app-viewport-height") === `${height}px`, height);
-          const keyboardDraft = height === 450 ? draft : "A keyboard draft\n".repeat(30);
-          await input.fill(keyboardDraft);
-          await saveLayout(`queued-keyboard-${height}`);
+        for (const mode of ["visual", "layout"]) {
+          await input.fill(draft);
+          await input.focus();
+          for (const height of [450, 340, 280]) {
+            await input.focus();
+            if (mode === "visual") {
+              await page.evaluate(({ height, notify }) => {
+                Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => height });
+                if (notify) window.visualViewport.dispatchEvent(new Event("resize"));
+              }, { height, notify: height !== 280 });
+              if (height === 280) await input.dispatchEvent("compositionupdate", { data: "x" });
+              await page.waitForFunction((height) => document.documentElement.style.getPropertyValue("--app-viewport-height") === `${height}px`, height);
+            } else {
+              // interactive-widget=resizes-content shrinks both viewports. The
+              // hook correctly leaves its keyboard marker unset in this mode:
+              // do not force it on and accidentally bypass the CSS regression.
+              await page.setViewportSize({ width: viewport.width, height });
+              await page.waitForFunction((height) => innerHeight === height && visualViewport.height === height
+                && !document.documentElement.dataset.keyboardOpen
+                && !document.documentElement.style.getPropertyValue("--app-viewport-height"), height);
+            }
+            const keyboardDraft = "A keyboard draft\n".repeat(30);
+            await input.fill(keyboardDraft);
+            await saveLayout(`queued-keyboard-${mode}-${height}`);
+            await composer();
+            await scrollQueue();
+            await readDiagnostics();
+            await exerciseShortViewportControls();
+            assert.equal(await input.inputValue(), keyboardDraft);
+            assert.deepEqual(await page.evaluate(() => [scrollX, scrollY]), [0, 0], "keyboard settling must not jump the page");
+            console.log(`PASS: ${label} ${mode} viewport at ${height}px, scrolling, sends/recall/Stop and unchanged draft`);
+          }
+          await page.evaluate(() => {
+            delete window.visualViewport.height;
+            window.visualViewport.dispatchEvent(new Event("resize"));
+          });
+          await page.setViewportSize(viewport);
+          await input.focus();
+          await page.waitForFunction(() => !document.documentElement.dataset.keyboardOpen);
           await composer();
           await scrollQueue();
           await readDiagnostics();
-          assert.equal(await input.inputValue(), keyboardDraft);
-          assert.deepEqual(await page.evaluate(() => [scrollX, scrollY]), [0, 0], "keyboard settling must not jump the page");
+          assert.equal(await input.inputValue(), "A keyboard draft\n".repeat(30), "restoring the viewport preserves the draft");
+          assert.deepEqual(await page.evaluate(() => [scrollX, scrollY]), [0, 0], "restoring the viewport must not jump the page");
         }
         await clickCommand(page.getByRole("button", { name: "Stop", exact: true }));
-        await page.evaluate(() => {
-          delete window.visualViewport.height;
-          window.visualViewport.dispatchEvent(new Event("resize"));
-        });
-        await page.waitForFunction(() => !document.documentElement.dataset.keyboardOpen);
       } else {
         await page.setViewportSize({ width: viewport.width, height: 400 });
         await saveLayout("queued-short-window");
@@ -366,6 +413,17 @@ export async function checkQueuedMessages({ browser, base, artifacts, sessionId 
       await page.getByRole("button", { name: "Send", exact: true }).waitFor();
       await accessible(input, "idle textarea");
       await accessible(page.getByRole("button", { name: "Send", exact: true }), "idle Send");
+      if (mobile) {
+        await setQueue(emptyQueue());
+        const idleDraft = await input.inputValue();
+        for (const height of [450, 340, 280]) {
+          await page.setViewportSize({ width: viewport.width, height });
+          await accessible(input, "short idle textarea without a queue");
+          await accessible(page.getByRole("button", { name: "Send", exact: true }), "short idle Send without a queue");
+          assert.equal(await input.inputValue(), idleDraft, "short idle layouts preserve the draft");
+        }
+        await page.setViewportSize(viewport);
+      }
       assert.deepEqual(errors, [], `browser errors at ${label}`);
       console.log(`PASS: ${label} diagnostics/tall draft, reduced viewport${mobile ? "/simulated keyboard" : ""}, Stop and idle composer`);
     } catch (error) {

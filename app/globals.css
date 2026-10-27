@@ -869,6 +869,17 @@ html[data-keyboard-open] .terminal-extra-keys {
 .chat-queued-rows {
   min-height: 26px;
 }
+/* resizes-content keyboards shrink both viewports, so useViewportHeight has
+   no visual/layout difference to mark. Fit short touch layouts independently
+   of that marker too, without hiding the running controls. */
+@media (max-width: 640px) and (max-height: 500px), (pointer: coarse) and (max-height: 500px) {
+  .chat-input-shell .chat-input-textarea {
+    max-height: min(200px, calc(var(--app-viewport-height, 100dvh) * 0.2)) !important;
+  }
+  .chat-input-shell[data-queued] .chat-input-textarea {
+    max-height: min(200px, calc(var(--app-viewport-height, 100dvh) * 0.14)) !important;
+  }
+}
 
 .extension-status-shelf {
   display: flex;
