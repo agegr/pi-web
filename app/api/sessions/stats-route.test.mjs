@@ -12,6 +12,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { POST: sessionStatsRoute } = await jiti.import("./stats/route.ts");
 const { invalidateSessionListCache, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
+const { SessionManager } = await jiti.import("@earendil-works/pi-coding-agent");
 
 const JSON_HEADERS = { host: "localhost", "Content-Type": "application/json" };
 const START = Date.parse("2026-10-01T00:00:00.000Z");
@@ -93,6 +94,58 @@ test("answers each session's tokens, cost, tool calls and active time, leaving o
   assert.equal(again.stats["stats-child"].tokens.total, 460);
   assert.equal(again.stats["stats-child"].toolCalls, 2);
   assert.equal(again.stats["stats-child"].totalActiveMs, 60_000);
+});
+
+test("returns recorded model and thinking changes, including a run before its first response", async (t) => {
+  const { sessionsDir, ids } = await scratchAgentDir(t);
+  ids.push("stats-settings", "stats-legacy", "stats-empty");
+  const path = await writeSession(sessionsDir, "stats-settings", [
+    { type: "model_change", id: "model", parentId: null, timestamp: at(0), provider: "actual-provider", modelId: "call-override-model" },
+    { type: "thinking_level_change", id: "thinking", parentId: "model", timestamp: at(1), thinkingLevel: "xhigh" },
+  ]);
+  const legacy = exchange("old", null, 0, { input: 10, output: 5, cost: 0 });
+  Object.assign(legacy[1].message, { provider: "legacy-provider", model: "legacy-model" });
+  await writeSession(sessionsDir, "stats-legacy", legacy);
+  await writeSession(sessionsDir, "stats-empty", []);
+
+  const { stats } = await (await post({ ids })).json();
+  assert.deepEqual(stats["stats-settings"].model, { provider: "actual-provider", modelId: "call-override-model" });
+  assert.equal(stats["stats-settings"].thinkingLevel, "xhigh");
+  assert.equal(stats["stats-settings"].tokens.total, 0);
+  assert.deepEqual(stats["stats-legacy"].model, { provider: "legacy-provider", modelId: "legacy-model" });
+  assert.equal(stats["stats-legacy"].thinkingLevel, "off");
+  assert.equal(stats["stats-empty"].model, null);
+  assert.equal(stats["stats-empty"].thinkingLevel, "off");
+
+  await appendFile(path, `${JSON.stringify({ type: "thinking_level_change", id: "off", parentId: "thinking", timestamp: at(2), thinkingLevel: "off" })}\n`);
+  const again = await (await post({ ids: ["stats-settings"] })).json();
+  assert.equal(again.stats["stats-settings"].thinkingLevel, "off");
+  assert.deepEqual(again.stats["stats-settings"].model, stats["stats-settings"].model);
+});
+
+test("reads a live manager's selected branch and refreshes settings when only its leaf changes", async (t) => {
+  const { sessionsDir, ids } = await scratchAgentDir(t);
+  ids.push("stats-branches");
+  const path = await writeSession(sessionsDir, "stats-branches", [
+    { type: "model_change", id: "root", parentId: null, timestamp: at(0), provider: "provider", modelId: "root-model" },
+    { type: "thinking_level_change", id: "root-level", parentId: "root", timestamp: at(1), thinkingLevel: "low" },
+    { type: "model_change", id: "other", parentId: "root-level", timestamp: at(2), provider: "other-provider", modelId: "other-model" },
+    { type: "thinking_level_change", id: "other-level", parentId: "other", timestamp: at(3), thinkingLevel: "high" },
+  ]);
+  const manager = SessionManager.open(path);
+  globalThis.__piSessions.set("stats-branches", { isAlive: () => true, inner: { sessionManager: manager } });
+  const read = async () => (await (await post({ ids: ["stats-branches"] })).json()).stats["stats-branches"];
+  assert.deepEqual((await read()).model, { provider: "other-provider", modelId: "other-model" });
+  assert.equal((await read()).thinkingLevel, "high");
+  const count = manager.getEntries().length;
+  manager.branch("root-level");
+  assert.equal(manager.getEntries().length, count, "navigation appends no entry");
+  assert.deepEqual((await read()).model, { provider: "provider", modelId: "root-model" });
+  assert.equal((await read()).thinkingLevel, "low");
+  manager.resetLeaf();
+  assert.equal((await read()).model, null);
+  assert.equal((await read()).thinkingLevel, "off");
+  assert.equal(manager.getEntries().length, count, "stats reads never write or start an agent");
 });
 
 test("refuses malformed requests", async () => {
