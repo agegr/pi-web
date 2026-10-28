@@ -257,6 +257,8 @@ test("a running session keeps its stream while hidden and lets go a grace after 
     assert.deepEqual(state.open(), [source], "the run's events still arrive");
 
     source.emit({ type: "agent_settled" });
+    assert.equal(state.ends.length, 0, "UI settlement alone is silent");
+    source.emit({ type: "session_complete", completionId: "100" });
     assert.equal(state.ends.length, 1, "the completion reaches the page through the stream");
     await settle();
     state.hook.flush();
@@ -349,6 +351,8 @@ test("a released page opens the stream again while hidden once a run starts ther
     // settles, then the prompt resolves.
     source.emit({ type: "agent_settled" });
     source.emit({ type: "prompt_done" });
+    assert.equal(state.ends.length, 0, "the family has not completed yet");
+    source.emit({ type: "session_complete", completionId: "100" });
     await settle();
     state.hook.flush();
     assert.equal(state.ends.length, 1, "the completion reaches the hidden page, chime and notification included");

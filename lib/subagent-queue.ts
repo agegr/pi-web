@@ -38,9 +38,10 @@ export class SubagentQueue<T> {
     const promise = new Promise<T>((resolve, reject) => {
       item = { run, onState, onCancel, resolve, reject, state: "queued", cancelled: false };
     });
+    // A failed initial status write must not leave runnable work behind after dispatch rejects.
+    onState("queued");
     parent.items.push(item);
     this.parents.set(parentId, parent);
-    onState("queued");
     this.pump(parentId, parent);
     return {
       promise,
@@ -62,13 +63,16 @@ export class SubagentQueue<T> {
       const item = parent.items.shift()!;
       if (item.cancelled) continue;
       item.state = "running";
-      item.onState("running");
+      try { item.onState("running"); } catch (error) {
+        item.reject(error);
+        continue;
+      }
       parent.active += 1;
       void item.run().then(item.resolve, item.reject).finally(() => {
         parent.active -= 1;
         this.pump(parentId, parent);
-        if (parent.active === 0 && parent.items.length === 0) this.parents.delete(parentId);
       });
     }
+    if (parent.active === 0 && parent.items.length === 0) this.parents.delete(parentId);
   }
 }

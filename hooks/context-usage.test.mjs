@@ -29,7 +29,9 @@ function setup() {
     fetch: (url) => { const request = Promise.withResolvers(); requests.push({ ...request, url }); return request.promise; },
     syncLiveModel() {}, setIsCompacting() {}, setAutoCompactionEnabled() {}, setQueuedMessages() {},
     normalizeQueuedMessages: (value) => value, finishPromptWithoutStream: () => { throw new Error("busy run settled"); },
+    captureCompletionSnapshot: (sid) => ({ sessionId: sid }), applyCompletionSnapshot() {},
   });
+  context.readAgentState = callback("readAgentState").runInContext(context);
   context.applyLiveUsage = callback("applyLiveUsage").runInContext(context);
   context.refreshContextUsage = callback("refreshContextUsage").runInContext(context);
   context.reconcileAgentState = callback("reconcileAgentState").runInContext(context);
@@ -130,6 +132,8 @@ test("each event stream connection reads usage, since connecting resumes an idle
     script.runInNewContext({
       event: { type: "connected", sessionId: sid ?? "pending", isStreaming },
       sessionIdRef: { current: sid }, sdkAgentActiveRef: { current: false }, agentRunningRef: { current: false },
+      sessionHookMountedRef: { current: true }, sessionPropIdRef: { current: sid },
+      completionTrackerRef: { current: { connected: () => false } }, session: null,
       dispatch() {}, cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {},
       refreshContextUsage: (id) => reads.push(id),
     });

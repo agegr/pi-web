@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type Ref, type RefObject, type UIEvent as ReactUIEvent } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, type SessionFamily } from "@/lib/session-family";
+import { BackgroundCompletionTracker, backgroundCompletionSessions } from "@/lib/session-completion-client";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
@@ -547,8 +548,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
-  const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
-  const previousSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
+  const completionTrackerRef = useRef(new BackgroundCompletionTracker());
+  const completionContextRef = useRef({ allSessions, selectedSessionId, onBackgroundTaskDone });
+  completionContextRef.current = { allSessions, selectedSessionId, onBackgroundTaskDone };
   // Once polling has delivered a snapshot it is the source of truth for
   // running state; late /api/sessions responses must not overwrite it.
   const runningPollAuthoritativeRef = useRef(false);
@@ -757,7 +759,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         sessionListVersion: number;
         runningSessionIds?: string[];
         awaitingInputSessionIds?: string[];
-        completionNotificationSuppressedSessionIds?: string[];
       };
       if (loadId !== sessionLoadIdRef.current) return;
       sessionListVersionRef.current = data.sessionListVersion;
@@ -766,9 +767,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
-        currentSuppressedCompletionSessionIdsRef.current = new Set(
-          data.completionNotificationSuppressedSessionIds ?? [],
-        );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
       }
@@ -785,6 +783,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         return next.size === prev.size ? prev : next;
       });
       setError(null);
+      // Poll completion eligibility must use this accepted catalogue, not the
+      // previous render's allSessions while React has yet to commit the update.
+      return data.sessions;
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
     } finally {
@@ -929,21 +930,39 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           sessionListVersion: number;
           runningSessionIds?: string[];
           awaitingInputSessionIds?: string[];
-          completionNotificationSuppressedSessionIds?: string[];
+          completionIds?: Record<string, string>;
           sessionUiStateRevision?: number | null;
         };
         if (stopped || controller !== current) return;
         runningPollAuthoritativeRef.current = true;
-        currentSuppressedCompletionSessionIdsRef.current = new Set(
-          data.completionNotificationSuppressedSessionIds ?? [],
-        );
+        const tracker = completionTrackerRef.current;
+        const context = completionContextRef.current;
+        // Consume selected-session IDs silently now, before a catalogue read
+        // can outlive the selection. Defer all other new IDs until confirmed.
+        tracker.poll(data.completionIds ?? {}, new Set(context.selectedSessionId ? [context.selectedSessionId] : []));
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
-        if (data.sessionListVersion !== sessionListVersionRef.current) {
-          // Reuse the invalidated cache; forcing a scan would change the version again.
-          await loadSessions();
+        let catalogue = context.allSessions;
+        const knownIds = new Set(catalogue.map((session) => session.id));
+        if (data.sessionListVersion !== sessionListVersionRef.current || tracker.needsCatalogue(knownIds)) {
+          // A fast new session may complete before its row reaches this tab.
+          // A successful fresh read also confirms real deletions. Failed or
+          // superseded reads leave IDs pending for the next existing poll.
+          const loaded = await loadSessions();
+          if (stopped || controller !== current || !loaded) return;
+          catalogue = loaded;
+        }
+        const completed = tracker.poll({});
+        const latest = completionContextRef.current;
+        const background = backgroundCompletionSessions(completed, catalogue, latest.selectedSessionId);
+        if (background.length > 0) {
+          // A newer run may already have started by this poll; its running
+          // state still clears unread, even though the prior completion alerts.
+          const running = new Set(data.runningSessionIds ?? []);
+          setUnreadSessionIds((previous) => new Set([...previous, ...background].filter((id) => !running.has(id))));
+          latest.onBackgroundTaskDone?.();
         }
       } catch {
         // Keep the last known state; the next visible-tab poll retries.
@@ -984,21 +1003,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
     const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
-    const knownSubagentIds = new Set(
-      allSessions
-        .filter((session) => session.relation?.kind === "subagent")
-        .map((session) => session.id),
-    );
-    const completedWithNotifications = completedInBackground.filter(
-      (id) => !previousSuppressedCompletionSessionIdsRef.current.has(id) && !knownSubagentIds.has(id),
-    );
     const newlyRunning = [...runningSessionIds].filter((id) => !previous.has(id));
 
-    if (completedWithNotifications.length > 0 || newlyRunning.length > 0) {
+    if (newlyRunning.length > 0) {
       setUnreadSessionIds((prev) => {
         const next = new Set(prev);
         runningSessionIds.forEach((id) => next.delete(id));
-        completedWithNotifications.forEach((id) => next.add(id));
         return next;
       });
     }
@@ -1011,17 +1021,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
       void loadSessions();
     }
-    if (completedWithNotifications.length > 0) {
-      onBackgroundTaskDone?.();
-    }
-
     previousRunningSessionIdsRef.current = runningSessionIds;
-    previousSuppressedCompletionSessionIdsRef.current = new Set(
-      [...runningSessionIds].filter(
-        (id) => currentSuppressedCompletionSessionIdsRef.current.has(id) || knownSubagentIds.has(id),
-      ),
-    );
-  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
+  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions]);
 
   useEffect(() => {
     if (!selectedSessionId) return;

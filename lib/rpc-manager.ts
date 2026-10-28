@@ -45,7 +45,8 @@ import {
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
-import { createSubagentController } from "./subagent-runtime";
+import { createSubagentController, hasUnsettledSubagentRun } from "./subagent-runtime";
+import { forgetSessionCompletion, nextCompletionId, sessionCompletionState } from "./session-completion";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
@@ -319,7 +320,8 @@ export class AgentSessionWrapper {
   private pendingPromptCount = 0;
   private activeMutatingCommands = 0;
   private sessionReplacement: "fork" | "clone" | null = null;
-  private agentRunNeedsCompletion = false;
+  private get agentRunNeedsCompletion(): boolean { return sessionCompletionState(this.sessionId).pending; }
+  private set agentRunNeedsCompletion(value: boolean) { sessionCompletionState(this.sessionId).pending = value; }
   // Whether the last run ended because it was stopped (pi 1.1's `agent_settled.aborted`), not finished.
   private lastRunAborted = false;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
@@ -433,13 +435,28 @@ export class AgentSessionWrapper {
     return this.suppressCompletionNotifications;
   }
 
+  get completionId(): string | undefined {
+    return sessionCompletionState(this.sessionId).completionId;
+  }
+
+  /** A descendant or its result delivery settled after this wrapper's own last SDK event. */
+  recheckCompletion(options?: { deliveryFailed?: boolean }): void {
+    if (options?.deliveryFailed) sessionCompletionState(this.sessionId).cancelled = true;
+    this.notifyAgentRunCompleteIfIdle();
+  }
+
   start(): void {
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
       if (event.type === "agent_start") {
+        // A fresh standalone run may announce again; a descendant's wake-up cannot undo Stop.
+        if (!hasUnsettledSubagentRun(this.sessionId)) sessionCompletionState(this.sessionId).cancelled = false;
         this.agentRunNeedsCompletion = true;
         this.lastRunAborted = false;
       }
-      if (event.type === "agent_settled") this.lastRunAborted = event.aborted === true;
+      if (event.type === "agent_settled") {
+        this.lastRunAborted = event.aborted === true;
+        if (this.lastRunAborted) sessionCompletionState(this.sessionId).cancelled = true;
+      }
       if (event.type === "agent_end") {
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
@@ -504,10 +521,14 @@ export class AgentSessionWrapper {
   }
 
   private notifyAgentRunCompleteIfIdle(): void {
-    if (!this.agentRunNeedsCompletion || this.isRunning()) return;
+    if (!this.agentRunNeedsCompletion || !this.isAlive() || this.isRunning() || hasUnsettledSubagentRun(this.sessionId)) return;
     this.agentRunNeedsCompletion = false;
-    // A stopped run did not finish a task, as pi's own status reporting has it: nothing to announce.
-    if (this.suppressCompletionNotifications || this.lastRunAborted) return;
+    const completion = sessionCompletionState(this.sessionId);
+    // Do not let a background result's later wake-up turn undo a Stop or failed delivery.
+    if (this.suppressCompletionNotifications || this.lastRunAborted || completion.cancelled) return;
+    completion.completionId = nextCompletionId();
+    // Commit the ID before publishing either transport. Replays only carry this same decision.
+    this.emit({ type: "session_complete", completionId: completion.completionId });
     try {
       this.onAgentRunComplete?.(this.sessionId, this.inner.sessionManager.getSessionName());
     } catch (error) {
@@ -722,7 +743,10 @@ export class AgentSessionWrapper {
     this.forcedIdleTimerArmed = timeoutMs !== 0 && this.forceShutdownOnIdle;
     if (timeoutMs === 0) return;
     this.idleTimer = setTimeout(() => {
-      if (!this.forceShutdownOnIdle && (this.isRunning() || hasActiveSessionLivenessProvider({
+      // A notification-owing root must survive its descendants even without an open page.
+      const familyPending = this.agentRunNeedsCompletion && !this.suppressCompletionNotifications
+        && !sessionCompletionState(this.sessionId).cancelled && hasUnsettledSubagentRun(this.sessionId);
+      if (!this.forceShutdownOnIdle && (this.isRunning() || familyPending || hasActiveSessionLivenessProvider({
         sessionId: this.sessionId,
         sessionFile: this.sessionFile || undefined,
       }))) {
@@ -924,6 +948,9 @@ export class AgentSessionWrapper {
             }
           }
           let prompt: Promise<void>;
+          // Only an explicit new prompt opens a new notification cycle while descendants remain.
+          const wasCancelled = sessionCompletionState(this.sessionId).cancelled;
+          if (!streamingBehavior) sessionCompletionState(this.sessionId).cancelled = false;
           try {
             prompt = this.inner.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
@@ -936,6 +963,7 @@ export class AgentSessionWrapper {
               preflightResult: () => acceptPreflight(),
             });
           } catch (error) {
+            if (!preflightAccepted && wasCancelled) sessionCompletionState(this.sessionId).cancelled = true;
             finishPrompt();
             throw error;
           }
@@ -948,6 +976,7 @@ export class AgentSessionWrapper {
             if (!streamingBehavior) this.emit(this.promptDoneEvent());
           }, (error) => {
             rejectPreflight(error);
+            if (!preflightAccepted && wasCancelled) sessionCompletionState(this.sessionId).cancelled = true;
             finishPrompt();
             invalidateSessionListCache();
             // A preflight rejection is returned by the POST itself. Only an
@@ -974,6 +1003,8 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
+        sessionCompletionState(this.sessionId).cancelled = true;
+        this.agentRunNeedsCompletion = false;
         this.forceShutdownOnIdle = true;
         // Arm the forced cleanup now: the reset above ran before this flag,
         // and the final reset only runs once the SDK run has unwound.
@@ -999,6 +1030,7 @@ export class AgentSessionWrapper {
         return {
           sessionId: this.inner.sessionId,
           sessionFile: this.inner.sessionFile ?? "",
+          completionId: this.completionId,
           isStreaming: this.inner.isStreaming,
           isPromptRunning: this.pendingPromptCount > 0,
           isBashRunning: this.inner.isBashRunning,
@@ -2124,7 +2156,11 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   // next request registers a replacement under the same id. Finishing later,
   // the closing wrapper must not unregister that replacement.
   wrapper.onDestroy(() => {
-    if (registry.get(sessionId) === wrapper) registry.delete(sessionId);
+    if (registry.get(sessionId) === wrapper) {
+      registry.delete(sessionId);
+      // Waiting descendants may reopen the root; keep its pending/cancelled cycle until then.
+      if (!hasUnsettledSubagentRun(sessionId)) forgetSessionCompletion(sessionId);
+    }
   });
   // A wrapper registered before a hot reload still unregisters by id alone.
   const previous = registry.get(sessionId);
@@ -2155,6 +2191,13 @@ const SUBAGENT_CONTROLLER = createSubagentController({
   resolveSessionPath,
   invalidateSessionList: invalidateSessionListCache,
   isBuiltInSubagentsEnabled,
+  onFamilySettled: (sessionId, options) => {
+    // A delivery can fail before an idle-reaped ancestor has reopened, too.
+    if (options?.deliveryFailed) sessionCompletionState(sessionId).cancelled = true;
+    const wrapper = getRegistry().get(sessionId);
+    if (wrapper?.isAlive()) wrapper.recheckCompletion(options);
+    else if (!hasUnsettledSubagentRun(sessionId)) forgetSessionCompletion(sessionId);
+  },
 });
 
 export function getSubagentRun(sessionId: string) {
@@ -2402,7 +2445,9 @@ export function hasBusyRpcSessionForCwd(cwd: string): boolean {
   const targetCwd = normalizeRpcCwd(cwd);
   if (getStartingSessionCwds().has(targetCwd)) return true;
   return Array.from(getRegistry().values()).some(
-    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isRunning(),
+    // Rebuilding an idle root would discard its still-owed family completion decision.
+    (session) => normalizeRpcCwd(session.cwd) === targetCwd
+      && (session.isRunning() || hasUnsettledSubagentRun(session.sessionId)),
   );
 }
 
@@ -2434,6 +2479,16 @@ export function getAwaitingInputRpcSessionIds(): string[] {
     if (session.isAwaitingInput()) ids.add(session.sessionId || sessionId);
   }
   return [...ids];
+}
+
+export function getRpcSessionCompletionIds(): Record<string, string> {
+  const ids: Record<string, string> = {};
+  for (const [sessionId, session] of getRegistry()) {
+    if (session.isAlive() && !session.hasSuppressedCompletionNotifications() && session.completionId) {
+      ids[sessionId] = session.completionId;
+    }
+  }
+  return ids;
 }
 
 export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {

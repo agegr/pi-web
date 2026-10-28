@@ -8,6 +8,7 @@ import {
 export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
   readonly streamingMessage: unknown;
+  readonly completionId?: string;
   isAlive?(): boolean;
   onEvent(listener: (event: AgentEventLike) => void): () => void;
 }
@@ -230,6 +231,9 @@ export function createAgentEventStream(
             return;
           }
 
+          // Capture before subscribing: a completion synchronously buffered by onEvent is live,
+          // not history for the client's initial baseline. No await separates these reads.
+          const completionId = session.completionId;
           const bufferedEvents: AgentEventLike[] = [];
           let snapshotPublished = false;
           const handleEvent = (event: AgentEventLike) => {
@@ -261,6 +265,7 @@ export function createAgentEventStream(
             type: "connected",
             sessionId,
             isStreaming: session.isStreaming,
+            ...(completionId ? { completionId } : {}),
             // onEvent() has just replayed every request the session still holds,
             // so a reconnecting client can drop the ones closed while it was away.
             pendingExtensionUiIds: bufferedEvents
