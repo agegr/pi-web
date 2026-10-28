@@ -77,20 +77,40 @@ function exactReferenceMatches(pattern: string, models: readonly Model<Api>[]): 
   return models.filter((model) => model.id.toLowerCase() === normalized);
 }
 
-function isSignedOutExactModel(pattern: string, modelRuntime: ModelRuntime): boolean {
-  if (hasGlob(pattern)) return false;
+/**
+ * Classify entries that matched no available model against the full catalog.
+ * A known model is unavailable, not invalid: cleanup must keep it regardless
+ * of auth. Only a missing credential makes its chat warning suppressible.
+ * No network or credential probes; both callers use the runtime's snapshot.
+ */
+export async function resolveUnavailableModelPatterns(
+  modelRuntime: ModelRuntime,
+  patterns: readonly string[],
+): Promise<Map<string, { signedOut: boolean }>> {
+  const result = new Map<string, { signedOut: boolean }>();
+  if (patterns.length === 0) return result;
   const catalog = modelRuntime.getModels();
-  let matches = exactReferenceMatches(pattern, catalog);
-  if (matches.length === 0) {
-    const colonIndex = pattern.lastIndexOf(":");
-    const suffix = colonIndex >= 0 ? pattern.slice(colonIndex + 1) : "";
-    if (THINKING_LEVEL_SUFFIXES.has(suffix as ThinkingLevel)) {
-      matches = exactReferenceMatches(pattern.slice(0, colonIndex), catalog);
+  const snapshotRuntime = { getAvailable: async () => catalog } as ModelRuntime;
+  for (const original of patterns) {
+    const pattern = original.trim();
+    try {
+      assertNoAmbiguousExactPatterns([pattern], catalog);
+    } catch {
+      // A bare id with multiple catalog owners is not a safe known pick.
+      continue;
+    }
+    // Use the same SDK syntax for both available and catalog models, including
+    // user-authored fuzzy patterns, nested ids and literal colon suffixes.
+    const resolved = await resolveModelScopeWithDiagnostics([pattern], snapshotRuntime);
+    if (resolved.diagnostics.length > 0) continue;
+    const matches = resolved.scopedModels.map((scoped) => scoped.model);
+    if (matches.length > 0) {
+      result.set(original, {
+        signedOut: matches.every((model) => !modelRuntime.getProviderAuthStatus(model.provider).configured),
+      });
     }
   }
-  // Require a real, unambiguous catalog reference: a typo is not a sign-out.
-  // Configured-but-failing credentials must still surface a warning.
-  return matches.length === 1 && !modelRuntime.getProviderAuthStatus(matches[0].provider).configured;
+  return result;
 }
 
 function assertNoAmbiguousExactPatterns(
@@ -148,20 +168,26 @@ export async function resolveVisibleModels(
     getAvailable: async () => available,
   } as ModelRuntime;
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
-  // A leftover valid glob or a known model of a signed-out provider is not a
-  // chat-level problem when other enabledModels entries still matched. Keep
-  // typos, malformed patterns and configured-but-unavailable models visible.
-  // Keep all warnings for a total miss: the UI falls back to every available
-  // model and the user needs to know the scope did not apply.
+  const unavailable = await resolveUnavailableModelPatterns(
+    modelRuntime,
+    diagnostics.filter((diagnostic) => diagnostic.code === "no-match").map((diagnostic) => diagnostic.pattern),
+  );
+  // A known model of a signed-out provider is unavailable, not invalid. Keep
+  // typos, malformed patterns and configured-but-unavailable exact models
+  // visible, and preserve #770's filtering of leftover valid glob warnings.
   const warnings = diagnostics
     .filter((diagnostic) => (
       diagnostic.code !== "no-match"
-      || scopedModels.length === 0
-      || (!isSuppressibleUnmatchedGlob(diagnostic.pattern)
-        && !isSignedOutExactModel(diagnostic.pattern, modelRuntime))
+      || (!unavailable.get(diagnostic.pattern)?.signedOut
+        && (scopedModels.length === 0 || !isSuppressibleUnmatchedGlob(diagnostic.pattern)))
     ))
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
+    // Do not silently widen a completely unavailable scope, or label each
+    // signed-out preference invalid. Explain the actual fallback once.
+    if (warnings.length === 0) {
+      warnings.push("No enabled models are currently available. Falling back to all available models.");
+    }
     return {
       visible: available,
       scopedModels: [],

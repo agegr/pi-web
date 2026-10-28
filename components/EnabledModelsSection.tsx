@@ -189,46 +189,53 @@ export function EnabledModelsBanner({ controller }: { controller: EnabledModelsC
   if (!view) return null;
   const scoped = !view.allEnabled;
   const stale = view.stalePatterns.length;
-  if (!scoped && stale === 0) return null;
+  const unavailable = view.unavailablePatterns?.length ?? 0;
+  if (!scoped && stale === 0 && unavailable === 0) return null;
 
   return (
-    <div className="enabled-models-banner">
-      <span
-        className="enabled-models-banner-text"
-        {...(stale > 0 ? { title: t("models.enabledStaleHint") } : {})}
-      >
-        {/* Name the setting and the file that holds it: the count alone left
-            the user guessing where the panel wrote, and both read the same in
-            every language. A long path is what gets cut, never the numbers. */}
-        <code className="enabled-models-banner-key" title={view.settingsPath}>
-          {view.settingsPath}
-        </code>
-        <code className="enabled-models-banner-facts">
-          {`· enabledModels ${view.enabledTotal}/${view.availableTotal}`}
-          {stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
-        </code>
-      </span>
-      {view.editable && stale > 0 && (
-        <ConfigButton
-          size="small"
-          onClick={controller.pruneStale}
-          disabled={pending !== null}
-          title={t("models.enabledPruneHint")}
+    <>
+      <div className="enabled-models-banner">
+        <span
+          className="enabled-models-banner-text"
+          {...(stale > 0 ? { title: t("models.enabledStaleHint") } : {})}
         >
-          {t("models.enabledPrune")}
-        </ConfigButton>
+          {/* Name the setting and the file that holds it: the count alone left
+              the user guessing where the panel wrote, and both read the same in
+              every language. A long path is what gets cut, never the numbers. */}
+          <code className="enabled-models-banner-key" title={view.settingsPath}>
+            {view.settingsPath}
+          </code>
+          <code className="enabled-models-banner-facts">
+            {`· enabledModels ${view.enabledTotal}/${view.availableTotal}`}
+            {stale > 0 && ` · ${t("models.enabledStale", { count: stale })}`}
+            {unavailable > 0 && ` · ${t("models.enabledUnavailableCount", { count: unavailable })}`}
+          </code>
+        </span>
+        {view.editable && stale > 0 && (
+          <ConfigButton
+            size="small"
+            onClick={controller.pruneStale}
+            disabled={pending !== null}
+            title={t("models.enabledPruneHint")}
+          >
+            {t("models.enabledPrune")}
+          </ConfigButton>
+        )}
+        {view.editable && (scoped || unavailable > 0) && (
+          <ConfigButton
+            size="small"
+            onClick={controller.clearScope}
+            disabled={pending !== null}
+            title={t("models.enabledClearHint")}
+          >
+            {t("models.enabledClear")}
+          </ConfigButton>
+        )}
+      </div>
+      {unavailable > 0 && (
+        <div className="config-detail-heading-note">{t("models.enabledUnavailableHint")}</div>
       )}
-      {view.editable && scoped && (
-        <ConfigButton
-          size="small"
-          onClick={controller.clearScope}
-          disabled={pending !== null}
-          title={t("models.enabledClearHint")}
-        >
-          {t("models.enabledClear")}
-        </ConfigButton>
-      )}
-    </div>
+    </>
   );
 }
 

@@ -33,6 +33,8 @@ export interface PatternResolution {
   pattern: string;
   /** `provider/modelId` references the pattern matches, in resolver order. */
   matched: string[];
+  /** Matches the catalog but no available model; preserve during cleanup. */
+  unavailable?: boolean;
   /** Thinking level pinned by a `:level` suffix, when the pattern carries one. */
   pin?: string;
 }
@@ -64,11 +66,12 @@ export interface EnabledModelsState {
   /** `provider/modelId` → thinking level pinned by a `:level` pattern. */
   pins: Record<string, string>;
   /**
-   * Patterns that match no available model, so nothing here can tell what they
-   * were for — a provider without a usable credential, a renamed or deleted
-   * model, a typo, another machine's config. Preserved by every edit.
+   * Unmatched entries not recognized in the catalog: renamed/deleted models,
+   * typos or entries for another machine. Only explicit cleanup removes them.
    */
   stalePatterns: string[];
+  /** Known catalog entries with no available model (e.g. a signed-out provider). */
+  unavailablePatterns: string[];
 }
 
 export interface EnabledModelsModelView {
@@ -102,8 +105,10 @@ export interface EnabledModelsView {
   /** True when nothing narrows the model list. */
   allEnabled: boolean;
   patterns: string[] | null;
-  /** Configured patterns that match no available model; every edit keeps them. */
+  /** Unmatched entries not recognized in the catalog; explicit cleanup removes them. */
   stalePatterns: string[];
+  /** Known catalog entries currently unavailable; cleanup preserves them. */
+  unavailablePatterns: string[];
   enabledTotal: number;
   availableTotal: number;
   providers: EnabledModelsProviderView[];
@@ -130,6 +135,7 @@ export function modelRefProvider(ref: string): string {
 interface Entry {
   pattern: string;
   matched: string[];
+  unavailable?: boolean;
   pin?: string;
 }
 
@@ -137,6 +143,7 @@ function toEntries(resolutions: readonly PatternResolution[]): Entry[] {
   return resolutions.map((resolution) => ({
     pattern: resolution.pattern,
     matched: [...resolution.matched],
+    ...(resolution.unavailable ? { unavailable: true } : {}),
     ...(resolution.pin ? { pin: resolution.pin } : {}),
   }));
 }
@@ -284,7 +291,8 @@ export function computeEnabledModelsState(input: EnabledModelsInput): EnabledMod
     allEnabled,
     enabled: allEnabled ? [...input.availableRefs] : enabled,
     pins,
-    stalePatterns: entries.filter((entry) => entry.matched.length === 0).map((entry) => entry.pattern),
+    stalePatterns: entries.filter((entry) => entry.matched.length === 0 && !entry.unavailable).map((entry) => entry.pattern),
+    unavailablePatterns: entries.filter((entry) => entry.matched.length === 0 && entry.unavailable).map((entry) => entry.pattern),
   };
 }
 
@@ -441,15 +449,14 @@ export function constrainProviderEntries(input: EnabledModelsInput): EnabledMode
 }
 
 /**
- * Drop the entries that match no available model.
+ * Drop unmatched entries not recognized in the full catalog.
  *
- * Every other operation preserves them, because an entry usually goes unmatched
- * for a reason that can reverse itself (a provider signed out, a catalog not
- * refreshed yet). This one is the user saying they are gone for good, so it is
- * the only way to clean up after a provider renamed its models.
+ * Known-but-unavailable models (including signed-out providers) are never
+ * invalid merely because auth is missing or failing. Keep them in place with
+ * their original pins/order; only unknown entries are explicitly pruned.
  */
 export function pruneStaleEnabledModels(input: EnabledModelsInput): EnabledModelsEdit {
-  const kept = toEntries(input.resolutions).filter((entry) => entry.matched.length > 0);
+  const kept = toEntries(input.resolutions).filter((entry) => entry.matched.length > 0 || entry.unavailable);
   if (kept.length === input.resolutions.length) {
     return { ok: true, patterns: input.patterns, changed: false };
   }

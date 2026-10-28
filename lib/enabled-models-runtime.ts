@@ -16,6 +16,7 @@ import {
   type EnabledModelsView,
   type PatternResolution,
 } from "./enabled-models";
+import { resolveUnavailableModelPatterns } from "./model-scope";
 
 /**
  * SDK adapter for the pure `enabledModels` editor in `lib/enabled-models.ts`.
@@ -104,12 +105,22 @@ export async function resolveProviderGlobs(
 export async function buildEnabledModelsInput(
   patterns: string[] | undefined,
   models: readonly Model<Api>[],
-  options: { withProviderGlobs?: boolean } = {},
+  options: { withProviderGlobs?: boolean; modelRuntime?: ModelRuntime } = {},
 ): Promise<EnabledModelsInput> {
+  const resolutions = await resolvePatternMatches(patterns ?? [], models);
+  if (options.modelRuntime) {
+    const unavailable = await resolveUnavailableModelPatterns(
+      options.modelRuntime,
+      resolutions.filter((entry) => entry.matched.length === 0).map((entry) => entry.pattern),
+    );
+    for (const entry of resolutions) {
+      if (unavailable.has(entry.pattern)) entry.unavailable = true;
+    }
+  }
   return {
     patterns,
     availableRefs: models.map(modelRef),
-    resolutions: await resolvePatternMatches(patterns ?? [], models),
+    resolutions,
     // Only an edit needs them; the read-only view never writes a pattern.
     ...(options.withProviderGlobs ? { providerGlobs: await resolveProviderGlobs(models) } : {}),
   };
@@ -183,6 +194,7 @@ export function buildEnabledModelsView({
     allEnabled: state.allEnabled,
     patterns: input.patterns ?? null,
     stalePatterns: state.stalePatterns,
+    unavailablePatterns: state.unavailablePatterns,
     enabledTotal: state.enabled.length,
     availableTotal: input.availableRefs.length,
     providers,

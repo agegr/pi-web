@@ -67,10 +67,16 @@ when the patterns resolve to nothing, so "disable everything" silently means
   it had just added.
 - The key is removed once nothing is narrowed any more, but only when that
   discards neither a stale pattern nor a pin.
-- `prune` is the one operation that deletes unmatched entries. Every other one
-  preserves them because an entry usually goes unmatched for a reversible
-  reason; a provider that renamed its models is not reversible, so the panel
-  offers this explicitly instead of making the user clear the whole scope.
+- `prune` deletes only unmatched entries not recognized in the full model
+  catalog. A known model of a signed-out provider is temporarily unavailable,
+  not invalid, so cleanup keeps it (and configured-but-unavailable models too).
+  The panel separates that count from unknown entries and explains checking
+  provider credentials. Chat uses the same catalog classification: missing
+  auth suppresses the per-model no-match warning, while real auth failures
+  remain visible; a completely unavailable scope still explains its fallback.
+  Reads and auth changes never rewrite the setting, and `clear` remains the
+  explicit way to forget the whole selection. Preferences remain in the shared
+  `enabledModels`, not a second Pi Web-only file.
 - `resync` runs after a models.json save, because a pattern's meaning depends
   on the catalog that just moved. It rewrites renamed models and providers, cuts
   back entries whose provider prefix no longer scopes them, and re-asserts the
