@@ -315,8 +315,8 @@ export function buildSlashCommandLayout(
 }
 
 const CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
-const CLIENT_MAX_IMAGE_SIDE = 1024;
-const CLIENT_JPEG_QUALITY = 0.85;
+const CLIENT_MAX_IMAGE_SIDE = 2000;
+const CLIENT_JPEG_QUALITY = 0.95;
 
 export function shouldCompressImageFile(file: Pick<File, "size" | "type">): boolean {
   return file.size > CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES && file.type !== "image/gif";

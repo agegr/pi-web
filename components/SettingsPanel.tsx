@@ -14,6 +14,15 @@ import {
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
+import {
+  IMAGE_JPEG_QUALITY_DEFAULT,
+  IMAGE_JPEG_QUALITY_MAX,
+  IMAGE_JPEG_QUALITY_MIN,
+  IMAGE_MAX_SIDE_DEFAULT,
+  IMAGE_MAX_SIDE_MAX,
+  IMAGE_MAX_SIDE_MIN,
+  useImageCompression,
+} from "@/hooks/useImageCompression";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
@@ -79,6 +88,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
+  const { maxSide: imageMaxSide, setMaxSide: setImageMaxSide, quality: imageJpegQuality, setQuality: setImageJpegQuality } = useImageCompression();
   const filesPlacement = useFilesPlacement();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
@@ -312,6 +322,69 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               step={10}
               value={chatContentWidth}
               onChange={(event) => setChatContentWidth(Number(event.target.value))}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.images")}</h3>
+        <p className="settings-general-description">{t("settings.imageCompressionDescription")}</p>
+        <div className="settings-chat-options">
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label htmlFor="settings-image-max-side">{t("settings.imageMaxSide")}</label>
+              <output htmlFor="settings-image-max-side">{imageMaxSide}px</output>
+              <ConfigButton
+                variant="ghost"
+                size="small"
+                className="settings-chat-reset"
+                title={t("settings.resetImageMaxSide")}
+                aria-label={t("settings.resetImageMaxSide")}
+                disabled={imageMaxSide === IMAGE_MAX_SIDE_DEFAULT}
+                onClick={() => setImageMaxSide(IMAGE_MAX_SIDE_DEFAULT)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
+                </svg>
+              </ConfigButton>
+            </div>
+            <input
+              id="settings-image-max-side"
+              type="range"
+              min={IMAGE_MAX_SIDE_MIN}
+              max={IMAGE_MAX_SIDE_MAX}
+              step={16}
+              value={imageMaxSide}
+              onChange={(event) => setImageMaxSide(Number(event.target.value))}
+            />
+          </div>
+          <div className="settings-chat-option settings-chat-range-option">
+            <div className="settings-chat-range-header">
+              <label htmlFor="settings-image-jpeg-quality">{t("settings.imageJpegQuality")}</label>
+              <output htmlFor="settings-image-jpeg-quality">{Math.round(imageJpegQuality * 100)}%</output>
+              <ConfigButton
+                variant="ghost"
+                size="small"
+                className="settings-chat-reset"
+                title={t("settings.resetImageJpegQuality")}
+                aria-label={t("settings.resetImageJpegQuality")}
+                disabled={imageJpegQuality === IMAGE_JPEG_QUALITY_DEFAULT}
+                onClick={() => setImageJpegQuality(IMAGE_JPEG_QUALITY_DEFAULT)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" />
+                </svg>
+              </ConfigButton>
+            </div>
+            <input
+              id="settings-image-jpeg-quality"
+              type="range"
+              min={IMAGE_JPEG_QUALITY_MIN}
+              max={IMAGE_JPEG_QUALITY_MAX}
+              step={0.05}
+              value={imageJpegQuality}
+              onChange={(event) => setImageJpegQuality(Number(event.target.value))}
             />
           </div>
         </div>
