@@ -1312,6 +1312,8 @@ export const zhCNLocale: LocalePlugin = {
     "models.discoveryNoMatches": "没有匹配的模型。",
     "models.configUnreadable": "无法读取 models.json，为避免覆盖已禁用保存。请修复该文件后重新打开此面板。{error}",
     "models.providerNameTaken": "已存在名为“{name}”的 Provider，请换一个名称。",
+    "models.providerIncomplete": "{provider} 需要 Base URL 或至少一个模型。请补全，或删除该 Provider。",
+    "models.providerNeedsBaseUrl": "{provider} 需要填写 Base URL。",
     "models.apiKeyPlaceholder": "环境变量名、!shell 命令或密钥",
     "models.discoveryAdded": "已添加",
     "models.discoveryShowing": "显示前 {shown} 个，共 {total} 个",

@@ -1312,6 +1312,8 @@ export const zhTWLocale: LocalePlugin = {
     "models.discoveryNoMatches": "找不到相符的模型。",
     "models.configUnreadable": "無法讀取 models.json，為避免覆寫已停用儲存。請修正該檔案後重新開啟此面板。{error}",
     "models.providerNameTaken": "已存在名為「{name}」的 Provider，請換一個名稱。",
+    "models.providerIncomplete": "{provider} 需要 Base URL 或至少一個模型。請補齊，或刪除該 Provider。",
+    "models.providerNeedsBaseUrl": "{provider} 需要填寫 Base URL。",
     "models.apiKeyPlaceholder": "環境變數名稱、!shell 命令或金鑰",
     "models.discoveryAdded": "已新增",
     "models.discoveryShowing": "顯示前 {shown} 個，共 {total} 個",
