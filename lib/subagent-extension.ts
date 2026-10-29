@@ -259,7 +259,7 @@ export function createSubagentExtension(
                   );
                 });
               return {
-                content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. You will be notified when it completes.` }],
+                content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. Its report arrives in this conversation on its own when it completes; you do not need to call get_subagent_result for it. Continue with work that does not need it, or end your turn; ending it does not stop the subagent.` }],
                 details: subagentToolDetails(execution.run),
               };
             }
@@ -283,7 +283,7 @@ export function createSubagentExtension(
       pi.registerTool(defineTool({
         name: "get_subagent_result",
         label: "Get agent result",
-        description: "Check an inspectable subagent session and retrieve its latest result.",
+        description: "Retrieve a subagent session's latest result, such as a report no longer in the conversation. A background run's report arrives on its own when it completes.",
         exposure: SUBAGENT_TOOL_EXPOSURE,
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),

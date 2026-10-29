@@ -68,7 +68,7 @@ beforeEach(async () => {
     },
   }, null, 2)}\n`);
   await writeFile(projectPath, `${JSON.stringify({
-    mcpServers: { repo: { url: fake.url, headers: { "X-Probe": `!touch ${marker} && echo probe` } } },
+    mcpServers: { repo: { url: fake.url, headers: { "X-Probe": `!node -e "require('fs').writeFileSync('${marker.replaceAll('\\', '/')}', '')" && echo probe` } } },
   }, null, 2)}\n`);
   store.set(cwd, null);
 });

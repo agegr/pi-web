@@ -416,19 +416,22 @@ test("leaves code and math line endings alone when keeping line breaks", () => {
   assert.match(emphasis, /<em>one<br\/>two<\/em>/);
 });
 
-test("keeps a block that opens a raw-text tag as it renders without line breaks", () => {
-  // A <br> after an unclosed <textarea> or <script> ends rehype-raw's raw-text
-  // state, which glued the lines together or dropped the rest of the block.
-  for (const markdown of [
-    "Use a <textarea> here\nand a button\nplease",
-    "Set <title>My\nPage</title> first\nthen deploy",
-    "add <script>a()\nb()</script> to the page\nthen reload",
-    "some *<style>x\ny</style>* then\nnext",
-  ]) {
-    assert.equal(renderMarkdown(markdown, { keepLineBreaks: true }), renderMarkdown(markdown));
-  }
+test("shows a user message's HTML as the text typed, like pi's TUI", () => {
+  // #1407: the tag was parsed by rehype-raw and stripped by the sanitizer.
+  const sample = '<TableOperator v-model="columns" :tableId="TABLE_ID_CONST.BUSINESS.${basic.businessModule.toUpperCase()}.Demo" :refresh="queryData" /> 咋更离谱呢，要不就去掉 ${basic.businessModule.toUpperCase()} 不要这个变量，直接拼后面部分';
+  const escaped = sample.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  assert.equal(renderMarkdown(sample, { keepLineBreaks: true }), `<div class="markdown-body"><p>${escaped}</p></div>`);
 
-  assert.match(renderMarkdown("normal <kbd>Ctrl</kbd>\nline two", { keepLineBreaks: true }), /<\/kbd><br\/>line two/);
-  const list = renderMarkdown("- item <textarea>\n  more\n- two\n  lines", { keepLineBreaks: true });
-  assert.match(list, /<li>two<br\/>lines<\/li>/);
+  // Inline and block HTML, raw-text tags included, keep their characters and line breaks.
+  assert.match(renderMarkdown("normal <kbd>Ctrl</kbd>\nline two", { keepLineBreaks: true }), /<p>normal &lt;kbd&gt;Ctrl&lt;\/kbd&gt;<br\/>line two<\/p>/);
+  assert.match(renderMarkdown("Use a <textarea> here\nand a button", { keepLineBreaks: true }), /<p>Use a &lt;textarea&gt; here<br\/>and a button<\/p>/);
+  assert.match(renderMarkdown("<div>\n<b>hi</b>\n</div>\n\nafter", { keepLineBreaks: true }), /<p>&lt;div&gt;<br\/>&lt;b&gt;hi&lt;\/b&gt;<br\/>&lt;\/div&gt;<\/p>\n<p>after<\/p>/);
+  assert.match(renderMarkdown("- item <script>a()</script>\n- <!-- note -->", { keepLineBreaks: true }), /<li>item &lt;script&gt;a\(\)&lt;\/script&gt;<\/li>\n<li>&lt;!-- note --&gt;<\/li>/);
+  assert.match(renderMarkdown("> <img src=x onerror=alert(1)>", { keepLineBreaks: true }), /<blockquote>\n<p>&lt;img src=x onerror=alert\(1\)&gt;<\/p>\n<\/blockquote>/);
+
+  // Markdown around it still renders; code keeps its own text; assistant text keeps rendering HTML.
+  const mixed = renderMarkdown("**bold** <u>x</u> [link](https://example.com) `<b>`\n\n```html\n<p>code</p>\n```", { keepLineBreaks: true });
+  assert.match(mixed, /<strong>bold<\/strong> &lt;u&gt;x&lt;\/u&gt; <a href="https:\/\/example\.com"[^>]*>link<\/a> <code[^>]*>&lt;b&gt;<\/code>/);
+  assert.match(mixed, /&lt;p&gt;code&lt;\/p&gt;/);
+  assert.match(renderMarkdown("normal <kbd>Ctrl</kbd>"), /<kbd>Ctrl<\/kbd>/);
 });

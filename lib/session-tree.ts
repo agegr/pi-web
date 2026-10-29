@@ -53,11 +53,13 @@ export const PINNED_MORE_KEY = "pinned";
 export interface SidebarProject { key: string; root: string; name: string; customName: string | null; pinned: boolean; current: boolean }
 export interface SidebarFamilyStatus { running: boolean; awaiting: boolean; unread: boolean; selected: boolean; transient: boolean }
 
+// A folded header's counts follow its rows' right column: a family awaiting
+// input counts as awaiting, not running.
 export type SidebarRow =
-  | { kind: "pinned-header"; key: "pinned-header"; count: number; collapsed: boolean; running: number; unread: number }
+  | { kind: "pinned-header"; key: "pinned-header"; count: number; collapsed: boolean; running: number; awaiting: number; unread: number }
   | { kind: "session"; key: string; family: SessionFamily; context: "pinned" | "group" | "archive"; project: SidebarProject; status: SidebarFamilyStatus }
   | { kind: "pinned-more"; key: "pinned-more"; hidden: number; canShowLess: boolean; nextShown: number }
-  | { kind: "group"; key: string; project: SidebarProject; expanded: boolean; running: number; unread: number }
+  | { kind: "group"; key: string; project: SidebarProject; expanded: boolean; running: number; awaiting: number; unread: number }
   | { kind: "group-more"; key: string; projectKey: string; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group-empty"; key: string; project: SidebarProject }
   | { kind: "spacer"; key: "top-spacer" | "pinned-spacer" | "footer-spacer" | `group-spacer:${string}` }
@@ -243,6 +245,21 @@ function familyStatus(family: SessionFamily, input: FamilyFlagsInput): SidebarFa
     selected: isMember(family, input.selectedSessionId),
     transient: family.root.transient === true,
   };
+}
+
+function activityCounts(
+  families: readonly SessionFamily[],
+  input: Pick<SessionTreeInput, "runningIds" | "awaitingIds" | "unreadIds">,
+): { running: number; awaiting: number; unread: number } {
+  let running = 0;
+  let awaiting = 0;
+  let unread = 0;
+  for (const family of families) {
+    if (input.awaitingIds && anyMemberIn(family, input.awaitingIds)) awaiting++;
+    else if (anyMemberIn(family, input.runningIds)) running++;
+    if (anyMemberIn(family, input.unreadIds)) unread++;
+  }
+  return { running, awaiting, unread };
 }
 
 function familyProjectKey(family: SessionFamily): string {
@@ -441,13 +458,8 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
       .map((family, index) => ({ family, index }))
       .sort((a, b) => compareDesc(pinnedAt(a.family), pinnedAt(b.family)) || a.index - b.index)
       .map(({ family }) => family);
-    let running = 0;
-    let unread = 0;
-    for (const family of sorted) {
-      if (anyMemberIn(family, runningIds)) running++;
-      if (anyMemberIn(family, input.unreadIds)) unread++;
-    }
-    rows.push({ kind: "pinned-header", key: "pinned-header", count: sorted.length, collapsed: input.pinnedCollapsed, running, unread });
+    const { running, awaiting, unread } = activityCounts(sorted, input);
+    rows.push({ kind: "pinned-header", key: "pinned-header", count: sorted.length, collapsed: input.pinnedCollapsed, running, awaiting, unread });
     if (!input.pinnedCollapsed) {
       const { visible, revealed, nextShown } = visibleFamilies(sorted, PINNED_VISIBLE_LIMIT, shownMoreFor(input.moreShown, PINNED_MORE_KEY), input);
       for (const family of visible) {
@@ -514,13 +526,8 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
     if (index > 0) rows.push({ kind: "spacer", key: `group-spacer:${project.key}` });
     const groupFamilies = projectFamilies.get(project.key) ?? [];
     const expanded = isGroupExpanded(project, input.groupExpansion);
-    let running = 0;
-    let unread = 0;
-    for (const family of groupFamilies) {
-      if (anyMemberIn(family, runningIds)) running++;
-      if (anyMemberIn(family, input.unreadIds)) unread++;
-    }
-    rows.push({ kind: "group", key: `group:${project.key}`, project, expanded, running, unread });
+    const { running, awaiting, unread } = activityCounts(groupFamilies, input);
+    rows.push({ kind: "group", key: `group:${project.key}`, project, expanded, running, awaiting, unread });
 
     if (expanded) {
       if (groupFamilies.length === 0) {
