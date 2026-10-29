@@ -608,40 +608,10 @@ test("compresses large images while preserving small images and GIFs", async () 
     assert.equal(bitmapCalls, 1);
     assert.equal(canvas.width, 2000);
     assert.equal(canvas.height, 1000);
-    assert.equal(canvas.quality, 0.95);
+    assert.equal(canvas.quality, 0.8);
     assert.equal(closed, true);
   } finally {
     globalThis.FileReader = originals.FileReader;
-    globalThis.createImageBitmap = originals.createImageBitmap;
-    globalThis.document = originals.document;
-  }
-});
-
-test("compresses with explicit options instead of the stored preference", async () => {
-  const canvas = {
-    width: 0,
-    height: 0,
-    quality: null,
-    getContext: () => ({ fillStyle: "", fillRect() {}, drawImage() {} }),
-    toDataURL(mime, quality) { this.quality = quality; return "data:image/jpeg;base64,COMPRESSED"; },
-  };
-  const originals = {
-    createImageBitmap: globalThis.createImageBitmap,
-    document: globalThis.document,
-  };
-  globalThis.createImageBitmap = async () => ({ width: 2048, height: 1024, close() {} });
-  globalThis.document = { createElement: () => canvas };
-
-  try {
-    const result = await compressImageFile(
-      { size: 2 * 1024 * 1024, type: "image/png" },
-      { maxSide: 512, quality: 0.8 },
-    );
-    assert.deepEqual(result, { data: "COMPRESSED", mimeType: "image/jpeg" });
-    assert.equal(canvas.width, 512);
-    assert.equal(canvas.height, 256);
-    assert.equal(canvas.quality, 0.8);
-  } finally {
     globalThis.createImageBitmap = originals.createImageBitmap;
     globalThis.document = originals.document;
   }

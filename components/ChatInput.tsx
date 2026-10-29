@@ -28,11 +28,6 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import {
-  clampImageJpegQuality,
-  clampImageMaxSide,
-  getImageCompressionPreferences,
-} from "@/hooks/useImageCompression";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
@@ -430,16 +425,12 @@ export function buildSlashCommandLayout(
 }
 
 const CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
+// pi's default image resize limits (a model's inputLimits.images.resize: 2000x2000, jpegQuality 80).
+const CLIENT_MAX_IMAGE_SIDE = 2000;
+const CLIENT_JPEG_QUALITY = 0.8;
 
 export function shouldCompressImageFile(file: Pick<File, "size" | "type">): boolean {
   return file.size > CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES && file.type !== "image/gif";
-}
-
-export interface ImageCompressionOptions {
-  /** Longest side the image is scaled down to; defaults to the Settings › Images value. */
-  maxSide?: number;
-  /** JPEG re-encode quality; defaults to the Settings › Images value. */
-  quality?: number;
 }
 
 function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mimeType: string }> {
@@ -458,22 +449,15 @@ function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mi
   });
 }
 
-export async function compressImageFile(
-  file: File,
-  options?: ImageCompressionOptions,
-): Promise<{ data: string; mimeType: string }> {
+export async function compressImageFile(file: File): Promise<{ data: string; mimeType: string }> {
   const original = () => readImageFile(file, file.type);
   if (!shouldCompressImageFile(file) || typeof createImageBitmap !== "function") return original();
-
-  const preferences = getImageCompressionPreferences();
-  const maxSide = clampImageMaxSide(options?.maxSide ?? preferences.maxSide);
-  const quality = clampImageJpegQuality(options?.quality ?? preferences.quality);
 
   const bitmap = await createImageBitmap(file).catch(() => null);
   if (!bitmap) return original();
 
   try {
-    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, CLIENT_MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -482,7 +466,7 @@ export async function compressImageFile(
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const data = canvas.toDataURL("image/jpeg", quality).split(",")[1];
+    const data = canvas.toDataURL("image/jpeg", CLIENT_JPEG_QUALITY).split(",")[1];
     return data && data.length < Math.ceil(file.size / 3) * 4
       ? { data, mimeType: "image/jpeg" }
       : original();
