@@ -76,17 +76,18 @@ export interface AgentEvent {
 type EventListener = (event: AgentEvent) => void;
 
 /**
- * A prompt parked while compaction runs. pi's SDK refuses prompts then
+ * A prompt parked while a manual compaction runs. pi's SDK refuses prompts then
  * ("Cannot submit a prompt while compaction is in progress"), so the wrapper
  * holds the submission and flushes it FIFO at compaction end, as pi's TUI
- * `compactionQueuedMessages` does (interactive-mode.js). The admission's
- * `pendingPromptCount` stays outstanding until delivery or recall.
+ * `compactionQueuedMessages` does (interactive-mode.js).
  */
 type ParkedPrompt = {
   message: string;
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  /** steer / followUp of a run that outlives the compaction; undefined sent it as a fresh prompt. */
+  /** The composer's steer / followUp; undefined: sent as a fresh prompt. */
   streamingBehavior?: "steer" | "followUp";
+  /** Settles the admission's `pendingPromptCount` (idempotent): on delivery, recall, Stop or a failed send. */
+  settle: () => void;
 };
 /** `sessionName`: the live session's own title (its newest `session_info`), read without a disk scan. */
 type AgentRunCompleteListener = (sessionId: string, sessionName: string | undefined) => void;
@@ -472,8 +473,8 @@ export class AgentSessionWrapper {
       if (event.type === "session_info_changed") invalidateSessionListCache();
       this.trackActiveToolEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
-      if (event.type === "compaction_end" || event.type === "auto_compaction_end") {
-        // Prompts parked while compaction ran go out now, FIFO.
+      if (event.type === "compaction_end") {
+        // Prompts parked while compaction ran go out now, FIFO, whatever its outcome (as the TUI).
         this.flushParkedPrompts();
       }
       this.emit(event.type === "message_end" ? this.withTranscriptNotices(event) : event);
@@ -545,13 +546,6 @@ export class AgentSessionWrapper {
     return { type: "prompt_done", ...(this.lastRunAborted ? { aborted: true } : {}) };
   }
 
-  /** One admitted prompt settled: a run finished, or a parked one was delivered or recalled. */
-  private settlePromptCount(): void {
-    this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
-    this.resetIdleTimer();
-    this.notifyAgentRunCompleteIfIdle();
-  }
-
   /** Parked prompts as queue rows: a plain one reads as a follow-up, since it goes out next. */
   private parkedQueueMessages(entries: readonly ParkedPrompt[]): { steering: string[]; followUp: string[] } {
     const steering: string[] = [];
@@ -580,55 +574,76 @@ export class AgentSessionWrapper {
     this.emitQueueUpdate();
   }
 
-  /**
-   * Put a parked prompt back after a failed delivery and say why. It keeps its
-   * admission count (still undelivered), so the wrapper cannot idle out from
-   * under it; Recall (`clear_queue`) or the next compaction end takes it again.
-   */
-  private restoreParkedPrompt(entry: ParkedPrompt, error: unknown): void {
-    this.parkedDuringCompaction.push(entry);
+  /** Take every parked prompt back (Recall, Stop): their admissions settle, the texts return to the composer. */
+  private recallParkedPrompts(): { steering: string[]; followUp: string[] } {
+    const parked = this.parkedDuringCompaction;
+    if (parked.length === 0) return { steering: [], followUp: [] };
+    this.parkedDuringCompaction = [];
+    for (const entry of parked) entry.settle();
     this.emitQueueUpdate();
-    this.emit({
-      type: "prompt_error",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    });
-    if (entry.streamingBehavior === undefined) this.emit(this.promptDoneEvent());
+    // A plain prompt's client waits for prompt_done; nothing ran.
+    if (parked.some((entry) => entry.streamingBehavior === undefined)) this.emit({ type: "prompt_done", aborted: true });
+    return this.parkedQueueMessages(parked);
   }
 
   /**
-   * Deliver the prompts parked while compaction ran, FIFO. This is pi's TUI
-   * `flushCompactionQueue()` in the wrapper: every submission carries a
-   * `streamingBehavior`, so `AgentSession.prompt()` queues it into a run still
-   * finishing the compaction or starts one when idle, atomically and never with
-   * "Agent is already processing"; a plain parked prompt joins the run as a
-   * followUp. A prompt that started the run is the one its client waits on, so
-   * it emits `prompt_done`; one that queued into another run rides that run's.
+   * Deliver the prompts parked while compaction ran, FIFO: pi's TUI
+   * `flushCompactionQueue()` in the wrapper. Each goes through the prompt
+   * admission chain like any prompt, so the SDK decides start-or-join for one
+   * submission at a time and a prompt sent after compaction_end queues behind
+   * them. Each carries a `streamingBehavior` (a plain one as followUp), so the
+   * first starts a run when idle and the rest join it.
    */
   private flushParkedPrompts(): void {
     if (this.parkedDuringCompaction.length === 0) return;
     const parked = this.parkedDuringCompaction;
     this.parkedDuringCompaction = [];
     this.emitQueueUpdate();
-    for (const entry of parked) {
-      let disposition: "handled" | "queued" | "started" | undefined;
-      let prompt: Promise<void>;
-      try {
-        prompt = this.inner.prompt(entry.message, {
-          ...(entry.images?.length ? { images: entry.images } : {}),
-          source: "rpc",
-          streamingBehavior: entry.streamingBehavior ?? "followUp",
-          preflightResult: (result) => { disposition = result; },
-        });
-      } catch (error) {
-        this.restoreParkedPrompt(entry, error);
-        continue;
-      }
-      void prompt.then(() => {
-        this.settlePromptCount();
-        if (entry.streamingBehavior === undefined && disposition === "started") this.emit(this.promptDoneEvent());
-      }, (error) => {
-        this.restoreParkedPrompt(entry, error);
+    for (const entry of parked) void this.deliverParkedPrompt(entry);
+  }
+
+  private async deliverParkedPrompt(entry: ParkedPrompt): Promise<void> {
+    const releaseAdmission = await this.acquirePromptAdmission();
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      releaseAdmission();
+    };
+    let disposition: "handled" | "queued" | "started" | undefined;
+    let failure: unknown;
+    try {
+      await this.inner.prompt(entry.message, {
+        ...(entry.images?.length ? { images: entry.images } : {}),
+        source: "rpc",
+        streamingBehavior: entry.streamingBehavior ?? "followUp",
+        preflightResult: (result) => {
+          disposition = result;
+          release();
+        },
       });
+    } catch (error) {
+      failure = error;
+    }
+    release();
+    if (failure !== undefined && disposition === undefined && isCompactionInProgressError(failure)) {
+      // Another compaction started first: wait for that one's end.
+      this.parkDuringCompaction(entry);
+      return;
+    }
+    entry.settle();
+    if (failure !== undefined) {
+      // Refused unsent: keep it as a queue row for Recall or the next compaction end, as the TUI's restoreQueue().
+      if (disposition === undefined) this.parkDuringCompaction(entry);
+      this.emit({
+        type: "prompt_error",
+        errorMessage: failure instanceof Error ? failure.message : String(failure),
+      });
+    }
+    // The client of a plain prompt waits for prompt_done; the delivery that started
+    // the run sends it when that run ends, one that joined a run rides that run's.
+    if (disposition === "started" || (disposition !== "queued" && entry.streamingBehavior === undefined)) {
+      this.emit(this.promptDoneEvent());
     }
   }
 
@@ -979,9 +994,9 @@ export class AgentSessionWrapper {
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
-          // A queued disposition (parked behind compaction, queued into a run) is
-          // answered with `{ queued: true }`: the message is not a sent one yet.
-          let queuedSubmission = false;
+          // A prompt parked behind compaction is answered with `{ queued: true }`:
+          // the message is not a sent one yet.
+          let parked = false;
           let acceptPreflight!: () => void;
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
@@ -1003,7 +1018,9 @@ export class AgentSessionWrapper {
           const finishPrompt = () => {
             if (promptSettled) return;
             promptSettled = true;
-            this.settlePromptCount();
+            this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
+            this.resetIdleTimer();
+            this.notifyAgentRunCompleteIfIdle();
           };
 
           this.pendingPromptCount += 1;
@@ -1050,10 +1067,7 @@ export class AgentSessionWrapper {
               // validation and extension preflight have accepted the submission.
               // Every disposition (handled, queued, started) is an acceptance; a
               // rejected prompt never calls this and rejects `prompt` instead.
-              preflightResult: (disposition) => {
-                if (disposition === "queued") queuedSubmission = true;
-                acceptPreflight();
-              },
+              preflightResult: () => acceptPreflight(),
             });
           } catch (error) {
             finishPrompt();
@@ -1067,20 +1081,20 @@ export class AgentSessionWrapper {
             finishPrompt();
             if (!streamingBehavior) this.emit(this.promptDoneEvent());
           }, (error) => {
-            // pi's SDK refuses prompts while compaction runs. Park the
+            // pi's SDK refuses prompts while a manual compaction runs. Park the
             // submission and flush it at compaction end (the TUI's
-            // compactionQueuedMessages): the composer keeps taking input, and an
-            // extension command typed meanwhile still runs, since the SDK
-            // executes commands before it refuses. The parked prompt keeps this
-            // admission's count outstanding, so the wrapper cannot idle out
-            // from under it.
-            if (this.inner.isCompacting || isCompactionInProgressError(error)) {
+            // compactionQueuedMessages). An extension command typed meanwhile
+            // still runs: the SDK executes commands before it refuses. The parked
+            // prompt keeps this admission's count outstanding until it settles,
+            // so the wrapper cannot idle out from under it.
+            if (!preflightAccepted && isCompactionInProgressError(error)) {
               this.parkDuringCompaction({
                 message: command.message as string,
                 images: promptImages,
                 streamingBehavior,
+                settle: finishPrompt,
               });
-              queuedSubmission = true;
+              parked = true;
               acceptPreflight();
               return;
             }
@@ -1104,13 +1118,13 @@ export class AgentSessionWrapper {
           });
 
           await preflight;
-          return queuedSubmission ? { queued: true } : null;
+          return parked ? { queued: true } : null;
         } finally {
           releaseAdmission();
         }
       }
 
-      case "abort":
+      case "abort": {
         this.forceShutdownOnIdle = true;
         // Arm the forced cleanup now: the reset above ran before this flag,
         // and the final reset only runs once the SDK run has unwound.
@@ -1123,12 +1137,17 @@ export class AgentSessionWrapper {
           wait.controller.abort();
           await wait.done;
         }
+        // Stop ends the compaction, whose end would send the parked prompts:
+        // they go back to the composer instead, as the TUI's abort restores
+        // queued messages to the editor.
+        const recalled = this.recallParkedPrompts();
         try {
           await this.withFinalIdleReset(() => this.inner.abort());
-          return null;
+          return recalled.steering.length || recalled.followUp.length ? recalled : null;
         } finally {
           if (!this.isRunning()) this.forceShutdownOnIdle = false;
         }
+      }
 
       case "get_state": {
         const model = this.inner.model;
@@ -1362,13 +1381,8 @@ export class AgentSessionWrapper {
         // races against the agent loop pulling messages mid-flight. Prompts
         // parked during compaction come back too, as the TUI's clearAllQueues().
         const cleared = this.inner.clearQueue();
-        const parked = this.parkedDuringCompaction;
-        if (parked.length === 0) return cleared;
-        this.parkedDuringCompaction = [];
-        // Each recalled prompt's admission settles as it goes back to the composer.
-        parked.forEach(() => this.settlePromptCount());
-        this.emitQueueUpdate();
-        const parkedTexts = this.parkedQueueMessages(parked);
+        if (this.parkedDuringCompaction.length === 0) return cleared;
+        const parkedTexts = this.recallParkedPrompts();
         return {
           steering: [...cleared.steering, ...parkedTexts.steering],
           followUp: [...cleared.followUp, ...parkedTexts.followUp],
