@@ -1035,7 +1035,7 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
 
-    if (end.aborted || selectedSession?.relation?.kind === "subagent") return;
+    if (end.aborted || end.subagentsActive || selectedSession?.relation?.kind === "subagent") return;
     if (!shouldShowBrowserNotification()) return;
     const targetSession = selectedSession;
     deliverSessionNotification({

@@ -545,8 +545,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
+  // Sessions whose subagents can still report back with a run there: not done yet (#1434).
+  const [subagentsActiveSessionIds, setSubagentsActiveSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
+  const previousActiveSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
   const previousSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
   // Once polling has delivered a snapshot it is the source of truth for
@@ -930,6 +933,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           runningSessionIds?: string[];
           awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
+          subagentsActiveSessionIds?: string[];
           sessionUiStateRevision?: number | null;
         };
         if (stopped || controller !== current) return;
@@ -939,6 +943,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         );
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
+        setSubagentsActiveSessionIds((previous) => sameIdsOr(previous, data.subagentsActiveSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
         if (data.sessionListVersion !== sessionListVersionRef.current) {
@@ -984,12 +989,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
     const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
+    // A session is done once it neither runs nor waits for a subagent's report, which starts
+    // another run there: its first run's end is not the task's (#1434). Leaving that set is the
+    // completion, so a last run too short for any poll to see still counts.
+    const active = new Set([...runningSessionIds, ...subagentsActiveSessionIds]);
+    const finishedInBackground = [...previousActiveSessionIdsRef.current].filter((id) => !active.has(id) && id !== selectedSessionId);
     const knownSubagentIds = new Set(
       allSessions
         .filter((session) => session.relation?.kind === "subagent")
         .map((session) => session.id),
     );
-    const completedWithNotifications = completedInBackground.filter(
+    const completedWithNotifications = finishedInBackground.filter(
       (id) => !previousSuppressedCompletionSessionIdsRef.current.has(id) && !knownSubagentIds.has(id),
     );
     const newlyRunning = [...runningSessionIds].filter((id) => !previous.has(id));
@@ -1016,12 +1026,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
 
     previousRunningSessionIdsRef.current = runningSessionIds;
+    previousActiveSessionIdsRef.current = active;
+    const previousSuppressed = previousSuppressedCompletionSessionIdsRef.current;
     previousSuppressedCompletionSessionIdsRef.current = new Set(
-      [...runningSessionIds].filter(
-        (id) => currentSuppressedCompletionSessionIdsRef.current.has(id) || knownSubagentIds.has(id),
+      [...active].filter(
+        (id) => currentSuppressedCompletionSessionIdsRef.current.has(id) || knownSubagentIds.has(id)
+          // A subagent waiting for its own subagents is no longer listed as suppressed.
+          || (previousSuppressed.has(id) && !runningSessionIds.has(id)),
       ),
     );
-  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
+  }, [runningSessionIds, subagentsActiveSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
 
   useEffect(() => {
     if (!selectedSessionId) return;

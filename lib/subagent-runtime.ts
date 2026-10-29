@@ -94,7 +94,7 @@ declare global {
   var __piSubagentRuns: Map<string, StoredSubagentExecution> | undefined;
   var __piSubagentQueue: SubagentQueue<SubagentRunInfo> | undefined;
   var __piSubagentConsumedResults: Map<string, string> | undefined;
-  var __piSubagentParentNotifications: Set<Pick<SubagentRunInfo, "sessionId" | "parentSessionId">> | undefined;
+  var __piSubagentParentNotifications: Set<PendingParentNotification> | undefined;
 }
 const SUBAGENT_CONTEXT_LIMIT = 50_000;
 const PARENT_IDLE_POLL_MS = 200;
@@ -149,23 +149,41 @@ function getSubagentRuns(): Map<string, StoredSubagentExecution> {
   return globalThis.__piSubagentRuns;
 }
 
+type PendingParentNotification = Pick<SubagentRunInfo, "sessionId" | "parentSessionId" | "completedAt">;
+
 /**
  * Background runs whose completion `notifyParent()` is still delivering: the run has left the
- * run map, but the parent's turn starts only once the parent is ready and idle.
+ * run map, but the parent's turn starts only once the parent is ready and idle. An entry leaves
+ * as soon as that turn starts, since the parent is running from then on.
  */
-function getParentNotifications(): Set<Pick<SubagentRunInfo, "sessionId" | "parentSessionId">> {
+function getParentNotifications(): Set<PendingParentNotification> {
   globalThis.__piSubagentParentNotifications ??= new Set();
   return globalThis.__piSubagentParentNotifications;
 }
 
 /**
+ * Runs that can still start a turn in their parent: those in the run map, and notifications
+ * not yet delivered whose result the parent has not collected with `get_subagent_result`
+ * (`deliverParentNotification()` drops a collected one without a turn).
+ */
+function unsettledSubagentRuns(): PendingParentNotification[] {
+  const consumed = getConsumedSubagentResults();
+  return [
+    ...[...getSubagentRuns().values()].map((stored) => stored.run),
+    ...[...getParentNotifications()].filter((run) => !run.completedAt || consumed.get(run.sessionId) !== run.completedAt),
+  ];
+}
+
+/**
  * Whether a subagent run under this session, at any depth, is still unsettled: its end can
  * start a turn there (`notifyParent()`, `triggerTurn`). A run counts from dispatch until its
- * result is written (the run map), then until its parent notification is delivered or fails.
- * A hidden page keeps the session's event stream while this holds (#1283).
+ * result is written (the run map), then until the turn its parent notification triggers starts,
+ * or the delivery is dropped or fails. A hidden page keeps the session's event stream while this
+ * holds (#1283), and a main session's run that ends meanwhile announces no completion: the
+ * turn a report starts decides that (#1434).
  */
 export function hasUnsettledSubagentRun(sessionId: string): boolean {
-  const runs = [...[...getSubagentRuns().values()].map((stored) => stored.run), ...getParentNotifications()];
+  const runs = unsettledSubagentRuns();
   const family = new Set([sessionId]);
   for (let grew = true; grew;) {
     grew = false;
@@ -176,6 +194,11 @@ export function hasUnsettledSubagentRun(sessionId: string): boolean {
     }
   }
   return family.size > 1;
+}
+
+/** Every session `hasUnsettledSubagentRun()` holds for: the parents of the unsettled runs. */
+export function getSessionIdsWithUnsettledSubagentRuns(): string[] {
+  return [...new Set(unsettledSubagentRuns().map((run) => run.parentSessionId))];
 }
 
 function getSubagentQueue(): SubagentQueue<SubagentRunInfo> {
@@ -856,16 +879,17 @@ export function createSubagentController(
   }
 
   async function notifyParent(run: SubagentRunInfo): Promise<void> {
-    const pending = { sessionId: run.sessionId, parentSessionId: run.parentSessionId };
-    getParentNotifications().add(pending);
+    const pending = { sessionId: run.sessionId, parentSessionId: run.parentSessionId, completedAt: run.completedAt };
+    const notifications = getParentNotifications();
+    notifications.add(pending);
     try {
-      await deliverParentNotification(run);
+      await deliverParentNotification(run, () => notifications.delete(pending));
     } finally {
-      getParentNotifications().delete(pending);
+      notifications.delete(pending);
     }
   }
 
-  async function deliverParentNotification(run: SubagentRunInfo): Promise<void> {
+  async function deliverParentNotification(run: SubagentRunInfo, onTurnStarted: () => void): Promise<void> {
     if (takeResultConsumed(run)) return;
     let parent = dependencies.getSession(run.parentSessionId);
     if (!parent?.isAlive()) {
@@ -884,12 +908,16 @@ export function createSubagentController(
     }
     if (takeResultConsumed(run)) return;
     if (!parent.isAlive()) throw new Error(`Parent session is no longer available: ${run.parentSessionId}`);
-    await parent.inner.sendCustomMessage({
+    const delivery = parent.inner.sendCustomMessage({
       customType: "pi-web:subagent-notification",
       content: subagentNotificationText(run),
       display: true,
       details: subagentToolDetails(run),
     }, { deliverAs: "followUp", triggerTurn: true });
+    // pi starts the turn before its first await, and resolves only once that turn settled. From
+    // here the parent's own run stands for this result: its end must not see the result as pending.
+    if (parent.isRunning()) onTurnStarted();
+    await delivery;
   }
 
   async function abort(sessionId: string): Promise<void> {

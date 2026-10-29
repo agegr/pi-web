@@ -181,6 +181,11 @@ export type BuiltinSlashCommandResult =
 export interface AgentEndInfo {
   /** The run was stopped (Esc, Stop, another client's abort), not finished: nothing to announce. */
   aborted: boolean;
+  /**
+   * Subagents of this session are still at work and will report back with a run of their own:
+   * the task is not done yet, so nothing to announce either (#1434).
+   */
+  subagentsActive?: boolean;
 }
 
 export interface UseAgentSessionOptions {
@@ -1297,10 +1302,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return wasRunning;
   }, [dispatch]);
 
-  const notifyPromptStage = useCallback((runId: number, aborted = false) => {
+  const notifyPromptStage = useCallback((runId: number, aborted = false, subagentsActive = false) => {
     if (notifiedPromptRunIdRef.current === runId) return false;
     notifiedPromptRunIdRef.current = runId;
-    onAgentEnd?.({ aborted });
+    onAgentEnd?.({ aborted, ...(subagentsActive ? { subagentsActive } : {}) });
     return true;
   }, [onAgentEnd]);
 
@@ -1601,7 +1606,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           void loadSession(sid);
           scheduleEventStreamClose(sid);
         }
-        if (wasRunning) onAgentEnd?.({ aborted: event.aborted === true });
+        if (wasRunning) {
+          onAgentEnd?.({ aborted: event.aborted === true, ...(event.subagentsActive === true ? { subagentsActive: true } : {}) });
+        }
         break;
       }
       case "prompt_done":
@@ -1610,7 +1617,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const promptWasPending = rpcPromptPendingRef.current;
           rpcPromptPendingRef.current = false;
           optimisticUserMessageKeyRef.current = null;
-          const firstNotification = notifyPromptStage(runId, event.aborted === true);
+          const firstNotification = notifyPromptStage(runId, event.aborted === true, event.subagentsActive === true);
           if (!promptWasPending && !firstNotification) break;
 
           const sid = sessionIdRef.current;
