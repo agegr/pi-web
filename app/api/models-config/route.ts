@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ModelsConfigReadError, readModelsConfig, writeModelsConfig } from "@/lib/models-config-store";
 import { ContextWindowError, normalizeContextWindowOverrides } from "@/lib/model-context";
+import { checkProviderEntries, ProviderEntryError } from "@/lib/model-provider-check";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,12 @@ export async function GET() {
 export async function PUT(req: Request) {
   try {
     const body = await req.json() as Record<string, unknown>;
-    writeModelsConfig(normalizeContextWindowOverrides(body));
+    const config = normalizeContextWindowOverrides(body);
+    checkProviderEntries(config);
+    writeModelsConfig(config);
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (error instanceof ContextWindowError) {
+    if (error instanceof ContextWindowError || error instanceof ProviderEntryError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     if (error instanceof ModelsConfigReadError) {
