@@ -13,7 +13,7 @@ import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAss
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
-import { isApplyPatchToolName, isBashToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
+import { isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
 import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
@@ -23,6 +23,7 @@ import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
+import { parseStreamingJson } from "@earendil-works/pi-ai/utils/json-parse";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { getTranscriptNotices } from "@/lib/transcript-notices";
@@ -1184,8 +1185,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
     setExpanded(next);
   };
   const writtenFileText = getWrittenFileText(block);
-  const bashView = getBashCommandView(block);
-  const inputStr = writtenFileText ?? bashView?.command ?? getToolCallInputText(block);
+  const inputStr = writtenFileText ?? getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
@@ -1201,18 +1201,16 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   const codemodeRunning = codemode !== null && result !== undefined && result.content.length === 0;
 
   // Flat arguments as rows instead of a JSON blob, unless the card has a view of
-  // its own (a write's file text, a shell command's text, codemode, an applied
-  // patch). See `lib/tool-fields.ts`.
+  // its own (a write's file text, codemode, an applied patch). See `lib/tool-fields.ts`.
+  // Input still streaming goes through pi's own partial parse, the arguments its
+  // TUI draws live, so a multi-line command shows its lines before the call ends.
   const toolFields =
-    !isStreamingInput && writtenFileText === null && bashView === null && codemode === null && patchFiles === null
-      ? toolFieldsOfInput(block.input)
+    expanded && writtenFileText === null && codemode === null && patchFiles === null
+      ? toolFieldsOfInput(isStreamingInput ? parseStreamingJson(block.rawInput) : block.input)
       : null;
 
   // `server/tool` instead of the registered `mcp__server__tool`, as pi's TUI shows it.
   const mcpLabel = mcpToolLabel(block.toolName, result?.details);
-  // A shell command's first line (+ timeout, as the TUI's `$ cmd (timeout Ns)`),
-  // live while it streams instead of raw JSON. Falls back when unparseable.
-  const bashPreview = bashView !== null ? bashHeaderPreview(bashView) : null;
 
   // Result display
   const resultContent = result ? (codemode ? stripCodemodeHeader(result.content) : result.content) : [];
@@ -1269,8 +1267,8 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           </span>
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {isStreamingInput
-              ? (bashPreview ?? t("chat.generatingToolInput"))
-              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : (bashPreview ?? getToolPreview(block))))}
+              ? t("chat.generatingToolInput")
+              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)))}
           </span>
           {codemodeCallCount > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
@@ -2153,74 +2151,6 @@ function getWrittenFileText(block: ToolCallContent): string | null {
   const { content } = block.input;
   if (typeof content !== "string" || content === "") return null;
   return Object.keys(block.input).every((key) => WRITE_VIEW_KEYS.has(key)) ? content : null;
-}
-
-const BASH_VIEW_KEYS = new Set(["command", "timeout"]);
-
-interface BashCommandView {
-  command: string;
-  timeout?: number;
-}
-
-// A shell command's text in place of its JSON: `JSON.stringify` escapes newlines
-// as `\n`, so a multi-line command reads as one escaped blob (and streamed
-// input is raw JSON still). A call with any other argument keeps the generic
-// view, so nothing is hidden, as with `getWrittenFileText`.
-function getBashCommandView(block: ToolCallContent): BashCommandView | null {
-  if (!isBashToolName(block.toolName)) return null;
-  if (block.rawInput !== undefined) return extractStreamingBashCommand(block.rawInput);
-  const input = block.input;
-  if (input === null || typeof input !== "object" || Array.isArray(input)) return null;
-  if (!Object.keys(input).every((key) => BASH_VIEW_KEYS.has(key))) return null;
-  const { command, timeout } = input as Record<string, unknown>;
-  if (typeof command !== "string" || command === "") return null;
-  if (timeout !== undefined && typeof timeout !== "number") return null;
-  return timeout === undefined ? { command } : { command, timeout };
-}
-
-// The shell tool's `{ command, timeout? }` out of streamed raw input, which is
-// still incomplete JSON: complete input parses whole, otherwise the command's
-// string value is decoded up to the last chunk (a cut `\u` escape included).
-function extractStreamingBashCommand(rawInput: string): BashCommandView | null {
-  try {
-    const parsed: unknown = JSON.parse(rawInput);
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const record = parsed as Record<string, unknown>;
-      if (typeof record.command === "string" && record.command !== "") {
-        return typeof record.timeout === "number"
-          ? { command: record.command, timeout: record.timeout }
-          : { command: record.command };
-      }
-      return null;
-    }
-  } catch {
-    // Incomplete JSON: fall through to the partial-string decode below.
-  }
-  const match = /"command"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(rawInput);
-  if (!match) return null;
-  const command = decodePartialJsonString(match[1]);
-  return command === null || command === "" ? null : { command };
-}
-
-// A JSON string value that may end mid-escape: a cut escape is at most 6 chars
-// (`\uXXXX`), so trimming a few trailing chars either parses or never will.
-function decodePartialJsonString(fragment: string): string | null {
-  for (let trim = 0; trim <= 6 && trim <= fragment.length; trim++) {
-    try {
-      return JSON.parse(`"${fragment.slice(0, fragment.length - trim)}"`);
-    } catch {
-      // Try a shorter prefix.
-    }
-  }
-  return null;
-}
-
-// The header's one-line preview: the command's first non-blank line, as pi's
-// TUI `$ command (timeout Ns)` suffixes a timeout.
-function bashHeaderPreview(view: BashCommandView): string {
-  const firstLine = view.command.replace(/\r\n?/g, "\n").split("\n").find((line) => line.trim() !== "") ?? "";
-  const preview = firstLine.slice(0, 120);
-  return view.timeout === undefined ? preview : `${preview} (timeout ${view.timeout}s)`;
 }
 
 const TOOL_FIELD_LABEL: CSSProperties = {

@@ -229,89 +229,28 @@ test("a write with another argument or an empty file shows every argument as a r
   }
 });
 
-test("input that is still streaming keeps its raw text", () => {
-  const rawInput = "{\"path\":\"a.ts\",\"content\":\"one\\ntwo";
-  const block = { type: "toolCall", toolCallId: "call-write-streaming", toolName: "write", input: {}, rawInput };
-  clearExpandedToolCalls();
-  setToolCallExpanded(block.toolCallId, true);
-  try {
-    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
-    assert.equal(textOf(html).includes(getToolCallInputText(block)), true);
-    assert.ok(!html.includes("<table"));
-  } finally {
+test("streaming input shows the rows pi's partial parse has so far, else its raw text", () => {
+  const cases = [
+    // A multi-line command cut mid-escape: its lines, not `\n` escapes.
+    { id: "call-bash-streaming", toolName: "bash", rawInput: "{\"command\":\"cd /tmp\\nls -l\\", rows: ["command", "cd /tmp\nls -l"] },
+    { id: "call-bash-timeout", toolName: "bash", rawInput: "{\"command\":\"sleep 5\",\"timeout\":3", rows: ["timeout", "3"] },
+    // Nothing parsed yet, or a nested argument begun: the raw text, as before.
+    { id: "call-bash-empty", toolName: "bash", rawInput: "{\"comm", rows: null },
+    { id: "call-edit-streaming", toolName: "edit", rawInput: "{\"path\":\"a.ts\",\"edits\":[{\"oldText\":\"x", rows: null },
+  ];
+  for (const { id, toolName, rawInput, rows } of cases) {
+    const block = { type: "toolCall", toolCallId: id, toolName, input: {}, rawInput };
     clearExpandedToolCalls();
-  }
-});
-
-test("a bash call shows its command with real line breaks instead of JSON", () => {
-  const block = {
-    type: "toolCall",
-    toolCallId: "call-bash-multiline",
-    toolName: "bash",
-    input: { command: "cd /tmp && ls .env*\ngrep -c \"\" .env" },
-  };
-  clearExpandedToolCalls();
-  setToolCallExpanded(block.toolCallId, true);
-  try {
-    const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
-    const text = textOf(html);
-    assert.ok(text.includes("cd /tmp && ls .env*\ngrep -c \"\" .env"));
-    assert.ok(!html.includes("<table"));
-    assert.doesNotMatch(text, /"command":/);
-  } finally {
-    clearExpandedToolCalls();
-  }
-});
-
-test("a bash timeout rides in the header, and extra arguments keep the table", (t) => {
-  const timed = {
-    type: "toolCall",
-    toolCallId: "call-bash-timeout",
-    toolName: "bash",
-    input: { command: "sleep 5", timeout: 30 },
-  };
-  setToolCallExpanded(timed.toolCallId, true);
-  t.after(() => setToolCallExpanded(timed.toolCallId, false));
-  const timedHtml = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [timed] });
-  assert.ok(timedHtml.includes("(timeout 30s)"));
-  assert.ok(!timedHtml.includes("<table"));
-
-  const extra = {
-    type: "toolCall",
-    toolCallId: "call-bash-extra",
-    toolName: "bash",
-    input: { command: "ls", workdir: "/tmp" },
-  };
-  setToolCallExpanded(extra.toolCallId, true);
-  t.after(() => setToolCallExpanded(extra.toolCallId, false));
-  const extraHtml = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [extra] });
-  assert.ok(extraHtml.includes("<table"));
-});
-
-test("a streaming bash call decodes newlines instead of showing raw JSON", () => {
-  const complete = {
-    type: "toolCall",
-    toolCallId: "call-bash-streaming-complete",
-    toolName: "bash",
-    input: {},
-    rawInput: JSON.stringify({ command: "cd /tmp\nls -la" }),
-  };
-  const partial = {
-    type: "toolCall",
-    toolCallId: "call-bash-streaming-partial",
-    toolName: "bash",
-    input: {},
-    rawInput: "{\"command\":\"cd /tmp\\nls -l",
-  };
-  for (const block of [complete, partial]) {
-    clearExpandedToolCalls();
-    setToolCallExpanded(block.toolCallId, true);
+    setToolCallExpanded(id, true);
     try {
       const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] });
-      const text = textOf(html);
-      assert.ok(text.includes("cd /tmp\nls -l"), block.toolCallId);
-      assert.doesNotMatch(text, /"command":/);
-      assert.ok(!html.includes("<table"));
+      if (rows) {
+        assert.ok(html.includes("<table"), id);
+        for (const text of rows) assert.ok(textOf(html).includes(text), id);
+      } else {
+        assert.ok(!html.includes("<table"), id);
+        assert.ok(textOf(html).includes(getToolCallInputText(block)), id);
+      }
     } finally {
       clearExpandedToolCalls();
     }
@@ -875,7 +814,9 @@ test("a codemode call with no script or streaming input falls back to a plain bo
   t.after(() => setToolCallExpanded(streaming.toolCallId, false));
   const streamingText = textOf(renderCodemode(streaming));
   assert.match(streamingText, /Generating parameters/);
-  assert.match(streamingText, /\{"code":"const secret/);
+  // The script so far, through the partial parse, rather than its JSON.
+  assert.match(streamingText, /codeconst secret/);
+  assert.doesNotMatch(streamingText, /\{"code"/);
   assert.doesNotMatch(streamingText, /Tool calls/);
 
   const other = { type: "toolCall", toolCallId: "call-codemode-other", toolName: "codemode", input: { script: "x" } };
