@@ -41,10 +41,6 @@ const FIXTURE = fileURLToPath(new URL("../../../../lib/__fixtures__/mcp-env-serv
 const globalPath = join(agentDir, "mcp.json");
 const projectPath = join(cwd, ".pi", "mcp.json");
 const marker = join(root, "command-ran");
-// The !command runs through a shell, where an unquoted backslash is an escape:
-// a Windows path must be quoted and spelled with forward slashes (Windows
-// takes them too), or the marker lands mangled in the process's own folder.
-const markerCommand = `!touch "${marker.replaceAll("\\", "/")}" && echo ok`;
 const envFile = join(root, "env-names.json");
 const store = new ProjectTrustStore(agentDir);
 const SECRET = "literal-header-secret-value";
@@ -62,7 +58,7 @@ beforeEach(async () => {
   delete process.env.PI_WEB_DISABLE_MCP;
   clearMcpStatuses();
   await writeFile(globalPath, `${JSON.stringify({ mcpServers: globalServers }, null, 2)}\n`);
-  await writeFile(projectPath, `${JSON.stringify({ mcpServers: { repo: fixture({ TOKEN: markerCommand }) } }, null, 2)}\n`);
+  await writeFile(projectPath, `${JSON.stringify({ mcpServers: { repo: fixture({ TOKEN: `!touch ${marker} && echo ok` }) } }, null, 2)}\n`);
   await rm(marker, { force: true });
   store.set(cwd, null);
 });
@@ -97,10 +93,7 @@ test("a global server is tested from its file and answers with what it found", a
   // Without a project the server starts in the home folder: a temporary one, never the developer's.
   const home = join(root, "home");
   await mkdir(home, { recursive: true });
-  // `os.homedir()` reads HOME on POSIX but USERPROFILE on Windows: both must point
-  // at the temporary home, or the server starts in the developer's real one.
   setEnvFor(t, "HOME", home);
-  setEnvFor(t, "USERPROFILE", home);
   assert.equal(homedir(), home);
   const { status, body } = await post({ scope: "global", name: "lint" });
   assert.equal(status, 200);

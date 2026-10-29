@@ -9,11 +9,8 @@ import { createJiti } from "jiti";
 
 // POST /api/mcp { action: "add" } writes the user's files and trust.json, so
 // every case runs against a PI_CODING_AGENT_DIR in a temporary folder, never
-// the real ~/.pi/agent. The real path (realpathSync.native, which expands
-// Windows 8.3 short names that JS realpathSync keeps) makes every trust path
-// string-match the user's home folder, whose ~/.agents/skills the freshness
-// walk would otherwise read as a project resource in the fixture's ancestors.
-const root = realpathSync.native(await mkdtemp(join(tmpdir(), "pi-web-mcp-add-route-")));
+// the real ~/.pi/agent.
+const root = realpathSync(await mkdtemp(join(tmpdir(), "pi-web-mcp-add-route-")));
 const agentDir = join(root, "agent");
 const trusted = join(root, "trusted");
 const untrusted = join(root, "untrusted");

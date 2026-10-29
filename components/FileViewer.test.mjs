@@ -4,9 +4,7 @@ import test from "node:test";
 import React from "react";
 import ts from "typescript";
 
-// Normalize line endings: the tests slice the source on ";\n" boundaries, and
-// Windows checkouts store the file with CRLF, which breaks those slices.
-const source = (await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+const source = await readFile(new URL("./FileViewer.tsx", import.meta.url), "utf8");
 
 test("lightweight source rows are skipped for highlighted, diff, and preview views", () => {
   // Execute the source-view calculations without mounting the file-fetching component.

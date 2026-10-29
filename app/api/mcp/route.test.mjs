@@ -47,7 +47,7 @@ await writeFile(globalPath, JSON.stringify({
 }));
 await writeFile(projectPath, JSON.stringify({
   mcpServers: {
-    repo: { command: "node", args: ["server.js"], env: { TOKEN: `!touch "${marker.replaceAll("\\", "/")}"`, KEY: "literal-project-secret" } },
+    repo: { command: "node", args: ["server.js"], env: { TOKEN: `!touch ${marker}`, KEY: "literal-project-secret" } },
     shared: { command: "project-shared" },
   },
 }));

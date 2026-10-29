@@ -7,12 +7,7 @@ import { createJiti } from "jiti";
 // takes the next answer in line.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-// renderHook comes through jiti's "react" alias too: the shim keeps its render
-// state at module scope, so the test and the hook must see the same instance of
-// it. A plain import() of the shim's absolute path is no good — Node's ESM
-// loader rejects "G:/…" as an unsupported URL scheme on Windows — and a second
-// copy of the shim would not share the one under render.
-const { renderHook } = await jiti.import("react");
+const { renderHook } = await import(shimPath);
 const { useSessionUiState } = await jiti.import("./useSessionUiState.ts");
 
 const answers = [];

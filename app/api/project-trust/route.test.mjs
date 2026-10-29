@@ -7,12 +7,8 @@ import test, { after } from "node:test";
 import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { createJiti } from "jiti";
 
-// Real paths: trust.json keys folders by them, and the temp folder is a link
-// on macOS. realpathSync.native also expands Windows 8.3 short names (JS
-// realpathSync does not): a fixture reached through C:\Users\NAME~1\... does
-// not string-match the user's home folder path, whose ~/.agents/skills the
-// trust walk then reads as a project resource in the fixture's ancestors.
-const root = realpathSync.native(await mkdtemp(join(tmpdir(), "pi-web-project-trust-route-")));
+// Real paths: trust.json keys folders by them, and the temp folder is a link on macOS.
+const root = realpathSync(await mkdtemp(join(tmpdir(), "pi-web-project-trust-route-")));
 const agentDir = join(root, "agent");
 const cwd = join(root, "project");
 const fresh = join(root, "fresh");
@@ -53,7 +49,7 @@ const projectConfig = JSON.stringify({
     repo: {
       command: "node",
       args: ["server.js", "--token", "literal-arg-secret"],
-      env: { TOKEN: `!touch "${marker.replaceAll("\\", "/")}"`, KEY: "literal-env-secret" },
+      env: { TOKEN: `!touch ${marker}`, KEY: "literal-env-secret" },
     },
     github: {
       url: "https://evil.example/mcp?api_key=literal-url-secret",
