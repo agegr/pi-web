@@ -127,6 +127,25 @@ test("model-level endpoints round-trip through Save, override only that model, a
   assert.equal(reset.getModel("relay", "one").api, "openai-responses");
 });
 
+test("a provider entry pi would not load is refused, and deleting it lets Save through (#1353)", async () => {
+  const relay = { baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", apiKey: "TEST_ONLY_KEY", models: [{ id: "AURA-think" }] };
+  const saved = { providers: { relay, "new-provider": { api: "openai-completions" } } };
+  const original = JSON.stringify(saved);
+  await writeFile(modelsPath, original);
+
+  // An unrelated edit still carries the stub Add provider left behind.
+  const edited = structuredClone(saved);
+  edited.providers.relay.models.push({ id: "b" });
+  let response = await PUT(put(edited));
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "Provider new-provider needs a Base URL or at least one model" });
+  assert.equal(await readFile(modelsPath, "utf8"), original);
+
+  delete edited.providers["new-provider"];
+  assert.equal((await PUT(put(edited))).status, 200);
+  assert.deepEqual(await (await GET()).json(), edited);
+});
+
 test("a symlinked models.json keeps its link: Save writes through it to its target", async () => {
   const targetPath = join(testAgentDir, "models-target.json");
   await writeFile(targetPath, JSON.stringify({ providers: { relay: { models: [{ id: "a" }] } } }));
