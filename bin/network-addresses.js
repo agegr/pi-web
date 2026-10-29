@@ -9,22 +9,25 @@ function isWildcardHostname(hostname) {
   return WILDCARD_HOSTNAMES.has(hostname);
 }
 
-function addressFamily(hostname) {
-  return hostname.includes(":") ? "IPv6" : "IPv4";
+// An IPv6 wildcard listens dual-stack (Node's default, and Next passes no
+// ipv6Only), so it answers on every IPv4 address too.
+function addressFamilies(hostname) {
+  return hostname.includes(":") ? ["IPv4", "IPv6"] : ["IPv4"];
 }
 
 // Addresses another machine can open when the server binds a wildcard address:
 // the wildcard itself routes nowhere, so list this host's interfaces instead.
 function getReachableAddresses(hostname, { interfaces = os.networkInterfaces() } = {}) {
   if (!isWildcardHostname(hostname)) return [];
-  const family = addressFamily(hostname);
   const addresses = [];
-  for (const [name, entries] of Object.entries(interfaces)) {
-    for (const entry of entries ?? []) {
-      // `internal` covers loopback; a scoped IPv6 address (fe80::/10) needs a
-      // zone id, so it cannot be pasted into another machine's browser.
-      if (entry.family !== family || entry.internal || entry.scopeid) continue;
-      addresses.push({ name, address: entry.address });
+  for (const family of addressFamilies(hostname)) {
+    for (const [name, entries] of Object.entries(interfaces)) {
+      for (const entry of entries ?? []) {
+        // `internal` covers loopback; a scoped IPv6 address (fe80::/10) needs a
+        // zone id, so it cannot be pasted into another machine's browser.
+        if (entry.family !== family || entry.internal || entry.scopeid) continue;
+        addresses.push({ name, address: entry.address });
+      }
     }
   }
   return addresses;
