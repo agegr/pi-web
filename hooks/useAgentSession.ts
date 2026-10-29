@@ -2009,11 +2009,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     try {
-      await sendAgentCommand(sid, { type: "abort" });
+      // Prompts parked behind a compaction come back for the composer, as Recall's do.
+      const recalled = await sendAgentCommand<{ steering?: string[]; followUp?: string[] } | null>(sid, { type: "abort" });
+      const texts = [...(recalled?.steering ?? []), ...(recalled?.followUp ?? [])];
+      if (texts.length > 0) opts.chatInputRef?.current?.prependText(texts.join("\n\n"));
     } catch (e) {
       console.error("Failed to abort:", e);
     }
-  }, []);
+  }, [opts.chatInputRef]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
