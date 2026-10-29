@@ -1580,16 +1580,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
 
 
-  const queuedMessageCount = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0);
-
   return (
     <fieldset
       disabled={builtinCommandPending}
       aria-busy={builtinCommandPending}
-      className={compact ? undefined : "chat-input-shell"}
-      data-queued={queuedMessageCount > 0 || undefined}
       style={{
-        flexShrink: compact ? 0 : 1,
+        flexShrink: 0,
         minWidth: 0,
         margin: 0,
         border: 0,
@@ -1613,73 +1609,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />}
-      <div className={compact ? undefined : "chat-input-column"} style={{ width: "100%", maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
-        <div className="chat-input-notices">
-          <ModelErrorBanner error={modelError} />
-          <ModelScopeWarningBanner warnings={modelScopeWarnings} />
-          {showImageUnsupportedWarning && (() => {
-            const entry = modelList?.find((m) => m.provider === model?.provider && m.id === model?.modelId);
-            return (
-              <ModelNoticeBanner
-                tone="warning"
-                title={t("chat.imageNotSupportedTitle")}
-                body={t("chat.imageNotSupportedBody", { model: entry?.name || model?.modelId || "" })}
-                onClose={() => setImageWarningDismissed(true)}
-              />
-            );
-          })()}
-          {/* Retry and compaction feedback share the bounded diagnostic shelf. */}
-          {retryInfo && (
-            <div style={{
-              marginBottom: 8, padding: "5px 10px",
-              background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.25)",
-              borderRadius: 6, fontSize: 12, color: "rgba(180,130,0,0.9)",
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-               {t("chat.retrying", { attempt: retryInfo.attempt, max: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
-            </div>
-          )}
-          {compactResultText && (
-            <div style={{
-              marginBottom: 8, padding: "5px 10px",
-              background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.24)",
-              borderRadius: 6, fontSize: 12, color: "rgba(5,150,105,0.95)",
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              {compactResultText}
-            </div>
-          )}
-          {compactError && (
-            <div
-              role="alert"
-              style={{
-                marginBottom: 8,
-                padding: "7px 10px",
-                background: "rgba(239,68,68,0.07)",
-                border: "1px solid rgba(239,68,68,0.3)",
-                borderRadius: 6,
-                color: "#ef4444",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {compactError}
-            </div>
-          )}
-        </div>
+      <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+        <ModelErrorBanner error={modelError} />
+        <ModelScopeWarningBanner warnings={modelScopeWarnings} />
+        {showImageUnsupportedWarning && (() => {
+          const entry = modelList?.find((m) => m.provider === model?.provider && m.id === model?.modelId);
+          return (
+            <ModelNoticeBanner
+              tone="warning"
+              title={t("chat.imageNotSupportedTitle")}
+              body={t("chat.imageNotSupportedBody", { model: entry?.name || model?.modelId || "" })}
+              onClose={() => setImageWarningDismissed(true)}
+            />
+          );
+        })()}
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
-        {queuedMessageCount > 0 && (
-          <div className="chat-queued-messages" style={{
+        {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
+          <div style={{
             marginBottom: 8,
             border: "1px solid var(--border)",
             borderRadius: 6,
@@ -1700,7 +1646,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 textTransform: "uppercase",
                 letterSpacing: 0.4,
               }}>
-                {t("chat.queued", { count: queuedMessageCount })}
+                {t("chat.queued", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
               </span>
               {onRecallQueue && (
                 <button
@@ -1737,11 +1683,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 </button>
               )}
             </div>
-            <div className="chat-queued-rows" tabIndex={0} role="region" aria-label={t("chat.queued", { count: queuedMessageCount })} style={{
+            {/* Only the rows scroll: a long queue must not push the input and its buttons off screen (#1428). */}
+            <div style={{
               maxHeight: "min(180px, calc(var(--app-viewport-height, 100dvh) * 0.25))",
               overflowY: "auto",
               overscrollBehavior: "contain",
-              scrollbarGutter: "stable",
             }}>
               {queuedMessages?.steering.map((text, i) => (
                 <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
@@ -1750,6 +1696,54 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
               ))}
             </div>
+          </div>
+        )}
+        {/* Retry banner */}
+        {retryInfo && (
+          <div style={{
+            marginBottom: 8, padding: "5px 10px",
+            background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.25)",
+            borderRadius: 6, fontSize: 12, color: "rgba(180,130,0,0.9)",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+             {t("chat.retrying", { attempt: retryInfo.attempt, max: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
+          </div>
+        )}
+        {compactResultText && (
+          <div style={{
+            marginBottom: 8, padding: "5px 10px",
+            background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.24)",
+            borderRadius: 6, fontSize: 12, color: "rgba(5,150,105,0.95)",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {compactResultText}
+          </div>
+        )}
+        {compactError && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 8,
+              padding: "7px 10px",
+              background: "rgba(239,68,68,0.07)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 6,
+              color: "#ef4444",
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {compactError}
           </div>
         )}
         {/* Image previews */}
@@ -2193,7 +2187,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               lineHeight: 1.6,
               fontFamily: "inherit",
               minHeight: compact ? 96 : 24,
-              maxHeight: compact ? 200 : "min(200px, calc(var(--app-viewport-height, 100dvh) * 0.35))",
+              maxHeight: 200,
               overflow: "auto",
             }}
           />
@@ -2288,7 +2282,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        {!compact && <div className="chat-input-controls" data-streaming={isStreaming || undefined} style={{
+        {!compact && <div style={{
           marginTop: 8,
           display: isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,

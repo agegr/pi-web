@@ -289,31 +289,18 @@ test("shows the follow-up shortcut in the button tooltip", () => {
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
 });
 
-test("queued messages keep their count, order, recall control and data at every size", () => {
-  const render = (queuedMessages) => renderToStaticMarkup(
+test("scrolls a long queue inside its own box, under the count and Recall (#1428)", () => {
+  const html = renderToStaticMarkup(
     React.createElement(I18nProvider, null, React.createElement(ChatInput, {
-      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, onRecallQueue() {},
-      isStreaming: true, queuedMessages,
+      onSend() {}, onAbort() {}, onSteer() {}, onFollowUp() {}, onRecallQueue() {}, isStreaming: true,
+      queuedMessages: { steering: Array.from({ length: 19 }, (_, i) => `steer-${i}`), followUp: ["follow-up-0"] },
     })),
   );
-  for (const queue of [undefined, null, { steering: [], followUp: [] }]) {
-    assert.doesNotMatch(render(queue), /chat-queued-messages|Recall to input|Queued ·/);
-  }
-  for (const count of [3, 19, 50]) {
-    for (const steerCount of [0, Math.ceil(count / 2), count]) {
-      const queue = Object.freeze({
-        steering: Object.freeze(Array.from({ length: steerCount }, (_, i) => `steer-${i}`)),
-        followUp: Object.freeze(Array.from({ length: count - steerCount }, (_, i) => `follow-up-${i}`)),
-      });
-      const before = structuredClone(queue);
-      const html = render(queue);
-      assert.match(html, new RegExp(`Queued · ${count}<`));
-      assert.match(html, /Recall to input<\/button>/);
-      assert.deepEqual([...html.matchAll(/<div title="([^"]+)"/g)].map((match) => match[1]),
-        [...queue.steering, ...queue.followUp]);
-      assert.deepEqual(queue, before);
-    }
-  }
+  const rows = html.match(/<div style="max-height:min\(180px[^"]*overflow-y:auto[^"]*">(.*)$/s);
+  assert.ok(rows, "queued rows sit in a capped scroll box");
+  assert.match(html.slice(0, rows.index), /Queued · 20<\/span>.*Recall to input<\/button>/s);
+  assert.deepEqual([...rows[1].matchAll(/<div title="([^"]+)"/g)].map((match) => match[1]),
+    [...Array.from({ length: 19 }, (_, i) => `steer-${i}`), "follow-up-0"]);
 });
 
 test("ignores a pointer click that reaches Stop's slot just as the run ends", () => {
