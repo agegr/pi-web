@@ -84,10 +84,19 @@ type EventListener = (event: AgentEvent) => void;
 type ParkedPrompt = {
   message: string;
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  /** The composer's steer / followUp; undefined: sent as a fresh prompt. */
+  /** The composer's steer / followUp; undefined: sent as a fresh prompt, parked as steer (the TUI's Enter). */
   streamingBehavior?: "steer" | "followUp";
   /** Settles the admission's `pendingPromptCount` (idempotent): on delivery, recall, Stop or a failed send. */
   settle: () => void;
+  /** A flush is waiting for its admission; it stays a queue row (Recall, Stop) until then. */
+  delivering?: boolean;
+};
+
+/** What Recall and Stop hand back to the composer: the texts by queue, and the parked prompts' images. */
+type RecalledPrompts = {
+  steering: string[];
+  followUp: string[];
+  images?: Array<{ data: string; mimeType: string }>;
 };
 /** `sessionName`: the live session's own title (its newest `session_info`), read without a disk scan. */
 type AgentRunCompleteListener = (sessionId: string, sessionName: string | undefined) => void;
@@ -546,12 +555,12 @@ export class AgentSessionWrapper {
     return { type: "prompt_done", ...(this.lastRunAborted ? { aborted: true } : {}) };
   }
 
-  /** Parked prompts as queue rows: a plain one reads as a follow-up, since it goes out next. */
+  /** Parked prompts as queue rows: a plain one is a steer, as the TUI parks Enter during compaction. */
   private parkedQueueMessages(entries: readonly ParkedPrompt[]): { steering: string[]; followUp: string[] } {
     const steering: string[] = [];
     const followUp: string[] = [];
     for (const entry of entries) {
-      (entry.streamingBehavior === "steer" ? steering : followUp).push(entry.message);
+      (entry.streamingBehavior === "followUp" ? followUp : steering).push(entry.message);
     }
     return { steering, followUp };
   }
@@ -574,8 +583,12 @@ export class AgentSessionWrapper {
     this.emitQueueUpdate();
   }
 
-  /** Take every parked prompt back (Recall, Stop): their admissions settle, the texts return to the composer. */
-  private recallParkedPrompts(): { steering: string[]; followUp: string[] } {
+  /**
+   * Take every parked prompt back (Recall, Stop), those a flush has not handed to
+   * the SDK yet included: their admissions settle, the texts and images return to
+   * the composer.
+   */
+  private recallParkedPrompts(): RecalledPrompts {
     const parked = this.parkedDuringCompaction;
     if (parked.length === 0) return { steering: [], followUp: [] };
     this.parkedDuringCompaction = [];
@@ -583,7 +596,8 @@ export class AgentSessionWrapper {
     this.emitQueueUpdate();
     // A plain prompt's client waits for prompt_done; nothing ran.
     if (parked.some((entry) => entry.streamingBehavior === undefined)) this.emit({ type: "prompt_done", aborted: true });
-    return this.parkedQueueMessages(parked);
+    const images = parked.flatMap((entry) => entry.images ?? []).map(({ data, mimeType }) => ({ data, mimeType }));
+    return { ...this.parkedQueueMessages(parked), ...(images.length ? { images } : {}) };
   }
 
   /**
@@ -591,19 +605,29 @@ export class AgentSessionWrapper {
    * `flushCompactionQueue()` in the wrapper. Each goes through the prompt
    * admission chain like any prompt, so the SDK decides start-or-join for one
    * submission at a time and a prompt sent after compaction_end queues behind
-   * them. Each carries a `streamingBehavior` (a plain one as followUp), so the
-   * first starts a run when idle and the rest join it.
+   * them. Each carries a `streamingBehavior` (a plain one as steer), so the
+   * first starts a run when idle and the rest join it. An entry stays listed
+   * until its delivery holds admission, so Recall and Stop still take it back.
    */
   private flushParkedPrompts(): void {
-    if (this.parkedDuringCompaction.length === 0) return;
-    const parked = this.parkedDuringCompaction;
-    this.parkedDuringCompaction = [];
-    this.emitQueueUpdate();
-    for (const entry of parked) void this.deliverParkedPrompt(entry);
+    for (const entry of this.parkedDuringCompaction) {
+      if (entry.delivering) continue;
+      entry.delivering = true;
+      void this.deliverParkedPrompt(entry);
+    }
   }
 
   private async deliverParkedPrompt(entry: ParkedPrompt): Promise<void> {
     const releaseAdmission = await this.acquirePromptAdmission();
+    entry.delivering = false;
+    const index = this.parkedDuringCompaction.indexOf(entry);
+    if (index === -1) {
+      // Recalled (Recall, Stop) while it waited.
+      releaseAdmission();
+      return;
+    }
+    this.parkedDuringCompaction.splice(index, 1);
+    this.emitQueueUpdate();
     let released = false;
     const release = () => {
       if (released) return;
@@ -616,7 +640,7 @@ export class AgentSessionWrapper {
       await this.inner.prompt(entry.message, {
         ...(entry.images?.length ? { images: entry.images } : {}),
         source: "rpc",
-        streamingBehavior: entry.streamingBehavior ?? "followUp",
+        streamingBehavior: entry.streamingBehavior ?? "steer",
         preflightResult: (result) => {
           disposition = result;
           release();
@@ -1096,6 +1120,8 @@ export class AgentSessionWrapper {
               });
               parked = true;
               acceptPreflight();
+              // The refusal can land after that compaction's end already flushed.
+              if (!this.inner.isCompacting) this.flushParkedPrompts();
               return;
             }
             rejectPreflight(error);
@@ -1382,10 +1408,11 @@ export class AgentSessionWrapper {
         // parked during compaction come back too, as the TUI's clearAllQueues().
         const cleared = this.inner.clearQueue();
         if (this.parkedDuringCompaction.length === 0) return cleared;
-        const parkedTexts = this.recallParkedPrompts();
+        const recalled = this.recallParkedPrompts();
         return {
-          steering: [...cleared.steering, ...parkedTexts.steering],
-          followUp: [...cleared.followUp, ...parkedTexts.followUp],
+          steering: [...cleared.steering, ...recalled.steering],
+          followUp: [...cleared.followUp, ...recalled.followUp],
+          ...(recalled.images ? { images: recalled.images } : {}),
         };
       }
 
