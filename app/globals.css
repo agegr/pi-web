@@ -283,6 +283,97 @@ html[data-theme="zenburn"],
   --bg-subtle: rgba(220,220,204,0.04);
 }
 
+/* Session Info's context map: mid-tone category colors that read on every
+   theme's background, light or dark (components/ContextUsageSection.tsx). */
+:root {
+  --ctx-1: #6b8fd6;
+  --ctx-2: #c98a3e;
+  --ctx-3: #b07cc6;
+  --ctx-4: #4fa3a5;
+  --ctx-5: #d0708a;
+  --ctx-6: #8aa94c;
+  --ctx-7: #5aa0d8;
+  --ctx-8: #9a8f7c;
+  --ctx-9: #a487d9;
+  --ctx-10: #d6a03a;
+  --ctx-11: #4fae7f;
+  --ctx-12: #d07a5c;
+  --ctx-13: #7d8b9c;
+}
+
+.context-map {
+  display: grid;
+  gap: 2px;
+}
+
+.context-map-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  min-width: 0;
+}
+
+.context-map-cell.is-partial {
+  opacity: 0.55;
+}
+
+.context-map-cell.is-free {
+  background: var(--bg-hover);
+}
+
+.context-map-cell.is-buffer {
+  background: repeating-linear-gradient(135deg, var(--border) 0 2px, transparent 2px 4px);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.context-map-cell.is-dimmed {
+  opacity: 0.25;
+}
+
+.context-legend-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto 3.5em;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+}
+
+button.context-legend-row {
+  cursor: pointer;
+}
+
+button.context-legend-row:hover,
+button.context-legend-row:focus-visible {
+  background: var(--bg-hover);
+}
+
+.context-legend-row.is-selected {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.context-preview-entry {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.context-preview-body {
+  margin: 0;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--text-muted);
+}
+
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
    home-screen apps even though the layout still starts at the screen's top.
    In standalone mode there is no browser toolbar to make vh unstable, and vh

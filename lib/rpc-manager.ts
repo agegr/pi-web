@@ -19,11 +19,12 @@ import {
 } from "./project-command-env";
 import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { computeLiveSessionTotalActiveMs } from "./session-timing";
+import { computeContextUsage } from "./context-usage";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
+import type { AgentSessionLike, ExtensionUiContextLike, ModelLike, ToolInfo } from "./pi-types";
 import type {
   ExtensionUiRequest,
   ExtensionUiResponse,
@@ -259,6 +260,7 @@ const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
   "get_last_assistant_text",
   "get_tools",
   "get_commands",
+  "get_context_breakdown",
   "extension_ui_response",
   "extension_ui_input",
 ]);
@@ -700,6 +702,15 @@ export class AgentSessionWrapper {
   }
 
   /** pi's own queue plus the prompts parked during compaction, as the TUI's `getAllQueuedMessages()`. */
+  /**
+   * Active and callable, but requests leave the declaration out: codemode's "only" mode
+   * does this to active `direct` tools. The set is private to pi 0.99's AgentSession.
+   */
+  private hiddenToolDeclarations(): Set<unknown> {
+    const hiddenDeclarations: unknown = Reflect.get(this.inner, "_hiddenDeclarations");
+    return hiddenDeclarations instanceof Set ? hiddenDeclarations : new Set<unknown>();
+  }
+
   private mergedQueuedMessages(): { steering: string[]; followUp: string[] } {
     const parked = this.parkedQueueMessages(this.parkedDuringCompaction);
     return {
@@ -1601,6 +1612,27 @@ export class AgentSessionWrapper {
         return null;
       }
 
+      case "get_context_breakdown": {
+        // Compaction replaces the messages under way; pi-context-view refuses then too.
+        if (this.inner.isCompacting) return { unavailable: "compacting" };
+        const usage = this.inner.getContextUsage();
+        const sources = new Map(this.inner.getAllTools().map((t) => [t.name, t.sourceInfo]));
+        const hidden = this.hiddenToolDeclarations();
+        const model = this.inner.model as (ModelLike & { api?: string }) | undefined;
+        return computeContextUsage({
+          systemPrompt: this.exactSystemPrompt?.() ?? (this.inner.agent.state?.systemPrompt || this.inner.systemPrompt || ""),
+          tools: (this.inner.agent.state?.tools ?? [])
+            .filter((t) => !hidden.has(t.name))
+            .map((t) => ({ name: t.name, description: t.description, parameters: t.parameters, sourceInfo: sources.get(t.name) })),
+          messages: (this.inner.agent.state?.messages ?? []) as Parameters<typeof computeContextUsage>[0]["messages"],
+          reported: usage ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent } : null,
+          model: model ? { provider: model.provider, api: model.api, id: model.id } : undefined,
+          reserveTokens: this.inner.autoCompactionEnabled
+            ? this.inner.settingsManager.getCompactionSettings(model).reserveTokens
+            : undefined,
+        });
+      }
+
       case "get_tools": {
         // A hidden tool is withdrawn: pi ignores it when setting the active tools.
         const all: ToolInfo[] = this.inner.getAllTools().filter((t) => t.exposure !== "hidden");
@@ -1608,10 +1640,7 @@ export class AgentSessionWrapper {
         // The definition's description is not always what the model gets: `prepareLoadout`
         // hooks rewrite the declared ones (codemode lists its nested tools and the MCP types).
         const declared = new Map((this.inner.agent.state?.tools ?? []).map((t) => [t.name, t.description]));
-        // Active and callable, but requests leave the declaration out: codemode's "only" mode
-        // does this to active `direct` tools. The set is private to pi 0.99's AgentSession.
-        const hiddenDeclarations: unknown = Reflect.get(this.inner, "_hiddenDeclarations");
-        const hidden = hiddenDeclarations instanceof Set ? hiddenDeclarations : new Set<unknown>();
+        const hidden = this.hiddenToolDeclarations();
         return all.map((t) => ({
           ...t,
           description: declared.get(t.name) ?? t.description,

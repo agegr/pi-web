@@ -16,6 +16,7 @@ import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { AgentCommandError, agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
+import type { ContextBreakdownResponse } from "@/lib/context-usage-types";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
 import {
   deleteSessionViewSnapshot,
@@ -228,6 +229,8 @@ export interface UseAgentSessionOptions {
   onSystemToolsChange?: (tools: ToolEntry[] | null) => void;
   /** Registers an action that lazily starts the session and loads its prompt and tools. */
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
+  /** The Session Info panel's context breakdown reader; it may start the session's wrapper. */
+  onContextBreakdownLoaderChange?: (loader: (() => Promise<ContextBreakdownResponse | null>) | null) => void;
   /** Registers the debug panel's reader of this page's stream and lease: it reads refs only, never a request. */
   onDebugSnapshotReaderChange?: (reader: (() => DebugClientSession) | null) => void;
   onSessionStatsPanelOpen?: () => void;
@@ -416,7 +419,7 @@ type SlashCommandsResponse = {
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
-    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
+    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onContextBreakdownLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings, onDebugSnapshotReaderChange,
   } = opts;
 
@@ -1112,6 +1115,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     syncLiveModel(state);
     setSystemPrompt(state.systemPrompt ?? "");
   }, [ensureNewSession, loadTools, syncLiveModel]);
+
+  // Like loadSystemInfo, a non-prompt command that may start a dormant session's wrapper:
+  // the breakdown reads its live prompt, tools and messages. Null once the hook moved on.
+  const loadContextBreakdown = useCallback(async (): Promise<ContextBreakdownResponse | null> => {
+    const sid = sessionIdRef.current ?? await ensureNewSession();
+    if (!sid) return null;
+    const result = await sendAgentCommand<ContextBreakdownResponse>(sid, { type: "get_context_breakdown" });
+    if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return null;
+    return result;
+  }, [ensureNewSession]);
 
   const replaceSlashCommands = useCallback((commands: SlashCommandInfo[]) => {
     slashCommandsRef.current = commands;
@@ -3162,6 +3175,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onSystemInfoLoaderChange?.(loadSystemInfo);
     return () => onSystemInfoLoaderChange?.(null);
   }, [loadSystemInfo, onSystemInfoLoaderChange]);
+
+  useEffect(() => {
+    onContextBreakdownLoaderChange?.(loadContextBreakdown);
+    return () => onContextBreakdownLoaderChange?.(null);
+  }, [loadContextBreakdown, onContextBreakdownLoaderChange]);
 
   // The debug panel's view of this page's stream and lease, read on its own
   // clock. Refs and plain copies only: it requests, opens, arms and renders nothing.

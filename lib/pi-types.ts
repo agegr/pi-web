@@ -156,7 +156,9 @@ export interface AgentSessionLike {
       thinkingLevel?: string;
       streamingMessage?: PiAgentMessage;
       /** The declared tools, with the descriptions `prepareLoadout` hooks set for the model. */
-      readonly tools?: readonly { readonly name: string; readonly description: string }[];
+      readonly tools?: readonly { readonly name: string; readonly description: string; readonly parameters?: unknown }[];
+      /** What the next request's transform receives: compacted history, custom messages. */
+      readonly messages?: readonly PiAgentMessage[];
     };
   };
   readonly extensionRunner: ExtensionRunnerLike;
