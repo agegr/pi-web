@@ -1196,6 +1196,10 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   const isStreamingInput = block.rawInput !== undefined;
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
+  // A call that names no file (an anchor-addressed edit) is labelled with the
+  // one file its result's patch changed, the path its TUI renderer shows.
+  const resultDiffText = resultDiff?.text;
+  const resultPatchPath = useMemo(() => singlePatchPath(resultDiffText), [resultDiffText]);
   const patchFiles = getApplyPatchFiles(block, result);
   const patchLabel = isApplyPatchToolName(block.toolName)
     ? summarizeApplyPatchInput(block)
@@ -1275,7 +1279,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {isStreamingInput
               ? t("chat.generatingToolInput")
-              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)))}
+              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block, resultPatchPath)))}
           </span>
           {codemodeCallCount > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
@@ -1725,6 +1729,13 @@ function getResultDiff(result: ToolResultMessage): ResultDiff | null {
   if (diff) return { text: diff };
 
   return null;
+}
+
+/** The file a result's patch changed, when it changed exactly one. */
+function singlePatchPath(text: string | undefined): string | null {
+  if (!text) return null;
+  const files = parseUnifiedPatch(text);
+  return files?.length === 1 ? stackedFilePath(files[0]) || null : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2212,7 +2223,7 @@ function formatCustomType(type: string): string {
 }
 
 
-function getToolPreview(block: ToolCallContent): string {
+function getToolPreview(block: ToolCallContent, resultPatchPath: string | null): string {
   const input = block.input;
   if (!input || typeof input !== "object") return "";
   const keys = Object.keys(input);
@@ -2222,6 +2233,7 @@ function getToolPreview(block: ToolCallContent): string {
   if ("command" in input) return String(input.command).slice(0, 120);
   if ("path" in input) return String(input.path).slice(0, 120);
   if ("file_path" in input) return String(input.file_path).slice(0, 120);
+  if (resultPatchPath) return resultPatchPath.slice(0, 120);
   if ("pattern" in input) return String(input.pattern).slice(0, 120);
   if ("query" in input) return String(input.query).slice(0, 120);
 

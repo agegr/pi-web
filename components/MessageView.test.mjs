@@ -952,6 +952,42 @@ function countIn(haystack, needle) {
   return haystack.split(needle).length - 1;
 }
 
+// pi-hashline-edit-pro's insert/replace address lines by anchor and name no file (#1460).
+test("a call that names no file is labelled with the one file its result's patch changed", () => {
+  const block = { type: "toolCall", toolCallId: "call-insert-path", toolName: "insert", input: { anchor: "kqzmv", direction: "after", text: "x" } };
+  const resultWith = (patch) => ({
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    toolName: "insert",
+    content: [{ type: "text", text: "Successfully inserted in src/demo.ts." }],
+    details: { patch },
+  });
+  const render = (result) => renderMessage(
+    { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] },
+    { toolResults: result ? new Map([[block.toolCallId, result]]) : new Map() },
+  );
+
+  const html = render(resultWith(EDIT_PATCH.replace("--- a/", "--- ").replace("+++ b/", "+++ ")));
+  assert.match(html, />src\/demo\.ts</);
+  assert.doesNotMatch(html, />kqzmv</);
+
+  // No result yet, or a patch over two files: the first argument, as before.
+  assert.match(render(undefined), />kqzmv</);
+  const onePatch = (file) => `--- ${file}\n+++ ${file}\n@@ -1,1 +1,1 @@\n-old\n+new\n`;
+  const twoFiles = onePatch("src/demo.ts") + onePatch("src/other.ts");
+  assert.match(render(resultWith(twoFiles)), />kqzmv</);
+});
+
+test("a call's own path stays its label over its result's patch", () => {
+  const block = { type: "toolCall", toolCallId: "call-edit-own-path", toolName: "edit", input: { path: "src/given.ts" } };
+  const result = { role: "toolResult", toolCallId: block.toolCallId, toolName: "edit", content: [{ type: "text", text: "ok" }], details: { patch: EDIT_PATCH } };
+  const html = renderMessage(
+    { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] },
+    { toolResults: new Map([[block.toolCallId, result]]) },
+  );
+  assert.match(html, />src\/given\.ts</);
+});
+
 test("an edit card draws the applied patch in two columns while there is room", () => {
   const block = { type: "toolCall", toolCallId: "call-edit-columns", toolName: "edit", input: { path: "src/demo.ts" } };
   const result = {
