@@ -8,6 +8,7 @@ const {
   deleteProviderEntry,
   hasModelCostDraftValue,
   modelCostToDraft,
+  modelSidebarLabel,
   parseCompleteModelCost,
   providerMatchesSearch,
   renameProviderEntry,
@@ -243,4 +244,11 @@ test("Add provider's search matches a provider by id or name", () => {
   assert.equal(providerMatchesSearch(" FIXTURE-SUBSCRIPTION-ID ", oauth.id, oauth.name), true);
   assert.equal(providerMatchesSearch("missing", oauth.id, oauth.name), false);
   assert.equal(providerMatchesSearch("  ", oauth.id, oauth.name), true);
+});
+
+test("the Models sidebar labels a model by its name and falls back to the id", () => {
+  assert.equal(modelSidebarLabel({ id: "qwen3-coder-480b-a35b-instruct", name: "Qwen Coder" }), "Qwen Coder");
+  assert.equal(modelSidebarLabel({ id: "m1" }), "m1");
+  assert.equal(modelSidebarLabel({ id: "m1", name: "  " }), "m1");
+  assert.equal(modelSidebarLabel({ id: "", name: "" }), "");
 });

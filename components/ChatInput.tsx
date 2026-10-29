@@ -207,6 +207,21 @@ export function replaceLinksWithMarkdown(
   return replaced ? result + text.slice(searchFrom) : null;
 }
 
+/**
+ * The composer's auto-grow step: fit the text to 200 px, then let a scrollbar
+ * appear only when the text is still taller than the box.
+ *
+ * The height comes from the value, not from scrollHeight: a wrapped
+ * placeholder counts toward scrollHeight too, so an empty box would grow to
+ * its own hint's lines. Only typed text scrolls, so a placeholder that
+ * overflows the box stays cut off instead of showing a scrollbar.
+ */
+export function autoGrowTextarea(ta: HTMLTextAreaElement): void {
+  ta.style.height = "auto";
+  ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 200) : ta.clientHeight}px`;
+  ta.style.overflowY = ta.value && ta.scrollHeight > ta.clientHeight ? "auto" : "hidden";
+}
+
 function getVisibleTopBoundary(element: HTMLElement): number {
   let visibleTop = window.visualViewport?.offsetTop ?? 0;
 
@@ -376,18 +391,42 @@ const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   skill: 3,
 };
 
-function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key: string) => string): number {
+// pi's TUI matches a skill by its bare name (pi-tui's
+// CombinedAutocompleteProvider), so `/copy` finds `skill:copy-text` by prefix;
+// the full `skill:<name>` still matches a query that spells the prefix.
+function slashMatchRank(command: SlashCommandPaletteItem, query: string): number {
   const name = command.name.toLowerCase();
-  const description = getSlashDescription(command, t).toLowerCase();
-  if (name === query) return 0;
-  if (name.startsWith(query)) return 1;
+  const bareName = command.source === "skill" && name.startsWith("skill:") ? name.slice("skill:".length) : name;
+  if (bareName === query || name === query) return 0;
+  if (bareName.startsWith(query) || name.startsWith(query)) return 1;
   if (name.includes(query)) return 2;
-  if (description.includes(query)) return 3;
-  return 4;
+  return 3;
 }
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
   return command.source === "builtin" ? t(command.description) : command.description ?? "";
+}
+
+/**
+ * The palette's matches for a lower-cased query. pi's TUI matches names only;
+ * the palette searches descriptions too, but only when no name matches, so
+ * `/copy` lists the built-in, not every skill whose description says "copy".
+ */
+export function filterSlashCommands(
+  commands: SlashCommandPaletteItem[],
+  query: string,
+  t: (key: string) => string,
+): SlashCommandPaletteItem[] {
+  const ranked = commands.map((command) => ({ command, rank: slashMatchRank(command, query) }));
+  const byName = ranked.filter(({ rank }) => rank < 3);
+  const matches = byName.length > 0
+    ? byName
+    : ranked.filter(({ command }) => getSlashDescription(command, t).toLowerCase().includes(query));
+  return matches
+    .sort((a, b) => a.rank - b.rank
+      || SLASH_SOURCE_ORDER[a.command.source] - SLASH_SOURCE_ORDER[b.command.source]
+      || TEXT_COLLATOR.compare(a.command.name, b.command.name))
+    .map(({ command }) => command);
 }
 
 // Skill slash commands are named "skill:<skillName>"; look the skill up in the
@@ -750,8 +789,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     replaceMessage(message: UserMessage) {
@@ -773,8 +811,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     prependText(text: string) {
@@ -791,8 +828,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(combined.length, combined.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     rekeyDraft(previousKey: string, nextKey: string) {
@@ -887,8 +923,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         if (!ta) return;
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
-        ta.style.height = "auto";
-        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+        autoGrowTextarea(ta);
       });
     },
     // The caret goes after a draft that came back, so typing continues it.
@@ -1023,7 +1058,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    if (ta.value) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    if (ta.value) autoGrowTextarea(ta);
+    else ta.style.overflowY = "hidden";
   }, []);
 
   useLayoutEffect(resizeTextarea, [value, fontSize, uiFontFamily, uiWeight, resizeTextarea]);
@@ -1104,18 +1140,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       ? BUILTIN_SLASH_COMMANDS.filter((command) => command.availableWhileStreaming)
       : BUILTIN_SLASH_COMMANDS;
     const commands = [...builtinCommands, ...(slashCommands ?? [])];
-    return [...commands]
-      .filter((command) => {
-        const name = command.name.toLowerCase();
-        const description = getSlashDescription(command, t).toLowerCase();
-        return name.includes(slashQuery) || description.includes(slashQuery);
-      })
-      .sort((a, b) => {
-        const rankDelta = slashMatchRank(a, slashQuery, t) - slashMatchRank(b, slashQuery, t);
-        if (rankDelta !== 0) return rankDelta;
-        return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
-          || TEXT_COLLATOR.compare(a.name, b.name);
-      });
+    return filterSlashCommands(commands, slashQuery, t);
   })();
 
   const {
@@ -1288,8 +1313,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(text.length, text.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      autoGrowTextarea(ta);
     });
   }, []);
 
@@ -1303,8 +1327,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(nextValue.length, nextValue.length);
-      ta.style.height = "auto";
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      autoGrowTextarea(ta);
     });
   }, []);
 
@@ -1530,8 +1553,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const handleInput = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+    autoGrowTextarea(ta);
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -2305,7 +2327,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             onInput={handleInput}
             onPaste={handlePaste}
             placeholder={
-              isStreaming && (onSteer || onFollowUp)
+              isCompacting
+                ? t("chat.compactingPlaceholder")
+                : isStreaming && (onSteer || onFollowUp)
                 ? t("chat.steerPlaceholder")
                 : isStreaming ? t("chat.agentPlaceholder")
                 : t("chat.messagePlaceholder")

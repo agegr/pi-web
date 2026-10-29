@@ -18,14 +18,15 @@ import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansi
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
-import { skillExpansionToCommand } from "@/lib/slash-display";
+import { skillExpansionContent, skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, type ToolField } from "@/lib/tool-fields";
+import { parseStreamingJson } from "@earendil-works/pi-ai/utils/json-parse";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
-import { getTranscriptNotices } from "@/lib/transcript-notices";
+import { formatNoticeTokens, getTranscriptNotices } from "@/lib/transcript-notices";
 import { TRANSCRIPT_NOTICE_WARNING_COLOR, transcriptNoticeText } from "@/components/TranscriptNotices";
 import type {
   AgentMessage,
@@ -496,7 +497,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                 )}
               </div>
               {expanded && (
-                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</MarkdownBody>
+                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{skillExpansionContent(content) ?? content}</MarkdownBody>
               )}
             </div>
           ) : (
@@ -946,7 +947,7 @@ function AssistantMessageView({
         {(message.usage || turnDurationMs !== undefined) && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
             {[
-              message.usage ? formatUsage(message.usage, t) : null,
+              message.usage ? formatUsage(message.usage) : null,
               turnDurationMs !== undefined ? t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) }) : null,
             ].filter(Boolean).join(" \u00b7 ")}
           </div>
@@ -1201,9 +1202,11 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
 
   // Flat arguments as rows instead of a JSON blob, unless the card has a view of
   // its own (a write's file text, codemode, an applied patch). See `lib/tool-fields.ts`.
+  // Input still streaming goes through pi's own partial parse, the arguments its
+  // TUI draws live, so a multi-line command shows its lines before the call ends.
   const toolFields =
-    !isStreamingInput && writtenFileText === null && codemode === null && patchFiles === null
-      ? toolFieldsOfInput(block.input)
+    expanded && writtenFileText === null && codemode === null && patchFiles === null
+      ? toolFieldsOfInput(isStreamingInput ? parseStreamingJson(block.rawInput) : block.input)
       : null;
 
   // `server/tool` instead of the registered `mcp__server__tool`, as pi's TUI shows it.
@@ -2225,14 +2228,15 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}, t: (key: string, params?: Record<string, string | number>) => string): string {
+}): string {
+  // pi's TUI footer: ↑1.2k ↓567 R8.9k W12, with its formatTokens().
   const parts = [];
-  if (usage.input) parts.push(t("chat.usageInput", { count: usage.input.toLocaleString() }));
-  if (usage.output) parts.push(t("chat.usageOutput", { count: usage.output.toLocaleString() }));
-  if (usage.cacheRead) parts.push(t("chat.usageCacheRead", { count: usage.cacheRead.toLocaleString() }));
-  if (usage.cacheWrite) parts.push(t("chat.usageCacheWrite", { count: usage.cacheWrite.toLocaleString() }));
+  if (usage.input) parts.push(`↑${formatNoticeTokens(usage.input)}`);
+  if (usage.output) parts.push(`↓${formatNoticeTokens(usage.output)}`);
+  if (usage.cacheRead) parts.push(`R${formatNoticeTokens(usage.cacheRead)}`);
+  if (usage.cacheWrite) parts.push(`W${formatNoticeTokens(usage.cacheWrite)}`);
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
-  return parts.join(" · ");
+  return parts.join(" ");
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {

@@ -340,7 +340,7 @@
  },
  {
   "name": "get_subagent_result",
-  "description": "Check an inspectable subagent session and retrieve its latest result.",
+  "description": "Retrieve a subagent session's latest result, such as a report no longer in the conversation. A background run's report arrives on its own when it completes.",
   "parameters": {
    "type": "object",
    "required": [
