@@ -24,7 +24,7 @@ const { wireChildProcessLifecycle } = require("./process-lifecycle");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { rotatePreviewSecrets, getRotationWarning } = require("./rotate-preview-secrets");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { openInBrowser } = require("./browser-opener");
+const { openWhenServing } = require("./browser-opener");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { createRunRecordTracker, getOpenUrl, getRunDir } = require("./run-records");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -156,8 +156,10 @@ function startServer({ port, hostname, openBrowser }) {
     if (!serverReady && text.includes("Ready")) {
       serverReady = true;
       if (reachable) process.stdout.write(`${reachable}\n`);
+      // The record needs no wait: status, stop and open list a record only
+      // once its URL answers. The browser waits for the first page.
       if (port !== "0") runRecord.markReady();
-      if (openBrowser) openInBrowser(url);
+      if (openBrowser) openWhenServing({ hostname, port, url });
     }
   });
 }

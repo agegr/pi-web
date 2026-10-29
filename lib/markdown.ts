@@ -575,12 +575,27 @@ const remarkCurrencySafeMath: Plugin = function () {
   }
 };
 
+// Drive letters otherwise look like unknown URL schemes to the sanitizer.
+// Rewrite only Markdown link destinations, before rehype and URL filtering.
+function remarkWindowsFileLinks() {
+  return (tree: Root): void => {
+    const walk = (node: Root | Content): void => {
+      if ((node.type === "link" || node.type === "definition") && /^\/?[A-Za-z]:\//.test(node.url)) {
+        node.url = `file:///${node.url.replace(/^\//, "")}`;
+      }
+      if ("children" in node) node.children.forEach(walk);
+    };
+    walk(tree);
+  };
+}
+
 export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
   [remarkGfm, remarkGfmOptions],
   remarkCjkFriendly,
   remarkSplitAutolinkLiterals,
   remarkCurrencySafeMath,
+  remarkWindowsFileLinks,
 ];
 
 // User messages keep every typed line break, as the TUI shows them (#680). The
@@ -647,6 +662,7 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
   remarkCjkFriendly,
   remarkSplitAutolinkLiterals,
   remarkCurrencySafeMath,
+  remarkWindowsFileLinks,
 ];
 
 interface SanitizedNode {

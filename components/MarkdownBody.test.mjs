@@ -117,6 +117,21 @@ test("keeps local file markdown links in the app", () => {
   assert.doesNotMatch(fileUrlHtml, /target=|rel=|\snode=/);
 });
 
+test("keeps Windows drive report links in chat and user messages", () => {
+  for (const keepLineBreaks of [false, true]) {
+    for (const url of ["C:/reports/REPORT.md", "/C:/reports/REPORT.md", "d:/报告 one%20%2520.md:12:3#片段"]) {
+      const normalized = `file:///${url.replace(/^\//, "")}`;
+      const expected = renderMarkdown(`[report](<${normalized}>)`, { keepLineBreaks });
+      assert.equal(renderMarkdown(`[report](<${url}>)`, { keepLineBreaks }), expected);
+      assert.equal(renderMarkdown(`[report][ref]\n\n[ref]: <${url}>`, { keepLineBreaks }), expected);
+      assert.match(expected, /href="file:\/\/\//);
+      assert.doesNotMatch(expected, /target=|rel=/);
+      const inert = renderMarkdown(`[report](<${url}>)`, { keepLineBreaks, onOpenFile: undefined });
+      assert.match(inert, /<a href="" target="_blank" rel="noopener noreferrer">report<\/a>/);
+    }
+  }
+});
+
 test("keeps file URLs inert without an in-app file handler", () => {
   const html = renderMarkdown("[report](file:///home/me/project/report.html)", { onOpenFile: undefined });
 
