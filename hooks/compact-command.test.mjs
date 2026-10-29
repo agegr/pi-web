@@ -48,12 +48,13 @@ const compiled = Object.fromEntries(CALLBACKS.map((name) => [
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function hook() {
-  const calls = { notices: [], compacting: [], compactErrors: [], compactResults: [], requests: [], promoted: 0 };
+  const calls = { notices: [], compacting: [], compactErrors: [], compactResults: [], requests: [], promoted: 0, restored: [] };
   const compact = deferred();
   const scope = {
     sessionIdRef: { current: "session-1" },
@@ -71,9 +72,10 @@ function hook() {
     },
     loadSession: async () => true,
     promoteNewSession: () => { calls.promoted += 1; },
+    opts: { chatInputRef: { current: { prependText: (text) => calls.restored.push(text) } } },
   };
   for (const name of CALLBACKS) scope[name] = compiled[name](scope);
-  return { run: scope.handleBuiltinSlashCommand, calls, finishCompaction: compact.resolve };
+  return { run: scope.handleBuiltinSlashCommand, calls, finishCompaction: compact.resolve, failCompaction: compact.reject };
 }
 
 test("/compact completes at once and runs the compaction detached", async () => {
@@ -100,4 +102,13 @@ test("/compact passes its instructions to the detached compaction", async () => 
   assert.equal(calls.requests[0].customInstructions, "keep the tests");
   finishCompaction({});
   await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("/compact gives its instructions back when the compaction fails", async () => {
+  const { run, calls, failCompaction } = hook();
+  await run("/compact keep the tests");
+  failCompaction(new Error("Nothing to compact (session too small)"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.compactErrors.at(-1), "Nothing to compact (session too small)");
+  assert.deepEqual(calls.restored, ["/compact keep the tests"]);
 });
