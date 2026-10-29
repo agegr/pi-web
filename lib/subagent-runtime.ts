@@ -149,6 +149,19 @@ function getSubagentRuns(): Map<string, StoredSubagentExecution> {
   return globalThis.__piSubagentRuns;
 }
 
+/**
+ * Take a run out of the run map unless a newer run of that session took its place; true when it
+ * was still there. Runs call it from `finally` too: a throw before the result entry is written (a
+ * session file append failing) must not leave it there, where it would read as running and keep
+ * `hasUnsettledSubagentRun()` true for its parent until the server restarts.
+ */
+function dropSubagentRun(sessionId: string, stored: StoredSubagentExecution): boolean {
+  const runs = getSubagentRuns();
+  if (runs.get(sessionId) !== stored) return false;
+  runs.delete(sessionId);
+  return true;
+}
+
 type PendingParentNotification = Pick<SubagentRunInfo, "sessionId" | "parentSessionId" | "completedAt">;
 
 /**
@@ -587,7 +600,7 @@ export function createSubagentController(
       };
       if (!runInBackground) request.signal?.addEventListener("abort", handleParentAbort, { once: true });
 
-      const execute = async (): Promise<SubagentRunInfo> => {
+      const runToResult = async (): Promise<SubagentRunInfo> => {
         // Reached only when the abort fires while the run is being queued, before `cancelQueued`
         // is set; a run aborted later in the queue ends in `finishQueuedAbort`.
         if (stored.abortRequested) {
@@ -694,34 +707,53 @@ export function createSubagentController(
         dependencies.invalidateSessionList();
         return result;
       };
+      const execute = async (): Promise<SubagentRunInfo> => {
+        try {
+          return await runToResult();
+        } finally {
+          if (dropSubagentRun(initialRun.sessionId, stored)) dependencies.invalidateSessionList();
+        }
+      };
 
       const finishQueuedAbort = async () => {
         if (stored.run.status !== "queued") return;
-        const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
-        const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
-        const finalResult = recordResult(sessionManager, cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result);
-        stored.run = finalResult;
-        request.onUpdate?.(finalResult);
-        getSubagentRuns().delete(initialRun.sessionId);
-        dependencies.invalidateSessionList();
-        resolveCompletion(finalResult);
-      };
-      const queued = getSubagentQueue().enqueue(
-        parentSessionId,
-        readSubagentSettings().maxConcurrent,
-        execute,
-        (state) => {
-          if (state === "queued") {
-            sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
-          }
-          request.onUpdate?.({ ...stored.run, status: state });
-          stored.run = { ...stored.run, status: state };
+        try {
+          const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
+          const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
+          const finalResult = recordResult(sessionManager, cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result);
+          stored.run = finalResult;
+          request.onUpdate?.(finalResult);
+          getSubagentRuns().delete(initialRun.sessionId);
           dependencies.invalidateSessionList();
-        },
-        finishQueuedAbort,
-      );
+          resolveCompletion(finalResult);
+        } finally {
+          if (dropSubagentRun(initialRun.sessionId, stored)) dependencies.invalidateSessionList();
+        }
+      };
+      let queued: ReturnType<SubagentQueue<SubagentRunInfo>["enqueue"]>;
+      try {
+        queued = getSubagentQueue().enqueue(
+          parentSessionId,
+          readSubagentSettings().maxConcurrent,
+          execute,
+          (state) => {
+            if (state === "queued") {
+              sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
+            }
+            request.onUpdate?.({ ...stored.run, status: state });
+            stored.run = { ...stored.run, status: state };
+            dependencies.invalidateSessionList();
+          },
+          finishQueuedAbort,
+        );
+      } catch (error) {
+        request.signal?.removeEventListener("abort", handleParentAbort);
+        if (dropSubagentRun(initialRun.sessionId, stored)) dependencies.invalidateSessionList();
+        throw error;
+      }
       stored.cancelQueued = queued.cancel;
       void queued.promise.then(resolveCompletion, (error) => {
+        if (dropSubagentRun(initialRun.sessionId, stored)) dependencies.invalidateSessionList();
         resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
       });
 
@@ -787,7 +819,7 @@ export function createSubagentController(
     };
     if (!runInBackground) request.signal?.addEventListener("abort", handleParentAbort, { once: true });
 
-    const execute = async (): Promise<SubagentRunInfo> => {
+    const runToResult = async (): Promise<SubagentRunInfo> => {
       if (stored.abortRequested) {
         const result = recordResult(manager, { ...initialRun, status: "aborted", completedAt: new Date().toISOString() });
         stored.run = result;
@@ -830,23 +862,44 @@ export function createSubagentController(
       dependencies.invalidateSessionList();
       return result;
     };
+    const execute = async (): Promise<SubagentRunInfo> => {
+      try {
+        return await runToResult();
+      } finally {
+        if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+      }
+    };
     const finishQueuedAbort = () => {
       if (stored.run.status !== "queued") return;
-      const result = recordResult(manager, { ...initialRun, status: "aborted", completedAt: new Date().toISOString() });
-      stored.run = result;
-      request.onUpdate?.(result);
-      getSubagentRuns().delete(request.sessionId);
-      dependencies.invalidateSessionList();
-      resolveCompletion(result);
+      try {
+        const result = recordResult(manager, { ...initialRun, status: "aborted", completedAt: new Date().toISOString() });
+        stored.run = result;
+        request.onUpdate?.(result);
+        getSubagentRuns().delete(request.sessionId);
+        dependencies.invalidateSessionList();
+        resolveCompletion(result);
+      } finally {
+        if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+      }
     };
-    const queued = getSubagentQueue().enqueue(parentSessionId, readSubagentSettings().maxConcurrent, execute, (state) => {
-      if (state === "queued") manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
-      stored.run = { ...stored.run, status: state };
-      request.onUpdate?.(stored.run);
-      dependencies.invalidateSessionList();
-    }, finishQueuedAbort);
+    let queued: ReturnType<SubagentQueue<SubagentRunInfo>["enqueue"]>;
+    try {
+      queued = getSubagentQueue().enqueue(parentSessionId, readSubagentSettings().maxConcurrent, execute, (state) => {
+        if (state === "queued") manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
+        stored.run = { ...stored.run, status: state };
+        request.onUpdate?.(stored.run);
+        dependencies.invalidateSessionList();
+      }, finishQueuedAbort);
+    } catch (error) {
+      request.signal?.removeEventListener("abort", handleParentAbort);
+      if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+      throw error;
+    }
     stored.cancelQueued = queued.cancel;
-    void queued.promise.then(resolveCompletion, (error) => resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) }));
+    void queued.promise.then(resolveCompletion, (error) => {
+      if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+      resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+    });
     return { run: stored.run, completion };
   }
 

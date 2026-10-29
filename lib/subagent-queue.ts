@@ -38,9 +38,11 @@ export class SubagentQueue<T> {
     const promise = new Promise<T>((resolve, reject) => {
       item = { run, onState, onCancel, resolve, reject, state: "queued", cancelled: false };
     });
+    // Before the item joins the queue: a throw here (a status write failing) must not leave an
+    // item that a later pump runs with nobody waiting for it.
+    onState("queued");
     parent.items.push(item);
     this.parents.set(parentId, parent);
-    onState("queued");
     this.pump(parentId, parent);
     return {
       promise,
@@ -62,7 +64,12 @@ export class SubagentQueue<T> {
       const item = parent.items.shift()!;
       if (item.cancelled) continue;
       item.state = "running";
-      item.onState("running");
+      try {
+        item.onState("running");
+      } catch (error) {
+        item.reject(error);
+        continue;
+      }
       parent.active += 1;
       void item.run().then(item.resolve, item.reject).finally(() => {
         parent.active -= 1;
