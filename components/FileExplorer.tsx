@@ -1244,7 +1244,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             id="file-search-input"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Escape") onFileSearchOpenChange?.(false); }}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              // Handled here: the debug panel and other document listeners leave this Escape alone.
+              event.preventDefault();
+              onFileSearchOpenChange?.(false);
+            }}
             placeholder={t("sidebar.searchFilesPlaceholder")}
             aria-label={t("sidebar.searchFiles")}
             style={{ width: "100%", boxSizing: "border-box", padding: "6px 24px", border: "1px solid var(--border)", borderRadius: 8, outline: "none", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11 }}

@@ -52,6 +52,7 @@ import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./c
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
 import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
+import type { DebugMcpHost, DebugSessionLifecycle, DebugWrapperSnapshot } from "./debug-types";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createSubagentSkillsBinding } from "./subagent-skills";
@@ -127,13 +128,16 @@ type ExtensionCommandContextActionsLike = {
   reload: () => Promise<void>;
 };
 
+// `debugSnapshot` is optional: a host built before a hot reload lacks it.
+type WrapperMcpHost = Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pick<McpHost, "debugSnapshot">>;
+
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
-  mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  mcpHost?: WrapperMcpHost;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
 };
@@ -178,7 +182,8 @@ export function resolveSessionIdleTimeoutMs(
   return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
 }
 
-const SESSION_IDLE_TIMEOUT_MS = resolveSessionIdleTimeoutMs();
+/** Resolved once: the debug panel reads it rather than resolving the variable again, which warns. */
+export const SESSION_IDLE_TIMEOUT_MS = resolveSessionIdleTimeoutMs();
 
 const DEFAULT_SESSION_SHUTDOWN_DEADLINE_MS = 5_000;
 
@@ -330,7 +335,7 @@ export class AgentSessionWrapper {
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
-  private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
+  private readonly mcpHost?: WrapperMcpHost;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
@@ -349,6 +354,18 @@ export class AgentSessionWrapper {
   // Set when shutdown() starts. The SDK session stays usable until destroy(),
   // but lookups must treat the wrapper as gone from this point on.
   private closing = false;
+  // Bookkeeping for the debug panel (getDebugSnapshot()): times and type names only, written
+  // beside the code they describe and read nowhere else.
+  private readonly createdAt = Date.now();
+  private startedAt: number | null = null;
+  private closingAt: number | null = null;
+  // When the armed idle timer fires; idleTimer itself is never set back to null.
+  private idleDeadlineAt: number | null = null;
+  private idleLastResetAt: number | null = null;
+  private lastEventType: string | null = null;
+  private lastEventAt: number | null = null;
+  private lastCommandType: string | null = null;
+  private lastCommandAt: number | null = null;
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -433,8 +450,72 @@ export class AgentSessionWrapper {
     return this.suppressCompletionNotifications;
   }
 
+  /**
+   * What the debug panel shows of this wrapper: its fields and the SDK's plain getters, as
+   * counts, flags and times. Never send(): that moves the idle timer, waits for extensions and
+   * renders the system prompt.
+   */
+  getDebugSnapshot(): DebugWrapperSnapshot {
+    const inner = this.inner;
+    return {
+      sessionId: this.sessionId,
+      state: this.isAlive() ? "alive" : "closing",
+      stale: false,
+      subagent: this.suppressCompletionNotifications,
+      chatOnly: this.chatOnly,
+      createdAt: this.createdAt,
+      startedAt: this.startedAt,
+      closingAt: this.closingAt,
+      extensions: this.extensionBindingError !== null
+        ? "failed"
+        : this.extensionsBound
+          ? "bound"
+          : this.extensionBindingPromise ? "binding" : "none",
+      run: {
+        running: this.isRunning(),
+        streaming: inner.isStreaming === true,
+        promptRunning: this.pendingPromptCount > 0,
+        // The running prompt holds one count until its run ends; a queued steer or follow-up
+        // drops its own at once and reads in queuedMessages instead.
+        pendingPrompts: Math.max(0, this.pendingPromptCount - 1),
+        bashRunning: inner.isBashRunning === true,
+        compacting: inner.isCompacting === true,
+        retrying: inner.isRetrying === true,
+        queuedMessages: typeof inner.pendingMessageCount === "number" ? inner.pendingMessageCount : 0,
+        waitingForMcp: this.mcpPromptWait !== null,
+        runningTools: this.activeToolEvents.size,
+        mutatingCommands: this.activeMutatingCommands,
+        replacement: this.sessionReplacement,
+      },
+      idle: {
+        timeoutMs: SESSION_IDLE_TIMEOUT_MS,
+        nextCheckAt: this.idleDeadlineAt,
+        lastResetAt: this.idleLastResetAt,
+        forcedByStop: this.forceShutdownOnIdle && this.idleDeadlineAt !== null,
+      },
+      awaitingInput: this.isAwaitingInput(),
+      pendingUiRequests: this.pendingUiRequests.size,
+      customUis: this.activeCustomUis.size,
+      eventListeners: this.listeners.size,
+      lastEvent: this.lastEventType !== null && this.lastEventAt !== null
+        ? { type: this.lastEventType, at: this.lastEventAt }
+        : null,
+      lastCommand: this.lastCommandType !== null && this.lastCommandAt !== null
+        ? { type: this.lastCommandType, at: this.lastCommandAt }
+        : null,
+    };
+  }
+
+  /** The MCP host's state for the debug panel; null without a host (Chat only, MCP unavailable). */
+  getMcpDebugSnapshot(): DebugMcpHost | null {
+    return this.mcpHost?.debugSnapshot?.() ?? null;
+  }
+
   start(): void {
+    this.startedAt = Date.now();
     this.unsubscribe = this.inner.subscribe((event: AgentEvent) => {
+      this.lastEventType = typeof event.type === "string" ? event.type : null;
+      this.lastEventAt = Date.now();
       if (event.type === "agent_start") {
         this.agentRunNeedsCompletion = true;
         this.lastRunAborted = false;
@@ -706,6 +787,7 @@ export class AgentSessionWrapper {
   private resetIdleTimer(): void {
     if (!this._alive) {
       if (this.idleTimer) clearTimeout(this.idleTimer);
+      this.idleDeadlineAt = null;
       return;
     }
     if (!this.isRunning()) this.forceShutdownOnIdle = false;
@@ -720,8 +802,14 @@ export class AgentSessionWrapper {
     const timeoutMs = SESSION_IDLE_TIMEOUT_MS
       || (this.forceShutdownOnIdle ? DEFAULT_SESSION_IDLE_TIMEOUT_MS : 0);
     this.forcedIdleTimerArmed = timeoutMs !== 0 && this.forceShutdownOnIdle;
-    if (timeoutMs === 0) return;
+    this.idleLastResetAt = Date.now();
+    if (timeoutMs === 0) {
+      this.idleDeadlineAt = null;
+      return;
+    }
+    this.idleDeadlineAt = this.idleLastResetAt + timeoutMs;
     this.idleTimer = setTimeout(() => {
+      this.idleDeadlineAt = null;
       if (!this.forceShutdownOnIdle && (this.isRunning() || hasActiveSessionLivenessProvider({
         sessionId: this.sessionId,
         sessionFile: this.sessionFile || undefined,
@@ -814,6 +902,12 @@ export class AgentSessionWrapper {
 
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
+    // A status read (the chat's reconciliation, every few seconds while it runs) would hide the
+    // last command that did something; it never resets the idle timer either.
+    if (type !== "get_state") {
+      this.lastCommandType = typeof type === "string" ? type : null;
+      this.lastCommandAt = Date.now();
+    }
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {
       throw new Error("Session is being copied to a new session");
@@ -870,13 +964,13 @@ export class AgentSessionWrapper {
           let acceptPreflight!: () => void;
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
+            // Acceptance owes no completion: only a run does, and its agent_start says so.
+            // An extension command pi handles, or input an extension swallows, starts
+            // none, and a run the command starts itself may begin after this (#1345).
             acceptPreflight = () => {
               preflightAccepted = true;
-              this.agentRunNeedsCompletion = true;
               if (preflightSettled) return;
               preflightSettled = true;
-              // A new prompt, not one queued into a run: what an earlier run's Stop said is over.
-              if (!streamingBehavior) this.lastRunAborted = false;
               resolve();
             };
             rejectPreflight = (error) => {
@@ -923,6 +1017,10 @@ export class AgentSessionWrapper {
               if (this.mcpPromptWait === wait) this.mcpPromptWait = null;
             }
           }
+          // A new prompt, not one queued into a run: what an earlier run's Stop said is over.
+          // Not at acceptance: pi accepts a command that awaits a run of its own after that
+          // run settled, and the run's Stop must still keep its push and chime away.
+          if (!streamingBehavior) this.lastRunAborted = false;
           let prompt: Promise<void>;
           try {
             prompt = this.inner.prompt(command.message as string, {
@@ -1399,11 +1497,13 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
+    this.closingAt ??= Date.now();
     this.disposeMcpHost();
     // Tell attached SSE listeners to drop this instance so the browser
     // EventSource errors and reconnects instead of staying OPEN on a dead wrapper.
     this.emit({ type: "session_shutdown" });
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleDeadlineAt = null;
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
@@ -1418,6 +1518,8 @@ export class AgentSessionWrapper {
         this.inner.dispose();
       } finally {
         this.onDestroyCallback?.();
+        // Here rather than in the registry's onDestroy callback, which a replacement swaps out.
+        recordSessionClosed(this);
         this.resolveDisposed();
       }
     };
@@ -1453,6 +1555,7 @@ export class AgentSessionWrapper {
     // Closing starts before the first await, so a request that arrives while
     // extensions shut down starts a fresh wrapper instead of prompting this one.
     this.closing = true;
+    this.closingAt ??= Date.now();
 
     this.shutdownPromise = (async () => {
       try {
@@ -2096,6 +2199,8 @@ export class AgentSessionWrapper {
 declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
+  /** Debug panel: the id a `__new__…`/`__recreate__…` start registered its wrapper under, while its lock is held. */
+  var __piStartRegisteredIds: Map<string, string> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
 }
 
@@ -2116,6 +2221,56 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
   return globalThis.__piSessions;
 }
 
+/**
+ * Each session id's wrapper starts and last close, for the debug panel: a wrapper reaped and
+ * rebuilt reads apart from one that stayed up. On globalThis, as the registry, so a hot reload
+ * keeps it; bounded, oldest first, never dropping an id that still has a wrapper.
+ */
+const SESSION_LIFECYCLE_KEY = Symbol.for("pi-web:session-lifecycle");
+const SESSION_LIFECYCLE_LIMIT = 1000;
+
+function readSessionLifecycles(): Map<string, DebugSessionLifecycle> | null {
+  const existing = (globalThis as Record<PropertyKey, unknown>)[SESSION_LIFECYCLE_KEY];
+  return existing instanceof Map ? existing as Map<string, DebugSessionLifecycle> : null;
+}
+
+// Bookkeeping only: a failure here must never keep a wrapper from starting.
+function recordSessionStart(sessionId: string): void {
+  try {
+    let lifecycles = readSessionLifecycles();
+    if (!lifecycles) {
+      lifecycles = new Map();
+      (globalThis as Record<PropertyKey, unknown>)[SESSION_LIFECYCLE_KEY] = lifecycles;
+    }
+    const now = Date.now();
+    const previous = lifecycles.get(sessionId);
+    lifecycles.delete(sessionId);
+    lifecycles.set(sessionId, {
+      starts: (typeof previous?.starts === "number" ? previous.starts : 0) + 1,
+      firstStartedAt: typeof previous?.firstStartedAt === "number" ? previous.firstStartedAt : now,
+      lastStartedAt: now,
+      lastClosedAt: typeof previous?.lastClosedAt === "number" ? previous.lastClosedAt : null,
+    });
+    const sessions = globalThis.__piSessions;
+    for (const id of lifecycles.keys()) {
+      if (lifecycles.size <= SESSION_LIFECYCLE_LIMIT) break;
+      if (id !== sessionId && !sessions?.has(id)) lifecycles.delete(id);
+    }
+  } catch {
+    // The panel shows no history for this id.
+  }
+}
+
+// Called from finishDispose(): it must never throw past resolveDisposed().
+function recordSessionClosed(wrapper: { readonly sessionId: string }): void {
+  try {
+    const lifecycle = readSessionLifecycles()?.get(wrapper.sessionId);
+    if (lifecycle) lifecycle.lastClosedAt = Date.now();
+  } catch {
+    // The panel shows no close time for this id.
+  }
+}
+
 function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   const registry = getRegistry();
   const sessionId = wrapper.sessionId;
@@ -2131,6 +2286,7 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   if (previous && previous !== wrapper && typeof previous.onDestroy === "function") {
     previous.onDestroy(() => {});
   }
+  recordSessionStart(sessionId);
   registry.set(sessionId, wrapper);
   wrapper.start();
   if (!wrapper.isChatOnly()) wrapper.beginExtensionBinding();
@@ -2172,6 +2328,26 @@ export function abortSubagent(sessionId: string) {
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
   if (!globalThis.__piStartLocks) globalThis.__piStartLocks = new Map();
   return globalThis.__piStartLocks;
+}
+
+// Bookkeeping for getRpcStartingSessionIds() only: a failure here must never fail a start.
+function recordStartRegisteredId(startKey: string, realSessionId: string): void {
+  try {
+    if (startKey === realSessionId) return;
+    if (!(globalThis.__piStartRegisteredIds instanceof Map)) globalThis.__piStartRegisteredIds = new Map();
+    globalThis.__piStartRegisteredIds.set(startKey, realSessionId);
+  } catch {
+    // The panel counts this start as starting until its lock goes.
+  }
+}
+
+function forgetStartRegisteredId(startKey: string): void {
+  try {
+    const registered = globalThis.__piStartRegisteredIds;
+    if (registered instanceof Map) registered.delete(startKey);
+  } catch {
+    // Nothing reads a key whose lock is gone.
+  }
 }
 
 const CLOSING_SESSION_WAIT_MARGIN_MS = 1_000;
@@ -2434,6 +2610,125 @@ export function getAwaitingInputRpcSessionIds(): string[] {
     if (session.isAwaitingInput()) ids.add(session.sessionId || sessionId);
   }
   return [...ids];
+}
+
+/** One registered wrapper as the debug panel reads it (lib/debug-snapshot.ts). */
+export interface RpcSessionDebugEntry {
+  snapshot: DebugWrapperSnapshot;
+  /** Matches liveness providers registered by file; never sent to the browser. */
+  sessionFile: string | null;
+  /** The MCP host's state; read for the session the panel shows only. */
+  readMcp(): DebugMcpHost | null;
+}
+
+type MaybeStaleWrapper = Partial<Pick<AgentSessionWrapper, "isAlive" | "isRunning" | "getDebugSnapshot" | "getMcpDebugSnapshot">>;
+
+/** A wrapper built before a hot reload has no getDebugSnapshot(): only state and running are known. */
+function staleWrapperSnapshot(sessionId: string, wrapper: MaybeStaleWrapper): DebugWrapperSnapshot {
+  let alive = false;
+  let running = false;
+  try { alive = typeof wrapper.isAlive === "function" && wrapper.isAlive() === true; } catch { /* unknown: closing */ }
+  try { running = typeof wrapper.isRunning === "function" && wrapper.isRunning() === true; } catch { /* unknown: idle */ }
+  return {
+    sessionId,
+    state: alive ? "alive" : "closing",
+    stale: true,
+    subagent: false,
+    chatOnly: false,
+    createdAt: null,
+    startedAt: null,
+    closingAt: null,
+    extensions: "none",
+    run: {
+      running,
+      streaming: false,
+      promptRunning: false,
+      pendingPrompts: 0,
+      bashRunning: false,
+      compacting: false,
+      retrying: false,
+      queuedMessages: 0,
+      waitingForMcp: false,
+      runningTools: 0,
+      mutatingCommands: 0,
+      replacement: null,
+    },
+    idle: { timeoutMs: SESSION_IDLE_TIMEOUT_MS, nextCheckAt: null, lastResetAt: null, forcedByStop: false },
+    awaitingInput: false,
+    pendingUiRequests: 0,
+    customUis: 0,
+    eventListeners: 0,
+    lastEvent: null,
+    lastCommand: null,
+  };
+}
+
+/**
+ * Every registered wrapper, closing ones included, for the debug panel. Reads the registry
+ * global itself (getRegistry() installs process handlers) and only reads each wrapper: one
+ * that fails to describe itself is listed as stale rather than failing the rest.
+ */
+export function getRpcSessionDebugSnapshots(): RpcSessionDebugEntry[] {
+  const registry = globalThis.__piSessions;
+  if (!(registry instanceof Map)) return [];
+  const entries: RpcSessionDebugEntry[] = [];
+  for (const [key, session] of registry) {
+    const wrapper = session as MaybeStaleWrapper & { readonly sessionFile?: unknown };
+    let snapshot: DebugWrapperSnapshot;
+    try {
+      snapshot = typeof wrapper.getDebugSnapshot === "function"
+        ? wrapper.getDebugSnapshot()
+        : staleWrapperSnapshot(key, wrapper);
+    } catch {
+      snapshot = staleWrapperSnapshot(key, wrapper);
+    }
+    if (!snapshot.sessionId) snapshot = { ...snapshot, sessionId: key };
+    let sessionFile: string | null = null;
+    try {
+      sessionFile = typeof wrapper.sessionFile === "string" && wrapper.sessionFile ? wrapper.sessionFile : null;
+    } catch { /* matched by id only */ }
+    entries.push({
+      snapshot,
+      sessionFile,
+      readMcp: () => typeof wrapper.getMcpDebugSnapshot === "function" ? wrapper.getMcpDebugSnapshot() : null,
+    });
+  }
+  return entries;
+}
+
+/** The start and close history of a session id; null when no wrapper was started for it. */
+export function getRpcSessionLifecycle(sessionId: string): DebugSessionLifecycle | null {
+  const lifecycle = readSessionLifecycles()?.get(sessionId);
+  if (!lifecycle || typeof lifecycle.starts !== "number") return null;
+  return {
+    starts: lifecycle.starts,
+    firstStartedAt: lifecycle.firstStartedAt,
+    lastStartedAt: lifecycle.lastStartedAt,
+    lastClosedAt: lifecycle.lastClosedAt ?? null,
+  };
+}
+
+/**
+ * The startRpcSession() calls under way with no alive wrapper yet: a lock outlives the
+ * wrapper's registration while a deferred model is switched to. `__new__…` and
+ * `__recreate__…` keys name a start whose id pi has not chosen yet; once its wrapper is
+ * registered, the key is looked up under that id.
+ */
+export function getRpcStartingSessionIds(): string[] {
+  const locks = globalThis.__piStartLocks;
+  if (!(locks instanceof Map)) return [];
+  const sessions = globalThis.__piSessions;
+  const registered = globalThis.__piStartRegisteredIds;
+  const ids: string[] = [];
+  for (const key of locks.keys()) {
+    const registeredId = registered instanceof Map ? registered.get(key) : undefined;
+    const id = typeof registeredId === "string" && registeredId ? registeredId : key;
+    const wrapper = sessions instanceof Map ? sessions.get(id) as MaybeStaleWrapper | undefined : undefined;
+    let alive = false;
+    try { alive = typeof wrapper?.isAlive === "function" && wrapper.isAlive() === true; } catch { /* starting */ }
+    if (!alive) ids.push(key);
+  }
+  return ids;
 }
 
 export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {
@@ -2750,6 +3045,7 @@ export async function startRpcSession(
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
+    recordStartRegisteredId(sessionId, realSessionId);
 
     if (!chatOnly) {
       if (deferredModel) {
@@ -2770,6 +3066,7 @@ export async function startRpcSession(
     return { session: wrapper, realSessionId };
   })().finally(() => {
     locks.delete(sessionId);
+    forgetStartRegisteredId(sessionId);
     finishStartingSession();
   });
 

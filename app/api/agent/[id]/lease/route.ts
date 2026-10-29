@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRpcSession } from "@/lib/rpc-manager";
-import { holdSessionLivenessLease } from "@/lib/session-liveness";
+import { holdSessionLivenessLease, isValidLivenessHolder } from "@/lib/session-liveness";
 import { hasUnsettledSubagentRun } from "@/lib/subagent-runtime";
-
-const HOLDER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 // POST /api/agent/[id]/lease?holder=<page id> - Keep the session a page has selected alive
 // (holdSessionLivenessLease()), whether or not the page holds its event stream, and say what
@@ -16,7 +14,7 @@ export async function POST(
 ) {
   const { id } = await params;
   const holder = new URL(req.url).searchParams.get("holder");
-  if (!holder || !HOLDER_PATTERN.test(holder)) {
+  if (!isValidLivenessHolder(holder)) {
     return NextResponse.json({ error: "holder must be 1-64 letters, digits, - or _" }, { status: 400 });
   }
   holdSessionLivenessLease(id, holder);

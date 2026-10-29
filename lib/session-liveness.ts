@@ -1,7 +1,12 @@
+import type { DebugLease, DebugLivenessProvider } from "./debug-types";
+
 const SESSION_LIVENESS_PROTOCOL_VERSION = 1;
 export const SESSION_LIVENESS_REGISTRY_KEY = "@agegr/pi-web/session-liveness/v1";
 export const SESSION_LIVENESS_LEASE_TTL_MS = 90_000;
 const SESSION_LIVENESS_LEASES_KEY = "@agegr/pi-web/session-liveness-leases/v2";
+/** The provider each page lease registers; the debug panel lists leases apart from extensions. */
+export const SESSION_LEASE_PROVIDER_NAME = "pi-web-selected-session";
+const LIVENESS_HOLDER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface SessionLivenessProvider {
   name: string;
@@ -15,10 +20,23 @@ interface SessionIdentity {
   sessionFile?: string;
 }
 
+/** A registered provider as list() reports it; `isActive` calls the provider's own. */
+interface ListedLivenessProvider {
+  name: string;
+  sessionId: string;
+  sessionFile?: string;
+  isActive(): boolean;
+}
+
 interface SessionLivenessRegistry {
   version: typeof SESSION_LIVENESS_PROTOCOL_VERSION;
   register(provider: SessionLivenessProvider): () => void;
   hasActiveProvider(session: SessionIdentity): boolean;
+  /**
+   * For pi-web's debug panel, not part of the extension contract. Optional: a registry made by
+   * older code survives a hot reload on globalThis without it.
+   */
+  list?(): ListedLivenessProvider[];
 }
 
 interface LeaseRecord {
@@ -26,6 +44,10 @@ interface LeaseRecord {
   released: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   release(): void;
+  // Debug panel bookkeeping; optional because records made before a hot reload lack them.
+  createdAt?: number;
+  renewedAt?: number | null;
+  renewals?: number;
 }
 
 // One lease per page and session, keyed `${holder}\n${sessionId}`.
@@ -86,6 +108,14 @@ function createRegistry(): SessionLivenessRegistry {
       }
       return false;
     },
+    list() {
+      return Array.from(providers.values(), (provider) => ({
+        name: provider.name,
+        sessionId: provider.sessionId,
+        ...(provider.sessionFile !== undefined ? { sessionFile: provider.sessionFile } : {}),
+        isActive: () => provider.isActive(),
+      }));
+    },
   };
 }
 
@@ -119,6 +149,11 @@ function getLeaseStore(): LeaseStore {
   return leases;
 }
 
+function readLeaseStore(): LeaseStore | null {
+  const existing = (globalThis as Record<PropertyKey, unknown>)[Symbol.for(SESSION_LIVENESS_LEASES_KEY)];
+  return existing instanceof Map ? existing as LeaseStore : null;
+}
+
 function scheduleLeaseExpiry(lease: LeaseRecord): void {
   if (lease.timer) clearTimeout(lease.timer);
   lease.timer = setTimeout(() => {
@@ -141,12 +176,14 @@ export function holdSessionLivenessLease(sessionId: string, holder: string): voi
   const existing = leases.get(key);
   if (existing && !existing.released && existing.expiresAt > Date.now()) {
     existing.expiresAt = Date.now() + SESSION_LIVENESS_LEASE_TTL_MS;
+    existing.renewedAt = Date.now();
+    existing.renewals = (existing.renewals ?? 0) + 1;
     scheduleLeaseExpiry(existing);
     return;
   }
   existing?.release();
   const providerRelease = registerSessionLivenessProvider({
-    name: "pi-web-selected-session",
+    name: SESSION_LEASE_PROVIDER_NAME,
     sessionId,
     isActive: () => !lease.released && lease.expiresAt > Date.now(),
   });
@@ -161,9 +198,90 @@ export function holdSessionLivenessLease(sessionId: string, holder: string): voi
       providerRelease();
       if (leases.get(key) === lease) leases.delete(key);
     },
+    createdAt: Date.now(),
+    renewedAt: null,
+    renewals: 0,
   };
   leases.set(key, lease);
   scheduleLeaseExpiry(lease);
+}
+
+/** A page's lease holder id (POST /api/agent/[id]/lease?holder=), also the label of its event streams. */
+export function isValidLivenessHolder(value: unknown): value is string {
+  return typeof value === "string" && LIVENESS_HOLDER_PATTERN.test(value);
+}
+
+/**
+ * Every page lease, for the debug panel. A record lingers between its expiry and its unref'd
+ * timer, so `active` is computed here; nothing is released, renewed or rescheduled.
+ */
+export function listSessionLivenessLeases(now = Date.now()): (DebugLease & { sessionId: string })[] {
+  const leases = readLeaseStore();
+  if (!leases) return [];
+  const listed: (DebugLease & { sessionId: string })[] = [];
+  for (const [key, lease] of leases) {
+    // The holder never holds a newline; a session id might.
+    const split = key.indexOf("\n");
+    if (split < 0 || typeof lease?.expiresAt !== "number") continue;
+    listed.push({
+      sessionId: key.slice(split + 1),
+      holder: key.slice(0, split),
+      expiresAt: lease.expiresAt,
+      active: !lease.released && lease.expiresAt > now,
+      createdAt: typeof lease.createdAt === "number" ? lease.createdAt : null,
+      renewedAt: typeof lease.renewedAt === "number" ? lease.renewedAt : null,
+      renewals: typeof lease.renewals === "number" ? lease.renewals : null,
+    });
+  }
+  return listed;
+}
+
+function listExtensionProviders(): ListedLivenessProvider[] | null {
+  if (typeof registry.list !== "function") return null;
+  return registry.list().filter((provider) => provider.name !== SESSION_LEASE_PROVIDER_NAME);
+}
+
+/**
+ * The extensions' liveness providers (pi-web's own leases left out), without asking any of them
+ * whether it is active: that runs extension code. Null when the registry cannot list.
+ */
+export function listRegisteredSessionLivenessProviders(): { name: string; sessionId: string; sessionFile: string | null }[] | null {
+  return listExtensionProviders()?.map((provider) => ({
+    name: provider.name,
+    sessionId: provider.sessionId,
+    sessionFile: provider.sessionFile ?? null,
+  })) ?? null;
+}
+
+/**
+ * The extensions' providers for one session, matched as the idle timer matches them, each asked
+ * whether it is active. A throw or a non-boolean reads "error" and is not logged: the idle
+ * timer's own check reports it when it matters. Null when the registry cannot list.
+ */
+export function listSessionLivenessProviders(
+  session: SessionIdentity,
+): (DebugLivenessProvider & { sessionId: string; sessionFile: string | null })[] | null {
+  const providers = listExtensionProviders();
+  if (!providers) return null;
+  const identities = new Set([session.sessionId, session.sessionFile].filter((value): value is string => Boolean(value)));
+  return providers
+    .filter((provider) => identities.has(provider.sessionId) || (provider.sessionFile !== undefined && identities.has(provider.sessionFile)))
+    .map((provider) => {
+      let active: boolean | "error";
+      try {
+        const answer = provider.isActive();
+        active = typeof answer === "boolean" ? answer : "error";
+      } catch {
+        active = "error";
+      }
+      return {
+        name: provider.name,
+        sessionId: provider.sessionId,
+        sessionFile: provider.sessionFile ?? null,
+        active,
+        byFile: !identities.has(provider.sessionId),
+      };
+    });
 }
 
 /**
