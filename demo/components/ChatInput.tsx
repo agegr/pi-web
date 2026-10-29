@@ -1585,7 +1585,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       disabled={builtinCommandPending}
       aria-busy={builtinCommandPending}
       style={{
-        flexShrink: 0,
+        // Never taller than the chat: a short window shrinks the queue first (#1428).
+        ...(compact ? { flexShrink: 0 } : { display: "flex", flexDirection: "column", minHeight: 0 }),
         minWidth: 0,
         margin: 0,
         border: 0,
@@ -1609,7 +1610,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           e.target.value = "";
         }}
       />}
-      <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+      <div style={{ ...(compact ? undefined : { display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }), maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {showImageUnsupportedWarning && (() => {
@@ -1626,6 +1627,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 72, // the header and one whole row
             marginBottom: 8,
             border: "1px solid var(--border)",
             borderRadius: 6,
