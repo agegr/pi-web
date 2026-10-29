@@ -376,75 +376,42 @@ const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   skill: 3,
 };
 
-export function getCleanSlashName(command: SlashCommandPaletteItem): string {
-  return command.source === "skill" && command.name.startsWith("skill:")
-    ? command.name.slice("skill:".length).toLowerCase()
-    : command.name.toLowerCase();
-}
-
-export function slashMatchRank(
-  command: SlashCommandPaletteItem,
-  query: string,
-  t: (key: string) => string = (k) => k,
-): number {
-  const cleanName = getCleanSlashName(command);
-  const rawName = command.name.toLowerCase();
-  const q = query.toLowerCase();
-
-  if (cleanName === q || rawName === q) return 0;
-  if (cleanName.startsWith(q) || rawName.startsWith(q)) return 1;
-  if (cleanName.includes(`-${q}`) || cleanName.includes(`_${q}`) || rawName.includes(`-${q}`) || rawName.includes(`_${q}`)) return 2;
-  if (cleanName.includes(q) || rawName.includes(q)) return 3;
-
-  const description = getSlashDescription(command, t).toLowerCase();
-  if (description.includes(q)) return 4;
-  return 5;
+// pi's TUI matches a skill by its bare name (pi-tui's
+// CombinedAutocompleteProvider), so `/copy` finds `skill:copy-text` by prefix;
+// the full `skill:<name>` still matches a query that spells the prefix.
+function slashMatchRank(command: SlashCommandPaletteItem, query: string): number {
+  const name = command.name.toLowerCase();
+  const bareName = command.source === "skill" && name.startsWith("skill:") ? name.slice("skill:".length) : name;
+  if (bareName === query || name === query) return 0;
+  if (bareName.startsWith(query) || name.startsWith(query)) return 1;
+  if (name.includes(query)) return 2;
+  return 3;
 }
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
-  if (command.source === "builtin") {
-    return command.description ? (t(command.description) ?? "") : "";
-  }
-  return command.description ?? "";
+  return command.source === "builtin" ? t(command.description) : command.description ?? "";
 }
 
+/**
+ * The palette's matches for a lower-cased query. pi's TUI matches names only;
+ * the palette searches descriptions too, but only when no name matches, so
+ * `/copy` lists the built-in, not every skill whose description says "copy".
+ */
 export function filterSlashCommands(
   commands: SlashCommandPaletteItem[],
   query: string,
-  t: (key: string) => string = (k) => k,
+  t: (key: string) => string,
 ): SlashCommandPaletteItem[] {
-  if (!query) {
-    return [...commands].sort((a, b) => {
-      return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
-        || TEXT_COLLATOR.compare(a.name, b.name);
-    });
-  }
-
-  const normalizedQuery = query.toLowerCase();
-
-  const hasNameMatch = commands.some((command) => {
-    const cleanName = getCleanSlashName(command);
-    const rawName = command.name.toLowerCase();
-    return cleanName.includes(normalizedQuery) || rawName.includes(normalizedQuery);
-  });
-
-  return [...commands]
-    .filter((command) => {
-      const cleanName = getCleanSlashName(command);
-      const rawName = command.name.toLowerCase();
-      const matchesName = cleanName.includes(normalizedQuery) || rawName.includes(normalizedQuery);
-
-      if (hasNameMatch) return matchesName;
-
-      const description = getSlashDescription(command, t).toLowerCase();
-      return matchesName || description.includes(normalizedQuery);
-    })
-    .sort((a, b) => {
-      const rankDelta = slashMatchRank(a, normalizedQuery, t) - slashMatchRank(b, normalizedQuery, t);
-      if (rankDelta !== 0) return rankDelta;
-      return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
-        || TEXT_COLLATOR.compare(a.name, b.name);
-    });
+  const ranked = commands.map((command) => ({ command, rank: slashMatchRank(command, query) }));
+  const byName = ranked.filter(({ rank }) => rank < 3);
+  const matches = byName.length > 0
+    ? byName
+    : ranked.filter(({ command }) => getSlashDescription(command, t).toLowerCase().includes(query));
+  return matches
+    .sort((a, b) => a.rank - b.rank
+      || SLASH_SOURCE_ORDER[a.command.source] - SLASH_SOURCE_ORDER[b.command.source]
+      || TEXT_COLLATOR.compare(a.command.name, b.command.name))
+    .map(({ command }) => command);
 }
 
 // Skill slash commands are named "skill:<skillName>"; look the skill up in the
