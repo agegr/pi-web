@@ -16,7 +16,6 @@ import {
   type EnabledModelsView,
   type PatternResolution,
 } from "./enabled-models";
-import { resolveUnavailableModelPatterns } from "./model-scope";
 
 /**
  * SDK adapter for the pure `enabledModels` editor in `lib/enabled-models.ts`.
@@ -102,20 +101,25 @@ export async function resolveProviderGlobs(
   return globs;
 }
 
+/**
+ * `catalog` is every model the runtime knows (`getModels()`), available or not.
+ * An entry matching none of `models` but one of the catalog belongs to a
+ * provider without a usable credential: it is marked `known`, so the panel
+ * neither counts it stale nor lets `prune` delete it before the user signs
+ * back in.
+ */
 export async function buildEnabledModelsInput(
   patterns: string[] | undefined,
   models: readonly Model<Api>[],
-  options: { withProviderGlobs?: boolean; modelRuntime?: ModelRuntime } = {},
+  options: { withProviderGlobs?: boolean; catalog?: readonly Model<Api>[] } = {},
 ): Promise<EnabledModelsInput> {
   const resolutions = await resolvePatternMatches(patterns ?? [], models);
-  if (options.modelRuntime) {
-    const unavailable = await resolveUnavailableModelPatterns(
-      options.modelRuntime,
-      resolutions.filter((entry) => entry.matched.length === 0).map((entry) => entry.pattern),
-    );
-    for (const entry of resolutions) {
-      if (unavailable.has(entry.pattern)) entry.unavailable = true;
-    }
+  const unmatched = resolutions.filter((resolution) => resolution.matched.length === 0);
+  if (options.catalog && unmatched.length > 0) {
+    const inCatalog = await resolvePatternMatches(unmatched.map((resolution) => resolution.pattern), options.catalog);
+    unmatched.forEach((resolution, index) => {
+      if (inCatalog[index].matched.length > 0) resolution.known = true;
+    });
   }
   return {
     patterns,
@@ -194,7 +198,6 @@ export function buildEnabledModelsView({
     allEnabled: state.allEnabled,
     patterns: input.patterns ?? null,
     stalePatterns: state.stalePatterns,
-    unavailablePatterns: state.unavailablePatterns,
     enabledTotal: state.enabled.length,
     availableTotal: input.availableRefs.length,
     providers,

@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 
-const jiti = createJiti(import.meta.url, { tsconfigPaths: true, jsx: { runtime: "automatic" } });
-const { EnabledModelsBanner } = await jiti.import("./EnabledModelsSection.tsx");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const {
   enabledModelsBulkActions,
   enabledModelsProviderToggle,
@@ -28,7 +24,6 @@ function view(models, overrides = {}) {
     allEnabled: false,
     patterns: ["anthropic/*"],
     stalePatterns: [],
-    unavailablePatterns: [],
     enabledTotal: models.filter((model) => model.enabled).length,
     availableTotal: models.length,
     providers: [{
@@ -43,34 +38,6 @@ function view(models, overrides = {}) {
     ...overrides,
   };
 }
-
-function renderBanner(overrides = {}) {
-  const controller = {
-    view: view([entry("sonnet", true)], { settingsPath: "~/.pi/agent/settings.json", ...overrides }),
-    pending: null, pruneStale() {}, clearScope() {},
-  };
-  return renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnabledModelsBanner, { controller })));
-}
-
-test("unavailable entries get a neutral visible note, not the invalid-entry cleanup action", () => {
-  const html = renderBanner({ allEnabled: true, unavailablePatterns: ["opencode-go/deepseek-v4-pro"] });
-  assert.match(html, /1 unavailable/);
-  assert.match(html, /Unavailable entries are kept during cleanup/);
-  assert.match(html, /sign-in or credentials/);
-  assert.doesNotMatch(html, /Remove unmatched entries/);
-  assert.match(html, /Enable all models/, "a signed-out-only selection can still be explicitly cleared");
-  assert.doesNotMatch(html, /models\.enabledUnavailable/);
-});
-
-test("mixed invalid and unavailable entries show separate counts and allow cleanup", () => {
-  const html = renderBanner({ stalePatterns: ["opencode-go/removed"], unavailablePatterns: ["opencode-go/deepseek-v4-pro"] });
-  assert.match(html, /1 unmatched/);
-  assert.match(html, /1 unavailable/);
-  assert.match(html, /Remove unmatched entries/);
-  const project = renderBanner({ scope: "project", editable: false, stalePatterns: ["gone/model"], unavailablePatterns: ["opencode-go/deepseek-v4-pro"] });
-  assert.match(project, /1 unavailable/);
-  assert.doesNotMatch(project, /<button/);
-});
 
 test("the filter matches model ids and display names", () => {
   const models = [entry("sonnet", true), entry("opus", false)];

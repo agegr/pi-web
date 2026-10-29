@@ -50,7 +50,7 @@ async function loadContext(cwd: string): Promise<RequestContext> {
 
 async function buildView(context: RequestContext): Promise<EnabledModelsView> {
   const { patterns, scope, path } = readEnabledModelsSettings(context.settingsManager, context.paths);
-  const input = await buildEnabledModelsInput(patterns, context.models, { modelRuntime: context.modelRuntime });
+  const input = await buildEnabledModelsInput(patterns, context.models, { catalog: context.modelRuntime.getModels() });
   const providerNames = new Map(
     context.modelRuntime.getProviders().map((provider) => [provider.id, provider.name]),
   );
@@ -156,11 +156,11 @@ async function resyncAfterModelsConfigSave(
   const renamed = renameProviderPatterns(renameModelPatterns(original, modelRenames), renames);
   let current = renamed === original
     ? input
-    : await buildEnabledModelsInput(renamed, context.models, { withProviderGlobs: true, modelRuntime: context.modelRuntime });
+    : await buildEnabledModelsInput(renamed, context.models, { withProviderGlobs: true });
 
   const constrained = constrainProviderEntries(current);
   if (constrained.ok && constrained.changed) {
-    current = await buildEnabledModelsInput(constrained.patterns, context.models, { withProviderGlobs: true, modelRuntime: context.modelRuntime });
+    current = await buildEnabledModelsInput(constrained.patterns, context.models, { withProviderGlobs: true });
   }
 
   // A provider that was fully enabled before the save stays fully enabled, even
@@ -212,7 +212,10 @@ export async function PUT(req: Request) {
       );
     }
 
-    const input = await buildEnabledModelsInput(patterns, context.models, { withProviderGlobs: true, modelRuntime: context.modelRuntime });
+    const input = await buildEnabledModelsInput(patterns, context.models, {
+      withProviderGlobs: true,
+      catalog: context.modelRuntime.getModels(),
+    });
     let edit;
     if (op === "clear") {
       edit = clearEnabledModels(input);

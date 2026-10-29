@@ -33,8 +33,12 @@ export interface PatternResolution {
   pattern: string;
   /** `provider/modelId` references the pattern matches, in resolver order. */
   matched: string[];
-  /** Matches the catalog but no available model; preserve during cleanup. */
-  unavailable?: boolean;
+  /**
+   * Matches no available model but one of the full catalog: its provider has
+   * no usable credential right now. Signing in brings it back, so `prune`
+   * keeps it and it is not counted stale.
+   */
+  known?: boolean;
   /** Thinking level pinned by a `:level` suffix, when the pattern carries one. */
   pin?: string;
 }
@@ -66,12 +70,11 @@ export interface EnabledModelsState {
   /** `provider/modelId` → thinking level pinned by a `:level` pattern. */
   pins: Record<string, string>;
   /**
-   * Unmatched entries not recognized in the catalog: renamed/deleted models,
-   * typos or entries for another machine. Only explicit cleanup removes them.
+   * Patterns that match no model of the catalog, available or not — a renamed
+   * or deleted model, a typo, another machine's config. Preserved by every
+   * edit but `prune`. A signed-out provider's entries are not listed here.
    */
   stalePatterns: string[];
-  /** Known catalog entries with no available model (e.g. a signed-out provider). */
-  unavailablePatterns: string[];
 }
 
 export interface EnabledModelsModelView {
@@ -105,10 +108,8 @@ export interface EnabledModelsView {
   /** True when nothing narrows the model list. */
   allEnabled: boolean;
   patterns: string[] | null;
-  /** Unmatched entries not recognized in the catalog; explicit cleanup removes them. */
+  /** Configured patterns that match no available model; every edit keeps them. */
   stalePatterns: string[];
-  /** Known catalog entries currently unavailable; cleanup preserves them. */
-  unavailablePatterns: string[];
   enabledTotal: number;
   availableTotal: number;
   providers: EnabledModelsProviderView[];
@@ -135,7 +136,6 @@ export function modelRefProvider(ref: string): string {
 interface Entry {
   pattern: string;
   matched: string[];
-  unavailable?: boolean;
   pin?: string;
 }
 
@@ -143,7 +143,6 @@ function toEntries(resolutions: readonly PatternResolution[]): Entry[] {
   return resolutions.map((resolution) => ({
     pattern: resolution.pattern,
     matched: [...resolution.matched],
-    ...(resolution.unavailable ? { unavailable: true } : {}),
     ...(resolution.pin ? { pin: resolution.pin } : {}),
   }));
 }
@@ -291,8 +290,9 @@ export function computeEnabledModelsState(input: EnabledModelsInput): EnabledMod
     allEnabled,
     enabled: allEnabled ? [...input.availableRefs] : enabled,
     pins,
-    stalePatterns: entries.filter((entry) => entry.matched.length === 0 && !entry.unavailable).map((entry) => entry.pattern),
-    unavailablePatterns: entries.filter((entry) => entry.matched.length === 0 && entry.unavailable).map((entry) => entry.pattern),
+    stalePatterns: input.resolutions
+      .filter((resolution) => resolution.matched.length === 0 && !resolution.known)
+      .map((resolution) => resolution.pattern),
   };
 }
 
@@ -449,14 +449,17 @@ export function constrainProviderEntries(input: EnabledModelsInput): EnabledMode
 }
 
 /**
- * Drop unmatched entries not recognized in the full catalog.
+ * Drop the entries that match no model of the catalog.
  *
- * Known-but-unavailable models (including signed-out providers) are never
- * invalid merely because auth is missing or failing. Keep them in place with
- * their original pins/order; only unknown entries are explicitly pruned.
+ * Every other operation preserves them, because an entry usually goes unmatched
+ * for a reason that can reverse itself (a catalog not refreshed yet). This one
+ * is the user saying they are gone for good, so it is the only way to clean up
+ * after a provider renamed its models. An entry of a signed-out provider
+ * (`known`) is kept: signing back in makes it match again.
  */
 export function pruneStaleEnabledModels(input: EnabledModelsInput): EnabledModelsEdit {
-  const kept = toEntries(input.resolutions).filter((entry) => entry.matched.length > 0 || entry.unavailable);
+  const kept = toEntries(input.resolutions)
+    .filter((entry, index) => entry.matched.length > 0 || input.resolutions[index].known);
   if (kept.length === input.resolutions.length) {
     return { ok: true, patterns: input.patterns, changed: false };
   }
