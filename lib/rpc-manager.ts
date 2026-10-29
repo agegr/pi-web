@@ -30,6 +30,7 @@ import type {
   SessionEntry,
   SessionInfo,
   SessionMessageEntry,
+  SubagentSessionStatus,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import {
@@ -2343,6 +2344,26 @@ function runtimeMessageActivityMs(entry: SessionMessageEntry): number | undefine
 }
 
 /**
+ * A subagent's status as the session list and viewer show it. Only this process can finish a
+ * run, so a running wrapper or the live run map decides; a persisted `running` / `queued` with
+ * neither was left by a process that stopped mid-run and reads as `interrupted`, as
+ * `get_subagent_result` reports it. Applied per response, never to the cached scan.
+ */
+export function subagentDisplayStatus(sessionId: string, persisted: SubagentSessionStatus): SubagentSessionStatus {
+  if (getRegistry().get(sessionId)?.isRunning()) return "running";
+  return getLiveSubagentStatus(sessionId) ?? settleOrphanedSubagentStatus(persisted);
+}
+
+export function withSubagentDisplayStatus(sessions: SessionInfo[]): SessionInfo[] {
+  return sessions.map((session) => {
+    const relation = session.relation;
+    if (relation?.kind !== "subagent") return session;
+    const status = subagentDisplayStatus(session.id, relation.status);
+    return status === relation.status ? session : { ...session, relation: { ...relation, status } };
+  });
+}
+
+/**
  * Return live sessions that should be visible in the session list. Pi delays
  * the first JSONL flush until an assistant message exists, so an accepted new
  * prompt must temporarily be described from its in-memory SessionManager.
@@ -2363,12 +2384,6 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
     const sessionFile = manager.getSessionFile() ?? session.sessionFile;
     const persisted = Boolean(sessionFile && existsSync(sessionFile));
     const subagent = readSubagentRun(entries as unknown as SessionEntry[], header?.id ?? session.sessionId, sessionFile ?? "");
-    // A persisted `running` / `queued` status with no live run was left by a process that
-    // stopped mid-run, so the row settles it instead of spinning on a dead run.
-    const relationStatus = session.isRunning()
-      ? "running" as const
-      : getLiveSubagentStatus(header?.id ?? session.sessionId)
-        ?? (subagent ? settleOrphanedSubagentStatus(subagent.status) : undefined);
 
     // An ensure_session call creates an idle, empty runtime while the composer
     // loads commands. Do not leak it into history before a prompt is accepted.
@@ -2400,7 +2415,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
           parentSessionId: subagent.parentSessionId,
           profile: subagent.profile,
           description: subagent.description,
-          status: relationStatus ?? subagent.status,
+          status: session.isRunning() ? "running" as const : subagent.status,
         },
       } : {}),
       transient: !persisted,
