@@ -105,14 +105,14 @@ function sessionRow(root, { context = "group", status = {}, rowProject = project
 
 function groupRow(extra = {}, projectExtra = {}) {
   const groupProject = { ...project, ...projectExtra };
-  return { kind: "group", key: `group:${groupProject.key}`, project: groupProject, expanded: true, running: 0, unread: 0, ...extra };
+  return { kind: "group", key: `group:${groupProject.key}`, project: groupProject, expanded: true, running: 0, awaiting: 0, unread: 0, ...extra };
 }
 
 const footer = [{ kind: "footer-open", key: "footer-open" }];
 
 test("the pinned header toggles the section and shows activity dots only while collapsed", () => {
   const collapsed = rowMarkup(render({
-    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: true, running: 1, unread: 2 }],
+    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: true, running: 1, awaiting: 0, unread: 2 }],
   }), "pinned-header");
   // A group header's height: both are section headers.
   assert.match(collapsed, /^<div class="session-tree-row session-tree-pinned-header" style="top:0;height:28px" data-row-key="pinned-header">/);
@@ -122,14 +122,35 @@ test("the pinned header toggles the section and shows activity dots only while c
   assert.doesNotMatch(collapsed, /session-tree-group-icon/);
   assert.match(collapsed, /class="session-tree-pinned-dot is-running" role="img" title="Agent running…" aria-label="Agent running… \(1\)"/);
   assert.match(collapsed, /class="session-tree-pinned-dot is-unread" role="img" title="New session activity" aria-label="New session activity \(2\)"/);
+  assert.doesNotMatch(collapsed, /session-tree-pinned-dot is-awaiting/);
   assert.doesNotMatch(collapsed, /session-tree-chevron is-open/);
 
   const expanded = rowMarkup(render({
-    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: false, running: 1, unread: 2 }],
+    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: false, running: 1, awaiting: 1, unread: 2 }],
   }), "pinned-header");
   assert.match(expanded, /aria-expanded="true"/);
   assert.match(expanded, /session-tree-chevron is-open/);
   assert.doesNotMatch(expanded, /session-tree-pinned-dot/);
+});
+
+test("a collapsed pinned header shows an awaiting dot of its own, without the running one", () => {
+  const collapsed = rowMarkup(render({
+    rows: [{ kind: "pinned-header", key: "pinned-header", count: 2, collapsed: true, running: 0, awaiting: 2, unread: 0 }],
+  }), "pinned-header");
+  assert.match(collapsed, /class="session-tree-pinned-dot is-awaiting" role="img" title="Agent waiting for your input" aria-label="Agent waiting for your input \(2\)"/);
+  assert.doesNotMatch(collapsed, /session-tree-pinned-dot is-running/);
+});
+
+test("a collapsed group shows awaiting families apart from running ones", () => {
+  const mixed = rowMarkup(render({ rows: [groupRow({ expanded: false, running: 1, awaiting: 2, unread: 0 })] }), "group:/work/app");
+  assert.match(mixed, /aria-label="Agent running… \(1\)"/);
+  assert.match(mixed, /<span class="session-tree-summary-awaiting" role="img" title="Agent waiting for your input" aria-label="Agent waiting for your input \(2\)"><span class="session-tree-summary-dot is-awaiting"><\/span>2<\/span>/);
+
+  // Only awaiting: the amber count, no spinner.
+  const awaiting = rowMarkup(render({ rows: [groupRow({ expanded: false, running: 0, awaiting: 1, unread: 0 })] }), "group:/work/app");
+  assert.match(awaiting, /session-tree-summary-awaiting/);
+  assert.doesNotMatch(awaiting, /session-tree-summary-running/);
+  assert.doesNotMatch(awaiting, /sidebar-spin/);
 });
 
 test("a collapsed group shows its running and unread counts and labelled actions", () => {

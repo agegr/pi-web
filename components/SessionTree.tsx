@@ -810,11 +810,12 @@ function DeleteConfirm({
 }
 
 /**
- * Spinner + count and dot + count; the label carries the count for screen
- * readers. Also a project's badge in the project menus (ProjectWorktreePicker).
+ * Spinner + count, amber dot + count (awaiting input) and dot + count; the
+ * label carries the count for screen readers. Also a project's badge in the
+ * project menus (ProjectWorktreePicker), which counts no awaiting.
  */
-export function ActivitySummary({ running, unread, t }: { running: number; unread: number; t: (key: string) => string }) {
-  if (running === 0 && unread === 0) return null;
+export function ActivitySummary({ running, awaiting = 0, unread, t }: { running: number; awaiting?: number; unread: number; t: (key: string) => string }) {
+  if (running === 0 && awaiting === 0 && unread === 0) return null;
   return (
     <span className="session-tree-summary">
       {running > 0 && (
@@ -826,6 +827,17 @@ export function ActivitySummary({ running, unread, t }: { running: number; unrea
         >
           <SpinnerIcon size={10} />
           {running}
+        </span>
+      )}
+      {awaiting > 0 && (
+        <span
+          className="session-tree-summary-awaiting"
+          role="img"
+          title={t("sidebar.agentAwaitingInput")}
+          aria-label={`${t("sidebar.agentAwaitingInput")} (${awaiting})`}
+        >
+          <span className="session-tree-summary-dot is-awaiting" />
+          {awaiting}
         </span>
       )}
       {unread > 0 && (
@@ -928,7 +940,7 @@ const GroupRowView = memo(function GroupRowView({
         <ChevronIcon size={12} strokeWidth={3} className={`session-tree-chevron${expanded ? " is-open" : ""}`} />
         <span className="session-tree-group-name">{project.name}</span>
         {project.pinned && <PinIcon size={10} className="session-tree-group-pin" label={t("sidebar.pinnedProject")} />}
-        {!expanded && <ActivitySummary running={row.running} unread={row.unread} t={t} />}
+        {!expanded && <ActivitySummary running={row.running} awaiting={row.awaiting} unread={row.unread} t={t} />}
       </button>
       <span className="session-tree-group-actions">
         <button
@@ -998,6 +1010,14 @@ const PlainRowView = memo(function PlainRowView({
                 role="img"
                 title={t("sidebar.agentRunning")}
                 aria-label={`${t("sidebar.agentRunning")} (${row.running})`}
+              />
+            )}
+            {row.collapsed && row.awaiting > 0 && (
+              <span
+                className="session-tree-pinned-dot is-awaiting"
+                role="img"
+                title={t("sidebar.agentAwaitingInput")}
+                aria-label={`${t("sidebar.agentAwaitingInput")} (${row.awaiting})`}
               />
             )}
             {row.collapsed && row.unread > 0 && (

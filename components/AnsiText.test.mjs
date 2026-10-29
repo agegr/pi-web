@@ -52,6 +52,20 @@ test("widget text cannot inject HTML (escape_html)", () => {
   assert.doesNotMatch(html, /<script>/);
 });
 
+test("OSC 8 hyperlinks open in a new tab", () => {
+  const html = toHtml("Preview: \x1b]8;;https://example.com/\x1b\\example.com\x1b]8;;\x1b\\");
+  assert.equal(
+    html,
+    '<span>Preview: <a target="_blank" rel="noopener noreferrer" href="https://example.com/">example.com</a></span>',
+  );
+});
+
+test("link-like text stays escaped", () => {
+  const html = toHtml('<a href="https://example.com/">x</a>');
+  assert.doesNotMatch(html, /<a /);
+  assert.doesNotMatch(html, /target=/);
+});
+
 test("newlines inside text are preserved", () => {
   assert.equal(toHtml("line one\nline two"), "<span>line one\nline two</span>");
 });

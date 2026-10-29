@@ -11,6 +11,7 @@ import {
   type McpTransportFactory,
 } from "@earendil-works/pi-coding-agent";
 import type { McpHostInactiveInfo, McpScope, McpSessionState, McpSessionStatus } from "./api-types";
+import type { DebugMcpHost } from "./debug-types";
 import { isBuiltinMcpCommand, isMcpExtensionCommand } from "./mcp-command";
 import { canonicalJson, mcpConfigKey, mcpEntryConfigKey } from "./mcp-config-key";
 import { scrubMcpLoadError } from "./mcp-json-error";
@@ -535,6 +536,8 @@ class HostInstance {
   private inactiveReport: { sessionId: string; info: McpHostInactiveInfo } | undefined;
   private queue: Promise<void> = Promise.resolve();
   private idleTimer: NodeJS.Timeout | undefined;
+  /** When `idleTimer` fires, for the debug panel; a timer keeps no deadline of its own. */
+  private idleDeadline: number | undefined;
   /** Between agent_start and agent_end; the idle timer never runs meanwhile. */
   private runActive = false;
   /** Prompts waiting in prepareForPrompt(); nor does it run while one waits. */
@@ -709,6 +712,29 @@ class HostInstance {
       });
     }
     return states.sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope));
+  }
+
+  /**
+   * For the debug panel: states, counts and the idle deadline. Never a config, a configKey, an
+   * abandoned key, a transport or the context; it reads fields and touches no timer.
+   */
+  debugSnapshot(): DebugMcpHost {
+    const servers = [...this.attempts].map(([name, attempt]) => ({
+      name,
+      scope: attempt.scope,
+      state: SESSION_STATES[attempt.state],
+      hasError: Boolean(attempt.error),
+      released: attempt.released,
+    }));
+    return {
+      active: this.active,
+      disposed: this.disposed,
+      runActive: this.runActive,
+      idleMs: this.options.idleMs,
+      idleReleaseAt: this.idleDeadline ?? null,
+      servers: servers.sort((a, b) => a.name.localeCompare(b.name) || a.scope.localeCompare(b.scope)),
+      problems: this.problems.size,
+    };
   }
 
   /** Unregister everything, for idle and for a host whose session goes away. */
@@ -986,13 +1012,16 @@ class HostInstance {
   private clearIdle(): void {
     clearTimeout(this.idleTimer);
     this.idleTimer = undefined;
+    this.idleDeadline = undefined;
   }
 
   private armIdle(): void {
     this.clearIdle();
     if (this.runActive || this.preparing > 0 || this.options.idleMs <= 0 || this.attempts.size === 0) return;
+    this.idleDeadline = Date.now() + this.options.idleMs;
     this.idleTimer = setTimeout(() => {
       this.idleTimer = undefined;
+      this.idleDeadline = undefined;
       if (this.ctx && !this.ctx.isIdle()) return;
       void this.release();
     }, this.options.idleMs);
@@ -1096,6 +1125,11 @@ export class McpHost {
 
   serverStates(): McpHostServerStatus[] {
     return this.current?.serverStates() ?? [];
+  }
+
+  /** The current load's state for the debug panel; null before the extension factory ran. */
+  debugSnapshot(): DebugMcpHost | null {
+    return this.current?.debugSnapshot() ?? null;
   }
 
   /** Unregister every server now, as the idle timer does. */

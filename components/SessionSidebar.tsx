@@ -75,6 +75,7 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
+import { noteRunningPoll } from "@/lib/page-debug";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -922,12 +923,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const current = new AbortController();
       controller?.abort();
       controller = current;
+      // The debug panel's record of this poll (noteRunningPoll() in the finally): the request
+      // alone, up to its answer, without the session-list reload that may follow.
+      const startedAt = Date.now();
+      let answeredAt: number | null = null;
+      let outcome: "ok" | "error" | "aborted" = "error";
+      let httpStatus: number | null = null;
       try {
         const res = await fetch("/api/agent/running", {
           cache: "no-store",
           signal: current.signal,
         });
+        httpStatus = res.status;
         if (!res.ok) return;
+        outcome = "ok";
         const data = await res.json() as {
           sessionListVersion: number;
           runningSessionIds?: string[];
@@ -936,6 +945,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           subagentsActiveSessionIds?: string[];
           sessionUiStateRevision?: number | null;
         };
+        answeredAt = Date.now();
         if (stopped || controller !== current) return;
         runningPollAuthoritativeRef.current = true;
         currentSuppressedCompletionSessionIdsRef.current = new Set(
@@ -952,9 +962,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         }
       } catch {
         // Keep the last known state; the next visible-tab poll retries.
+        outcome = current.signal.aborted ? "aborted" : "error";
       } finally {
         if (controller === current) controller = null;
         schedule();
+        // Assignments only, after the next poll is scheduled: it cannot change how polling goes on.
+        noteRunningPoll(startedAt, outcome, httpStatus, answeredAt);
       }
     };
 

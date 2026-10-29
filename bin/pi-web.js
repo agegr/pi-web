@@ -29,6 +29,8 @@ const { openWhenServing } = require("./browser-opener");
 const { createRunRecordTracker, getOpenUrl, getRunDir } = require("./run-records");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getPackageVersion, runCommand } = require("./pi-web-commands");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { formatReachableAddresses } = require("./network-addresses");
 
 let launchOptions;
 try {
@@ -144,12 +146,16 @@ function startServer({ port, hostname, openBrowser }) {
 
   let serverReady = false;
   const url = `http://${hostname}:${port}`;
+  // Next.js repeats the `-H` value in its own "Network:" line, which a wildcard
+  // bind makes unusable; name the interfaces and their addresses instead.
+  const reachable = formatReachableAddresses(hostname, port);
 
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
     if (!serverReady && text.includes("Ready")) {
       serverReady = true;
+      if (reachable) process.stdout.write(`${reachable}\n`);
       // The record needs no wait: status, stop and open list a record only
       // once its URL answers. The browser waits for the first page.
       if (port !== "0") runRecord.markReady();

@@ -190,6 +190,8 @@ export interface AgentSessionLike {
   }): Promise<{ output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string }>;
   abortBash(): void;
   readonly isBashRunning: boolean;
+  /** An auto-retry waiting out its backoff; optional because test sessions leave it out. */
+  readonly isRetrying?: boolean;
   setModel(model: ModelLike): Promise<void>;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
   setThinkingLevel(level: string): void;

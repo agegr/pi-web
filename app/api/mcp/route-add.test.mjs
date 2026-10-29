@@ -236,14 +236,21 @@ test("a folder whose trust would reach other folders is never trusted by the ste
   const home = join(root, "home");
   await mkdir(home, { recursive: true });
   allowFileRoot(home);
-  const previousHome = process.env.HOME;
+  // Windows: homedir() reads %USERPROFILE%, not $HOME. Assigning undefined
+  // would leave the string "undefined", so an unset variable is deleted.
+  const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const restoreHome = () => {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
   process.env.HOME = home;
-  t.after(() => {
-    process.env.HOME = previousHome;
-  });
+  process.env.USERPROFILE = home;
+  t.after(restoreHome);
   response = await add({ text: "npx -y @scope/lint-mcp", scope: "project", cwd: home, trustFolder: true });
   assert.deepEqual(response.body.breadth, { kind: "home", path: home });
-  process.env.HOME = previousHome;
+  restoreHome();
 
   assert.deepEqual(await trustFile(), { [trusted]: true }, "nothing was trusted");
   for (const folder of [outer, root, home]) assert.equal(existsSync(projectPath(folder)), false);
