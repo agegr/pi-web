@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
 
 // The hook runs against a stand-in for React's hooks (one component,
@@ -8,7 +8,7 @@ import { createJiti } from "jiti";
 // out to its end without a browser.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-const { renderHook } = await import(shimPath);
+const { renderHook } = await import(pathToFileURL(shimPath).href);
 const {
   SIDEBAR_MOTION_GRACE_MS,
   SIDEBAR_MOTION_MS,

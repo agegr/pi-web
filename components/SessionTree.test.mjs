@@ -92,7 +92,7 @@ function session(id, extra = {}) {
 
 const project = { key: "/work/app", root: "/work/app", name: "app", pinned: false, current: true };
 
-function sessionRow(root, { context = "group", status = {}, archivedAt = null, rowProject = project } = {}) {
+function sessionRow(root, { context = "group", status = {}, rowProject = project } = {}) {
   return {
     kind: "session",
     key: `session:${context}:${root.id}`,
@@ -100,20 +100,19 @@ function sessionRow(root, { context = "group", status = {}, archivedAt = null, r
     context,
     project: rowProject,
     status: { running: false, awaiting: false, unread: false, selected: false, transient: false, ...status },
-    archivedAt,
   };
 }
 
 function groupRow(extra = {}, projectExtra = {}) {
   const groupProject = { ...project, ...projectExtra };
-  return { kind: "group", key: `group:${groupProject.key}`, project: groupProject, expanded: true, running: 0, unread: 0, ...extra };
+  return { kind: "group", key: `group:${groupProject.key}`, project: groupProject, expanded: true, running: 0, awaiting: 0, unread: 0, ...extra };
 }
 
 const footer = [{ kind: "footer-open", key: "footer-open" }];
 
 test("the pinned header toggles the section and shows activity dots only while collapsed", () => {
   const collapsed = rowMarkup(render({
-    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: true, running: 1, unread: 2 }],
+    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: true, running: 1, awaiting: 0, unread: 2 }],
   }), "pinned-header");
   // A group header's height: both are section headers.
   assert.match(collapsed, /^<div class="session-tree-row session-tree-pinned-header" style="top:0;height:28px" data-row-key="pinned-header">/);
@@ -123,14 +122,35 @@ test("the pinned header toggles the section and shows activity dots only while c
   assert.doesNotMatch(collapsed, /session-tree-group-icon/);
   assert.match(collapsed, /class="session-tree-pinned-dot is-running" role="img" title="Agent running…" aria-label="Agent running… \(1\)"/);
   assert.match(collapsed, /class="session-tree-pinned-dot is-unread" role="img" title="New session activity" aria-label="New session activity \(2\)"/);
+  assert.doesNotMatch(collapsed, /session-tree-pinned-dot is-awaiting/);
   assert.doesNotMatch(collapsed, /session-tree-chevron is-open/);
 
   const expanded = rowMarkup(render({
-    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: false, running: 1, unread: 2 }],
+    rows: [{ kind: "pinned-header", key: "pinned-header", count: 3, collapsed: false, running: 1, awaiting: 1, unread: 2 }],
   }), "pinned-header");
   assert.match(expanded, /aria-expanded="true"/);
   assert.match(expanded, /session-tree-chevron is-open/);
   assert.doesNotMatch(expanded, /session-tree-pinned-dot/);
+});
+
+test("a collapsed pinned header shows an awaiting dot of its own, without the running one", () => {
+  const collapsed = rowMarkup(render({
+    rows: [{ kind: "pinned-header", key: "pinned-header", count: 2, collapsed: true, running: 0, awaiting: 2, unread: 0 }],
+  }), "pinned-header");
+  assert.match(collapsed, /class="session-tree-pinned-dot is-awaiting" role="img" title="Agent waiting for your input" aria-label="Agent waiting for your input \(2\)"/);
+  assert.doesNotMatch(collapsed, /session-tree-pinned-dot is-running/);
+});
+
+test("a collapsed group shows awaiting families apart from running ones", () => {
+  const mixed = rowMarkup(render({ rows: [groupRow({ expanded: false, running: 1, awaiting: 2, unread: 0 })] }), "group:/work/app");
+  assert.match(mixed, /aria-label="Agent running… \(1\)"/);
+  assert.match(mixed, /<span class="session-tree-summary-awaiting" role="img" title="Agent waiting for your input" aria-label="Agent waiting for your input \(2\)"><span class="session-tree-summary-dot is-awaiting"><\/span>2<\/span>/);
+
+  // Only awaiting: the amber count, no spinner.
+  const awaiting = rowMarkup(render({ rows: [groupRow({ expanded: false, running: 0, awaiting: 1, unread: 0 })] }), "group:/work/app");
+  assert.match(awaiting, /session-tree-summary-awaiting/);
+  assert.doesNotMatch(awaiting, /session-tree-summary-running/);
+  assert.doesNotMatch(awaiting, /sidebar-spin/);
 });
 
 test("a collapsed group shows its running and unread counts and labelled actions", () => {
@@ -260,7 +280,7 @@ test("every saved row's title links to its session, encoded, in every context an
   const cases = [
     [sessionRow(session("a/b?c&d #%")), "?session=a%2Fb%3Fc%26d%20%23%25"],
     [sessionRow(session("pin"), { context: "pinned" }), "?session=pin"],
-    [sessionRow(session("old"), { context: "archive", archivedAt: NOW }), "?session=old"],
+    [sessionRow(session("old"), { context: "archive" }), "?session=old"],
     [sessionRow(session("run"), { status: { running: true } }), "?session=run"],
     [sessionRow(session("ask"), { status: { running: true, awaiting: true } }), "?session=ask"],
     [sessionRow(session("new"), { status: { unread: true } }), "?session=new"],
@@ -285,13 +305,15 @@ test("every saved row's title links to its session, encoded, in every context an
   assert.doesNotMatch(rowMarkup(render({ rows: [sessionRow(session("d"))], confirmDeleteRootId: "d" }), "session:group:d"), /<a /);
 });
 
-test("pinned rows name their project and archived rows offer restore with the archive time", () => {
+test("pinned rows name their project and archived rows offer restore with the family's time", () => {
   const pinned = rowMarkup(render({ rows: [sessionRow(session("pin"), { context: "pinned" })] }), "session:pinned:pin");
   assert.match(pinned, /<span class="session-tree-meta"><span class="session-tree-project">app<\/span><\/span>/);
   assert.match(pinned, /aria-label="Archive"/);
 
+  // Never the archive time: a session whose last message was two hours ago
+  // says 2h however recently it was archived (#1351).
   const archived = rowMarkup(render({
-    rows: [sessionRow(session("old"), { context: "archive", archivedAt: NOW - 2 * 60 * MINUTE })],
+    rows: [sessionRow(session("old", { modified: new Date(NOW - 2 * 60 * MINUTE).toISOString() }), { context: "archive" })],
   }), "session:archive:old");
   assert.match(archived, /class="session-tree-row session-tree-session is-archived"/);
   assert.doesNotMatch(archived, /session-tree-slot/);
@@ -548,7 +570,7 @@ test("headers lead with their chevron, and every row's text starts in one column
 });
 
 test("group headers draw nothing for a drag while idle", () => {
-  // Groups sit right on each other; one spacer before the footer.
+  // Three groups (the spacers between them render nothing), then the footer.
   const rows = [
     groupRow({}, { key: "/work/a", name: "a", pinned: true }),
     groupRow({}, { key: "/work/b", name: "b" }),

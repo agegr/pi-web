@@ -32,6 +32,7 @@ import {
   type SubagentRunInfo,
 } from "./subagents";
 import type { SessionEntry } from "./types";
+import type { DebugParentNotification, DebugSubagentRun } from "./debug-types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputLimits } from "./subagent-input";
@@ -88,13 +89,21 @@ type StoredSubagentExecution = {
   cancelQueued?: () => boolean;
   /** Ends the wait for the child's MCP servers before its prompt (`prepareChildMcp()`). */
   mcpWait?: AbortController;
+  /**
+   * When this run (or resume) entered the run map, for the debug panel: a resumed run keeps the
+   * first run's `createdAt`. Absent on a run stored before a hot reload.
+   */
+  dispatchedAt?: number;
 };
+
+/** A background run's completion `notifyParent()` is delivering; `since` is absent on one added before a hot reload. */
+type ParentNotification = Pick<SubagentRunInfo, "sessionId" | "parentSessionId"> & { since?: number };
 
 declare global {
   var __piSubagentRuns: Map<string, StoredSubagentExecution> | undefined;
   var __piSubagentQueue: SubagentQueue<SubagentRunInfo> | undefined;
   var __piSubagentConsumedResults: Map<string, string> | undefined;
-  var __piSubagentParentNotifications: Set<Pick<SubagentRunInfo, "sessionId" | "parentSessionId">> | undefined;
+  var __piSubagentParentNotifications: Set<ParentNotification> | undefined;
 }
 const SUBAGENT_CONTEXT_LIMIT = 50_000;
 const PARENT_IDLE_POLL_MS = 200;
@@ -153,7 +162,7 @@ function getSubagentRuns(): Map<string, StoredSubagentExecution> {
  * Background runs whose completion `notifyParent()` is still delivering: the run has left the
  * run map, but the parent's turn starts only once the parent is ready and idle.
  */
-function getParentNotifications(): Set<Pick<SubagentRunInfo, "sessionId" | "parentSessionId">> {
+function getParentNotifications(): Set<ParentNotification> {
   globalThis.__piSubagentParentNotifications ??= new Set();
   return globalThis.__piSubagentParentNotifications;
 }
@@ -166,6 +175,11 @@ function getParentNotifications(): Set<Pick<SubagentRunInfo, "sessionId" | "pare
  */
 export function hasUnsettledSubagentRun(sessionId: string): boolean {
   const runs = [...[...getSubagentRuns().values()].map((stored) => stored.run), ...getParentNotifications()];
+  return subagentFamily(sessionId, runs).size > 1;
+}
+
+/** `sessionId` and every session under it, at any depth, by the rows' direct parents. */
+function subagentFamily(sessionId: string, runs: readonly Pick<SubagentRunInfo, "sessionId" | "parentSessionId">[]): Set<string> {
   const family = new Set([sessionId]);
   for (let grew = true; grew;) {
     grew = false;
@@ -175,7 +189,40 @@ export function hasUnsettledSubagentRun(sessionId: string): boolean {
       grew = true;
     }
   }
-  return family.size > 1;
+  return family;
+}
+
+/**
+ * The run map and the parent notifications for the debug panel: every row, or with a session id
+ * the rows under it at any depth (the family `hasUnsettledSubagentRun()` walks). States, flags and
+ * times only, never a task, a result, an error or a path. It reads the tables as they are: nothing
+ * is created, cancelled or aborted.
+ */
+export function subagentDebugSnapshot(sessionId?: string): { runs: DebugSubagentRun[]; notifications: DebugParentNotification[] } {
+  const stored = [...(globalThis.__piSubagentRuns?.values() ?? [])];
+  const pending = [...(globalThis.__piSubagentParentNotifications ?? [])];
+  const family = sessionId === undefined
+    ? undefined
+    : subagentFamily(sessionId, [...stored.map((entry) => entry.run), ...pending]);
+  const under = (row: Pick<SubagentRunInfo, "parentSessionId">) => !family || family.has(row.parentSessionId);
+  return {
+    runs: stored.filter((entry) => under(entry.run)).map((entry) => ({
+      sessionId: entry.run.sessionId,
+      parentSessionId: entry.run.parentSessionId,
+      status: typeof entry.run.status === "string" ? entry.run.status : "unknown",
+      profile: typeof entry.run.profile === "string" && entry.run.profile ? entry.run.profile : null,
+      background: entry.run.runInBackground === true,
+      resumed: entry.run.resumed === true,
+      dispatchedAt: typeof entry.dispatchedAt === "number" ? entry.dispatchedAt : null,
+      abortRequested: entry.abortRequested === true,
+      mcpWaiting: Boolean(entry.mcpWait),
+    })),
+    notifications: pending.filter(under).map((row) => ({
+      sessionId: row.sessionId,
+      parentSessionId: row.parentSessionId,
+      since: typeof row.since === "number" ? row.since : null,
+    })),
+  };
 }
 
 function getSubagentQueue(): SubagentQueue<SubagentRunInfo> {
@@ -551,6 +598,7 @@ export function createSubagentController(
         run: initialRun,
         completion,
         abortRequested: false,
+        dispatchedAt: Date.now(),
       };
       getSubagentRuns().set(initialRun.sessionId, stored);
       request.onUpdate?.(initialRun);
@@ -752,7 +800,7 @@ export function createSubagentController(
     const manager = wrapper.inner.sessionManager;
     let resolveCompletion!: (run: SubagentRunInfo) => void;
     const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
-    const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false };
+    const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false, dispatchedAt: Date.now() };
     getSubagentRuns().set(request.sessionId, stored);
     request.onUpdate?.(initialRun);
     dependencies.invalidateSessionList();
@@ -856,7 +904,7 @@ export function createSubagentController(
   }
 
   async function notifyParent(run: SubagentRunInfo): Promise<void> {
-    const pending = { sessionId: run.sessionId, parentSessionId: run.parentSessionId };
+    const pending = { sessionId: run.sessionId, parentSessionId: run.parentSessionId, since: Date.now() };
     getParentNotifications().add(pending);
     try {
       await deliverParentNotification(run);

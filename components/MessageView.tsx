@@ -2237,6 +2237,7 @@ function formatUsage(usage: {
 }
 
 function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
+  const { t } = useI18n();
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
@@ -2300,14 +2301,14 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               disabled={loadingFull}
               style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
             >
-              {loadingFull ? "loading…" : "view full output"}
+              {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
             </button>
           )}
           <a
             href={`${fullOutputUrl}&download=1`}
             style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
-            download full output
+            {t("chat.downloadFullOutput")}
           </a>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>

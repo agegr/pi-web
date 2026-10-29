@@ -21,6 +21,7 @@ import {
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { fileVersion, fileVersionChanged } from "@/lib/file-version";
 import { HIDDEN_PAGE_GRACE_MS, usePageHiddenFor } from "@/hooks/usePageHidden";
+import { trackEventSource } from "@/lib/page-debug";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
@@ -503,7 +504,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
         });
     };
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
 
     es.addEventListener("connected", () => {
@@ -604,7 +605,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
               const img = e.currentTarget;
               setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
             }}
-            onError={() => setError("Failed to load image")}
+            onError={() => setError(t("files.imageLoadFailed"))}
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
@@ -683,7 +684,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
         });
     };
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
 
     es.addEventListener("connected", () => {
@@ -778,7 +779,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
             preload="metadata"
             src={src}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-            onError={() => setError("Failed to load audio")}
+            onError={() => setError(t("files.audioLoadFailed"))}
             style={{ width: "100%" }}
           />
         </div>
@@ -844,7 +845,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
         });
     };
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
 
     es.addEventListener("connected", () => {
@@ -941,7 +942,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
             preload="metadata"
             src={src}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-            onError={() => setError("Failed to load video")}
+            onError={() => setError(t("files.videoLoadFailed"))}
             style={{ maxWidth: "100%", maxHeight: "100%" }}
           />
         </div>
@@ -1037,7 +1038,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
         });
     };
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
 
     es.addEventListener("connected", () => {
@@ -1359,7 +1360,7 @@ function TextFileViewer({
       void fetchGitDiff(filePath);
     };
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
 
     es.addEventListener("connected", () => {

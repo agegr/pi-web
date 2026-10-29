@@ -394,7 +394,6 @@ html.dark {
 @supports (animation-timeline: scroll()) {
   .session-tree-scroll,
   .sidebar-files-scroll,
-  .markdown-code-block > pre,
   .markdown-table-wrap {
     animation-name: scroll-fade-start, scroll-fade-end;
     animation-duration: auto;
@@ -417,8 +416,7 @@ html.dark {
     mask-size: calc(100% - var(--scroll-fade-gutter)) 100%, var(--scroll-fade-gutter) 100%;
     mask-position: left top, right top;
   }
-  /* Code and tables that scroll sideways. */
-  .markdown-code-block > pre,
+  /* Tables that scroll sideways (code fences wrap instead). */
   .markdown-table-wrap {
     --scroll-fade-size: 28px;
     animation-timeline: scroll(self inline);
@@ -1417,6 +1415,25 @@ pre, code {
   overflow: hidden;
   background: var(--bg);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 42%, transparent);
+}
+/* Code fences wrap long lines, as pi's TUI does: a line is a row of its number
+   and its text (CodeBlock's renderer), so a wrapped line goes on under its
+   text, and `anywhere` breaks a URL or path that has no space to break at. */
+.markdown-code-line {
+  display: flex;
+}
+/* A zero basis: an `auto` one measures every line's unwrapped width first,
+   which nearly doubled the layout of a reply's fences. */
+.markdown-code-line-text {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* An extension dialog measures its fences unwrapped (ChatWindow), so it still
+   grows to show them whole where the screen allows. */
+.extension-dialog-measuring .markdown-code-line-text {
+  white-space: pre;
 }
 .markdown-code-header {
   padding: 5px 10px;
