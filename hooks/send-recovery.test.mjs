@@ -19,6 +19,7 @@ const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: 
 const { renderHook } = await import(pathToFileURL(shimPath).href);
 const { useAgentSession } = await jiti.import("./useAgentSession.ts");
 const { clearDraft, getDraft, setDraft } = await jiti.import("@/lib/draft-store");
+const { deleteSessionViewSnapshot, getSessionViewSnapshot } = await jiti.import("@/lib/session-view-cache");
 
 globalThis.document ??= Object.assign(new EventTarget(), { visibilityState: "visible" });
 globalThis.window ??= new EventTarget();
@@ -75,7 +76,10 @@ async function setup({ fresh = false, context } = {}) {
     if (url.startsWith(`/api/sessions/${sid}/context?`)) return json({ context: { ...server.branchContext, oldestEntryId: null, hasMore: false } });
     if (url.startsWith(`/api/sessions/${sid}?`)) {
       if (server.readsDown) throw new TypeError("Failed to fetch");
-      return json({ filePath: `/${sid}.jsonl`, leafId: null, tree: [], treeFormat: "summary", context: { ...server.context, oldestEntryId: null, hasMore: false } });
+      // The revision follows the file, as the server's: a prompt that never
+      // arrived leaves it unchanged, and the hook then keeps its view's messages.
+      const snapshotRevision = `r:${server.context.entryIds.join(",")}`;
+      return json({ sessionId: sid, filePath: `/${sid}.jsonl`, leafId: null, tree: [], treeFormat: "summary", snapshotRevision, context: { ...server.context, oldestEntryId: null, hasMore: false } });
     }
     if (url === `/api/sessions/${sid}/state`) return json(state());
     if (url === `/api/agent/${sid}` && init.body) {
@@ -126,7 +130,10 @@ async function setup({ fresh = false, context } = {}) {
     hook.flush();
   };
   const notices = () => hook.result.notices.map(({ type, message }) => [type, message]);
-  const bubble = () => hook.result.messages.some((message) => message.role === "user" && JSON.stringify(message.content).includes("first submission"));
+  const isBubble = (message) => message.role === "user" && JSON.stringify(message.content).includes("first submission");
+  const bubble = () => hook.result.messages.some(isBubble);
+  // The session's cached view, which a read of an unchanged file keeps.
+  const cachedBubble = () => Boolean(getSessionViewSnapshot(sid)?.messages.some(isBubble));
   let unmounted = false;
   const unmount = () => { if (!unmounted) { unmounted = true; hook.unmount(); } };
   const teardown = () => {
@@ -134,8 +141,10 @@ async function setup({ fresh = false, context } = {}) {
     for (const source of sources) source.close();
     mock.timers.reset();
     for (const key of ["A", "B", "s1", "new:draft", "parked-new:/project"]) clearDraft(key);
+    // A cached view would open the next test's session on this one's messages.
+    for (const key of ["A", "s1"]) deleteSessionViewSnapshot(key);
   };
-  return { hook, sid, server, prompts, connect, tick, emit, answer, notices, bubble, unmount, teardown };
+  return { hook, sid, server, prompts, connect, tick, emit, answer, notices, bubble, cachedBubble, unmount, teardown };
 }
 
 async function withSetup(options, body) {
@@ -176,7 +185,8 @@ for (const outcome of ["network", "proxy503"]) {
       await env.tick(1_000);
       assert.equal(getDraft("A").value, "first submission\n\nsecond draft");
       assert.deepEqual(getDraft("A").images, restoredImages);
-      assert.ok(!env.bubble(), "the session read drops the bubble");
+      assert.ok(!env.bubble(), "the bubble goes, though the read found the file unchanged");
+      assert.ok(!env.cachedBubble(), "and the cached view loses it");
       assert.deepEqual(env.notices(), [["error", "chat.sendNotReceived"]]);
 
       await env.tick(30_000);
@@ -251,6 +261,7 @@ test("normal send: switching away with the send unsettled gives the text back to
     env.unmount();
     assert.equal(getDraft("A").value, "first submission\n\nsecond draft");
     assert.deepEqual(getDraft("A").images, restoredImages);
+    assert.ok(!env.cachedBubble(), "coming back shows no bubble beside the restored text");
   });
 });
 
@@ -403,6 +414,7 @@ test("normal send: a session read that fails once the server is idle gives the t
     await env.tick(1_000);
     assert.equal(getDraft("A").value, "first submission\n\nsecond draft");
     assert.deepEqual(env.notices(), [["warning", "chat.sendUnconfirmed"]]);
+    assert.ok(env.bubble(), "with no read, the view is stale and keeps the bubble");
   });
 });
 
@@ -424,11 +436,13 @@ test("normal send: switching away while the request is out gives the text back t
   await withSetup({}, async (env) => {
     const { sending } = await sendNormal(env);
     env.unmount();
+    assert.ok(env.cachedBubble(), "the view was cached with the request still out");
     await env.answer("network");
     await sending;
     await settle();
     assert.equal(getDraft("A").value, "first submission\n\nsecond draft");
     assert.deepEqual(getDraft("A").images, restoredImages);
+    assert.ok(!env.cachedBubble(), "giving the text back takes the bubble out of the cached view");
   });
 });
 

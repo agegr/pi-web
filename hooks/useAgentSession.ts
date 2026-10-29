@@ -127,6 +127,12 @@ export interface QueuedMessages {
   followUp: string[];
 }
 
+/** The messages without that one (by identity, its last occurrence); the same array when it is absent. */
+function withoutMessage(messages: AgentMessage[], message: AgentMessage): AgentMessage[] {
+  const index = messages.lastIndexOf(message);
+  return index === -1 ? messages : [...messages.slice(0, index), ...messages.slice(index + 1)];
+}
+
 function countUserMessages(messages: readonly AgentMessage[], key: string): number {
   return messages.reduce((count, message) => (
     message.role === "user" && userMessageKey(message) === key ? count + 1 : count
@@ -390,6 +396,8 @@ type UnconfirmedSend = {
   lastEntryIdAtSend: string | null;
   /** User messages with the same text the view already had after that entry (sent before, not saved yet when read). */
   sameTextAfterSend: number;
+  /** The optimistic bubble, dropped with its text's return once a read shows the prompt is not there. */
+  bubble: AgentMessage;
   /** userMessageKey() of the optimistic bubble: the user message the prompt becomes. */
   key: string;
   /** A slash command: an extension command or template need not become that user message. */
@@ -1398,6 +1406,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // more than its window), failed, or a command, whose prompt need not become
   // that user message. Any of the run's events clears the record first
   // (markPromptLanded()).
+  // The text is back in the composer and the prompt is not in the transcript:
+  // its bubble goes, from the view and from the session's cached view. A read of
+  // a file the prompt never changed keeps the view's messages (the snapshot
+  // revision is the same), so it would never drop the bubble itself.
+  const dropUnconfirmedBubble = useCallback((pending: UnconfirmedSend) => {
+    if (sessionHookMountedRef.current) setMessages((prev) => withoutMessage(prev, pending.bubble));
+    const snapshot = getSessionViewSnapshot(pending.sid);
+    if (snapshot?.messages.includes(pending.bubble)) {
+      setSessionViewSnapshot({ ...snapshot, messages: withoutMessage(snapshot.messages, pending.bubble) });
+    }
+  }, []);
   const settleUnconfirmedSend = useCallback((sid: string, runId: number, readSeqBefore: number) => {
     const pending = unconfirmedSendRef.current;
     if (!pending || pending.runId !== runId || pending.sid !== sid) return;
@@ -1413,16 +1432,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sameText > pending.sameTextAfterSend) return;
     }
     restoreSubmission(pending.message, pending.images, pending.draftKey);
+    // A failed read leaves the view stale: the bubble stays with "could not confirm".
+    if (reread) dropUnconfirmedBubble(pending);
     addNotice(reread && !pending.command && start === reread.entryIds.length
       ? { type: "error", message: translate("chat.sendNotReceived") }
       : { type: "warning", message: translate("chat.sendUnconfirmed") });
-  }, [addNotice, restoreSubmission, translate]);
+  }, [addNotice, dropUnconfirmedBubble, restoreSubmission, translate]);
   // The hook unmounts (a session switch) with a send still unconfirmed: nothing
   // here will settle it, so its text goes back unless one of the run's events
   // cleared the record. With the stream closed, a prompt that did arrive is
   // given back too, without a notice. A fresh composer's goes to its cwd's
   // parked draft: its session has no row and no draft of its own until a
-  // prompt reaches it (getRpcSessionInfos()).
+  // prompt reaches it (getRpcSessionInfos()). The cached view loses the bubble:
+  // coming back, a read of an unchanged file keeps that view, and a changed
+  // one replaces it with the prompt if it did arrive.
   const releaseUnconfirmedSend = useCallback(() => {
     const pending = unconfirmedSendRef.current;
     unconfirmedSendRef.current = null;
@@ -1433,7 +1456,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } else {
       restoreSubmission(pending.message, pending.images, pending.draftKey);
     }
-  }, [restoreSubmission]);
+    dropUnconfirmedBubble(pending);
+  }, [dropUnconfirmedBubble, restoreSubmission]);
   const releaseUnconfirmedSendRef = useRef(releaseUnconfirmedSend);
   releaseUnconfirmedSendRef.current = releaseUnconfirmedSend;
 
@@ -2175,6 +2199,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             parkedDraftKey: isNew && newSessionCwd ? parkedNewSessionDraftKey(newSessionCwd) : null,
             lastEntryIdAtSend,
             sameTextAfterSend,
+            bubble: userMsg,
             key: userKey,
             command: isSlashCommandPrompt,
           };
@@ -2184,12 +2209,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       rpcPromptPendingRef.current = false;
-      setMessages((prev) => {
-        const optimisticIndex = prev.lastIndexOf(userMsg);
-        return optimisticIndex === -1
-          ? prev
-          : [...prev.slice(0, optimisticIndex), ...prev.slice(optimisticIndex + 1)];
-      });
+      setMessages((prev) => withoutMessage(prev, userMsg));
       // A folder that no longer exists never reached the model: the composer's
       // banner names it (translated) instead of the server's English notice.
       if (e instanceof AgentCommandError && e.missingCwd) setPromptMissingCwd(e.missingCwd);
@@ -3026,7 +3046,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     return () => {
       sessionHookMountedRef.current = false;
-      releaseUnconfirmedSendRef.current();
       const abandonedDraftKey = isNew ? newSessionDraftKey : null;
       if (abandonedDraftKey) {
         queueMicrotask(() => {
@@ -3065,6 +3084,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           deleteSessionViewSnapshot(sid);
         }
       }
+      // After the snapshot above, so the bubble of a send given back leaves it.
+      releaseUnconfirmedSendRef.current();
       if (liveFollowFrameRef.current !== null) {
         cancelAnimationFrame(liveFollowFrameRef.current);
         liveFollowFrameRef.current = null;
