@@ -812,6 +812,15 @@ export function AppShell() {
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
+    // The fresh composer takes the caret once it renders (#1313), unless a
+    // phone would raise the keyboard for it. A dialog still open over the
+    // page (Ctrl+Alt+N under Settings) keeps it.
+    if (!isMobile) {
+      requestAnimationFrame(() => {
+        if (document.activeElement?.closest("[aria-modal='true']")) return;
+        chatInputRef.current?.focus();
+      });
+    }
   }, [invalidateWorkspaceRestore, router, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)

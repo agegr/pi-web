@@ -143,6 +143,24 @@ export interface ProviderRenameTracking {
 }
 
 /**
+ * Saved provider id that the current draft provider `name` came from, or null
+ * when `name` was added since the last save.
+ *
+ * Once a saved id `from` is in `renames` (`from -> to`), that saved provider
+ * lives at `to`, not at `from`: a provider later given the freed id `from` is
+ * not the original `from`.
+ */
+function savedProviderOf(
+  { renames, savedProviders }: Pick<ProviderRenameTracking, "renames" | "savedProviders">,
+  name: string,
+): string | null {
+  for (const [from, to] of renames) {
+    if (to === name) return from;
+  }
+  return !renames.has(name) && savedProviders.has(name) ? name : null;
+}
+
+/**
  * Moves a provider to a new id, keeping its place in models.json, and records
  * the move so the enabledModels entries can follow it on save.
  *
@@ -161,15 +179,10 @@ export function renameProviderEntry<T extends ModelsConfigDraft>(
   if (oldName === newName) return config;
   if (Object.hasOwn(providers, newName)) return null;
 
-  const { renames, savedProviders, slots } = tracking;
-  let original = oldName;
-  for (const [from, to] of renames) {
-    if (to !== oldName) continue;
-    original = from;
-    break;
-  }
+  const { renames, slots } = tracking;
+  const original = savedProviderOf(tracking, oldName);
   if (original === newName) renames.delete(original);
-  else if (savedProviders.has(original)) renames.set(original, newName);
+  else if (original !== null) renames.set(original, newName);
   const saved = slots.get(oldName);
   if (saved) {
     slots.delete(oldName);
@@ -180,6 +193,28 @@ export function renameProviderEntry<T extends ModelsConfigDraft>(
   const index = entries.findIndex(([name]) => name === oldName);
   entries[index] = [newName, entries[index][1]];
   return { ...config, providers: Object.fromEntries(entries) };
+}
+
+/**
+ * Removes a provider from `config` and forgets any unsaved rename or model-slot
+ * tracking for it, so saving after a rename-then-delete does not rewrite
+ * `enabledModels` to the deleted id or mistake a new provider with the old id
+ * for the deleted one.
+ */
+export function deleteProviderEntry<T extends ModelsConfigDraft>(
+  config: T,
+  tracking: ProviderRenameTracking,
+  name: string,
+): T {
+  const original = savedProviderOf(tracking, name);
+  if (original !== null) {
+    tracking.renames.delete(original);
+    tracking.savedProviders.delete(original);
+  }
+  tracking.slots.delete(name);
+  const providers = { ...(config.providers ?? {}) };
+  delete providers[name];
+  return { ...config, providers };
 }
 
 /** Add provider's search: a provider matches by its id or its shown name, case-insensitive. */

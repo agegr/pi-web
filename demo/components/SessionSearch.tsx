@@ -53,7 +53,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
       {response?.truncated && (
         <div role="status" className="px-3 pb-2 text-xs text-text-muted">{t("sidebar.sessionSearchPartial")}</div>
       )}
-      {response?.results.map(({ session, entryId, blockIndex, before, match, after }) => (
+      {response?.results.map(({ session, entryId, blockIndex, titleMatch, before, match, after }) => (
         <button
           key={session.id}
           type="button"
@@ -61,14 +61,18 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           aria-current={session.id === selectedSessionId ? "true" : undefined}
           className={`block w-full cursor-pointer border-b border-border px-3 py-2 text-left hover:bg-bg-hover focus-visible:outline-2 focus-visible:outline-accent ${session.id === selectedSessionId ? "bg-bg-selected" : ""}`}
         >
-          <span className="block truncate text-xs font-medium text-text">{session.name || session.firstMessage}</span>
+          <span className="block truncate text-xs font-medium text-text">
+            {titleMatch ? <>{before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}</> : session.name || session.firstMessage}
+          </span>
           <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-text-dim">
             <span className="min-w-0 flex-1 truncate" title={session.cwd}>{session.cwd}</span>
             <span className="shrink-0">{formatRelativeTime(session.modified, locale)}</span>
           </span>
-          <span className="mt-1 block text-xs leading-relaxed wrap-anywhere text-text-muted">
-            {before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}
-          </span>
+          {!titleMatch && (
+            <span className="mt-1 block text-xs leading-relaxed wrap-anywhere text-text-muted">
+              {before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}
+            </span>
+          )}
         </button>
       ))}
     </div>

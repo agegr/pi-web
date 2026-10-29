@@ -28,8 +28,15 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
-import { AgentEventConnection } from "@/lib/agent-event-connection";
-import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
+import {
+  AgentEventConnection,
+  canReleaseHiddenEventStream,
+  SESSION_LEASE_TIMEOUT_MS,
+  sessionLeaseShowsActivity,
+  type SessionLeaseReply,
+} from "@/lib/agent-event-connection";
+import { HIDDEN_PAGE_GRACE_MS } from "@/hooks/usePageHidden";
+import { AGENT_EVENT_HEARTBEAT_MS, isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
@@ -96,6 +103,8 @@ interface LastAssistantTextResponse {
 type AgentStateResponse = {
   model?: { provider: string; id: string };
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  /** Active time over the live wrapper's entries (the snapshot carries the same field). */
+  totalActiveMs?: number;
   systemPrompt?: string;
   thinkingLevel?: string;
   isStreaming?: boolean;
@@ -235,6 +244,15 @@ const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
 const SESSION_LEASE_RENEW_INTERVAL_MS = 30_000;
+// A ready stream silent for two and a half heartbeats is dead (AgentEventConnection reconnects).
+const EVENT_STREAM_STALE_MS = AGENT_EVENT_HEARTBEAT_MS * 2.5;
+// This page's id for the lease that keeps its selected session alive (holdSessionLivenessLease()).
+let pageLeaseHolder: string | null = null;
+type SessionLeaseOutcome = SessionLeaseReply | "unanswered" | null;
+function sessionLeaseUrl(sid: string): string {
+  pageLeaseHolder ??= `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `/api/agent/${encodeURIComponent(sid)}/lease?holder=${pageLeaseHolder}`;
+}
 // Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
@@ -383,6 +401,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [liveThinkingLevel, setLiveThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
+  // Active time read from the live state, with the session it belongs to: the
+  // panel's snapshot is older than the transcript on screen, and this is what
+  // keeps the value current while a run appends entries (#1334).
+  const [liveTotalActiveMs, setLiveTotalActiveMs] = useState<{ sessionId: string; value: number } | null>(null);
   const contextUsageRequestIdRef = useRef(0);
   // Highest request id whose reply was applied. A reply applies only when it
   // is newer, so a failed newer read never discards an older good one.
@@ -414,6 +436,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventStreamGraceGenerationRef = useRef(0);
   const eventStreamGraceActiveRef = useRef(false);
+  // True while a hidden page has let go of the selected session's idle stream
+  // (HTTP/1.1 allows a browser six connections per origin, shared by its tabs).
+  const eventStreamReleasedRef = useRef(false);
+  // Moves on each time a released stream is opened again, so the release
+  // effect arms its grace anew for a page still hidden.
+  const [eventStreamReattachCount, setEventStreamReattachCount] = useState(0);
+  // The lease request in flight: the renewal tick and the release check share it.
+  const leaseRequestRef = useRef<{ sid: string; promise: Promise<SessionLeaseOutcome> } | null>(null);
+  const reattachEventStreamRef = useRef<(sid: string) => void>(() => {});
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   // False while the session carries no tool selection of its own, so its loadout
@@ -486,11 +517,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         && (
           agentRunningRef.current
           || eventStreamGraceActiveRef.current
-          || sessionPropIdRef.current === sid
+          || (sessionPropIdRef.current === sid && !eventStreamReleasedRef.current)
         )
       ),
       readinessTimeoutMs: EVENT_STREAM_READY_TIMEOUT_MS,
       reconnectDelayMs: EVENT_STREAM_RECONNECT_DELAY_MS,
+      staleAfterMs: EVENT_STREAM_STALE_MS,
       onUnexpectedError: (error) => {
         console.error("Failed to maintain the agent event stream:", error);
       },
@@ -599,10 +631,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const cancelEdit = useCallback(() => setEdit(null), [setEdit]);
 
   const sessionStats = useMemo(() => {
+    // Active time is a monotone sum over the session's entries, so of the two
+    // readings the larger one is the newer one: the live state leads while a run
+    // appends entries behind the panel's snapshot, and the snapshot leads after
+    // a compaction or a reload, which install a newer one without reading the
+    // state (#1334).
+    const snapshotActiveMs = data?.totalActiveMs;
+    const liveActiveMs = liveTotalActiveMs && liveTotalActiveMs.sessionId === data?.sessionId
+      ? liveTotalActiveMs.value
+      : undefined;
+    const totalActiveMs = snapshotActiveMs === undefined && liveActiveMs === undefined
+      ? undefined
+      : Math.max(snapshotActiveMs ?? 0, liveActiveMs ?? 0);
     if (sessionStatsOverride) {
       return {
         ...sessionStatsOverride,
-        totalActiveMs: data?.totalActiveMs,
+        totalActiveMs,
         ...(contextUsage ? { contextUsage } : {}),
       };
     }
@@ -614,16 +658,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       sessionId: sessionIdRef.current ?? session?.id ?? "",
       sessionName: session?.name,
       ...stats,
-      totalActiveMs: data?.totalActiveMs,
+      totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, liveTotalActiveMs, data?.sessionId, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
 
-  const applyContextUsage = useCallback((state: AgentStateResponse | undefined, sid: string, runId: number, requestId: number) => {
+  const applyLiveUsage = useCallback((state: AgentStateResponse | undefined, sid: string, runId: number, requestId: number) => {
     if (!sessionHookMountedRef.current || sessionIdRef.current !== sid
       || promptRunIdRef.current !== runId || requestId <= contextUsageAppliedIdRef.current) return;
     contextUsageAppliedIdRef.current = requestId;
     if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
+    if (typeof state?.totalActiveMs === "number") setLiveTotalActiveMs({ sessionId: sid, value: state.totalActiveMs });
   }, []);
 
   const refreshContextUsage = useCallback(async (sid: string) => {
@@ -633,11 +678,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(agentStatusUrl(sid));
       if (!res.ok) return;
       const data = await res.json() as { state?: AgentStateResponse };
-      applyContextUsage(data.state, sid, runId, requestId);
+      applyLiveUsage(data.state, sid, runId, requestId);
     } catch {
       // A later message or the running-state poll retries the usage read.
     }
-  }, [applyContextUsage]);
+  }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
     // Single-flight: concurrent reads for the same session (mount + SSE settle +
@@ -771,7 +816,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const liveState = agentState.state;
         syncLiveModel(liveState);
         if (liveState) {
-          applyContextUsage(liveState, sid, runId, usageRequestId);
+          applyLiveUsage(liveState, sid, runId, usageRequestId);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
@@ -797,7 +842,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
     return await flight;
-  }, [applyContextUsage, setToolPresetState, syncLiveModel]);
+  }, [applyLiveUsage, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -1042,8 +1087,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current!.maintain(sid);
   }, []);
 
-  // Keep the selected session warm even while its agent is idle. The SSE lease
-  // is renewed separately below and expires if the browser disappears.
+  // Keep the selected session's stream open even while its agent is idle. The
+  // session itself stays alive on the page's lease (below), which expires if
+  // the browser disappears.
   useEffect(() => {
     const sid = session?.id;
     if (!sid) return;
@@ -1053,55 +1099,98 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // so without re-asserting it here shouldMaintain() refuses the connection
     // and the selected session never opens its event stream.
     sessionHookMountedRef.current = true;
+    eventStreamReleasedRef.current = false;
     maintainEventsConnected(sid);
     return () => {
       if (sessionIdRef.current === sid) eventConnectionRef.current?.close();
     };
   }, [maintainEventsConnected, session?.id]);
 
+  // One lease request (holdSessionLivenessLease()): it keeps the session alive
+  // and reports what is under way there (SessionLeaseReply). A reply that does
+  // not come within SESSION_LEASE_TIMEOUT_MS, or no network, is "unanswered";
+  // an error reply is null.
+  const requestLease = useCallback((sid: string): Promise<SessionLeaseOutcome> => {
+    const pending = leaseRequestRef.current;
+    if (pending?.sid === sid) return pending.promise;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SESSION_LEASE_TIMEOUT_MS);
+    const request: { sid: string; promise: Promise<SessionLeaseOutcome> } = { sid, promise: Promise.resolve(null) };
+    request.promise = (async (): Promise<SessionLeaseOutcome> => {
+      try {
+        const response = await fetch(sessionLeaseUrl(sid), { method: "POST", cache: "no-store", signal: controller.signal });
+        return response.ok ? await response.json() as SessionLeaseReply : null;
+      } catch (error) {
+        // Timed out (queued behind open streams) or no network. A body that is no
+        // JSON counts as an error reply.
+        return controller.signal.aborted || error instanceof TypeError ? "unanswered" : null;
+      } finally {
+        clearTimeout(timeout);
+        if (leaseRequestRef.current === request) leaseRequestRef.current = null;
+      }
+    })();
+    leaseRequestRef.current = request;
+    return request.promise;
+  }, []);
+
+  // A page hidden for HIDDEN_PAGE_GRACE_MS lets go of the selected session's
+  // stream while nothing needs it (#1283): each one holds a browser connection,
+  // and over HTTP/1.1 a few background tabs exhaust the six per origin, so every
+  // other request (Settings, message sync) queues in the browser until a tab
+  // closes. A run, a `!` command, a compaction or an open extension dialog in the
+  // page keeps it without asking. Otherwise the grace ends with a lease request,
+  // and the stream closes only if its reply shows nothing under way
+  // (canReleaseHiddenEventStream(): a run another tab started, an extension
+  // dialog, a subagent whose end starts a turn here); the check repeats each
+  // grace while hidden. A run that settles while hidden starts the grace again,
+  // which also covers extension follow-ups right after prompt_done.
+  const eventStreamIdle = !agentRunning && !bashRunning && !isCompacting
+    && extensionDialogs.length === 0 && extensionCustomUis.length === 0;
   useEffect(() => {
     const sid = session?.id;
-    if (!sid) return;
+    if (!sid || !eventStreamIdle) return;
     let disposed = false;
-    let renewing = false;
-
-    const renewLease = async () => {
-      if (disposed || renewing) return;
-      renewing = true;
-      try {
-        const response = await fetch(`/api/agent/${encodeURIComponent(sid)}/lease`, {
-          method: "POST",
-          cache: "no-store",
-        });
-        if (!response.ok || disposed) return;
-        const result = await response.json() as { renewed?: number };
-        if (
-          !disposed
-          && result.renewed === 0
-          && sessionIdRef.current === sid
-          && sessionPropIdRef.current === sid
-        ) {
-          closeEvents();
-          maintainEventsConnected(sid);
-        }
-      } catch {
-        // Retry on the next interval; the SSE connection remains the primary path.
-      } finally {
-        renewing = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const releasable = () => (
+      !disposed
+      && document.visibilityState === "hidden"
+      && !eventStreamReleasedRef.current
+      && sessionIdRef.current === sid
+      && sessionPropIdRef.current === sid
+      && !agentRunningRef.current
+      && !bashRunningRef.current
+    );
+    const check = async () => {
+      timer = null;
+      if (!releasable()) return;
+      const reply = await requestLease(sid);
+      if (!releasable()) return;
+      if (!canReleaseHiddenEventStream(reply)) {
+        arm();
+        return;
+      }
+      eventStreamReleasedRef.current = true;
+      closeEvents();
+    };
+    const arm = () => {
+      timer ??= setTimeout(() => void check(), HIDDEN_PAGE_GRACE_MS);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        arm();
+      } else if (timer) {
+        clearTimeout(timer);
+        timer = null;
       }
     };
-
-    const interval = setInterval(() => void renewLease(), SESSION_LEASE_RENEW_INTERVAL_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void renewLease();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    if (document.visibilityState === "hidden") arm();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       disposed = true;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [closeEvents, maintainEventsConnected, session?.id]);
+  }, [closeEvents, eventStreamIdle, eventStreamReattachCount, requestLease, session?.id]);
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
@@ -1371,7 +1460,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // flight) — everything in it is stale, drop it.
       if (sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
       const state = data.state;
-      applyContextUsage(state, sid, runId, usageRequestId);
+      applyLiveUsage(state, sid, runId, usageRequestId);
       syncLiveModel(state);
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
@@ -1403,7 +1492,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [applyContextUsage, finishPromptWithoutStream, syncLiveModel]);
+  }, [applyLiveUsage, finishPromptWithoutStream, syncLiveModel]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1485,7 +1574,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             .then((d: { state?: AgentStateResponse } | null) => {
               if (!d || !sessionHookMountedRef.current || sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
               syncLiveModel(d.state);
-              applyContextUsage(d.state, sid, runId, usageRequestId);
+              applyLiveUsage(d.state, sid, runId, usageRequestId);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
@@ -1724,7 +1813,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyContextUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -2522,6 +2611,88 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [scrollToBottom]);
 
+  // What a session read with its state (`loadSession(…, includeState)`) says is
+  // under way on the server: a run or command, a `!` command, a compaction. The
+  // mount and a hidden page's return show it the same way.
+  const applyLoadedAgentState = useCallback((sid: string, loadedAgentState: unknown) => {
+    const agentState = loadedAgentState as { running: boolean; state?: AgentStateResponse } | null;
+    if (agentState?.running) {
+      loadTools(sid);
+      if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
+        sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
+        rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
+        agentRunningRef.current = true;
+        setAgentRunning(true);
+        setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+        dispatch({ type: "resume" });
+        if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
+          void waitForPromptSettlement(sid);
+        }
+      }
+      if (agentState.state?.isBashRunning) {
+        bashRunningRef.current = true;
+        setBashRunning(true);
+        void waitForBashSettlement(sid);
+      }
+    }
+    if (agentState?.state) {
+      if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
+      if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
+      if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
+      if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
+      if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+    }
+  }, [dispatch, loadTools, waitForBashSettlement, waitForPromptSettlement]);
+
+  // Open a released stream again and read what it missed (a run another tab, a
+  // device or an extension started or finished, statuses), shown as the mount
+  // shows it. `connected` resumes a streaming run and replays pending extension
+  // dialogs, so their completion and attention notifications reach the page as
+  // if it had never let go. Nothing is resent.
+  reattachEventStreamRef.current = (sid: string) => {
+    if (!eventStreamReleasedRef.current) return;
+    eventStreamReleasedRef.current = false;
+    setEventStreamReattachCount((count) => count + 1);
+    if (!sessionHookMountedRef.current || sessionIdRef.current !== sid || sessionPropIdRef.current !== sid) return;
+    maintainEventsConnected(sid);
+    void loadSession(sid, false, true).then((loadedAgentState) => {
+      if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
+      applyLoadedAgentState(sid, loadedAgentState);
+    });
+  };
+
+  // The page keeps its selected session alive with a lease of its own, renewed
+  // every SESSION_LEASE_RENEW_INTERVAL_MS whether or not it holds the event
+  // stream: a hidden page lets go of the stream (#1283), not of the session, so
+  // the idle wrapper and an extension's timer in it live on. A released page
+  // reads each reply and opens the stream again as soon as something is under
+  // way (sessionLeaseShowsActivity()); one that comes back opens it at once. A
+  // dead stream is the connection's heartbeat watchdog's to notice.
+  useEffect(() => {
+    const sid = session?.id;
+    if (!sid) return;
+    let disposed = false;
+    const renew = async () => {
+      const reply = await requestLease(sid);
+      if (disposed || document.visibilityState !== "hidden") return;
+      if (sessionLeaseShowsActivity(reply)) reattachEventStreamRef.current(sid);
+    };
+    void renew();
+    const interval = setInterval(() => void renew(), SESSION_LEASE_RENEW_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      reattachEventStreamRef.current(sid);
+      // A frozen background page renewed nothing; coming back renews at once.
+      void renew();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [requestLease, session?.id]);
+
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
@@ -2562,33 +2733,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setLoading(false);
       }
       loadSession(session.id, !cached, true, { force: true }).then((loadedAgentState) => {
-        const agentState = loadedAgentState as { running: boolean; state?: AgentStateResponse } | null;
-        if (agentState?.running) {
-          loadTools(session.id);
-          if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
-            sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
-            rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
-            agentRunningRef.current = true;
-            setAgentRunning(true);
-            setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
-            dispatch({ type: "resume" });
-            if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
-              void waitForPromptSettlement(session.id);
-            }
-          }
-          if (agentState.state?.isBashRunning) {
-            bashRunningRef.current = true;
-            setBashRunning(true);
-            void waitForBashSettlement(session.id);
-          }
-        }
-        if (agentState?.state) {
-          if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
-          if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
-          if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
-          if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
-          if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
-        }
+        applyLoadedAgentState(session.id, loadedAgentState);
       });
     }
     return () => {

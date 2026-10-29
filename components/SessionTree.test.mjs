@@ -548,7 +548,7 @@ test("headers lead with their chevron, and every row's text starts in one column
 });
 
 test("group headers draw nothing for a drag while idle", () => {
-  // Groups sit right on each other; one spacer before the footer.
+  // Three groups (the spacers between them render nothing), then the footer.
   const rows = [
     groupRow({}, { key: "/work/a", name: "a", pinned: true }),
     groupRow({}, { key: "/work/b", name: "b" }),

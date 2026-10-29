@@ -94,6 +94,7 @@ declare global {
   var __piSubagentRuns: Map<string, StoredSubagentExecution> | undefined;
   var __piSubagentQueue: SubagentQueue<SubagentRunInfo> | undefined;
   var __piSubagentConsumedResults: Map<string, string> | undefined;
+  var __piSubagentParentNotifications: Set<Pick<SubagentRunInfo, "sessionId" | "parentSessionId">> | undefined;
 }
 const SUBAGENT_CONTEXT_LIMIT = 50_000;
 const PARENT_IDLE_POLL_MS = 200;
@@ -146,6 +147,35 @@ async function prepareChildMcp(session: HostSession | void, stored: StoredSubage
 function getSubagentRuns(): Map<string, StoredSubagentExecution> {
   if (!globalThis.__piSubagentRuns) globalThis.__piSubagentRuns = new Map();
   return globalThis.__piSubagentRuns;
+}
+
+/**
+ * Background runs whose completion `notifyParent()` is still delivering: the run has left the
+ * run map, but the parent's turn starts only once the parent is ready and idle.
+ */
+function getParentNotifications(): Set<Pick<SubagentRunInfo, "sessionId" | "parentSessionId">> {
+  globalThis.__piSubagentParentNotifications ??= new Set();
+  return globalThis.__piSubagentParentNotifications;
+}
+
+/**
+ * Whether a subagent run under this session, at any depth, is still unsettled: its end can
+ * start a turn there (`notifyParent()`, `triggerTurn`). A run counts from dispatch until its
+ * result is written (the run map), then until its parent notification is delivered or fails.
+ * A hidden page keeps the session's event stream while this holds (#1283).
+ */
+export function hasUnsettledSubagentRun(sessionId: string): boolean {
+  const runs = [...[...getSubagentRuns().values()].map((stored) => stored.run), ...getParentNotifications()];
+  const family = new Set([sessionId]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const run of runs) {
+      if (!family.has(run.parentSessionId) || family.has(run.sessionId)) continue;
+      family.add(run.sessionId);
+      grew = true;
+    }
+  }
+  return family.size > 1;
 }
 
 function getSubagentQueue(): SubagentQueue<SubagentRunInfo> {
@@ -826,6 +856,16 @@ export function createSubagentController(
   }
 
   async function notifyParent(run: SubagentRunInfo): Promise<void> {
+    const pending = { sessionId: run.sessionId, parentSessionId: run.parentSessionId };
+    getParentNotifications().add(pending);
+    try {
+      await deliverParentNotification(run);
+    } finally {
+      getParentNotifications().delete(pending);
+    }
+  }
+
+  async function deliverParentNotification(run: SubagentRunInfo): Promise<void> {
     if (takeResultConsumed(run)) return;
     let parent = dependencies.getSession(run.parentSessionId);
     if (!parent?.isAlive()) {

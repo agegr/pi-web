@@ -12,6 +12,8 @@ export interface SessionSearchResult {
   session: SessionInfo;
   entryId?: string;
   blockIndex: number;
+  /** A title hit has no message entry to reveal. */
+  titleMatch?: boolean;
   before: string;
   match: string;
   after: string;
@@ -95,6 +97,23 @@ export async function searchSessionContents(
       stream.destroy();
     }
     if (!found && stream.bytesRead >= MAX_FILE_BYTES) response.truncated = true;
+    // Preserve message navigation when both body and title match. The catalogue
+    // already carries the displayed name (including session_info names), so a
+    // title hit is a fallback only when the transcript has no match.
+    if (!found && !signal.aborted && Date.now() < deadline) {
+      const title = session.name || session.firstMessage || "";
+      const titleHit = matcher.exec(title);
+      if (titleHit) {
+        response.results.push({
+          session,
+          blockIndex: 0,
+          titleMatch: true,
+          before: title.slice(0, titleHit.index),
+          match: titleHit[0],
+          after: title.slice(titleHit.index + titleHit[0].length),
+        });
+      }
+    }
   }
   return response;
 }
