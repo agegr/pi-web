@@ -33,6 +33,12 @@ export interface PatternResolution {
   pattern: string;
   /** `provider/modelId` references the pattern matches, in resolver order. */
   matched: string[];
+  /**
+   * Matches no available model but one of the full catalog: its provider has
+   * no usable credential right now. Signing in brings it back, so `prune`
+   * keeps it and it is not counted stale.
+   */
+  known?: boolean;
   /** Thinking level pinned by a `:level` suffix, when the pattern carries one. */
   pin?: string;
 }
@@ -64,9 +70,9 @@ export interface EnabledModelsState {
   /** `provider/modelId` → thinking level pinned by a `:level` pattern. */
   pins: Record<string, string>;
   /**
-   * Patterns that match no available model, so nothing here can tell what they
-   * were for — a provider without a usable credential, a renamed or deleted
-   * model, a typo, another machine's config. Preserved by every edit.
+   * Patterns that match no model of the catalog, available or not — a renamed
+   * or deleted model, a typo, another machine's config. Preserved by every
+   * edit but `prune`. A signed-out provider's entries are not listed here.
    */
   stalePatterns: string[];
 }
@@ -284,7 +290,9 @@ export function computeEnabledModelsState(input: EnabledModelsInput): EnabledMod
     allEnabled,
     enabled: allEnabled ? [...input.availableRefs] : enabled,
     pins,
-    stalePatterns: entries.filter((entry) => entry.matched.length === 0).map((entry) => entry.pattern),
+    stalePatterns: input.resolutions
+      .filter((resolution) => resolution.matched.length === 0 && !resolution.known)
+      .map((resolution) => resolution.pattern),
   };
 }
 
@@ -441,15 +449,17 @@ export function constrainProviderEntries(input: EnabledModelsInput): EnabledMode
 }
 
 /**
- * Drop the entries that match no available model.
+ * Drop the entries that match no model of the catalog.
  *
  * Every other operation preserves them, because an entry usually goes unmatched
- * for a reason that can reverse itself (a provider signed out, a catalog not
- * refreshed yet). This one is the user saying they are gone for good, so it is
- * the only way to clean up after a provider renamed its models.
+ * for a reason that can reverse itself (a catalog not refreshed yet). This one
+ * is the user saying they are gone for good, so it is the only way to clean up
+ * after a provider renamed its models. An entry of a signed-out provider
+ * (`known`) is kept: signing back in makes it match again.
  */
 export function pruneStaleEnabledModels(input: EnabledModelsInput): EnabledModelsEdit {
-  const kept = toEntries(input.resolutions).filter((entry) => entry.matched.length > 0);
+  const kept = toEntries(input.resolutions)
+    .filter((entry, index) => entry.matched.length > 0 || input.resolutions[index].known);
   if (kept.length === input.resolutions.length) {
     return { ok: true, patterns: input.patterns, changed: false };
   }

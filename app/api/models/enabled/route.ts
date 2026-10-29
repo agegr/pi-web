@@ -50,7 +50,7 @@ async function loadContext(cwd: string): Promise<RequestContext> {
 
 async function buildView(context: RequestContext): Promise<EnabledModelsView> {
   const { patterns, scope, path } = readEnabledModelsSettings(context.settingsManager, context.paths);
-  const input = await buildEnabledModelsInput(patterns, context.models);
+  const input = await buildEnabledModelsInput(patterns, context.models, { catalog: context.modelRuntime.getModels() });
   const providerNames = new Map(
     context.modelRuntime.getProviders().map((provider) => [provider.id, provider.name]),
   );
@@ -212,7 +212,10 @@ export async function PUT(req: Request) {
       );
     }
 
-    const input = await buildEnabledModelsInput(patterns, context.models, { withProviderGlobs: true });
+    const input = await buildEnabledModelsInput(patterns, context.models, {
+      withProviderGlobs: true,
+      catalog: context.modelRuntime.getModels(),
+    });
     let edit;
     if (op === "clear") {
       edit = clearEnabledModels(input);

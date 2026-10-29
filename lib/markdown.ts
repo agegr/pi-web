@@ -575,12 +575,27 @@ const remarkCurrencySafeMath: Plugin = function () {
   }
 };
 
+// Drive letters otherwise look like unknown URL schemes to the sanitizer.
+// Rewrite only Markdown link destinations, before rehype and URL filtering.
+function remarkWindowsFileLinks() {
+  return (tree: Root): void => {
+    const walk = (node: Root | Content): void => {
+      if ((node.type === "link" || node.type === "definition") && /^\/?[A-Za-z]:\//.test(node.url)) {
+        node.url = `file:///${node.url.replace(/^\//, "")}`;
+      }
+      if ("children" in node) node.children.forEach(walk);
+    };
+    walk(tree);
+  };
+}
+
 export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
   [remarkGfm, remarkGfmOptions],
   remarkCjkFriendly,
   remarkSplitAutolinkLiterals,
   remarkCurrencySafeMath,
+  remarkWindowsFileLinks,
 ];
 
 // User messages keep every typed line break, as the TUI shows them (#680). The
@@ -591,7 +606,7 @@ export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
 // remark-rehype turns into a bare <br> through `data.hName`, not an mdast
 // `break`: remark-rehype follows that <br> with a "\n" text node, which the
 // pre-wrap rule renders as a second break, so hard breaks are swapped too. Code,
-// inline code, math and raw HTML are other node types and keep their text.
+// inline code and math are other node types and keep their text.
 interface MarkdownTreeNode {
   type: string;
   value?: string;
@@ -600,26 +615,33 @@ interface MarkdownTreeNode {
 }
 
 const LINE_ENDING = /[ \t]*(?:\r\n|\r|\n)[ \t]*/;
-const PHRASING_BLOCK_TYPES = new Set(["paragraph", "heading", "tableCell"]);
-// Raw-text elements take everything up to their closing tag as text, and
-// rehype-raw leaves that state at the next element, so a <br> placed after an
-// unclosed `<textarea>` or `<script>` garbles or drops the rest of the block.
-const RAW_TEXT_OPEN_TAG = /^<(?:iframe|noembed|noframes|noscript|plaintext|script|style|textarea|title|xmp)(?=[\s/>]|$)/i;
-
-function opensRawTextElement(node: MarkdownTreeNode): boolean {
-  if (node.type === "html") return RAW_TEXT_OPEN_TAG.test(node.value ?? "");
-  return node.children?.some(opensRawTextElement) ?? false;
-}
+// Containers whose children are blocks: an HTML block there becomes a paragraph.
+const BLOCK_CONTAINER_TYPES = new Set(["root", "blockquote", "listItem", "footnoteDefinition"]);
 
 function lineBreakNode(): MarkdownTreeNode {
   return { type: "lineBreak", data: { hName: "br" } };
 }
 
+// pi's TUI prints a user message's HTML as the characters typed (pi-tui's
+// Markdown, `case "html"`), so a pasted `<TableOperator v-model="x" />` or
+// `<textarea>` reads as written instead of being parsed by rehype-raw and
+// stripped by the sanitizer (#1407). Runs before the line breaks are kept, so
+// a multi-line tag breaks like any text.
+function htmlAsText(parent: MarkdownTreeNode): void {
+  if (!parent.children) return;
+  const blockParent = BLOCK_CONTAINER_TYPES.has(parent.type);
+  parent.children = parent.children.map((node) => {
+    if (node.type !== "html") {
+      htmlAsText(node);
+      return node;
+    }
+    const text = { type: "text", value: node.value ?? "" };
+    return blockParent ? { type: "paragraph", children: [text] } : text;
+  });
+}
+
 function keepLineBreaks(parent: MarkdownTreeNode): void {
   if (!parent.children) return;
-  // Such a block keeps the default rendering: its paragraph newlines still
-  // show through the pre-wrap rule.
-  if (PHRASING_BLOCK_TYPES.has(parent.type) && opensRawTextElement(parent)) return;
   parent.children = parent.children.flatMap((node) => {
     if (node.type === "break") return [lineBreakNode()];
     if (node.type !== "text" || !node.value) {
@@ -633,13 +655,16 @@ function keepLineBreaks(parent: MarkdownTreeNode): void {
   });
 }
 
-function remarkKeepLineBreaks() {
-  return (tree: MarkdownTreeNode) => keepLineBreaks(tree);
+function remarkUserText() {
+  return (tree: MarkdownTreeNode) => {
+    htmlAsText(tree);
+    keepLineBreaks(tree);
+  };
 }
 
 export const markdownUserRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   ...(markdownRemarkPlugins ?? []),
-  remarkKeepLineBreaks,
+  remarkUserText,
 ];
 export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],
@@ -647,6 +672,7 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
   remarkCjkFriendly,
   remarkSplitAutolinkLiterals,
   remarkCurrencySafeMath,
+  remarkWindowsFileLinks,
 ];
 
 interface SanitizedNode {

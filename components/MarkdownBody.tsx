@@ -20,7 +20,7 @@ interface MarkdownBodyProps {
   onOpenFile?: (filePath: string, page?: number) => void;
   /** A document reader's own links: relative paths and `#headings` stay in the reader. */
   onNavigateLink?: (href: string) => void;
-  /** Render every line ending as a line break, for text the user typed. */
+  /** Text the user typed: every line ending is a line break and raw HTML shows as text, as in pi's TUI. */
   keepLineBreaks?: boolean;
 }
 

@@ -70,7 +70,10 @@ when the patterns resolve to nothing, so "disable everything" silently means
 - `prune` is the one operation that deletes unmatched entries. Every other one
   preserves them because an entry usually goes unmatched for a reversible
   reason; a provider that renamed its models is not reversible, so the panel
-  offers this explicitly instead of making the user clear the whole scope.
+  offers this explicitly instead of making the user clear the whole scope. An
+  entry still in the full catalog (its provider only lacks a credential) is not
+  unmatched for this purpose: `prune` keeps it, or cleaning up a rename would
+  also forget a signed-out provider's picks.
 - `resync` runs after a models.json save, because a pattern's meaning depends
   on the catalog that just moved. It rewrites renamed models and providers, cuts
   back entries whose provider prefix no longer scopes them, and re-asserts the

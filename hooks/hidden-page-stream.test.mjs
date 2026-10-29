@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createJiti } from "jiti";
 
 // A page hidden for HIDDEN_PAGE_GRACE_MS lets go of the selected session's idle
 // event stream (#1283): over HTTP/1.1 every open stream holds one of the
 // browser's six connections per origin, shared by all tabs. The page's lease
-// request, renewed every 30 s either way, says what is under way in the session:
+// request, renewed every 30 s either way, resets the session's idle countdown and
+// says what is under way in it:
 // a run, an extension dialog or a subagent left to finish keeps the stream, and
 // opens a released one again while the page is still hidden. The page's return
 // reopens it and shows what the server has under way.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
-const { renderHook } = await import(shimPath);
-const { useAgentSession } = await jiti.import("./useAgentSession.ts");
+const { renderHook } = await import(pathToFileURL(shimPath).href);
+const { peekPageId, useAgentSession } = await jiti.import("./useAgentSession.ts");
 const { HIDDEN_PAGE_GRACE_MS } = await jiti.import("./usePageHidden.ts");
 // useAgentSession's SESSION_LEASE_RENEW_INTERVAL_MS.
 const SESSION_LEASE_RENEW_MS = 30_000;
@@ -40,8 +41,8 @@ async function setup() {
   const requests = [];
   // What the lease reply (busy, awaitingInput, subagentsActive) and the session's
   // state read (state) report; tests change it. `answer` turns the lease request
-  // into one that never answers (it only ends when aborted), a network failure or
-  // an HTTP error.
+  // into one that never answers (it only ends when aborted), a network failure,
+  // an HTTP error or an ok reply whose body is null.
   const server = {
     busy: false,
     awaitingInput: false,
@@ -69,7 +70,7 @@ async function setup() {
       return json({ filePath: "/s1.jsonl", leafId: null, tree: [], treeFormat: "summary", context: { messages: [], entryIds: [], oldestEntryId: null, hasMore: false } });
     }
     if (url === "/api/sessions/s1/state") return json({ running: true, state: server.state });
-    if (url.startsWith("/api/agent/s1/lease?holder=")) {
+    if (url === "/api/agent/s1/lease") {
       if (server.answer === "never") {
         return new Promise((_resolve, reject) => {
           init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
@@ -77,6 +78,7 @@ async function setup() {
       }
       if (server.answer === "offline") throw new TypeError("Failed to fetch");
       if (server.answer === "error") return new Response("boom", { status: 500 });
+      if (server.answer === "null") return json(null);
       return json({ success: true, running: server.busy, awaitingInput: server.awaitingInput, subagentsActive: server.subagentsActive });
     }
     if (url === "/api/agent/s1" && init.body) return json({ success: true, data: null });
@@ -84,9 +86,12 @@ async function setup() {
     return json({});
   };
   const ends = [];
+  // The debug panel's reader, as the hook registers it.
+  let reader = null;
   const hook = renderHook(useAgentSession, {
     session: { id: "s1", cwd: "/project", path: "/s1.jsonl", name: "s1" },
     onAgentEnd: (end) => ends.push(end),
+    onDebugSnapshotReaderChange: (next) => { reader = next; },
   });
   await settle();
   hook.flush();
@@ -94,10 +99,11 @@ async function setup() {
   // Lease requests since hiding: the renewal tick and the release check share one.
   let mark = 0;
   const hide = () => { mark = requests.length; setVisibility("hidden"); };
-  const checks = () => requests.slice(mark).filter((url) => url.startsWith("/api/agent/s1/lease?holder=")).length;
+  const checks = () => requests.slice(mark).filter((url) => url === "/api/agent/s1/lease").length;
   const reads = () => requests.filter((url) => url.startsWith("/api/sessions/s1?")).length;
   const tick = async (ms) => { mock.timers.tick(ms); await settle(); hook.flush(); };
-  return { hook, sources, requests, server, open, checks, reads, ends, tick, hide };
+  const read = () => reader?.() ?? null;
+  return { hook, sources, requests, server, open, checks, reads, ends, tick, hide, read };
 }
 
 async function teardown(state) {
@@ -137,11 +143,11 @@ test("a page hidden past the grace closes the idle stream and its return reopens
   }
 });
 
-test("the page holds the session's lease the whole time, with or without its stream", async () => {
+test("the page renews the session the whole time, with or without its stream", async () => {
   const state = await setup();
   try {
-    const holds = () => state.requests.filter((url) => /^\/api\/agent\/s1\/lease\?holder=[\w-]+$/.test(url)).length;
-    assert.equal(holds(), 1, "taken as soon as the session is selected");
+    const holds = () => state.requests.filter((url) => url === "/api/agent/s1/lease").length;
+    assert.equal(holds(), 1, "sent as soon as the session is selected");
     await connectIdle(state);
     await state.tick(SESSION_LEASE_RENEW_MS);
     assert.equal(holds(), 2);
@@ -381,6 +387,173 @@ test("a released page opens the stream again for an extension dialog, and lets g
     state.hook.flush();
     await state.tick(HIDDEN_PAGE_GRACE_MS);
     assert.equal(state.open().length, 0, "the reopen arms the grace again");
+  } finally {
+    await teardown(state);
+  }
+});
+
+// The debug panel reads the page's side on its own clock. The reader must
+// describe the stream and the lease, never be one more request, source or timer.
+test("the debug reader asks nothing and opens nothing, however often it reads", async () => {
+  const state = await setup();
+  try {
+    let snapshot = state.read();
+    assert.equal(snapshot.connection.state, "connecting");
+    await connectIdle(state);
+    const requests = state.requests.length;
+    for (let index = 0; index < 50; index++) snapshot = state.read();
+    assert.equal(state.requests.length, requests, "no request");
+    assert.equal(state.sources.length, 1, "no source");
+    assert.equal(snapshot.sessionId, "s1");
+    assert.equal(snapshot.selectedSessionId, "s1");
+    assert.equal(snapshot.mounted, true);
+    assert.equal(snapshot.wantsStream, true);
+    assert.equal(snapshot.connection.state, "connected");
+    assert.equal(snapshot.connection.opens, 1);
+    assert.deepEqual(snapshot.run, { agentRunning: false, bashRunning: false, compacting: false, dialogs: 0 });
+
+    const pageId = peekPageId();
+    assert.match(pageId, /^[\w-]+$/);
+    assert.equal(snapshot.pageId, pageId);
+    assert.equal(state.sources[0].url, `/api/agent/s1/events?holder=${encodeURIComponent(pageId)}`, "the stream is labelled with the page's id");
+    assert.ok(state.requests.includes("/api/agent/s1/lease"), "the lease request carries no page id");
+    assert.ok(!state.requests.some((url) => url.startsWith("/api/agent/s1/lease?")));
+    // A Fast Refresh evaluates the module again; the page, and its open stream, keep their id.
+    const reloaded = await createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath }, moduleCache: false })
+      .import("./useAgentSession.ts");
+    assert.equal(reloaded.peekPageId(), pageId);
+    assert.equal(snapshot.lease.requests, 1);
+    assert.equal(snapshot.lease.inFlightSince, null);
+    assert.equal(snapshot.lease.renewIntervalMs, SESSION_LEASE_RENEW_MS);
+    assert.equal(typeof snapshot.lease.renewStartedAt, "number");
+    assert.equal(snapshot.lease.last.outcome, "reply");
+    assert.equal(snapshot.lease.last.httpStatus, 200);
+    assert.deepEqual(snapshot.lease.last.reply, { running: false, awaitingInput: false, subagentsActive: false });
+
+    // Reading all through the grace moves neither the release nor its check.
+    state.hide();
+    assert.equal(typeof state.read().hiddenReleaseDueAt, "number");
+    for (let index = 0; index < 20; index++) state.read();
+    await state.tick(HIDDEN_PAGE_GRACE_MS - 1);
+    for (let index = 0; index < 20; index++) state.read();
+    assert.equal(state.open().length, 1);
+    assert.equal(state.checks(), 0);
+    await state.tick(1);
+    assert.equal(state.open().length, 0, "released on time");
+    assert.equal(state.checks(), 1, "after the one check of its own");
+
+    snapshot = state.read();
+    assert.equal(snapshot.released.active, true);
+    assert.equal(snapshot.released.count, 1);
+    assert.equal(typeof snapshot.released.lastAt, "number");
+    assert.equal(snapshot.hiddenReleaseDueAt, null);
+    assert.equal(snapshot.wantsStream, false);
+    assert.equal(snapshot.connection.state, "idle");
+    assert.equal(snapshot.connection.lastClose.reason, "released");
+    assert.equal(snapshot.lease.requests, 2);
+
+    const released = state.requests.length;
+    for (let index = 0; index < 20; index++) state.read();
+    assert.equal(state.requests.length, released);
+    assert.equal(state.open().length, 0, "reading a released page reopens nothing");
+
+    setVisibility("visible");
+    await settle();
+    snapshot = state.read();
+    assert.equal(state.open().length, 1);
+    assert.equal(snapshot.released.active, false);
+    assert.equal(snapshot.released.count, 1);
+    assert.equal(snapshot.reattached.count, 1);
+    assert.equal(snapshot.reattached.lastReason, "visible");
+    assert.equal(snapshot.connection.opens, 2);
+  } finally {
+    await teardown(state);
+  }
+  assert.equal(state.read(), null, "unmounting takes the reader back");
+});
+
+test("the debug reader shows each lease outcome; an error reply keeps the stream", async () => {
+  const never = await setup();
+  try {
+    await connectIdle(never);
+    never.server.answer = "never";
+    never.hide();
+    await never.tick(HIDDEN_PAGE_GRACE_MS);
+    let lease = never.read().lease;
+    assert.equal(typeof lease.inFlightSince, "number", "the check waits for its answer");
+    assert.equal(lease.requests, 2);
+    await never.tick(SESSION_LEASE_TIMEOUT_MS);
+    lease = never.read().lease;
+    assert.equal(lease.inFlightSince, null);
+    assert.equal(lease.unanswered, 1);
+    assert.equal(lease.errors, 0);
+    assert.deepEqual({ ...lease.last, at: 0, durationMs: 0 }, { at: 0, durationMs: 0, outcome: "unanswered", httpStatus: null, reply: null });
+    assert.equal(never.read().released.count, 1);
+  } finally {
+    await teardown(never);
+  }
+
+  const offline = await setup();
+  try {
+    await connectIdle(offline);
+    offline.server.answer = "offline";
+    offline.hide();
+    await offline.tick(HIDDEN_PAGE_GRACE_MS);
+    const { lease, released } = offline.read();
+    assert.equal(lease.last.outcome, "unanswered");
+    assert.equal(lease.last.httpStatus, null);
+    assert.equal(lease.unanswered, 1);
+    assert.equal(released.count, 1);
+  } finally {
+    await teardown(offline);
+  }
+
+  for (const answer of ["error", "null"]) {
+    const failing = await setup();
+    try {
+      await connectIdle(failing);
+      failing.server.answer = answer;
+      failing.hide();
+      await failing.tick(HIDDEN_PAGE_GRACE_MS);
+      const snapshot = failing.read();
+      assert.equal(failing.open().length, 1, `${answer}: the stream stays`);
+      assert.equal(snapshot.lease.last.outcome, "error", answer);
+      assert.equal(snapshot.lease.last.httpStatus, answer === "error" ? 500 : 200, answer);
+      assert.equal(snapshot.lease.last.reply, null, answer);
+      assert.equal(snapshot.lease.errors, 1, answer);
+      assert.equal(snapshot.lease.unanswered, 0, answer);
+      assert.equal(snapshot.released.count, 0, answer);
+      assert.equal(typeof snapshot.hiddenReleaseDueAt, "number", `${answer}: checked again next grace`);
+    } finally {
+      await teardown(failing);
+    }
+  }
+});
+
+test("the debug reader counts a reopen for activity apart from one for the page's return", async () => {
+  const state = await setup();
+  try {
+    await connectIdle(state);
+    state.hide();
+    await state.tick(HIDDEN_PAGE_GRACE_MS);
+    assert.equal(state.read().released.count, 1);
+
+    state.server.busy = true;
+    state.server.state = { isStreaming: true, isPromptRunning: true };
+    await state.tick(SESSION_LEASE_RENEW_MS);
+    let snapshot = state.read();
+    assert.equal(state.open().length, 1);
+    assert.equal(snapshot.released.active, false);
+    assert.equal(snapshot.reattached.count, 1);
+    assert.equal(snapshot.reattached.lastReason, "activity");
+    assert.deepEqual(snapshot.lease.last.reply, { running: true, awaitingInput: false, subagentsActive: false });
+    assert.equal(snapshot.run.agentRunning, true);
+
+    setVisibility("visible");
+    await settle();
+    snapshot = state.read();
+    assert.equal(snapshot.reattached.count, 1, "the return of a page holding its stream reopens nothing");
+    assert.equal(snapshot.reattached.lastReason, "activity");
   } finally {
     await teardown(state);
   }

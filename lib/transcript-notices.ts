@@ -31,7 +31,7 @@ export function withTranscriptNotices<T extends object>(message: T, notices: rea
   return { ...message, [TRANSCRIPT_NOTICES_KEY]: [...notices] };
 }
 
-/** pi's TUI `formatTokens()`: 950, 8.5k, 85k, 1.2M. */
+/** pi's TUI `formatTokens()`: 950, 8.5k, 85k, 1.2M (these notices and a reply's usage line). */
 export function formatNoticeTokens(count: number): string {
   if (count < 1000) return count.toString();
   if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;

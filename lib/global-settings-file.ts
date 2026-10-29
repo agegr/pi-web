@@ -17,7 +17,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseSettings(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+  const text = readFileSync(path, "utf8");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    // The path is in the message, because the parser's text alone does not
+    // say which file is broken. The error stays a `SyntaxError`, and the file
+    // stays where it is: pi reads and writes the same file, and it refuses
+    // every write until the user repairs it by hand.
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new SyntaxError(`${path}: ${reason}`);
+  }
   if (!isRecord(parsed)) throw new Error("Invalid settings.json: expected an object");
   return parsed;
 }

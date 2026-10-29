@@ -1,5 +1,18 @@
 import type { AgentPhase } from "@/hooks/useAgentSession";
 
+/**
+ * The phase a state read (`GET /api/sessions/[id]/state`, `GET /api/agent/[id]`)
+ * implies. A tool call the stream already reported running outranks it: the
+ * state only says the run is active, and a read landing after `connected` and
+ * the replay of the running calls would otherwise say "waiting for model" for
+ * the rest of a tool that sends nothing more. `connected` itself starts from no
+ * tools, since the replay that follows it lists every call still running.
+ */
+export function runStatePhase(prev: AgentPhase, isStreaming: boolean): AgentPhase {
+  if (prev?.kind === "running_tools" && prev.tools.length > 0) return prev;
+  return isStreaming ? { kind: "waiting_model" } : { kind: "running_command" };
+}
+
 /** The i18n translate function shape this module needs. */
 export type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -9,9 +22,10 @@ export type Translate = (key: string, params?: Record<string, string | number>) 
  * `isCompacting` takes precedence over the phase: auto-compaction can hold a turn for a
  * while before the next token arrives, and reporting the underlying "waiting for model"
  * phase in the meantime reads as a hang. Compaction is what the user needs to know.
+ * While compacting, messages queued for after it count beside it (`chat.compactingQueued`).
  */
-export function phaseLabel(phase: AgentPhase, t: Translate, isCompacting?: boolean): string | null {
-  if (isCompacting) return t("chat.compacting");
+export function phaseLabel(phase: AgentPhase, t: Translate, isCompacting?: boolean, queuedCount = 0): string | null {
+  if (isCompacting) return queuedCount > 0 ? t("chat.compactingQueued", { count: queuedCount }) : t("chat.compacting");
   if (phase?.kind === "running_tools") {
     const latest = phase.tools[phase.tools.length - 1];
     if (latest?.progress) {

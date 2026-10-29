@@ -36,7 +36,10 @@ import {
   type SessionLeaseReply,
 } from "@/lib/agent-event-connection";
 import { HIDDEN_PAGE_GRACE_MS } from "@/hooks/usePageHidden";
+import type { DebugClientLease, DebugClientSession, DebugEventConnectionSnapshot, DebugStreamCloseReason } from "@/lib/debug-types";
+import { trackEventSource } from "@/lib/page-debug";
 import { AGENT_EVENT_HEARTBEAT_MS, isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
+import { runStatePhase } from "@/lib/chat-phase-label";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
@@ -174,7 +177,7 @@ export interface SlashCommandInfo {
 
 export type BuiltinSlashCommandResult =
   | { handled: false }
-  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" };
+  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" };
 
 /** How a run ended, for the completion sound and notifications. */
 export interface AgentEndInfo {
@@ -201,6 +204,8 @@ export interface UseAgentSessionOptions {
   onSystemToolsChange?: (tools: ToolEntry[] | null) => void;
   /** Registers an action that lazily starts the session and loads its prompt and tools. */
   onSystemInfoLoaderChange?: (loader: (() => Promise<void>) | null) => void;
+  /** Registers the debug panel's reader of this page's stream and lease: it reads refs only, never a request. */
+  onDebugSnapshotReaderChange?: (reader: (() => DebugClientSession) | null) => void;
   onSessionStatsPanelOpen?: () => void;
   /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings › MCP. */
   onOpenSettings?: (section: SettingsSection) => void;
@@ -246,12 +251,27 @@ const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
 const SESSION_LEASE_RENEW_INTERVAL_MS = 30_000;
 // A ready stream silent for two and a half heartbeats is dead (AgentEventConnection reconnects).
 const EVENT_STREAM_STALE_MS = AGENT_EVENT_HEARTBEAT_MS * 2.5;
-// This page's id for the lease that keeps its selected session alive (holdSessionLivenessLease()).
-let pageLeaseHolder: string | null = null;
+// This page's id: the label of its event streams (`?holder=`) on the server's debug view, and
+// how the debug panel tells this page's streams from another's. On the window, not in this
+// module: a Fast Refresh re-evaluates the module while the open stream keeps the id it was opened
+// with, and a new id would make the page's own stream look like another page's.
+const PAGE_ID_KEY = Symbol.for("pi-web:page-id");
 type SessionLeaseOutcome = SessionLeaseReply | "unanswered" | null;
+function pageId(): string {
+  const store = globalThis as Record<PropertyKey, unknown>;
+  const existing = store[PAGE_ID_KEY];
+  if (typeof existing === "string") return existing;
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  store[PAGE_ID_KEY] = id;
+  return id;
+}
+/** This page's id without creating it: null before its first event stream. */
+export function peekPageId(): string | null {
+  const id = (globalThis as Record<PropertyKey, unknown>)[PAGE_ID_KEY];
+  return typeof id === "string" ? id : null;
+}
 function sessionLeaseUrl(sid: string): string {
-  pageLeaseHolder ??= `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return `/api/agent/${encodeURIComponent(sid)}/lease?holder=${pageLeaseHolder}`;
+  return `/api/agent/${encodeURIComponent(sid)}/lease`;
 }
 // Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
@@ -339,6 +359,8 @@ export interface AttachedImage {
 }
 
 type SelectedModel = { provider: string; modelId: string };
+/** `clear_queue` and `abort`: queued texts, plus the images of prompts parked behind a compaction. */
+type RecalledPrompts = { steering?: string[]; followUp?: string[]; images?: Array<{ data: string; mimeType: string }> };
 type ModelEntry = { id: string; name: string; provider: string };
 type ModelsResponse = {
   models: Record<string, string>;
@@ -361,7 +383,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
-    onOpenSettings,
+    onOpenSettings, onDebugSnapshotReaderChange,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
@@ -444,7 +466,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [eventStreamReattachCount, setEventStreamReattachCount] = useState(0);
   // The lease request in flight: the renewal tick and the release check share it.
   const leaseRequestRef = useRef<{ sid: string; promise: Promise<SessionLeaseOutcome> } | null>(null);
-  const reattachEventStreamRef = useRef<(sid: string) => void>(() => {});
+  const reattachEventStreamRef = useRef<(sid: string, reason: "visible" | "activity") => void>(() => {});
+  // What the debug panel reads (readDebugSnapshot below): written beside the
+  // timers and requests they describe, read by nothing that decides anything.
+  const leaseDebugRef = useRef<Pick<DebugClientLease, "renewStartedAt" | "inFlightSince" | "requests" | "unanswered" | "errors" | "last">>({
+    renewStartedAt: null, inFlightSince: null, requests: 0, unanswered: 0, errors: 0, last: null,
+  });
+  const releaseDebugRef = useRef<{ count: number; lastAt: number | null }>({ count: 0, lastAt: null });
+  const reattachDebugRef = useRef<DebugClientSession["reattached"]>({ count: 0, lastAt: null, lastReason: null });
+  const hiddenReleaseDueAtRef = useRef<number | null>(null);
+  const eventStreamGraceDueAtRef = useRef<number | null>(null);
+  const isCompactingRef = useRef(false);
+  const extensionUiCountRef = useRef(0);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   // False while the session carries no tool selection of its own, so its loadout
@@ -506,20 +539,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   historyCursorRef.current = historyCursor;
   hasEarlierMessagesRef.current = hasEarlierMessages;
   earlierTurnCountRef.current = earlierTurnCount;
+  isCompactingRef.current = isCompacting;
+  extensionUiCountRef.current = extensionDialogs.length + extensionCustomUis.length;
+
+  // Whether the page wants the stream of `sid` open: the connection asks it
+  // before each (re)connect, the debug reader to show it.
+  const wantsEventStream = useCallback((sid: string) => (
+    sessionHookMountedRef.current
+    && sessionIdRef.current === sid
+    && (
+      agentRunningRef.current
+      || eventStreamGraceActiveRef.current
+      || (sessionPropIdRef.current === sid && !eventStreamReleasedRef.current)
+    )
+  ), []);
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
-      createSource: (sid) => new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`),
-      onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
-      shouldMaintain: (sid) => (
-        sessionHookMountedRef.current
-        && sessionIdRef.current === sid
-        && (
-          agentRunningRef.current
-          || eventStreamGraceActiveRef.current
-          || (sessionPropIdRef.current === sid && !eventStreamReleasedRef.current)
-        )
+      createSource: (sid) => trackEventSource(
+        "agent",
+        new EventSource(`/api/agent/${encodeURIComponent(sid)}/events?holder=${encodeURIComponent(pageId())}`),
+        sid,
       ),
+      onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
+      shouldMaintain: wantsEventStream,
       readinessTimeoutMs: EVENT_STREAM_READY_TIMEOUT_MS,
       reconnectDelayMs: EVENT_STREAM_RECONNECT_DELAY_MS,
       staleAfterMs: EVENT_STREAM_STALE_MS,
@@ -592,7 +635,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const restoreSubmission = useCallback((
     text: string,
-    images: AttachedImage[] | undefined,
+    images: Array<{ data: string; mimeType: string }> | undefined,
     targetDraftKey: string | undefined,
   ) => {
     const draftImages = images?.map(({ data, mimeType }) => ({ data, mimeType }));
@@ -794,7 +837,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
       }
       if (d.wrapperRebuilt) {
-        eventConnectionRef.current?.close();
+        eventConnectionRef.current?.close("rebuilt");
         eventConnectionRef.current?.maintain(sid);
       }
       if (!includeState && d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -1069,14 +1112,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const cancelEventStreamGrace = useCallback(() => {
     eventStreamGraceGenerationRef.current += 1;
     eventStreamGraceActiveRef.current = false;
+    eventStreamGraceDueAtRef.current = null;
     if (eventStreamGraceTimerRef.current) {
       clearTimeout(eventStreamGraceTimerRef.current);
       eventStreamGraceTimerRef.current = null;
     }
   }, []);
 
-  const closeEvents = useCallback(() => {
-    eventConnectionRef.current?.close();
+  // `reason` only labels the close for the debug panel.
+  const closeEvents = useCallback((reason?: DebugStreamCloseReason) => {
+    eventConnectionRef.current?.close(reason);
   }, []);
 
   const ensureEventsConnected = useCallback((sid: string) => (
@@ -1088,8 +1133,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   // Keep the selected session's stream open even while its agent is idle. The
-  // session itself stays alive on the page's lease (below), which expires if
-  // the browser disappears.
+  // session itself stays alive on the page's lease renewals (below), which stop
+  // if the browser disappears.
   useEffect(() => {
     const sid = session?.id;
     if (!sid) return;
@@ -1102,11 +1147,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventStreamReleasedRef.current = false;
     maintainEventsConnected(sid);
     return () => {
-      if (sessionIdRef.current === sid) eventConnectionRef.current?.close();
+      if (sessionIdRef.current === sid) eventConnectionRef.current?.close("deselected");
     };
   }, [maintainEventsConnected, session?.id]);
 
-  // One lease request (holdSessionLivenessLease()): it keeps the session alive
+  // One lease request: it resets the session's idle countdown (renewIdleTimer())
   // and reports what is under way there (SessionLeaseReply). A reply that does
   // not come within SESSION_LEASE_TIMEOUT_MS, or no network, is "unanswered";
   // an error reply is null.
@@ -1117,16 +1162,45 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const timeout = setTimeout(() => controller.abort(), SESSION_LEASE_TIMEOUT_MS);
     const request: { sid: string; promise: Promise<SessionLeaseOutcome> } = { sid, promise: Promise.resolve(null) };
     request.promise = (async (): Promise<SessionLeaseOutcome> => {
+      let httpStatus: number | null = null;
+      let result: SessionLeaseOutcome = null;
+      const startedAt = Date.now();
+      leaseDebugRef.current.inFlightSince = startedAt;
+      leaseDebugRef.current.requests += 1;
       try {
         const response = await fetch(sessionLeaseUrl(sid), { method: "POST", cache: "no-store", signal: controller.signal });
-        return response.ok ? await response.json() as SessionLeaseReply : null;
+        httpStatus = response.status;
+        result = response.ok ? await response.json() as SessionLeaseReply : null;
+        return result;
       } catch (error) {
         // Timed out (queued behind open streams) or no network. A body that is no
         // JSON counts as an error reply.
-        return controller.signal.aborted || error instanceof TypeError ? "unanswered" : null;
+        result = controller.signal.aborted || error instanceof TypeError ? "unanswered" : null;
+        return result;
       } finally {
         clearTimeout(timeout);
         if (leaseRequestRef.current === request) leaseRequestRef.current = null;
+        // The debug panel's record of it; whatever the reply holds, it cannot throw from here.
+        try {
+          const lease = leaseDebugRef.current;
+          const at = Date.now();
+          const outcome = result === "unanswered" ? "unanswered" : result === null ? "error" : "reply";
+          if (outcome === "unanswered") lease.unanswered += 1;
+          if (outcome === "error") lease.errors += 1;
+          const reply = typeof result === "object" && result !== null ? result : null;
+          lease.inFlightSince = null;
+          lease.last = {
+            at,
+            durationMs: Math.max(0, at - startedAt),
+            outcome,
+            httpStatus,
+            reply: reply && {
+              running: reply.running === true,
+              awaitingInput: reply.awaitingInput === true,
+              subagentsActive: reply.subagentsActive === true,
+            },
+          };
+        } catch {}
       }
     })();
     leaseRequestRef.current = request;
@@ -1162,6 +1236,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     );
     const check = async () => {
       timer = null;
+      hiddenReleaseDueAtRef.current = null;
       if (!releasable()) return;
       const reply = await requestLease(sid);
       if (!releasable()) return;
@@ -1170,10 +1245,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       eventStreamReleasedRef.current = true;
-      closeEvents();
+      releaseDebugRef.current = { count: releaseDebugRef.current.count + 1, lastAt: Date.now() };
+      closeEvents("released");
     };
     const arm = () => {
-      timer ??= setTimeout(() => void check(), HIDDEN_PAGE_GRACE_MS);
+      if (timer !== null) return;
+      timer = setTimeout(() => void check(), HIDDEN_PAGE_GRACE_MS);
+      hiddenReleaseDueAtRef.current = Date.now() + HIDDEN_PAGE_GRACE_MS;
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -1181,6 +1259,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       } else if (timer) {
         clearTimeout(timer);
         timer = null;
+        hiddenReleaseDueAtRef.current = null;
       }
     };
     if (document.visibilityState === "hidden") arm();
@@ -1188,6 +1267,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);
+      hiddenReleaseDueAtRef.current = null;
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [closeEvents, eventStreamIdle, eventStreamReattachCount, requestLease, session?.id]);
@@ -1335,23 +1415,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (promptActive) {
           eventStreamGraceActiveRef.current = false;
           eventStreamGraceTimerRef.current = null;
+          eventStreamGraceDueAtRef.current = null;
           sdkAgentActiveRef.current = Boolean(state?.isStreaming);
           rpcPromptPendingRef.current = Boolean(state?.isPromptRunning);
           agentRunningRef.current = true;
           setAgentRunning(true);
-          setAgentPhase(state?.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+          setAgentPhase((prev) => runStatePhase(prev, Boolean(state?.isStreaming)));
           return;
         }
 
         if (data.running && state?.isCompacting) {
           setIsCompacting(true);
           eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+          eventStreamGraceDueAtRef.current = Date.now() + PROMPT_SETTLE_POLL_MS;
           return;
         }
 
         eventStreamGraceActiveRef.current = false;
         eventStreamGraceTimerRef.current = null;
-        closeEvents();
+        eventStreamGraceDueAtRef.current = null;
+        closeEvents("grace_end");
       } catch {
         // Keep the stream alive while state cannot be verified.
         if (
@@ -1360,10 +1443,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           || !eventStreamGraceActiveRef.current
         ) return;
         eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), PROMPT_SETTLE_POLL_MS);
+        eventStreamGraceDueAtRef.current = Date.now() + PROMPT_SETTLE_POLL_MS;
       }
     };
 
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
+    eventStreamGraceDueAtRef.current = Date.now() + EVENT_STREAM_IDLE_GRACE_MS;
   }, [cancelEventStreamGrace, closeEvents, syncLiveModel]);
 
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
@@ -1537,6 +1622,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           sdkAgentActiveRef.current = true;
           agentRunningRef.current = true;
           setAgentRunning(true);
+          // The server replays every tool call still running right after this
+          // event, so start from none: a call that ended while the stream was
+          // down must not stay listed.
           setAgentPhase({ kind: "waiting_model" });
         }
         // Opening the stream is what resumes an idle-reaped session, so the
@@ -1870,6 +1958,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     pendingScrollToUserRef.current = true;
     setPromptAnchorActive(true);
 
+    // A queued prompt (parked behind compaction, or queued into a run) is not a
+    // sent message yet: the queue rows show it, and the transcript shows it when
+    // the flush delivers it. Drop the optimistic bubble for it.
+    const dropOptimisticUserMessage = () => {
+      setMessages((prev) => {
+        const index = prev.lastIndexOf(userMsg);
+        return index === -1 ? prev : [...prev.slice(0, index), ...prev.slice(index + 1)];
+      });
+      optimisticUserMessageKeyRef.current = null;
+    };
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     let sentSessionId: string | null = null;
     let promptRequestStarted = false;
@@ -1897,21 +1995,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           });
         }
         promptRequestStarted = true;
-        await sendAgentCommand(sid, {
+        const queuedAck = await sendAgentCommand<{ queued?: boolean }>(sid, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (queuedAck?.queued) dropOptimisticUserMessage();
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
-        await sendAgentCommand(session.id, {
+        const queuedAck = await sendAgentCommand<{ queued?: boolean }>(session.id, {
           type: "prompt",
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (queuedAck?.queued) dropOptimisticUserMessage();
       } else {
         throw new Error("No active session for the prompt");
       }
@@ -1946,7 +2046,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       agentRunningRef.current = false;
-      closeEvents();
+      closeEvents("send_failed");
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
@@ -1981,6 +2081,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
 
+  /** Recall's and Stop's queued texts, and the images of prompts parked behind a compaction, back in the composer. */
+  const restoreRecalledPrompts = useCallback((recalled: RecalledPrompts | null | undefined) => {
+    const text = [...(recalled?.steering ?? []), ...(recalled?.followUp ?? [])].join("\n\n");
+    if (recalled?.images?.length) restoreSubmission(text, recalled.images, composerDraftKey);
+    else if (text) opts.chatInputRef?.current?.prependText(text);
+  }, [composerDraftKey, opts.chatInputRef, restoreSubmission]);
+
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -1993,11 +2100,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     try {
-      await sendAgentCommand(sid, { type: "abort" });
+      // Prompts parked behind a compaction come back for the composer, as Recall's do.
+      restoreRecalledPrompts(await sendAgentCommand<RecalledPrompts | null>(sid, { type: "abort" }));
     } catch (e) {
       console.error("Failed to abort:", e);
     }
-  }, []);
+  }, [restoreRecalledPrompts]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
@@ -2106,23 +2214,36 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel]);
 
-  const handleCompact = useCallback(async () => {
+  /**
+   * Manual compaction (the Compact button and `/compact`). Never awaited by a
+   * caller that holds the composer: the compact POST is blocking and lasts the
+   * whole compaction, and `runBuiltinCommand` keeps the composer's fieldset
+   * disabled until the command resolves. The compaction reports itself — the
+   * Compacting status, Stop compaction, the result banner and its error.
+   */
+  /** Resolves false when the compaction failed. */
+  const handleCompact = useCallback(async (customInstructions?: string): Promise<boolean> => {
     const sid = sessionIdRef.current;
-    if (!sid || isCompacting) return;
+    if (!sid || isCompacting) return true;
     setIsCompacting(true);
     setCompactError(null);
     setCompactResult(null);
     try {
-      const result = await sendAgentCommand<CompactCommandResult>(sid, { type: "compact" });
+      const result = await sendAgentCommand<CompactCommandResult>(sid, {
+        type: "compact",
+        ...(customInstructions ? { customInstructions } : {}),
+      });
       setCompactResult(readCompactResult(result, "manual"));
-      await loadSession(sid, true);
+      if (await loadSession(sid, true)) promoteNewSession();
+      return true;
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
       setCompactResult(null);
+      return false;
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, loadSession]);
+  }, [isCompacting, loadSession, promoteNewSession]);
 
   // The banner otherwise stays until the next compaction, e.g. "Nothing to compact".
   const dismissCompactError = useCallback(() => setCompactError(null), []);
@@ -2261,16 +2382,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       switch (commandName) {
         case "compact": {
           if (!sid || isCompacting) return complete({ handled: true, error: "No active session to compact" });
-          setIsCompacting(true);
-          setCompactError(null);
-          setCompactResult(null);
-          const result = await sendAgentCommand<CompactCommandResult>(sid, {
-            type: "compact",
-            ...(args ? { customInstructions: args } : {}),
+          // Detached on purpose. This must resolve now: runBuiltinCommand holds
+          // the composer's fieldset disabled until the command resolves, and the
+          // compact POST blocks for the whole compaction, which read as an input
+          // box that stopped taking text until the session was switched away and
+          // back. The compaction reports itself (Compacting status, Stop
+          // compaction, result banner, error), so no completion notice here.
+          // A failed compaction gives its instructions back, as the awaited command
+          // left them in the composer.
+          void handleCompact(args || undefined).then((compacted) => {
+            if (!compacted && args) opts.chatInputRef?.current?.prependText(`/compact ${args}`);
           });
-          setCompactResult(readCompactResult(result, "manual"));
-          if (await loadSession(sid, true)) promoteNewSession();
-          return complete({ handled: true, message: "Compacted context" });
+          return complete({ handled: true, action: "compact" });
         }
 
         case "auto-compact": {
@@ -2367,10 +2490,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      if (commandName === "compact") setIsCompacting(false);
     }
-  }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, slashCommandsForMcp]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, slashCommandsForMcp]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2443,19 +2564,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      const result = await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, { type: "clear_queue" });
+      const result = await sendAgentCommand<RecalledPrompts>(sid, { type: "clear_queue" });
       // clearQueue also emits an empty queue_update, but that only reaches us
       // while SSE is connected — clear locally so idle recalls update the UI.
       setQueuedMessages({ steering: [], followUp: [] });
-      const texts = [...(result?.steering ?? []), ...(result?.followUp ?? [])];
-      if (texts.length > 0) {
-        opts.chatInputRef?.current?.prependText(texts.join("\n\n"));
-      }
+      restoreRecalledPrompts(result);
     } catch (e) {
       console.error("Failed to recall queued messages:", e);
       addNotice({ type: "error", message: "Failed to recall queued messages" });
     }
-  }, [opts.chatInputRef, addNotice]);
+  }, [addNotice, restoreRecalledPrompts]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     if (level === "auto") {
@@ -2517,7 +2635,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const activeSessionId = result?.sessionId ?? sid;
       if (activeSessionId !== sid || result?.recreated) {
         cancelEventStreamGrace();
-        closeEvents();
+        closeEvents("set_tools");
         // The old wrapper cancels its pending extension UI only after its stream has
         // closed, so those close events never arrive; drop the requests here instead
         // of leaving them queued in front of the new wrapper's.
@@ -2623,7 +2741,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
         agentRunningRef.current = true;
         setAgentRunning(true);
-        setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+        setAgentPhase((prev) => runStatePhase(prev, agentState.state?.isStreaming === true));
         dispatch({ type: "resume" });
         if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
           void waitForPromptSettlement(sid);
@@ -2649,9 +2767,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // shows it. `connected` resumes a streaming run and replays pending extension
   // dialogs, so their completion and attention notifications reach the page as
   // if it had never let go. Nothing is resent.
-  reattachEventStreamRef.current = (sid: string) => {
+  reattachEventStreamRef.current = (sid: string, reason: "visible" | "activity") => {
     if (!eventStreamReleasedRef.current) return;
     eventStreamReleasedRef.current = false;
+    reattachDebugRef.current = { count: reattachDebugRef.current.count + 1, lastAt: Date.now(), lastReason: reason };
     setEventStreamReattachCount((count) => count + 1);
     if (!sessionHookMountedRef.current || sessionIdRef.current !== sid || sessionPropIdRef.current !== sid) return;
     maintainEventsConnected(sid);
@@ -2661,10 +2780,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     });
   };
 
-  // The page keeps its selected session alive with a lease of its own, renewed
-  // every SESSION_LEASE_RENEW_INTERVAL_MS whether or not it holds the event
-  // stream: a hidden page lets go of the stream (#1283), not of the session, so
-  // the idle wrapper and an extension's timer in it live on. A released page
+  // The page keeps its selected session alive with a lease renewal every
+  // SESSION_LEASE_RENEW_INTERVAL_MS, each one resetting the session's idle
+  // countdown, whether or not it holds the event stream: a hidden page lets go
+  // of the stream (#1283), not of the session, so the idle wrapper and an
+  // extension's timer in it live on. A released page
   // reads each reply and opens the stream again as soon as something is under
   // way (sessionLeaseShowsActivity()); one that comes back opens it at once. A
   // dead stream is the connection's heartbeat watchdog's to notice.
@@ -2672,16 +2792,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = session?.id;
     if (!sid) return;
     let disposed = false;
+    const leaseDebug = leaseDebugRef.current;
     const renew = async () => {
       const reply = await requestLease(sid);
       if (disposed || document.visibilityState !== "hidden") return;
-      if (sessionLeaseShowsActivity(reply)) reattachEventStreamRef.current(sid);
+      if (sessionLeaseShowsActivity(reply)) reattachEventStreamRef.current(sid, "activity");
     };
     void renew();
     const interval = setInterval(() => void renew(), SESSION_LEASE_RENEW_INTERVAL_MS);
+    leaseDebug.renewStartedAt = Date.now();
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") return;
-      reattachEventStreamRef.current(sid);
+      reattachEventStreamRef.current(sid, "visible");
       // A frozen background page renewed nothing; coming back renews at once.
       void renew();
     };
@@ -2689,6 +2811,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => {
       disposed = true;
       clearInterval(interval);
+      leaseDebug.renewStartedAt = null;
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [requestLease, session?.id]);
@@ -2795,6 +2918,54 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onSystemInfoLoaderChange?.(loadSystemInfo);
     return () => onSystemInfoLoaderChange?.(null);
   }, [loadSystemInfo, onSystemInfoLoaderChange]);
+
+  // The debug panel's view of this page's stream and lease, read on its own
+  // clock. Refs and plain copies only: it requests, opens, arms and renders nothing.
+  const readDebugSnapshot = useCallback((): DebugClientSession => {
+    let connection: DebugEventConnectionSnapshot | null = null;
+    try {
+      // A connection built before a hot reload may lack snapshot().
+      connection = eventConnectionRef.current?.snapshot?.() ?? null;
+    } catch {
+      connection = null;
+    }
+    const sid = sessionIdRef.current;
+    const lease = leaseDebugRef.current;
+    const reattached = reattachDebugRef.current;
+    return {
+      pageId: peekPageId(),
+      sessionId: sid,
+      selectedSessionId: sessionPropIdRef.current,
+      mounted: sessionHookMountedRef.current,
+      wantsStream: sid !== null && wantsEventStream(sid),
+      connection,
+      released: { active: eventStreamReleasedRef.current, ...releaseDebugRef.current },
+      reattached: { ...reattached },
+      hiddenReleaseDueAt: hiddenReleaseDueAtRef.current,
+      hiddenGraceMs: HIDDEN_PAGE_GRACE_MS,
+      graceDueAt: eventStreamGraceDueAtRef.current,
+      run: {
+        agentRunning: agentRunningRef.current,
+        bashRunning: bashRunningRef.current,
+        compacting: isCompactingRef.current,
+        dialogs: extensionUiCountRef.current,
+      },
+      lease: {
+        renewIntervalMs: SESSION_LEASE_RENEW_INTERVAL_MS,
+        renewStartedAt: lease.renewStartedAt,
+        inFlightSince: lease.inFlightSince,
+        requests: lease.requests,
+        unanswered: lease.unanswered,
+        errors: lease.errors,
+        last: lease.last && { ...lease.last, reply: lease.last.reply && { ...lease.last.reply } },
+      },
+    };
+  }, [wantsEventStream]);
+
+  useEffect(() => {
+    onDebugSnapshotReaderChange?.(readDebugSnapshot);
+    return () => onDebugSnapshotReaderChange?.(null);
+  }, [readDebugSnapshot, onDebugSnapshotReaderChange]);
 
   const branchSwitchLocked = agentRunning || bashRunning || isCompacting;
   useEffect(() => {

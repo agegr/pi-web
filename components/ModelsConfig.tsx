@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
 import { ContextWindowError, normalizeContextWindowOverrides, withContextWindowOverride } from "@/lib/model-context";
+import { checkProviderEntries, ProviderEntryError, type ProviderEntryProblem } from "@/lib/model-provider-check";
 import type { ModelContextSettings } from "./ModelContextWindow";
 import {
   getLastSettingsSelection,
@@ -13,6 +14,7 @@ import {
 import {
   hasModelCostDraftValue,
   modelCostToDraft,
+  modelSidebarLabel,
   parseCompleteModelCost,
   providerMatchesSearch,
   savedModelIds,
@@ -178,7 +180,21 @@ function customSelectionExists(config: ModelsJson, selection: Selection): boolea
   return Boolean(config.providers?.[selection.providerName]?.models?.[selection.index]);
 }
 
+/**
+ * An entry holding only model overrides belongs to its managed provider. An
+ * empty `modelOverrides` overrides nothing and pi refuses it, so that entry
+ * stays a listed custom provider Save can select to be deleted (#1353).
+ */
+function isOverridesOnly(entry: ProviderEntry): boolean {
+  return Object.keys(entry).length === 1 && Object.keys(entry.modelOverrides ?? {}).length > 0;
+}
+
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
+
+const PROVIDER_ENTRY_MESSAGES: Record<ProviderEntryProblem, string> = {
+  empty: "models.providerIncomplete",
+  baseUrl: "models.providerNeedsBaseUrl",
+};
 
 // ── Form field helpers ────────────────────────────────────────────────────────
 
@@ -573,6 +589,7 @@ function ThinkingLevelMapEditor({
   value: Record<string, string | null> | undefined;
   onChange: (v: Record<string, string | null> | undefined) => void;
 }) {
+  const { t } = useI18n();
   const map = value ?? {};
 
   const setLevel = (level: ThinkingLevel, entry: string | null | "omit") => {
@@ -646,13 +663,13 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, "omit")}
                 style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
               >
-                Default
+                {t("i18n.default")}
               </button>
               <button
                 onClick={() => setLevel(level, null)}
                 style={{ ...btnBase, borderLeft: "1px solid var(--border)", ...(state === "null" ? btnActiveDisabled : {}) }}
               >
-                Disabled
+                {t("i18n.disabled")}
               </button>
             </div>
 
@@ -661,7 +678,7 @@ function ThinkingLevelMapEditor({
                 onClick={() => setLevel(level, strVal || level)}
                 style={{ ...btnBase, ...(state === "string" ? btnActive : {}), borderRight: "1px solid var(--border)", flexShrink: 0 }}
               >
-                Custom
+                {t("i18n.custom")}
               </button>
               <input
                 value={strVal}
@@ -725,6 +742,7 @@ function HeaderListEditor({ headers, onChange }: {
   headers: Record<string, string> | undefined;
   onChange: (h: Record<string, string> | undefined) => void;
 }) {
+  const { t } = useI18n();
   const [rows, setRows] = useState<HeaderRow[]>(() => Object.entries(headers ?? {}).map(
     ([name, value], id) => ({ id, name, value }),
   ));
@@ -766,7 +784,7 @@ function HeaderListEditor({ headers, onChange }: {
         { id: nextRowIdRef.current++, name: "", value: "" },
       ])}
         style={{ padding: "5px 9px", background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-muted)", cursor: "pointer", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, alignSelf: "flex-start" }}>
-        + Add header
+        + {t("models.addHeader")}
       </button>
     </div>
   );
@@ -1093,7 +1111,7 @@ function ModelDetail({
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
-        <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
+        <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayNamePlaceholder")} /></Field>
       </div>
 
       <div style={{ padding: "2px 0" }}>
@@ -1499,7 +1517,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         {loginState.phase === "idle" && (
           !provider.loggedIn && (
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Connect your {provider.name} account.
+              {t("models.oauthConnect", { provider: provider.name })}
             </p>
           )
         )}
@@ -1527,19 +1545,19 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         {(loginState.phase === "auth" || loginState.phase === "prompt") && (
           <OAuthPastePanel
             message={loginState.phase === "auth"
-              ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
+              ? t("models.oauthPasteRedirect")
               : loginState.message}
             hint={loginState.phase === "auth" ? (
               <>
-                If the browser window did not open,{" "}
+                {t("models.oauthNoBrowser")}{" "}
                 <a href={loginState.url} target="_blank" rel="noopener noreferrer">
-                  click here to open the login page
+                  {t("models.oauthOpenLoginPage")}
                 </a>
-                .
+                {t("models.oauthOpenLoginPageEnd")}
               </>
             ) : undefined}
             value={inputValue}
-            placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? "Enter value…")}
+            placeholder={loginState.phase === "auth" ? "http://localhost:1455/auth/callback?code=…" : (loginState.placeholder ?? t("models.oauthValuePlaceholder"))}
             submitLabel={t("i18n.submit")}
             inputRef={inputRef}
             onValueChange={setInputValue}
@@ -1549,7 +1567,7 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         {loginState.phase === "device_code" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Open the verification page and enter this code:
+              {t("models.oauthDeviceCode")}
             </p>
             <div style={{ padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 5, color: "var(--text)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: 0 }}>
               {loginState.userCode}
@@ -1670,7 +1688,9 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
 
       {!provider.configured && (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-          Enter your {provider.displayName} API key to enable {provider.modelCount} model{provider.modelCount !== 1 ? "s" : ""}.
+          {provider.modelCount === 1
+            ? t("models.apiKeyEnableOne", { provider: provider.displayName })
+            : t("models.apiKeyEnable", { provider: provider.displayName, count: provider.modelCount })}
         </p>
       )}
 
@@ -1843,7 +1863,7 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount} models</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount === 1 ? t("models.modelCountOne") : t("models.modelCount", { count: p.modelCount })}</div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>
@@ -1938,7 +1958,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   useEffect(() => {
     if (selection?.type !== "provider") return;
     const entry = config.providers?.[selection.name];
-    if (!entry || Object.keys(entry).length !== 1 || !entry.modelOverrides) return;
+    if (!entry || !isOverridesOnly(entry)) return;
     if (oauthProviders.some((provider) => provider.id === selection.name)) {
       setSelection({ type: "oauth", providerId: selection.name });
     } else if (apiKeyProviders.some((provider) => provider.id === selection.name)) {
@@ -2085,6 +2105,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     }
     try {
       draft = normalizeContextWindowOverrides(draft);
+      checkProviderEntries(draft);
       const res = await fetch("/api/models-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -2106,14 +2127,18 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         enabledModels.resync(renames, modelRenames);
       }
     } catch (e) {
-      setSaveError(e instanceof ContextWindowError ? t("models.contextInvalid", { model: e.model }) : String(e));
+      if (e instanceof ProviderEntryError) {
+        setSaveError(t(PROVIDER_ENTRY_MESSAGES[e.problem], { provider: e.provider }));
+        // pi would not load the entry: show it, to be filled in or deleted.
+        setSelection({ type: "provider", name: e.provider });
+      } else setSaveError(e instanceof ContextWindowError ? t("models.contextInvalid", { model: e.model }) : String(e));
     } finally {
       setSaving(false);
     }
   }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, t]);
 
   const providers = Object.entries(config.providers ?? {}).filter(([id, entry]) => {
-    if (Object.keys(entry).length !== 1 || !entry.modelOverrides) return true;
+    if (!isOverridesOnly(entry)) return true;
     const managed = oauthProviders.some((provider) => provider.id === id) || apiKeyProviders.some((provider) => provider.id === id);
     return authListed && !managed;
   });
@@ -2258,7 +2283,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
                         >
                           <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
-                             {m.id || t("i18n.newModel")}
+                             {modelSidebarLabel(m) || t("i18n.newModel")}
                           </ConfigSidebarText>
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>

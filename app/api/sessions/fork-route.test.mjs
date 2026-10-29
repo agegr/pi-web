@@ -28,9 +28,11 @@ async function scratchSession(t) {
   const dir = await mkdtemp(join(tmpdir(), "pi-web-fork-route-"));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   const previousRegistry = globalThis.__piSessions;
   process.env.PI_CODING_AGENT_DIR = dir;
   process.env.HOME = join(dir, "home");
+  process.env.USERPROFILE = join(dir, "home");
   invalidateSessionListCache();
   const manager = SessionManager.create(join(dir, "project"), join(dir, "sessions", "project"));
   const u1 = manager.appendMessage({ role: "user", content: "Fork me", timestamp: Date.now() });
@@ -45,6 +47,8 @@ async function scratchSession(t) {
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     for (const sessionId of [id, ...forked]) invalidateSessionPathCache(sessionId);
     invalidateSessionListCache();
     await rm(dir, { recursive: true, force: true });

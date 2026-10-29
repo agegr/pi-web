@@ -1,7 +1,11 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import {
+  Prism as SyntaxHighlighter,
+  createElement as renderSyntaxNode,
+  type SyntaxHighlighterProps,
+} from "react-syntax-highlighter";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { useTheme } from "@/hooks/useTheme";
@@ -267,6 +271,33 @@ const codeBlockDarkTheme = {
 };
 delete codeBlockDarkTheme['pre[class*="language-"]'].background;
 
+type CodeLinesProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0];
+
+/**
+ * A fence's lines, each a row of its number and its text (`.markdown-code-line`
+ * in app/globals.css): long lines wrap, as in pi's TUI, and a wrapped line goes
+ * on under its own text, never under the number. The text keeps the row's own
+ * classes, which color the later lines of a token that spans several (a block
+ * comment).
+ */
+function renderCodeLines({ rows, stylesheet, useInlineStyles }: CodeLinesProps) {
+  return rows.map((row, index) => {
+    const children = row.children ?? [];
+    const number = children[0]?.properties?.className.includes("react-syntax-highlighter-line-number") ? children[0] : null;
+    const text = {
+      ...row,
+      properties: { ...row.properties, className: [...(row.properties?.className ?? []), "markdown-code-line-text"] },
+      children: number ? children.slice(1) : children,
+    };
+    return (
+      <span key={index} className="markdown-code-line">
+        {number && renderSyntaxNode({ node: number, stylesheet, useInlineStyles, key: "number" })}
+        {renderSyntaxNode({ node: text, stylesheet, useInlineStyles, key: "text" })}
+      </span>
+    );
+  });
+}
+
 /**
  * Syntax-highlighted code block with copy button.
  * Used as the "source" view for mermaid blocks and for all non-mermaid code fences.
@@ -310,7 +341,8 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
             padding: "11px 13px",
             fontSize: "calc(12.5px + var(--chat-font-size-offset, 0px))",
             lineHeight: 1.62,
-            overflowX: "auto",
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
             backgroundColor: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
           }}
         >
@@ -321,7 +353,8 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
           language={lang || "text"}
           style={isDark ? codeBlockDarkTheme : vs}
           showLineNumbers
-          lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
+          lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal", flexShrink: 0 }}
+          renderer={renderCodeLines}
           customStyle={{
             margin: 0,
             padding: "11px 13px",

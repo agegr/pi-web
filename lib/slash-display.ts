@@ -20,3 +20,16 @@ export function skillExpansionToCommand(text: string): string | null {
   const [, name, , , args] = match;
   return args ? `/skill:${name} ${args}` : `/skill:${name}`;
 }
+
+/**
+ * The text inside a complete SDK skill expansion's envelope (the reference
+ * line and the skill body), what pi's TUI shows for an expanded skill
+ * invocation; the arguments after it are the command's.
+ */
+export function skillExpansionContent(text: string): string | null {
+  const match = text.match(SKILL_EXPANSION_RE);
+  if (!match) return null;
+  const args = match[4];
+  const tail = args === undefined ? "\n</skill>".length : "\n</skill>\n\n".length + args.length;
+  return text.slice(text.indexOf("\n") + 1, text.length - tail);
+}
