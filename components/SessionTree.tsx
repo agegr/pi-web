@@ -579,9 +579,10 @@ const SessionRowView = memo(function SessionRowView({
   const tooltip = `${title}\n${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${branch ? ` · ⑂ ${branch}` : ""}`;
 
   // The right column says the one thing worth knowing: awaiting input, else
-  // running, else unread, else when (a pinned row names its project instead, an
-  // archived row says when it was archived). Nothing sits before the title, so it
-  // gets the room.
+  // running, else unread, else when (a pinned row names its project instead).
+  // An archived row shows its family's time like every row, never the archive
+  // time: an old session archived today read as "just now" (#1351).
+  // Nothing sits before the title, so it gets the room.
   let meta: ReactNode;
   let metaState = "";
   let metaTitle: string | undefined;
@@ -602,8 +603,6 @@ const SessionRowView = memo(function SessionRowView({
     metaTitle = t("sidebar.newActivity");
   } else if (context === "pinned") {
     meta = <span className="session-tree-project">{row.project.name}</span>;
-  } else if (context === "archive" && row.archivedAt !== null) {
-    meta = formatShortRelativeTime(new Date(row.archivedAt), locale, nowDate);
   } else {
     meta = formatShortRelativeTime(family.latestModified, locale, nowDate);
   }
