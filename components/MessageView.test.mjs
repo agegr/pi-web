@@ -393,6 +393,21 @@ Review the supplied files.
 
 src/main.ts`;
 
+test("a reply's usage line reads like pi's TUI footer, then the turn's time", () => {
+  const usage = { input: 1_234, output: 567, cacheRead: 85_312, cacheWrite: 12, cost: { total: 0.00362 } };
+  const html = renderMessage(
+    { role: "assistant", provider: "anthropic", model: "claude-test", content: [{ type: "text", text: "Done." }], stopReason: "stop", usage },
+    { turnDurationMs: 10_000 },
+  );
+  assert.match(html, />↑1\.2k ↓567 R85k W12 \$0\.0036 · took 10s</);
+  // Zero counts are left out, as in the footer.
+  const bare = renderMessage({
+    role: "assistant", provider: "anthropic", model: "claude-test", content: [{ type: "text", text: "Done." }], stopReason: "stop",
+    usage: { input: 12_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+  });
+  assert.match(bare, />↑12M</);
+});
+
 test("renders a provider error when the assistant message has no content", () => {
   const html = renderMessage({
     role: "assistant",
