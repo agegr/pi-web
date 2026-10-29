@@ -51,8 +51,9 @@ export async function resolvePatternMatches(
     try {
       ({ scopedModels } = await resolveModelScopeWithDiagnostics([pattern], snapshotRuntime));
     } catch {
-      // An ambiguous or malformed entry still belongs to the user's config;
-      // treat it as matching nothing so it is preserved verbatim.
+      // A malformed entry still belongs to the user's config; treat it as
+      // matching nothing so it is preserved verbatim. (An ambiguous bare id
+      // resolves to every provider offering it, pi 1.3.)
       scopedModels = [];
     }
     const pin = scopedModels.find((scoped) => scoped.thinkingLevel)?.thinkingLevel;
