@@ -2646,7 +2646,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             )}
             {!isStreaming && onToolPresetChange && (
-              <div ref={toolDropdownRef} style={{ position: "relative" }}>
+              <div ref={toolDropdownRef} style={{
+                // On a phone the menu opens from the strip's right edge, not
+                // the button's: its preset descriptions are wider than the room
+                // right of the button, so it ran off the screen.
+                position: isMobile ? "static" : "relative",
+              }}>
                 <button
                   onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
                   disabled={isStreaming}
@@ -2685,8 +2690,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   <div style={{
                     position: "absolute",
                     bottom: "calc(100% + 6px)",
-                    right: isMobile ? undefined : 0,
-                    left: isMobile ? 0 : undefined,
+                    right: 0,
+                    maxWidth: isMobile ? "calc(100vw - 16px)" : undefined,
                     zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 120,
