@@ -362,7 +362,9 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
         <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--border)" }}>
           <strong style={{ fontSize: 12, fontWeight: 600 }}>{t("agentSwitcher.title")}</strong>
           <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-            {t("agentSwitcher.count", { count: subagents.length })}
+            {subagents.length === 1
+              ? t("agentSwitcher.countOne", { count: subagents.length })
+              : t("agentSwitcher.count", { count: subagents.length })}
           </span>
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             {familyUsage && (

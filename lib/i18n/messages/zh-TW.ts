@@ -204,6 +204,7 @@ export const zhTWLocale: LocalePlugin = {
     "agentSwitcher.main": "主 Agent",
     "agentSwitcher.subagent": "子 Agent",
     "agentSwitcher.current": "目前",
+    "agentSwitcher.countOne": "{count} 個代理",
     "agentSwitcher.count": "{count} 個代理",
     "agentSwitcher.runningCount": "{count} 個執行中",
     "agentSwitcher.tokens": "{count} tokens",

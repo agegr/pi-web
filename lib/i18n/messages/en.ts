@@ -204,6 +204,7 @@ export const enLocale: LocalePlugin = {
     "agentSwitcher.main": "Main agent",
     "agentSwitcher.subagent": "Sub-agent",
     "agentSwitcher.current": "Current",
+    "agentSwitcher.countOne": "{count} agent",
     "agentSwitcher.count": "{count} agents",
     "agentSwitcher.runningCount": "{count} running",
     "agentSwitcher.tokens": "{count} tokens",
