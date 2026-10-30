@@ -1251,9 +1251,15 @@ export function AppShell() {
 
   // Subagent work opens in a right-panel tab instead of hijacking the main chat.
   const handleOpenSubagentTab = useCallback((sessionId: string, label: string, side?: boolean) => {
-    setAgentTabs((prev) => prev.some((tab) => tab.sessionId === sessionId)
-      ? prev
-      : [...prev, { sessionId, label, ...(side ? { side: true } : {}) }]);
+    setAgentTabs((prev) => {
+      if (prev.some((tab) => tab.sessionId === sessionId)) return prev;
+      // Every side chat starts out with the same name, and `/side` can be used
+      // again and again: number the later tabs so the strip tells them apart.
+      const numbered = side && prev.some((tab) => tab.side)
+        ? `${label} ${prev.filter((tab) => tab.side).length + 1}`
+        : label;
+      return [...prev, { sessionId, label: numbered, ...(side ? { side: true } : {}) }];
+    });
     setActiveFileTabId(`agent:${sessionId}`);
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);

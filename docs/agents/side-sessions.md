@@ -135,6 +135,11 @@
   delete cascade uses for `parentSession`) — and opens it as the main chat.
   The sidebar Fork action refuses side branches, as it refuses subagent
   branches; promote is the supported path.
+- Tab labels are numbered: every side chat is created with the same name, and
+  `/side` can be used repeatedly, so the second and later side tabs read
+  "Side chat 2", "Side chat 3" (`handleOpenSubagentTab` in
+  `components/AppShell.tsx`, counted from the side tabs then open). Without
+  it a strip of several side chats was a row of identical labels.
 - Side tabs follow their session, not the project: the panel drops them on
   project switch like subagent tabs. Side tabs are **transient** (no
   persistence, not restored by a reload); the session is always reachable
