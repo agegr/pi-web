@@ -309,6 +309,10 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "session", description: "chat.commandSession", source: "builtin", availableWhileStreaming: true },
   { name: "copy", description: "chat.commandCopy", source: "builtin", availableWhileStreaming: true },
   { name: "clone", description: "chat.commandClone", source: "builtin" },
+  // A side chat forks the session while it runs (ADR 0007): the primary use
+  // case is a side question during a long parent run, so it must be offered
+  // mid-stream. The fork is file-level, never touching the running agent.
+  { name: "side", description: "chat.commandSide", source: "builtin", availableWhileStreaming: true },
 ];
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {

@@ -1,8 +1,9 @@
 # Side sessions
 
-> **Draft — design accepted in shape by ADR 0007; not yet implemented.**
-> Everything below describes the decided behavior. File names that do not
-> exist yet are the planned locations.
+> **Phases 1 and 2 are implemented** (server core and the panel/switcher UI,
+> ADR 0007); **phase 3 (promote, send-to-main-chat, stats polish) is not.**
+> Everything marked as decided behavior below matches the code; the phase-3
+> sections say so explicitly.
 
 ## Side sessions
 
@@ -17,7 +18,11 @@
   `resourceSnapshot` (`appendSystemPrompt`, `tools`), shaped like a
   subagent's. The header keeps `parentSession: <parent file path>`, and the
   copy lands in the parent's session directory with the parent's `cwd`, so
-  project grouping is inherited. Planned file: `lib/side-session.ts`.
+  project grouping is inherited. The metadata entry is written **directly
+  after the header**, and the first copied entry is re-parented onto it, so
+  one bounded head read (`SESSION_RELATION_MAX_LINES`) finds it and the file
+  keeps a single parent chain. `SessionManager.open(path).appendSessionInfo()`
+  then names it (`SIDE_SESSION_NAME`). File: `lib/side-session.ts`.
 - **The relation kind is `side`, not `subagent`.** `SessionInfo.relation`
   gains `{ kind: "side"; parentSessionId }`, detected where the subagent
   relation is: the disk scan's bounded head read (`lib/session-reader.ts`)
@@ -58,11 +63,16 @@
   before anything is sent: no prompt reaches the model, no optimistic user
   bubble, no sidebar row. An image attachment blocks the built-in path, as
   for every built-in command.
-- The command calls the side route, then opens the side chat's panel tab and,
-  when an argument was given, seeds it as the first side message through the
-  `pendingQuotePrompt` / `initialPrompt` mechanism that "Ask in new chat"
-  already uses. A refusal maps to a toast (fork refusals never throw past the
-  composer).
+- The command calls the side route, then opens the side chat's panel tab
+  (`onSideSession` → `handleSideSession` in `components/AppShell.tsx`) and,
+  when an argument was given, stashes the text per session id
+  (`sideChatPrompts`) so the panel's first `ChatWindow` mount receives it as
+  `initialPrompt`; the panel drops the entry once consumed. It is not
+  `pendingQuotePrompt`: that one is keyed on the *selected* session, and a
+  side chat is never selected. A refusal maps to a notice (fork refusals
+  never throw past the composer). Checked **before** the request: a side chat
+  refuses `/side` with `sideChat.error.side` ("a side chat cannot start
+  another side chat") even though a side panel passes no callback.
 
 ## Inherited context and the resource snapshot
 
@@ -109,22 +119,31 @@
   connections; the `holder` id is a debug label, and the lease, not the
   stream, keeps a session alive (#1283).
 - The agent switcher lists side sessions as family rows with a side icon.
-  A row click opens the side session **as the main chat** (the reading path
-  every family member already has); the row's side button toggles the panel
-  tab. The stats POST includes side ids in the family, so rows show usage.
-- **Promote** makes a side chat first-class: it rewrites the `pi-web:side`
+  **A row click opens (and focuses) the panel tab — a side chat never becomes
+  the main chat**; only promote does that. The row's side button toggles the
+  tab like a subagent row's. The stats POST includes side ids in the family,
+  so rows show usage.
+- The header count and the Agents badge **count side chats together with
+  subagents** (`agentSwitcher.count` is therefore "{count} agents", not
+  "sub-agents"). Completion is silent for both: `ChatWindow`'s
+  `completionNotificationsEnabled`, `AppShell`'s agent-end and attention
+  notifications, and `SessionSidebar`'s unread/background-completion
+  bookkeeping all treat `subagent` and `side` alike.
+- **Promote (phase 3, not implemented)** makes a side chat first-class: it rewrites the `pi-web:side`
   entry out of the file — the header's `parentSession` remains, so the
   session becomes a visible fork (the same in-place rewrite discipline the
   delete cascade uses for `parentSession`) — and opens it as the main chat.
   The sidebar Fork action refuses side branches, as it refuses subagent
   branches; promote is the supported path.
 - Side tabs follow their session, not the project: the panel drops them on
-  project switch like subagent tabs (the session stays reachable from its
-  family in the sidebar).
+  project switch like subagent tabs. Side tabs are **transient** (no
+  persistence, not restored by a reload); the session is always reachable
+  again from its family row in the Agents switcher, because a hidden family
+  member has no sidebar row of its own.
 
 ## Return path
 
-- **Send to main chat** delivers the side chat's latest reply to the parent
+- **Send to main chat (phase 3, not implemented)** delivers the side chat's latest reply to the parent
   as a custom message with an anti-impersonation prefix (the
   `SUBAGENT_NOTIFICATION_PREFIX` discipline: pi's `convertToLlm` replays
   custom messages as user turns, and compaction must not file a delivered
@@ -132,3 +151,34 @@
   `triggerTurn: true`. It is user-triggered, so it needs none of the
   subagent run's consumed-results bookkeeping. This is the deliberate-click
   `/merge` that Codex #29031 asks for.
+
+## Implementation map (phases 1–2)
+
+| Area | Files |
+| --- | --- |
+| Fork + metadata + snapshot readers | `lib/side-session.ts` |
+| Creation route | `app/api/sessions/[id]/side/route.ts` |
+| Relation kind, both directions | `lib/types.ts`, `lib/session-reader.ts`, `app/api/sessions/[id]/route.ts`, `getRpcSessionInfos()` in `lib/rpc-manager.ts` |
+| Family fold, delete cascade, fork refusal | `lib/session-family.ts` (`isHiddenRelation`), `lib/session-delete.ts`, `lib/session-fork.ts`, and the `fork` / `fork_branch` / `clone` RPC cases in `lib/rpc-manager.ts` |
+| Snapshot restore, fixed tools | `startRpcSession()`, `setRpcSessionTools()`, `navigateTreeKeepingToolSelection()` in `lib/rpc-manager.ts` |
+| `/side` command | `BUILTIN_SLASH_COMMANDS` in `components/ChatInput.tsx`, `case "side"` in `hooks/useAgentSession.ts`, `handleSideSession` in `components/AppShell.tsx` |
+| Panel, tab, switcher row | `components/SideChatPanel.tsx`, `components/TabBar.tsx` (kind `side`), `components/AgentSessionPanel.tsx`, `components/AppShell.tsx` |
+| Tests | `lib/side-session.test.mjs`, the side cases in `lib/rpc-manager.test.mjs`, the streaming case in `components/ChatInput.test.mjs` |
+
+Verified in a real browser (dev server on a scratch `PI_CODING_AGENT_DIR`):
+`/side <question>` during a parent run forked, opened the panel, seeded the
+composer and answered from inherited context; the sidebar kept only the
+parent row while the switcher listed the side chat and its badge counted it;
+the running wrapper reported exactly `read, bash, grep, find, ls`; the system
+prompt carried the appendix; a nested `/side` was refused with its own
+message; and deleting the parent removed the side file in the same cascade.
+
+## Open questions (phase 3)
+
+- Promote's rewrite must renumber nothing but the metadata entry: confirm
+  against a session that already went through the delete cascade's
+  `parentSession` rewrite.
+- Send to main chat while the parent runs: `deliverAs: "followUp"` queues it
+  — check the anti-impersonation prefix survives compaction.
+- Whether a side chat should also be reachable from the file explorer's
+  changed-file jumps (it shares the parent's `cwd`).

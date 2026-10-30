@@ -778,11 +778,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
       }
-      // Drop markers for deleted sessions and for subagents, whose completion
-      // is intentionally silent even if an older client marked them unread.
+      // Drop markers for deleted sessions and for hidden family members
+      // (subagents, side chats), whose completion is intentionally silent
+      // even if an older client marked them unread.
       const unreadEligibleIds = new Set(
         data.sessions
-          .filter((session) => session.relation?.kind !== "subagent")
+          .filter((session) => session.relation?.kind !== "subagent" && session.relation?.kind !== "side")
           .map((session) => session.id),
       );
       setUnreadSessionIds((prev) => {
@@ -1009,9 +1010,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // completion, so a last run too short for any poll to see still counts.
     const active = new Set([...runningSessionIds, ...subagentsActiveSessionIds]);
     const finishedInBackground = [...previousActiveSessionIdsRef.current].filter((id) => !active.has(id) && id !== selectedSessionId);
+    // Subagent runs and side chats finish silently: a side chat is an aside
+    // the user drives, not a background task that owes a notification.
     const knownSubagentIds = new Set(
       allSessions
-        .filter((session) => session.relation?.kind === "subagent")
+        .filter((session) => session.relation?.kind === "subagent" || session.relation?.kind === "side")
         .map((session) => session.id),
     );
     const completedWithNotifications = finishedInBackground.filter(

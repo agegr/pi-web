@@ -1385,6 +1385,9 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
+        if (readSideRelation(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+          throw new Error("A side chat cannot be forked (promote it instead)");
+        }
         // Forking copies finished entries from disk into a new file and never
         // touches this AgentSession, so a running source keeps its run. Only an
         // idle source is shut down, because the browser moves to the child.
@@ -1440,6 +1443,9 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
+        if (readSideRelation(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+          throw new Error("A side chat cannot be forked (promote it instead)");
+        }
         const entryId = command.entryId as string;
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
@@ -1462,6 +1468,9 @@ export class AgentSessionWrapper {
       case "clone": {
         if (this.isSessionRunningForReplacement()) {
           throw new Error("Cannot clone while the session is running");
+        }
+        if (readSideRelation(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+          throw new Error("A side chat cannot be forked (promote it instead)");
         }
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
@@ -2699,7 +2708,9 @@ export async function setRpcSessionTools(
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
-    if (readSideSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
+    // By metadata, not by a valid snapshot: a corrupt side file is refused by
+    // startRpcSession, never re-pinned here.
+    if (hasSideMetadata(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Side chat tool selection is fixed at fork");
     }
     if (toolNames === undefined) appendClearedSessionToolSelection(manager);
@@ -2713,7 +2724,7 @@ export async function setRpcSessionTools(
   if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Subagent tool selection is fixed by its profile");
   }
-  if (readSideSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+  if (hasSideMetadata(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Side chat tool selection is fixed at fork");
   }
 

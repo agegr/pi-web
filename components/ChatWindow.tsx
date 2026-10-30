@@ -65,6 +65,8 @@ interface Props {
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
+  /** `/side`: a side chat was forked from this session; open its tab. */
+  onSideSession?: (session: SessionInfo, prompt: string | null) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void, locked: boolean) => void;
@@ -250,10 +252,10 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onDebugSnapshotReaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onDebugSnapshotReaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
-  const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
+  const completionNotificationsEnabled = session?.relation?.kind !== "subagent" && session?.relation?.kind !== "side";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -304,7 +306,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings, onDebugSnapshotReaderChange, t,
     deferInitialScroll: Boolean(pendingScrollRestore),

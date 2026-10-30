@@ -16,7 +16,9 @@ interface Props {
   /** Subagents with a viewer tab in the open right panel. */
   openSubagentTabIds: ReadonlySet<string>;
   /** Opens a subagent's read-only viewer tab in the right panel (the `Agent` card's button), or closes it when open. */
-  onToggleSubagentTab: (sessionId: string, label: string) => void;
+  onToggleSubagentTab: (sessionId: string, label: string, side?: boolean) => void;
+  /** A side chat's row: opens (and focuses) its interactive tab, never the main chat. */
+  onOpenSideSession: (session: SessionInfo) => void;
 }
 
 const STATS_POLL_MS = 3000;
@@ -185,9 +187,10 @@ function AgentRow({
 }) {
   const { locale, t } = useI18n();
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
+  const side = session.relation?.kind === "side";
   const status: SubagentSessionStatus = running ? "running" : relation?.status ?? "completed";
-  const primary = main ? t("agentSwitcher.main") : relation?.description || sessionTitle(session);
-  const profile = relation?.profile ?? t("agentSwitcher.subagent");
+  const primary = main ? t("agentSwitcher.main") : side ? t("agentSwitcher.sideChat") : relation?.description || sessionTitle(session);
+  const profile = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
   const modelId = usage?.model?.modelId;
   const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
   const secondary = main ? sessionTitle(session) : profile;
@@ -239,6 +242,10 @@ function AgentRow({
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" />
             </svg>
+          ) : side ? (
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" />
+            </svg>
           ) : (
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
@@ -262,6 +269,8 @@ function AgentRow({
         <span style={{ display: "flex", alignItems: "center", gap: 6, color: main && !running ? "var(--text-dim)" : statusColor(status), fontSize: 11, whiteSpace: "nowrap" }}>
           {main && !running ? (
             selected ? t("agentSwitcher.current") : null
+          ) : side && !running ? (
+            null
           ) : (
             <>
               <StatusIcon status={status} />
@@ -274,8 +283,8 @@ function AgentRow({
         <button
           type="button"
           onClick={onToggleTab}
-          title={t(tabShown ? "subagent.closeTab" : "subagent.openTab")}
-          aria-label={t(tabShown ? "subagent.closeTab" : "subagent.openTab")}
+          title={t(tabShown ? (side ? "sideChat.closeTab" : "subagent.closeTab") : side ? "sideChat.openTab" : "subagent.openTab")}
+          aria-label={t(tabShown ? (side ? "sideChat.closeTab" : "subagent.closeTab") : side ? "sideChat.openTab" : "subagent.openTab")}
           aria-pressed={tabShown}
           style={{ width: 36, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", background: "none", color: tabShown ? "var(--accent)" : "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
           onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; if (!tabShown) event.currentTarget.style.color = "var(--text)"; }}
@@ -291,7 +300,7 @@ function AgentRow({
   );
 }
 
-export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab }: Props) {
+export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab, onOpenSideSession }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const sortedSubagents = useMemo(() => [...subagents].sort((a, b) => {
@@ -304,7 +313,8 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
   const visibleSubagents = normalizedQuery
     ? sortedSubagents.filter((session) => {
         const relation = session.relation?.kind === "subagent" ? session.relation : null;
-        return [relation?.description, relation?.profile, session.name, session.firstMessage]
+        const sideLabel = session.relation?.kind === "side" ? t("agentSwitcher.sideChat") : null;
+        return [relation?.description, relation?.profile, sideLabel, session.name, session.firstMessage]
           .some((value) => value?.toLowerCase().includes(normalizedQuery));
       })
     : sortedSubagents;
@@ -400,10 +410,18 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
               selected={session.id === selectedSessionId}
               running={runningSessionIds.has(session.id)}
               usage={usage[session.id]}
-              onSelect={() => onSelectSession(session)}
+              onSelect={() => {
+                // A side chat never becomes the main chat: its row opens the tab.
+                if (session.relation?.kind === "side") onOpenSideSession(session);
+                else onSelectSession(session);
+              }}
               tabShown={openSubagentTabIds.has(session.id)}
               onToggleTab={() => {
                 const relation = session.relation?.kind === "subagent" ? session.relation : null;
+                if (session.relation?.kind === "side") {
+                  onToggleSubagentTab(session.id, t("sideChat.title"), true);
+                  return;
+                }
                 onToggleSubagentTab(session.id, relation?.description || relation?.profile || sessionTitle(session));
               }}
             />

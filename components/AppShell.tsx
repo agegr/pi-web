@@ -18,6 +18,7 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { DebugPanel, DebugPanelBoundary } from "./DebugPanel";
 import { SubagentViewer } from "./SubagentViewer";
+import { SideChatPanel } from "./SideChatPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -316,6 +317,8 @@ export function AppShell() {
   }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
+  // `/side <prompt>`: the text that seeds the side chat's composer, until its panel consumes it.
+  const [sideChatPrompts, setSideChatPrompts] = useState<Record<string, string>>({});
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
@@ -565,7 +568,7 @@ export function AppShell() {
   const [terminalsRestored, setTerminalsRestored] = useState(false);
   // Subagent work tabs are session-scoped and transient: no persistence, and
   // they are dropped when the project changes (they belong to its sessions).
-  const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
+  const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string; side?: boolean }[]>([]);
   const panelTabs: Tab[] = [
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
@@ -579,7 +582,7 @@ export function AppShell() {
       id: `agent:${tab.sessionId}`,
       label: tab.label,
       filePath: tab.label,
-      kind: "agent" as const,
+      kind: (tab.side ? "side" : "agent") as "agent" | "side",
     })),
   ];
 
@@ -1065,7 +1068,7 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
 
-    if (end.aborted || end.subagentsActive || selectedSession?.relation?.kind === "subagent") return;
+    if (end.aborted || end.subagentsActive || selectedSession?.relation?.kind === "subagent" || selectedSession?.relation?.kind === "side") return;
     if (!shouldShowBrowserNotification()) return;
     const targetSession = selectedSession;
     deliverSessionNotification({
@@ -1077,7 +1080,7 @@ export function AppShell() {
   }, [deliverSessionNotification, selectedSession, translate]);
 
   const handleAttentionNeeded = useCallback((request: BlockingExtensionUiRequest) => {
-    if (selectedSession?.relation?.kind === "subagent") return;
+    if (selectedSession?.relation?.kind === "subagent" || selectedSession?.relation?.kind === "side") return;
     if (!shouldShowBrowserNotification()) return;
     if (!claimExtensionAttentionNotification(request, notifiedAttentionRequestIdsRef.current)) return;
 
@@ -1247,8 +1250,10 @@ export function AppShell() {
   }, [terminalTabs, isMobile]);
 
   // Subagent work opens in a right-panel tab instead of hijacking the main chat.
-  const handleOpenSubagentTab = useCallback((sessionId: string, label: string) => {
-    setAgentTabs((prev) => prev.some((tab) => tab.sessionId === sessionId) ? prev : [...prev, { sessionId, label }]);
+  const handleOpenSubagentTab = useCallback((sessionId: string, label: string, side?: boolean) => {
+    setAgentTabs((prev) => prev.some((tab) => tab.sessionId === sessionId)
+      ? prev
+      : [...prev, { sessionId, label, ...(side ? { side: true } : {}) }]);
     setActiveFileTabId(`agent:${sessionId}`);
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
@@ -1262,14 +1267,29 @@ export function AppShell() {
     () => new Set(rightPanelOpen ? agentTabs.map((tab) => tab.sessionId) : []),
     [agentTabs, rightPanelOpen],
   );
-  const handleToggleSubagentTab = (sessionId: string, label: string) => {
+  const handleToggleSubagentTab = (sessionId: string, label: string, side?: boolean) => {
     if (openSubagentTabIds.has(sessionId)) {
       handleCloseFileTab(`agent:${sessionId}`);
       return;
     }
     if (isMobile) setActiveTopPanel(null);
-    handleOpenSubagentTab(sessionId, label);
+    handleOpenSubagentTab(sessionId, label, side);
   };
+
+  // `/side` landed (hooks/useAgentSession): open the forked chat's tab, seed
+  // its composer when the command carried a prompt, and refresh the list so
+  // the family's badge folds the new member in.
+  const handleSideSession = useCallback((session: SessionInfo, prompt: string | null) => {
+    if (prompt) setSideChatPrompts((prev) => ({ ...prev, [session.id]: prompt }));
+    handleOpenSubagentTab(session.id, translate("sideChat.title"), true);
+    setRefreshKey((key) => key + 1);
+  }, [handleOpenSubagentTab, translate]);
+
+  // A side chat's switcher row: open (and focus) its tab. Unlike
+  // handleToggleSubagentTab, re-clicking the row never closes the tab.
+  const handleOpenSideSession = useCallback((session: SessionInfo) => {
+    handleOpenSubagentTab(session.id, translate("sideChat.title"), true);
+  }, [handleOpenSubagentTab, translate]);
 
   const handleTerminalClosed = (tab: TerminalTab) => {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
@@ -2435,6 +2455,7 @@ export function AppShell() {
                   onSelectSession={handleSelectSession}
                   openSubagentTabIds={openSubagentTabIds}
                   onToggleSubagentTab={handleToggleSubagentTab}
+                  onOpenSideSession={handleOpenSideSession}
                 />
               )}
               {activeTopPanel === "system" && (
@@ -2684,6 +2705,7 @@ export function AppShell() {
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
               onSessionForked={handleSessionForked}
+              onSideSession={handleSideSession}
               modelsRefreshKey={modelsRefreshKey}
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
@@ -2879,13 +2901,37 @@ export function AppShell() {
               />
             </div>
           ))}
-          {activeAgentTab && (
+          {activeAgentTab && !activeAgentTab.side && (
             <SubagentViewer
               key={activeAgentTab.sessionId}
               sessionId={activeAgentTab.sessionId}
               fallbackLabel={activeAgentTab.label}
               running={runningSessionIds.has(activeAgentTab.sessionId)}
               onOpenFile={handleOpenLinkedFile}
+            />
+          )}
+          {activeAgentTab?.side && (
+            <SideChatPanel
+              key={activeAgentTab.sessionId}
+              sessionId={activeAgentTab.sessionId}
+              running={runningSessionIds.has(activeAgentTab.sessionId)}
+              initialPrompt={sideChatPrompts[activeAgentTab.sessionId]}
+              onInitialPromptConsumed={() => setSideChatPrompts((prev) => {
+                if (!(activeAgentTab.sessionId in prev)) return prev;
+                const next = { ...prev };
+                delete next[activeAgentTab.sessionId];
+                return next;
+              })}
+              modelsRefreshKey={modelsRefreshKey}
+              onOpenFile={handleOpenLinkedFile}
+              onOpenSubagent={handleOpenSubagentTab}
+              onToolEnd={handleToolEnd}
+              onFilesUploaded={handleExplorerRefresh}
+              soundEnabled={soundEnabled}
+              onSoundToggle={onSoundToggle}
+              playDoneSound={playDoneSound}
+              unlockAudio={unlockAudio}
+              holdAudio={holdAudio}
             />
           )}
         </div>
