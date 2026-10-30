@@ -4,6 +4,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { forkSessionName, sessionDisplayTitle } from "./session-fork-name";
 import { scanSessionFileInfo } from "./session-list-scanner";
 import { readSubagentRun } from "./subagents";
+import { readSideRelation } from "./side-session";
 import type { SessionEntry } from "./types";
 
 /**
@@ -13,7 +14,7 @@ import type { SessionEntry } from "./types";
  * named: the source's title plus a short random suffix (session-fork-name.ts).
  */
 
-export type SessionForkRefusal = "not_found" | "unsaved" | "empty" | "subagent";
+export type SessionForkRefusal = "not_found" | "unsaved" | "empty" | "subagent" | "side";
 
 export class SessionForkError extends Error {
   constructor(readonly code: SessionForkRefusal, message: string) {
@@ -84,6 +85,11 @@ export function forkSessionBranch(
   // folded, out of sight, into its parent's family.
   if (readSubagentRun(branch as unknown as SessionEntry[], "", sourcePath)) {
     throw new SessionForkError("subagent", "A subagent session cannot be forked");
+  }
+  // The same read for a side chat: forking it would leak its parent's context
+  // into a visible session (ADR 0007; promote is the intended path).
+  if (readSideRelation(branch as unknown as SessionEntry[])) {
+    throw new SessionForkError("side", "A side chat cannot be forked");
   }
   if (!branch.some((entry) => entry.type === "message")) {
     throw new SessionForkError("empty", "Nothing to fork: the session has no messages");

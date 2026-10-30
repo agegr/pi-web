@@ -191,7 +191,17 @@ export interface SlashCommandInfo {
 
 export type BuiltinSlashCommandResult =
   | { handled: false }
-  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" };
+  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" | "openSideChat" };
+
+/** `/side` refusals (the side route's codes) to translated notices. */
+const SIDE_REFUSAL_MESSAGES = {
+  not_found: "sideChat.error.notFound",
+  unsaved: "sideChat.error.unsaved",
+  empty: "sideChat.error.empty",
+  subagent: "sideChat.error.subagent",
+  side: "sideChat.error.side",
+  chat_only: "sideChat.error.chatOnly",
+} as const;
 
 /** How a run ended, for the completion sound and notifications. */
 export interface AgentEndInfo {
@@ -216,6 +226,9 @@ export interface UseAgentSessionOptions {
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
+  /** `/side`: a side chat was forked from this session; open its tab. The
+   *  prompt argument, if any, seeds the new chat's composer. */
+  onSideSession?: (session: SessionInfo, prompt: string | null) => void;
   modelsRefreshKey?: number;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void, locked: boolean) => void;
@@ -409,7 +422,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings, onDebugSnapshotReaderChange,
   } = opts;
@@ -2652,13 +2665,46 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return completed;
         }
 
+        case "side": {
+          // A side chat of a side chat is refused by the route; say why first.
+          if (opts.session?.relation?.kind === "side") {
+            return complete({ handled: true, error: translate("sideChat.error.side") });
+          }
+          if (!onSideSession) {
+            return complete({ handled: true, error: translate("sideChat.error.unavailable") });
+          }
+          // Unlike the other built-ins, no ensureNewSession(): forking a session
+          // that does not exist yet has nothing to inherit.
+          const sourceId = sessionIdRef.current;
+          if (!sourceId) return complete({ handled: true, error: translate("sideChat.error.noSession") });
+          const res = await fetch(`/api/sessions/${encodeURIComponent(sourceId)}/side`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+            cache: "no-store",
+          });
+          const data = await res.json().catch(() => null) as
+            | { sessionId?: string; session?: SessionInfo; code?: string; error?: string }
+            | null;
+          if (!res.ok || !data?.sessionId || !data.session) {
+            // A route refusal (empty, subagent, chat-only, ...) never throws
+            // past the composer: it lands as a notice, like the fork's.
+            const message = data?.code && data.code in SIDE_REFUSAL_MESSAGES
+              ? translate(SIDE_REFUSAL_MESSAGES[data.code as keyof typeof SIDE_REFUSAL_MESSAGES])
+              : data?.error ?? `HTTP ${res.status}`;
+            return complete({ handled: true, error: message });
+          }
+          onSideSession(data.session, args || null);
+          return complete({ handled: true, action: "openSideChat" });
+        }
+
         default:
           return { handled: false };
       }
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, slashCommandsForMcp]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSideSession, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, opts.session, slashCommandsForMcp, translate]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
