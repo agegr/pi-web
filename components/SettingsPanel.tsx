@@ -13,7 +13,8 @@ import {
   CHAT_CONTENT_FONT_SIZE_MIN,
   useChatAppearance,
 } from "@/hooks/useChatAppearance";
-import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
+import { usePiWebSetting, usePiWebSettingsError } from "@/hooks/usePiWebSetting";
+import { setPiWebSetting } from "@/lib/pi-web-settings-store";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
@@ -23,10 +24,7 @@ import {
   type SettingsSection,
 } from "@/lib/settings-navigation";
 import { focusModalPanel, listenForPanelEscape } from "@/lib/stacked-dialog";
-import {
-  isThinkingExpandedByDefault,
-  setThinkingExpandedByDefault,
-} from "@/lib/thinking-expansion-preference";
+import { setThinkingExpandedByDefault } from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
@@ -78,12 +76,13 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
-  const enterSendMode = useEnterSendMode();
+  const enterSendMode = usePiWebSetting("enterSendMode");
+  const thinkingExpanded = usePiWebSetting("thinkingExpandedDefault");
+  const piWebSettingsError = usePiWebSettingsError();
   const filesPlacement = useFilesPlacement();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
-  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
@@ -94,7 +93,6 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [logoutError, setLogoutError] = useState("");
 
   useEffect(() => {
-    setThinkingExpanded(isThinkingExpandedByDefault());
     void fetch("/api/web-auth")
       .then((response) => response.ok ? response.json() : null)
       .then((data: { enabled?: boolean } | null) => setWebAuthEnabled(data?.enabled === true))
@@ -325,10 +323,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
             <ConfigSwitch
               checked={thinkingExpanded}
               label={t("settings.thinkingExpandedDefault")}
-              onChange={(enabled) => {
-                setThinkingExpandedByDefault(enabled);
-                setThinkingExpanded(enabled);
-              }}
+              onChange={(enabled) => setThinkingExpandedByDefault(enabled)}
             />
           </div>
           <div className="settings-chat-option settings-chat-switch-option">
@@ -348,7 +343,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                   name="enter-send-mode"
                   value="enter"
                   checked={enterSendMode === "enter"}
-                  onChange={() => setEnterSendMode("enter")}
+                  onChange={() => void setPiWebSetting("enterSendMode", "enter")}
                   className="sr-only"
                 />
                 <span className="settings-send-mode-label">{t("settings.enterSendModeEnter")}</span>
@@ -359,7 +354,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
                   name="enter-send-mode"
                   value="ctrlEnter"
                   checked={enterSendMode === "ctrlEnter"}
-                  onChange={() => setEnterSendMode("ctrlEnter")}
+                  onChange={() => void setPiWebSetting("enterSendMode", "ctrlEnter")}
                   className="sr-only"
                 />
                 <span className="settings-send-mode-label">{t("settings.enterSendModeCtrlEnter")}</span>
@@ -379,6 +374,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
+        {/* The other three choices live in pi-web-settings.json, beside the sidebar's state. */}
+        {piWebSettingsError && <p role="alert" className="settings-general-error">{t("settings.webSettingsSaveFailed", { error: piWebSettingsError })}</p>}
       </section>
 
       <section className="settings-general-section">

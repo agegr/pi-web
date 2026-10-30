@@ -25,6 +25,7 @@ const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 const { parseUnifiedPatch } = await jiti.import("@/lib/patch");
+const { primePiWebSettingsForTests, resetPiWebSettingsForTests } = await jiti.import("@/lib/pi-web-settings-store");
 
 function renderMessage(message, props = {}) {
   return renderToStaticMarkup(
@@ -54,10 +55,9 @@ test("matches response model aliases and otherwise includes the provider", () =>
 });
 
 test("previews the first thinking line and reveals the full text with the saved default", () => {
-  const previousWindow = globalThis.window;
   try {
     for (const expanded of [false, true]) {
-      globalThis.window = { localStorage: { getItem: () => String(expanded) } };
+      primePiWebSettingsForTests({ thinkingExpandedDefault: expanded });
       const html = renderToStaticMarkup(React.createElement(
         I18nProvider,
         null,
@@ -74,14 +74,12 @@ test("previews the first thinking line and reveals the full text with the saved 
       assert.match(html, /3s/);
     }
   } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
+    resetPiWebSettingsForTests();
   }
 });
 
 test("renders long expanded thinking in pieces and short thinking as one text node (#1196)", () => {
-  const previousWindow = globalThis.window;
-  globalThis.window = { localStorage: { getItem: () => "true" } };
+  primePiWebSettingsForTests({ thinkingExpandedDefault: true });
   const contentOf = (thinking) => {
     const html = renderToStaticMarkup(React.createElement(
       I18nProvider,
@@ -107,8 +105,7 @@ test("renders long expanded thinking in pieces and short thinking as one text no
     const oneLine = "Wait, let me check settings.json again. ".repeat(2_000);
     assert.equal(piecesOf(oneLine).join(""), oneLine);
   } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
+    resetPiWebSettingsForTests();
   }
 });
 

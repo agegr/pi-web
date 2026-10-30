@@ -60,6 +60,7 @@ export const zhTWLocale: LocalePlugin = {
     "settings.enterSendModeEnter": "Enter",
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
     "settings.quoteSelection": "選取文字時顯示提問浮窗",
+    "settings.webSettingsSaveFailed": "儲存失敗：{error}",
     "settings.sidebar": "側邊欄",
     "settings.filesPlacement": "檔案瀏覽器",
     "settings.filesPlacementBelow": "工作階段下方",

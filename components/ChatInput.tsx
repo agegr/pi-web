@@ -28,7 +28,7 @@ import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useEnterSendMode } from "@/hooks/useEnterSendMode";
+import { usePiWebSetting } from "@/hooks/usePiWebSetting";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
@@ -696,7 +696,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const { fontSize } = useChatAppearance();
   const { ui: uiFontFamily, uiWeight } = useFontPreferences();
   const isMobile = useIsMobile();
-  const enterSendMode = useEnterSendMode();
+  const enterSendMode = usePiWebSetting("enterSendMode");
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
