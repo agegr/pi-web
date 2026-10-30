@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, type FormEvent, useCallback, useEffect, useState } from "react";
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -129,6 +129,8 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const [directoryName, setDirectoryName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const backdropPressRef = useRef(false);
+  const createBackdropPressRef = useRef(false);
 
   const navigateTo = useCallback(async (directory?: string) => {
     setLoading(true);
@@ -199,8 +201,20 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       role="dialog"
       aria-modal="true"
       aria-label={t("directoryPicker.selectDirectory")}
+      onPointerDown={(event) => {
+        backdropPressRef.current = event.target === event.currentTarget;
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
+        // A click's target is the common ancestor of where the press started and
+        // ended, so selecting text in the path input and releasing on the backdrop
+        // dispatches a backdrop click. Only a press that began on the backdrop
+        // dismisses the picker.
+        const pressedBackdrop = backdropPressRef.current;
+        backdropPressRef.current = false;
+        if (pressedBackdrop && event.target === event.currentTarget && !busy) onCancel();
+      }}
+      onPointerCancel={() => {
+        backdropPressRef.current = false;
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) onCancel();
@@ -331,8 +345,16 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
         {createOpen && (
           <div
             style={{ position: "absolute", inset: 0, zIndex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 12, background: "rgba(0,0,0,0.35)" }}
+            onPointerDown={(event) => {
+              createBackdropPressRef.current = event.target === event.currentTarget;
+            }}
             onClick={(event) => {
-              if (event.target === event.currentTarget) closeCreateDialog();
+              const pressedBackdrop = createBackdropPressRef.current;
+              createBackdropPressRef.current = false;
+              if (pressedBackdrop && event.target === event.currentTarget) closeCreateDialog();
+            }}
+            onPointerCancel={() => {
+              createBackdropPressRef.current = false;
             }}
             onKeyDown={(event) => {
               event.stopPropagation();
