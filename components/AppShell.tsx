@@ -27,6 +27,8 @@ import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { usePiWebSetting } from "@/hooks/usePiWebSetting";
+import { setPiWebSetting } from "@/lib/pi-web-settings-store";
 import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName } from "@/lib/file-paths";
@@ -124,21 +126,11 @@ export function AppShell() {
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, holdAudio, soundEnabledRef } = useAudio();
-  const [quoteSelectionEnabled, setQuoteSelectionEnabled] = useState(false);
-  useEffect(() => {
-    try {
-      setQuoteSelectionEnabled(localStorage.getItem("pi-quote-selection-enabled") === "true");
-    } catch {
-      // Browser storage is best-effort.
-    }
-  }, []);
+  // Settings › General › Chat keeps this on the server (pi-web-settings.json),
+  // like the thinking default and Enter to send.
+  const quoteSelectionEnabled = usePiWebSetting("quoteSelection");
   const handleQuoteSelectionChange = useCallback((enabled: boolean) => {
-    setQuoteSelectionEnabled(enabled);
-    try {
-      localStorage.setItem("pi-quote-selection-enabled", String(enabled));
-    } catch {
-      // Keep the current page usable when storage is unavailable.
-    }
+    void setPiWebSetting("quoteSelection", enabled);
   }, []);
   const notifiedAttentionRequestIdsRef = useRef(new Set<string>());
   const handleBackgroundTaskDone = useCallback(() => {
