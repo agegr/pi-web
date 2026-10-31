@@ -428,6 +428,62 @@ async function findSessionPathById(sessionId: string): Promise<string | null> {
   return match ?? null;
 }
 
+/**
+ * Every session whose id ends in `short` — the 8-character form a subagent report shows. The
+ * filename is only a candidate hint (the id's tail is the end of the uuid in the file name); the
+ * header's own id is what decides, and duplicates are returned rather than guessed between.
+ */
+export async function findSessionIdsByShortId(short: string): Promise<string[]> {
+  if (!/^[0-9a-f]{8}$/i.test(short)) return [];
+  const wanted = short.toLowerCase();
+
+  let projectDirs: Dirent[];
+  const sessionsDir = resolvePath(defaultSessionsDir());
+  try {
+    projectDirs = await readdir(sessionsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const matches = new Set<string>();
+  for (const projectDir of projectDirs) {
+    if (!projectDir.isDirectory() && !projectDir.isSymbolicLink()) continue;
+    const projectPath = resolvePathWithinDefaultSessions(
+      join(sessionsDir, projectDir.name),
+      sessionsDir,
+    );
+    if (!projectPath) continue;
+
+    let files: string[];
+    try {
+      files = await readdir(projectPath);
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      // The uuid's last group never contains a dash, so the short form is the file name's tail.
+      if (!file.endsWith(`${wanted}.jsonl`)) continue;
+      const candidate = resolvePathWithinDefaultSessions(
+        join(projectPath, file),
+        sessionsDir,
+      );
+      if (!candidate) continue;
+      let id: string | undefined;
+      try {
+        id = readSessionHeader(candidate)?.id;
+      } catch {
+        continue;
+      }
+      if (!id || !/^[0-9a-f-]{36}$/i.test(id)) continue;
+      if (id.replaceAll("-", "").toLowerCase().slice(-8) !== wanted) continue;
+      matches.add(id);
+    }
+  }
+
+  return [...matches];
+}
+
 function findSessionIdByPath(filePath: string): string | undefined {
   if (!filePath.endsWith(".jsonl")) return undefined;
   const candidate = resolvePathWithinDefaultSessions(filePath);

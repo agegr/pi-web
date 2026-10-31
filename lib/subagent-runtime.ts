@@ -44,6 +44,7 @@ import { createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
+import { isShortSessionId, shortSessionId } from "./session-short-id";
 import { addWorktree, removeWorktree } from "./worktree";
 import { randomUUID } from "node:crypto";
 import { existsSync, writeFileSync } from "node:fs";
@@ -70,12 +71,16 @@ export interface SubagentRuntimeDependencies {
   ): HostSession | void;
   reopenSession(sessionId: string, sessionFile: string): Promise<HostSession>;
   resolveSessionPath(sessionId: string): Promise<string | null>;
+  /** Every session whose id ends in `short`, for the 8-character form reports show. */
+  findSessionIdsByShortId?(short: string): Promise<readonly string[]>;
   invalidateSessionList(): void;
   isBuiltInSubagentsEnabled?(): boolean;
 }
 
 export interface SubagentController {
   readonly extensionRuntime: SubagentExtensionRuntime;
+  /** The full id for an 8-character one; anything else is returned as given. Throws when it is ambiguous. */
+  resolveSessionId(sessionId: string): Promise<string>;
   get(sessionId: string): Promise<SubagentRunInfo | null>;
   steer(sessionId: string, message: string): Promise<void>;
   abort(sessionId: string): Promise<void>;
@@ -825,17 +830,18 @@ export function createSubagentController(
   async function resume(request: ResumeSubagentRequest): Promise<SubagentExecution> {
     const enabled = dependencies.isBuiltInSubagentsEnabled ?? isBuiltInSubagentsEnabled;
     if (!enabled()) throw new Error("Pi Web built-in sub-agents are disabled");
+    const sessionId = await resolveSessionId(request.sessionId);
     const parentSessionId = request.parentContext.sessionManager.getSessionId();
-    const existing = await get(request.sessionId);
+    const existing = await get(sessionId);
     if (!existing) throw new Error(`Subagent not found: ${request.sessionId}`);
     if (existing.parentSessionId !== parentSessionId) throw new Error("Subagent does not belong to this parent session");
     if (existing.status === "running" || existing.status === "queued") throw new Error("Subagent is already running");
     const parent = dependencies.getSession(parentSessionId);
     if (!parent?.isAlive()) throw new Error("Parent session is no longer available");
-    const sessionPath = existing.sessionPath || await dependencies.resolveSessionPath(request.sessionId);
+    const sessionPath = existing.sessionPath || await dependencies.resolveSessionPath(sessionId);
     if (!sessionPath) throw new Error(`Subagent session file not found: ${request.sessionId}`);
-    let wrapper = dependencies.getSession(request.sessionId);
-    if (!wrapper?.isAlive()) wrapper = await dependencies.reopenSession(request.sessionId, sessionPath);
+    let wrapper = dependencies.getSession(sessionId);
+    if (!wrapper?.isAlive()) wrapper = await dependencies.reopenSession(sessionId, sessionPath);
     if (!wrapper.isAlive()) throw new Error("Subagent session is no longer available");
     if (wrapper.isRunning()) throw new Error("Subagent is already running");
     // The run prompts the SDK session directly, past the wrapper's `send()`, so refuse here as
@@ -864,7 +870,7 @@ export function createSubagentController(
     let resolveCompletion!: (run: SubagentRunInfo) => void;
     const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
     const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false, dispatchedAt: Date.now() };
-    getSubagentRuns().set(request.sessionId, stored);
+    getSubagentRuns().set(sessionId, stored);
     request.onUpdate?.(initialRun);
     dependencies.invalidateSessionList();
     const handleParentAbort = () => {
@@ -882,7 +888,7 @@ export function createSubagentController(
       if (stored.abortRequested) {
         const result = recordResult(manager, { ...initialRun, status: "aborted", completedAt: new Date().toISOString() });
         stored.run = result;
-        getSubagentRuns().delete(request.sessionId);
+        getSubagentRuns().delete(sessionId);
         resolveCompletion(result);
         return result;
       }
@@ -917,7 +923,7 @@ export function createSubagentController(
       result = recordResult(manager, result);
       stored.run = result;
       request.onUpdate?.(result);
-      getSubagentRuns().delete(request.sessionId);
+      getSubagentRuns().delete(sessionId);
       dependencies.invalidateSessionList();
       return result;
     };
@@ -925,7 +931,7 @@ export function createSubagentController(
       try {
         return await runToResult();
       } finally {
-        if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+        if (dropSubagentRun(sessionId, stored)) dependencies.invalidateSessionList();
       }
     };
     const finishQueuedAbort = () => {
@@ -934,11 +940,11 @@ export function createSubagentController(
         const result = recordResult(manager, { ...initialRun, status: "aborted", completedAt: new Date().toISOString() });
         stored.run = result;
         request.onUpdate?.(result);
-        getSubagentRuns().delete(request.sessionId);
+        getSubagentRuns().delete(sessionId);
         dependencies.invalidateSessionList();
         resolveCompletion(result);
       } finally {
-        if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+        if (dropSubagentRun(sessionId, stored)) dependencies.invalidateSessionList();
       }
     };
     let queued: ReturnType<SubagentQueue<SubagentRunInfo>["enqueue"]>;
@@ -951,19 +957,44 @@ export function createSubagentController(
       }, finishQueuedAbort);
     } catch (error) {
       request.signal?.removeEventListener("abort", handleParentAbort);
-      if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+      if (dropSubagentRun(sessionId, stored)) dependencies.invalidateSessionList();
       throw error;
     }
     stored.cancelQueued = queued.cancel;
     if (stored.abortRequested) queued.cancel();
     void queued.promise.then(resolveCompletion, (error) => {
-      if (dropSubagentRun(request.sessionId, stored)) dependencies.invalidateSessionList();
+      if (dropSubagentRun(sessionId, stored)) dependencies.invalidateSessionList();
       resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
     });
     return { run: stored.run, completion };
   }
 
+  /**
+   * An 8-character id is the tail of a UUIDv7 — the only part that differs between sessions — so it
+   * resolves to the one subagent whose id ends in it. Only that form is shortened: a full id, and a
+   * test's fake one, pass through untouched. Duplicates are refused rather than guessed between.
+   */
+  async function resolveSessionId(input: string): Promise<string> {
+    const trimmed = input.trim();
+    if (!isShortSessionId(trimmed)) return trimmed;
+    const wanted = trimmed.toLowerCase();
+    const matches = new Set<string>();
+    for (const { run } of getSubagentRuns().values()) {
+      if (shortSessionId(run.sessionId) === wanted) matches.add(run.sessionId);
+    }
+    for (const sessionId of await (dependencies.findSessionIdsByShortId?.(wanted) ?? [])) {
+      // A subagent report is what carries the short form; a main session that happens to share the
+      // tail is not what the model is asking about.
+      if (await get(sessionId)) matches.add(sessionId);
+    }
+    const found = [...matches];
+    // Nothing matched: the caller's own not-found answer names what the model typed.
+    if (found.length <= 1) return found[0] ?? trimmed;
+    throw new Error(`Subagent id "${wanted}" matches more than one run: ${found.join(", ")}. Use the full session id.`);
+  }
+
   async function get(sessionId: string): Promise<SubagentRunInfo | null> {
+    sessionId = await resolveSessionId(sessionId);
     const stored = getSubagentRuns().get(sessionId);
     if (stored) return stored.run;
     const wrapper = dependencies.getSession(sessionId);
@@ -983,9 +1014,18 @@ export function createSubagentController(
     return run && settleOrphanedRun(run);
   }
 
+  /** A live turn is the only thing a steer can join; a settled child continues through resume. */
+  async function steerRefusal(sessionId: string): Promise<string> {
+    const run = await get(sessionId);
+    const short = shortSessionId(sessionId);
+    if (!run) return `Subagent not found: ${short}`;
+    return `Subagent ${short} is not running (${run.status}). Continue it with Agent: { resume: "${short}", prompt: "<instruction>", description: "<label>" }.`;
+  }
+
   async function steer(sessionId: string, message: string): Promise<void> {
+    sessionId = await resolveSessionId(sessionId);
     const wrapper = dependencies.getSession(sessionId);
-    if (!wrapper?.isAlive() || !wrapper.isRunning()) throw new Error("Subagent is not running");
+    if (!wrapper?.isAlive() || !wrapper.isRunning()) throw new Error(await steerRefusal(sessionId));
     if (getSubagentRuns().get(sessionId)?.turnLimitReached) throw new Error("Subagent reached its turn limit and is stopping; resume it to continue");
     if (!message.trim()) throw new Error("Steering message is required");
     await wrapper.inner.steer(message.trim());
@@ -1034,6 +1074,7 @@ export function createSubagentController(
   }
 
   async function abort(sessionId: string): Promise<void> {
+    sessionId = await resolveSessionId(sessionId);
     const wrapper = dependencies.getSession(sessionId);
     const stored = getSubagentRuns().get(sessionId);
     if (stored?.run.status === "queued") {
@@ -1053,7 +1094,8 @@ export function createSubagentController(
   }
 
   return {
-    extensionRuntime: { start, resume, get, steer, notifyParent, markResultConsumed },
+    extensionRuntime: { start, resume, get, steer, notifyParent, markResultConsumed, resolveSessionId },
+    resolveSessionId,
     get,
     steer,
     abort,
