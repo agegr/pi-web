@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export const dynamic = "force-dynamic";
 
-export default function manifest(): MetadataRoute.Manifest {
+export function GET() {
   const appName = process.env.PI_WEB_APP_NAME?.trim() || "Pi Web";
-  return {
+  const manifest: MetadataRoute.Manifest = {
     id: "/",
     name: appName,
     short_name: appName,
@@ -31,4 +31,8 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     ],
   };
+
+  return Response.json(manifest, {
+    headers: { "content-type": "application/manifest+json" },
+  });
 }
