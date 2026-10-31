@@ -48,7 +48,7 @@ import {
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
-import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun } from "./subagent-runtime";
+import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun, type DirectSubagentPromptRun } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
@@ -163,6 +163,11 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /**
+   * Called once a prompt sent through `send()` is accepted. A subagent session returns a run
+   * handle so its own chat counts as a resumed run; other sessions return undefined.
+   */
+  onPromptAccepted?: (task: string) => DirectSubagentPromptRun | undefined;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
   mcpHost?: WrapperMcpHost;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
@@ -368,6 +373,7 @@ export class AgentSessionWrapper {
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
+  private readonly onPromptAccepted?: (task: string) => DirectSubagentPromptRun | undefined;
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: WrapperMcpHost;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
@@ -408,6 +414,7 @@ export class AgentSessionWrapper {
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
+    this.onPromptAccepted = options.onPromptAccepted;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
@@ -1151,6 +1158,31 @@ export class AgentSessionWrapper {
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
+          // A prompt on a child's own chat starts no subagent run by itself. Adopt it once pi
+          // accepts the prompt, before the turn starts, so `get_subagent_result` and
+          // `abort_subagent` see it running; one that joins a run already there (steering or a
+          // follow-up) starts no second one.
+          let directRun: DirectSubagentPromptRun | undefined;
+          let directRunResolved = false;
+          const adoptDirectRun = () => {
+            if (streamingBehavior || directRunResolved) return;
+            directRunResolved = true;
+            try {
+              directRun = this.onPromptAccepted?.(typeof command.message === "string" ? command.message : "");
+            } catch (error) {
+              console.error("[pi-web] could not record the direct subagent prompt:", error instanceof Error ? error.message : error);
+            }
+          };
+          const finishDirectRun = async (outcome: { aborted?: boolean; error?: string }) => {
+            const run = directRun;
+            directRun = undefined;
+            if (!run) return;
+            try {
+              await run.finish(outcome);
+            } catch (error) {
+              console.error("[pi-web] could not settle the direct subagent prompt:", error instanceof Error ? error.message : error);
+            }
+          };
           // A prompt parked behind compaction is answered with `{ queued: true }`:
           // the message is not a sent one yet.
           let parked = false;
@@ -1224,20 +1256,25 @@ export class AgentSessionWrapper {
               // validation and extension preflight have accepted the submission.
               // Every disposition (handled, queued, started) is an acceptance; a
               // rejected prompt never calls this and rejects `prompt` instead.
-              preflightResult: () => acceptPreflight(),
+              preflightResult: () => {
+                adoptDirectRun();
+                acceptPreflight();
+              },
             });
           } catch (error) {
             finishPrompt();
             throw error;
           }
 
-          void prompt.then(() => {
+          void prompt.then(async () => {
             // Compatibility fallback if a future SDK resolves without invoking
             // the internal callback. This waits for the run, but never acks early.
             acceptPreflight();
+            adoptDirectRun();
+            await finishDirectRun({ aborted: this.lastRunAborted });
             finishPrompt();
             if (!streamingBehavior) this.emit(this.promptDoneEvent());
-          }, (error) => {
+          }, async (error) => {
             // pi's SDK refuses prompts while a manual compaction runs. Park the
             // submission and flush it at compaction end (the TUI's
             // compactionQueuedMessages). An extension command typed meanwhile
@@ -1258,6 +1295,10 @@ export class AgentSessionWrapper {
               return;
             }
             rejectPreflight(error);
+            await finishDirectRun({
+              aborted: this.lastRunAborted,
+              error: error instanceof Error ? error.message : String(error),
+            });
             finishPrompt();
             invalidateSessionListCache();
             // A preflight rejection is returned by the POST itself. Only an
@@ -2523,6 +2564,8 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         : {}),
       chatOnly: options?.chatOnly,
       suppressCompletionNotifications: true,
+      // A prompt typed into a child's own chat is a resumed run, not an untracked prompt.
+      onPromptAccepted: (task) => SUBAGENT_CONTROLLER.beginDirectPrompt(inner.sessionId, task),
       ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
     });
     registerRpcWrapper(wrapper);
@@ -3307,6 +3350,10 @@ export async function startRpcSession(
         });
       },
       suppressCompletionNotifications: Boolean(subagentResources),
+      // A prompt typed into a child's own chat is a resumed run, not an untracked prompt.
+      ...(subagentResources
+        ? { onPromptAccepted: (task: string) => SUBAGENT_CONTROLLER.beginDirectPrompt(inner.sessionId, task) }
+        : {}),
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
     });
