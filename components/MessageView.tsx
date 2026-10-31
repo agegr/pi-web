@@ -819,7 +819,9 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming && !providerError && !truncated) return null;
+  // An empty turn is not a message: pi opens the entry before the model writes, and
+  // the wrapper was a 16px box around an empty column, one per empty entry.
+  if (blocks.length === 0 && !providerError && !truncated) return null;
 
   return (
     <div
