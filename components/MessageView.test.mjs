@@ -162,6 +162,19 @@ test("marks only the matched text block after splitting thinking and the final a
   }
 });
 
+test("an empty turn renders nothing, streaming or not", () => {
+  // pi opens an assistant entry before the model writes anything (a turn Stop
+  // started again from a restored custom message), and the wrapper used to stay:
+  // a 16px box around an empty 8px-gapped column, one per empty entry.
+  const message = { role: "assistant", provider: "anthropic", model: "claude-test", content: [] };
+  assert.equal(renderMessage(message, { isStreaming: true }), "");
+  assert.equal(renderMessage(message), "");
+  // A turn with something to report still renders, empty content or not (a
+  // provider error is held back while the run is still live).
+  const failed = { ...message, errorMessage: "upstream exploded", stopReason: "error" };
+  assert.match(renderMessage(failed), /upstream exploded/);
+});
+
 test("keeps streamed tool input out of collapsed markup while counting it", () => {
   const block = {
     type: "toolCall",
