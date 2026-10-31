@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
+import { memo, useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
@@ -32,6 +32,9 @@ import { FrontmatterCard } from "./FrontmatterCard";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
+import { useVirtualLines } from "@/hooks/useVirtualLines";
+import { blockSpacerHeights, highlightBlocks } from "@/lib/source-window";
+import { findSourceMatches, SOURCE_SEARCH_MAX_BYTES } from "@/lib/source-search";
 import {
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
@@ -67,6 +70,15 @@ interface FileData {
   binary?: boolean;
 }
 
+/**
+ * Rows past which a view stops pinning its line-number gutter: the browser
+ * repositions every sticky cell on each scroll, vertical too, which on a long
+ * list costs more than the pinned gutter is worth (a 24,000-line log in the
+ * plain fallback scrolled with 50-67 ms frames). Only the diff view can be that
+ * long now: the source view renders the lines around the viewport
+ * (`hooks/useVirtualLines.ts`), so its pinned gutter holds a few dozen cells
+ * whatever the file's length.
+ */
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
@@ -135,11 +147,22 @@ const FILE_PINNED_LINE_NUMBER_STYLE: CSSProperties = {
 
 type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0] & {
   wrapLines: boolean;
+  /** The file line the first rendered row is, for a block that starts mid-file. */
+  firstLine?: number;
 };
 
 interface SelectedLineRange {
   startLine: number;
   endLine: number;
+}
+
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="16.5" y1="16.5" x2="21" y2="21" />
+    </svg>
+  );
 }
 
 function MentionIcon() {
@@ -209,7 +232,7 @@ function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | nu
   return { startLine, endLine };
 }
 
-function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
+function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines, firstLine = 1 }: SourceCodeRendererProps) {
   return rows.map((row, lineIndex) => {
     const children = row.children ?? [];
     const firstChildClasses = children[0]?.properties?.className;
@@ -221,7 +244,7 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
     return (
       <span
         className="file-source-line"
-        data-line-number={lineIndex + 1}
+        data-line-number={firstLine + lineIndex}
         key={`source-line-${lineIndex}`}
         style={{ display: "flex", minWidth: "100%" }}
       >
@@ -251,6 +274,81 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
     );
   });
 }
+
+interface SourceBlockProps {
+  lines: string[];
+  start: number;
+  end: number;
+  contextStart: number;
+  language: string;
+  prismReady: boolean;
+  isDark: boolean;
+  wrapLines: boolean;
+}
+
+/**
+ * One highlighted block of the source view: `[start, end)` is rendered, the
+ * lines from `contextStart` are handed to Prism as context so a block starting
+ * inside a multi-line construct keeps its tokens. `memo` keeps the token tree
+ * while scrolling inside the block; unchanged props (the full line array is
+ * stable) reuse it.
+ */
+const SourceBlock = memo(function SourceBlock({
+  lines,
+  start,
+  end,
+  contextStart,
+  language,
+  prismReady,
+  isDark,
+  wrapLines,
+}: SourceBlockProps) {
+  const contextLines = start - contextStart;
+  const code = useMemo(
+    () => lines.slice(contextStart, end).join("\n"),
+    [lines, contextStart, end],
+  );
+  return (
+    <SyntaxHighlighter
+      className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
+      language={language === "text" || !prismReady ? "plaintext" : language}
+      style={isDark ? fileViewerDarkTheme : vs}
+      showLineNumbers
+      startingLineNumber={start + 1}
+      lineNumberStyle={{
+        ...FILE_PINNED_LINE_NUMBER_STYLE,
+      }}
+      customStyle={{
+        margin: 0,
+        padding: 0,
+        border: 0,
+        backgroundColor: "var(--bg)",
+        ...FILE_CODE_STYLE,
+        width: wrapLines ? "100%" : "max-content",
+        minWidth: "100%",
+        overflow: "visible",
+      }}
+      codeTagProps={{
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontWeight: "var(--font-mono-weight)",
+          overflowWrap: wrapLines ? "anywhere" : "normal",
+        },
+      }}
+      renderer={(rendererProps) => (
+        <SourceCodeRenderer
+          {...rendererProps}
+          rows={rendererProps.rows.slice(contextLines)}
+          wrapLines={wrapLines}
+          firstLine={start + 1}
+        />
+      )}
+      wrapLongLines={wrapLines}
+    >
+      {code}
+    </SyntaxHighlighter>
+  );
+});
 
 function getFileApiUrl(
   filePath: string,
@@ -1499,76 +1597,220 @@ function TextFileViewer({
   const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
   // A partly loaded HTML file previews whole, so Load more belongs to its source view.
   const showLoadMore = !!data?.truncated && !(isHtml && effectiveDisplayMode === "preview");
-  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
-    && !(effectiveDisplayMode === "diff" && hasGitDiff)
+  // Everything that is drawn as source lines: not a rendered preview (markdown,
+  // HTML, CSV table) and not the diff. Only then does the line list window.
+  const showingSource = !(effectiveDisplayMode === "diff" && hasGitDiff)
     && !(effectiveDisplayMode === "preview" && hasPreview);
-  // react-syntax-highlighter rebuilds every token element on each render, which
-  // costs hundreds of milliseconds on large files. Cache the rendered trees so
-  // unrelated re-renders (panel open/close, selection changes) reuse them as-is.
-  const highlightedSource = useMemo(
-    () => (
-      <SyntaxHighlighter
-        className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
-        language={language === "text" || !prismReady ? "plaintext" : language}
-        style={isDark ? fileViewerDarkTheme : vs}
-        showLineNumbers
-        lineNumberStyle={{
-          ...FILE_PINNED_LINE_NUMBER_STYLE,
-        }}
-        customStyle={{
-          margin: 0,
-          padding: 0,
-          border: 0,
-          backgroundColor: "var(--bg)",
-          ...FILE_CODE_STYLE,
-          width: wrapLines ? "100%" : "max-content",
-          minWidth: "100%",
-          minHeight: "100%",
-          overflow: "visible",
-        }}
-        codeTagProps={{
-          style: {
-            fontFamily: "var(--font-mono)",
-            fontWeight: "var(--font-mono-weight)",
-            overflowWrap: wrapLines ? "anywhere" : "normal",
-          },
-        }}
-        renderer={(rendererProps) => (
-          <SourceCodeRenderer {...rendererProps} wrapLines={wrapLines} />
-        )}
-        wrapLongLines={wrapLines}
-      >
-        {viewerContent}
-      </SyntaxHighlighter>
-    ),
-    [isDark, language, prismReady, viewerContent, wrapLines],
+  // Only the lines around the viewport are rendered, whatever the file's length:
+  // a long file scrolls like a short one instead of stalling the tab, and the
+  // rows on screen keep their tokens.
+  const sourceVirtual = useVirtualLines({
+    totalLines: sourceLines.length,
+    scrollRef: contentRef,
+    enabled: showingSource,
+    // A new file, or the same file changed on disk, measures its rows again.
+    resetKey: `${sourceSessionId ?? ""}:${filePath}:${fileVersion(data) ?? ""}`,
+  });
+  const scrollToSourceLine = sourceVirtual.scrollToLine;
+  const sourceBlocks = useMemo(
+    () => (showingSource
+      ? highlightBlocks(sourceLines.length, sourceVirtual.range.start, sourceVirtual.range.end)
+      : []),
+    [showingSource, sourceLines.length, sourceVirtual.range.start, sourceVirtual.range.end],
   );
-  const lightweightSourceLines = useMemo(
-    () => useLightweightSource ? sourceLines.map((line, lineIndex) => (
-      <span
-        className="file-source-line"
-        data-line-number={lineIndex + 1}
-        key={`source-line-${lineIndex}`}
-        style={{ display: "flex", minWidth: "100%" }}
-      >
-        <span aria-hidden="true" style={FILE_LINE_NUMBER_STYLE}>
-          {lineIndex + 1}
-        </span>
-        <span
-          className="file-source-line-content"
-          style={{
-            flex: "1 1 auto",
-            minWidth: 0,
-            overflowWrap: wrapLines ? "anywhere" : "normal",
-            whiteSpace: wrapLines ? "pre-wrap" : "pre",
-          }}
-        >
-          {line}
-        </span>
-      </span>
-    )) : null,
-    [sourceLines, useLightweightSource, wrapLines],
+  const spacers = useMemo(
+    () => blockSpacerHeights(sourceVirtual.offsets, sourceBlocks),
+    [sourceBlocks, sourceVirtual.offsets],
   );
+
+  // Find in the whole loaded text, not in the rendered window: the source list
+  // only holds the lines around the viewport, so the browser's own find cannot
+  // see the rest of the file.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [findIndex, setFindIndex] = useState(0);
+  const [findLoading, setFindLoading] = useState(false);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const pointerInsideRef = useRef(false);
+  const findResult = useMemo(
+    () => (findOpen
+      ? findSourceMatches(sourceLines, findQuery, findCaseSensitive)
+      : { matches: [], total: 0, truncated: false }),
+    [findCaseSensitive, findOpen, findQuery, sourceLines],
+  );
+  const matchesByLine = useMemo(() => {
+    const map = new Map<number, { start: number; end: number }[]>();
+    findResult.matches.forEach((match) => {
+      const bucket = map.get(match.line);
+      const occurrence = { start: match.start, end: match.end };
+      if (bucket) bucket.push(occurrence);
+      else map.set(match.line, [occurrence]);
+    });
+    return map;
+  }, [findResult]);
+  const activeMatch = findResult.matches[findIndex];
+
+  useEffect(() => {
+    setFindIndex(0);
+  }, [findCaseSensitive, findQuery]);
+
+  useEffect(() => {
+    setFindIndex((current) => (findResult.matches.length === 0
+      ? 0
+      : Math.min(current, findResult.matches.length - 1)));
+  }, [findResult]);
+
+  // Jumping to a match scrolls the list to its line; the line renders on
+  // arrival, whether it was in the DOM a moment ago or not.
+  useEffect(() => {
+    if (!findOpen || !activeMatch || !showingSource) return;
+    scrollToSourceLine(activeMatch.line);
+  }, [activeMatch, findOpen, scrollToSourceLine, showingSource]);
+
+  // A truncated file is searched in full before the answer is trusted: load the
+  // rest, up to a bounded amount, and let find work on the whole text.
+  const restLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!findOpen) {
+      restLoadedRef.current = false;
+      return;
+    }
+    if (restLoadedRef.current || !data?.truncated) return;
+    restLoadedRef.current = true;
+    let cancelled = false;
+    const requestId = ++contentRequestRef.current;
+    setFindLoading(true);
+    void (async () => {
+      let content = data.content;
+      let last: FileData = data;
+      while (last.truncated && content.length < SOURCE_SEARCH_MAX_BYTES) {
+        const response = await fetch(getFileApiUrl(filePath, "read", sourceSessionId, { offset: last.nextOffset }));
+        const chunk: FileData & { error?: string } = await response.json();
+        if (cancelled || requestId !== contentRequestRef.current) return;
+        if (chunk.error) break;
+        content += chunk.content;
+        last = chunk;
+      }
+      shownVersionRef.current = fileVersion(last);
+      setData({ ...last, content });
+    })().catch(() => {}).finally(() => {
+      if (!cancelled) setFindLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data, filePath, findOpen, sourceSessionId]);
+
+  const stepFind = useCallback((delta: number) => {
+    const count = findResult.matches.length;
+    if (count === 0) return;
+    setFindIndex((current) => ((current + delta) % count + count) % count);
+  }, [findResult]);
+
+  useEffect(() => {
+    const inside = (node: Node | null | undefined) => (
+      !!node && !!shellRef.current && shellRef.current.contains(node)
+    );
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+        if (!showingSource) return;
+        const active = document.activeElement;
+        if (!pointerInsideRef.current && !inside(event.target as Node) && !inside(active) && !inside(window.getSelection()?.anchorNode)) return;
+        event.preventDefault();
+        setFindOpen(true);
+        requestAnimationFrame(() => {
+          findInputRef.current?.focus();
+          findInputRef.current?.select();
+        });
+        return;
+      }
+      if (event.key === "Escape" && findOpen) {
+        const active = document.activeElement;
+        if (!inside(event.target as Node) && !inside(active)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setFindOpen(false);
+      }
+    };
+    // Capture: closing find must reach the Esc before the global stop-the-agent
+    // shortcut does.
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [findOpen, showingSource]);
+
+  useEffect(() => {
+    if (!showingSource) setFindOpen(false);
+  }, [showingSource]);
+
+  // Paint the matches: the CSS Custom Highlight API keeps Prism's token spans
+  // untouched; a browser without it gets a row tint.
+  useEffect(() => {
+    if (!showingSource) return;
+    const root = contentRef.current;
+    if (!root) return;
+    const highlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
+    const HighlightCtor = (globalThis as unknown as {
+      Highlight?: new (...ranges: Range[]) => { priority: number };
+    }).Highlight;
+    const normal: Range[] = [];
+    let activeRange: Range | null = null;
+    root.querySelectorAll<HTMLElement>(".file-source-line[data-line-number]").forEach((row) => {
+      row.style.backgroundColor = "";
+      const line = Number(row.dataset.lineNumber) - 1;
+      const lineMatches = matchesByLine.get(line);
+      if (!lineMatches) return;
+      if (!highlights || !HighlightCtor) {
+        row.style.backgroundColor = "rgba(250, 204, 21, 0.18)";
+        return;
+      }
+      const contentElement = row.querySelector<HTMLElement>(".file-source-line-content");
+      if (!contentElement) return;
+      const points: { node: Text; start: number }[] = [];
+      const walker = document.createTreeWalker(contentElement, NodeFilter.SHOW_TEXT);
+      let offset = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        points.push({ node: text, start: offset });
+        offset += text.data.length;
+      }
+      const pointAt = (position: number) => {
+        for (const point of points) {
+          if (position >= point.start && position <= point.start + point.node.data.length) {
+            return { node: point.node, offset: position - point.start };
+          }
+        }
+        return null;
+      };
+      lineMatches.forEach((match) => {
+        const from = pointAt(match.start);
+        const to = pointAt(match.end);
+        if (!from || !to) return;
+        const range = document.createRange();
+        range.setStart(from.node, from.offset);
+        range.setEnd(to.node, to.offset);
+        if (activeMatch && activeMatch.line === line && activeMatch.start === match.start && activeMatch.end === match.end) {
+          activeRange = range;
+        } else {
+          normal.push(range);
+        }
+      });
+    });
+    if (highlights && HighlightCtor) {
+      const normalHighlight = new HighlightCtor(...normal);
+      normalHighlight.priority = 0;
+      const activeHighlight = new HighlightCtor(...(activeRange ? [activeRange] : []));
+      activeHighlight.priority = 1;
+      highlights.set("pi-file-find", normalHighlight);
+      highlights.set("pi-file-find-active", activeHighlight);
+    }
+    return () => {
+      if (!highlights) return;
+      highlights.delete("pi-file-find");
+      highlights.delete("pi-file-find-active");
+    };
+  }, [activeMatch, matchesByLine, prismReady, showingSource, sourceVirtual.range.end, sourceVirtual.range.start, wrapLines]);
 
   useEffect(() => {
     const updateSelectedLineRange = () => {
@@ -1680,7 +1922,13 @@ function TextFileViewer({
       : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
 
   return (
-    <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}>
+    <div
+      ref={shellRef}
+      className="file-viewer-shell"
+      onPointerEnter={() => { pointerInsideRef.current = true; }}
+      onPointerLeave={() => { pointerInsideRef.current = false; }}
+      style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}
+    >
       <div
         className="file-viewer-toolbar"
         style={{
@@ -1787,11 +2035,103 @@ function TextFileViewer({
                 </button>
               </>
             )}
+            {showingSource && (
+              <button
+                type="button"
+                className="file-viewer-icon-button"
+                onClick={() => {
+                  setFindOpen(true);
+                  requestAnimationFrame(() => {
+                    findInputRef.current?.focus();
+                    findInputRef.current?.select();
+                  });
+                }}
+                title={`${t("files.find")} (⌘/Ctrl+F)`}
+                aria-label={t("files.find")}
+              >
+                <SearchIcon />
+              </button>
+            )}
           </div>
 
           {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>
+
+      {findOpen && showingSource && (
+        <div className="file-find" role="search">
+          <input
+            ref={findInputRef}
+            className="file-find-input"
+            value={findQuery}
+            onChange={(event) => setFindQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                stepFind(event.shiftKey ? -1 : 1);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                setFindOpen(false);
+              }
+            }}
+            placeholder={t("files.findPlaceholder")}
+            aria-label={t("files.find")}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <span className="file-find-count" aria-live="polite">
+            {findLoading
+              ? t("files.findLoading")
+              : !findQuery
+                ? ""
+                : findResult.total === 0
+                  ? t("files.findNoResults")
+                  : t("files.findResults", {
+                    current: findResult.matches.length === 0 ? 0 : Math.min(findIndex + 1, findResult.matches.length),
+                    total: `${findResult.total}${findResult.truncated ? "+" : ""}`,
+                  })}
+          </span>
+          <button
+            type="button"
+            className="file-find-button"
+            disabled={findResult.matches.length === 0}
+            onClick={() => stepFind(-1)}
+            title={t("files.findPrevious")}
+            aria-label={t("files.findPrevious")}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className="file-find-button"
+            disabled={findResult.matches.length === 0}
+            onClick={() => stepFind(1)}
+            title={t("files.findNext")}
+            aria-label={t("files.findNext")}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            className={findCaseSensitive ? "file-find-button is-active" : "file-find-button"}
+            aria-pressed={findCaseSensitive}
+            onClick={() => setFindCaseSensitive((current) => !current)}
+            title={t("files.findCaseSensitive")}
+            aria-label={t("files.findCaseSensitive")}
+          >
+            Aa
+          </button>
+          <button
+            type="button"
+            className="file-find-button"
+            onClick={() => setFindOpen(false)}
+            title={t("files.findClose")}
+            aria-label={t("files.findClose")}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {showLoadMore && data?.truncated && (
         <div
@@ -1935,10 +2275,11 @@ function TextFileViewer({
               {t("files.download")}
             </a>
           </div>
-        ) : useLightweightSource ? (
+        ) : (
           <div
-            className="file-source-view is-lightweight"
+            className="file-source-view is-windowed"
             style={{
+              position: "relative",
               width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",
               minHeight: "100%",
@@ -1946,10 +2287,25 @@ function TextFileViewer({
               ...FILE_CODE_STYLE,
             }}
           >
-            {lightweightSourceLines}
+            {/* The space above the rendered blocks, then the blocks themselves in
+                flow (so their width still sets the horizontal scrollbar), then the
+                rest. Row heights the browser reports replace the estimates. */}
+            <div aria-hidden="true" style={{ height: spacers.top }} />
+            {sourceBlocks.map((block) => (
+              <SourceBlock
+                key={`${language}:${block.start}:${block.end}`}
+                lines={sourceLines}
+                start={block.start}
+                end={block.end}
+                contextStart={block.contextStart}
+                language={language}
+                prismReady={prismReady}
+                isDark={isDark}
+                wrapLines={wrapLines}
+              />
+            ))}
+            <div aria-hidden="true" style={{ height: spacers.bottom }} />
           </div>
-        ) : (
-          highlightedSource
         )}
       </div>
     </div>
