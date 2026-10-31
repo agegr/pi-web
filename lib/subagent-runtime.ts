@@ -79,6 +79,16 @@ export interface SubagentController {
   get(sessionId: string): Promise<SubagentRunInfo | null>;
   steer(sessionId: string, message: string): Promise<void>;
   abort(sessionId: string): Promise<void>;
+  /**
+   * A prompt sent to a child's own chat, outside `Agent` / `resume`: adopt it as a run so its
+   * status and result are recorded and its parent is told when it finishes.
+   */
+  beginDirectPrompt(sessionId: string, task: string): DirectSubagentPromptRun | undefined;
+}
+
+export interface DirectSubagentPromptRun {
+  run: SubagentRunInfo;
+  finish(outcome: { aborted?: boolean; error?: string }): Promise<SubagentRunInfo>;
 }
 
 type StoredSubagentExecution = {
@@ -963,6 +973,82 @@ export function createSubagentController(
     return { run: stored.run, completion };
   }
 
+  /**
+   * A prompt typed into a child's own chat (`POST /api/agent/[id]`) reaches pi without going
+   * through `Agent` or `resume`, so the run record never saw it: after a restart cut a child off
+   * that chat box is the only way back in, and the prompt left the session file on its old
+   * `running` status, wrote no result and told the parent nothing. Adopt it as a resumed run —
+   * the `running` status is written before the turn starts, so `get_subagent_result` and
+   * `abort_subagent` see it meanwhile, and the outcome is recorded and reported to the parent
+   * when the prompt settles, exactly as a `resume`d run's is.
+   */
+  function beginDirectPrompt(sessionId: string, task: string): DirectSubagentPromptRun | undefined {
+    // A live run already owns this child: the prompt joins it (steering, follow-up) and that
+    // run's own completion records the result.
+    if (getSubagentRuns().has(sessionId)) return undefined;
+    const wrapper = dependencies.getSession(sessionId);
+    if (!wrapper?.isAlive()) return undefined;
+    const manager = wrapper.inner.sessionManager;
+    const existing = readSubagentRun(
+      manager.getEntries() as unknown as SessionEntry[],
+      sessionId,
+      wrapper.sessionFile,
+    );
+    if (!existing) return undefined;
+
+    const initialRun: SubagentRunInfo = {
+      ...existing,
+      ...(task.trim() ? { task } : {}),
+      // From the parent's side nobody is waiting on this prompt: it was typed in the child's own
+      // chat, so its result is collected or announced like any background run's.
+      runInBackground: true,
+      status: "running",
+      completedAt: undefined,
+      result: undefined,
+      error: undefined,
+      // A resumed run removes no worktree: this run's result says only whether it is still there.
+      worktreeCleanupError: undefined,
+      worktreeExists: undefined,
+      resumed: true,
+    };
+    let resolveCompletion!: (run: SubagentRunInfo) => void;
+    const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
+    const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false, dispatchedAt: Date.now() };
+    getSubagentRuns().set(sessionId, stored);
+    manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
+    dependencies.invalidateSessionList();
+
+    return {
+      run: initialRun,
+      async finish(outcome) {
+        const text = wrapper.inner.getLastAssistantText()?.trim();
+        const stop = outcome.aborted || stored.abortRequested ? undefined : lastAssistantStop(manager);
+        const aborted = Boolean(outcome.aborted || stored.abortRequested || stop?.aborted);
+        const message = aborted ? undefined : stop?.error ?? outcome.error;
+        const result = recordResult(manager, {
+          ...initialRun,
+          status: aborted ? "aborted" : message ? "failed" : "completed",
+          completedAt: new Date().toISOString(),
+          ...(text ? { result: text } : {}),
+          ...(message ? { error: message } : {}),
+        });
+        stored.run = result;
+        if (dropSubagentRun(sessionId, stored)) dependencies.invalidateSessionList();
+        resolveCompletion(result);
+        // The user chatted with the child directly, so its parent was not waiting on this run
+        // and must be told when it settles. Recorded first: a slow parent must not hold the
+        // child's status back.
+        void notifyParent(result).catch((error) => {
+          console.error(
+            `[pi-web] failed to deliver subagent completion for ${sessionId}:`,
+            error instanceof Error ? error.message : error,
+          );
+        });
+        return result;
+      },
+    };
+  }
+
   async function get(sessionId: string): Promise<SubagentRunInfo | null> {
     const stored = getSubagentRuns().get(sessionId);
     if (stored) return stored.run;
@@ -1057,5 +1143,6 @@ export function createSubagentController(
     get,
     steer,
     abort,
+    beginDirectPrompt,
   };
 }
