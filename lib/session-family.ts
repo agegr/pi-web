@@ -1,5 +1,8 @@
 import type { SessionInfo } from "./types";
 
+/** The hidden message at the end of a side chat's inherited history; the chat draws its line there. */
+export const SIDE_BOUNDARY_MESSAGE_TYPE = "pi-web:side-boundary";
+
 /** The name a side chat starts with, until its first question replaces it. */
 export const SIDE_SESSION_NAME = "Side chat";
 

@@ -51,7 +51,6 @@ import {
 import {
   hasSideMetadata,
   readSideRelation,
-  SIDE_SYSTEM_PROMPT,
   sideToolNames,
 } from "./side-session";
 import { SIDE_SESSION_NAME, sideChatNameFrom } from "./session-family";
@@ -3219,7 +3218,6 @@ export async function startRpcSession(
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
-            ...(sideChatTools ? { appendSystemPromptOverride: (base: string[]) => [...base, SIDE_SYSTEM_PROMPT] } : {}),
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),

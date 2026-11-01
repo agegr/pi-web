@@ -26,7 +26,7 @@ task or losing the parent's context.
    (`POST /api/sessions/[id]/fork`, `{ side: true }`). The copy carries one
    `pi-web:side` custom entry (`version`, `parentSessionId`, `createdAt`) directly
    after the header, where the list's bounded head read finds it, with the first
-   copied entry chained under it.
+   copied entry chained under it, and ends on a hidden boundary message.
 
 2. **Relation: `{ kind: "side"; parentSessionId }`, hidden like a subagent.** Hidden
    kinds fold into the parent's family: no sidebar row, counted in the Agents badge,
@@ -45,11 +45,14 @@ task or losing the parent's context.
    reopening reads the same answer from the transcript, and metadata that does not
    parse is refused rather than reopened with the parent's tools.
 
-4. **Prompt: unchanged, plus one sentence.** `SIDE_SYSTEM_PROMPT` says the inherited
-   messages are background, not the current task, because a fork taken mid-run can
-   end on a prompt nobody answered. A Chat-only side chat goes without it: its head
-   is an exact prompt, and with no tools there is nothing to run. pi updates the tool
-   and rule sections to match the tools.
+4. **Boundary: a hidden message, the prompt untouched.** A fork can end on a prompt
+   nobody answered, so the model must be told where the side chat starts, and it must
+   be told at that place. A system prompt addendum cannot do it: on models without
+   mid-conversation updates it folds into the head, with nothing marking the place. So
+   the copy ends on a `custom_message` with `display: false`, which pi sends as a user
+   turn on every provider, worded as a note from the app. This is Codex's boundary. The
+   prompt stays the parent's, apart from pi updating the tool and rule sections to
+   match the tools, and a Chat-only side chat keeps its exact prompt.
 
 5. **Cache.** On a model with native mid-conversation updates (Claude Opus 4.8, 5, 5.5,
    Sonnet 5.5, Haiku 5.5, Fable; GPT-5.4 and later add their tools the same way) the
@@ -67,8 +70,7 @@ task or losing the parent's context.
    hidden with the same tools, and promoting it is another matter. One session has one
    chat: opening it in the main chat closes its tab.
 
-   A line marks where the inherited history ends (`forkedAtEntryId`), since the two
-   look alike. The first prompt names the side chat, so rows and tabs tell them apart
+   The boundary message draws a line in the chat, since the two histories look alike. The first prompt names the side chat, so rows and tabs tell them apart
    without a model call. Side chats are quiet like subagent runs. Search skips them,
    since they copy their parent's text. Usage counts only entries newer than
    `createdAt`, or the parent's would count again.

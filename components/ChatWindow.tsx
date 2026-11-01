@@ -1,6 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
-import { isHiddenRelation } from "@/lib/session-family";
+import { isHiddenRelation, SIDE_BOUNDARY_MESSAGE_TYPE } from "@/lib/session-family";
 import Image from "next/image";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -1131,6 +1131,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
+                if (msg.role === "custom" && msg.customType === SIDE_BOUNDARY_MESSAGE_TYPE) return <SideChatDivider key="side-chat-divider" />;
                 if (isHiddenCustomMessage(msg)) return null;
                 // pi's showCacheMissNotices (#1265): read from the stored message, not a turn view's copy.
                 const notices = options.withNotices === false ? [] : getTranscriptNotices(messages[idx]);
@@ -1192,14 +1193,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               };
 
               const rendered: ReactNode[] = [];
-              // The inherited history can be loaded only in part, and compacted away: no line then.
-              const forkedAtEntryId = session?.relation?.kind === "side" ? session.relation.forkedAtEntryId : undefined;
-              let forkIdx = forkedAtEntryId ? entryIds.indexOf(forkedAtEntryId) : -1;
               for (let idx = 0; idx < messages.length;) {
-                if (forkIdx !== -1 && idx > forkIdx) {
-                  rendered.push(<SideChatDivider key="side-chat-divider" />);
-                  forkIdx = -1;
-                }
                 const msg = messages[idx];
                 const hasAnchor = isMessageGroupAnchor(msg);
                 if (!hasAnchor && idx !== 0) {
@@ -1333,7 +1327,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
                 idx = endIdx;
               }
-              if (forkIdx !== -1) rendered.push(<SideChatDivider key="side-chat-divider" />);
               const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
               const hasMore = startIndex > 0 || hasEarlierMessages;
               return (
