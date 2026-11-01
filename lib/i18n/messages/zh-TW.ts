@@ -676,6 +676,8 @@ export const zhTWLocale: LocalePlugin = {
     "files.noFiles": "找不到檔案",
     "files.changedCount": "{count} 個檔案",
     "files.changeStats": "{count} 個變更檔案，新增 {additions} 行，刪除 {deletions} 行",
+    "files.viewAsTree": "樹狀檢視",
+    "files.viewAsList": "清單檢視",
     "files.conflictSummary": "{count} 個檔案已存在：{files}",
     "files.cannotReplace": "無法取代：{files}",
     "files.replace": "取代",

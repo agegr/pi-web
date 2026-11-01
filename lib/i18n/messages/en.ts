@@ -676,6 +676,8 @@ export const enLocale: LocalePlugin = {
     "files.noFiles": "No files found",
     "files.changedCount": "{count} files",
     "files.changeStats": "{count} changed files, {additions} lines added, {deletions} lines deleted",
+    "files.viewAsTree": "View as Tree",
+    "files.viewAsList": "View as List",
     "files.conflictSummary": "{count} file{countSuffix} already exist: {files}",
     "files.cannotReplace": "Cannot replace: {files}",
     "files.replace": "Replace",
