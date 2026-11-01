@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { forkSessionBranch, readForkSourceTitle, SessionForkError } from "@/lib/session-fork";
+import { createSideSession, forkSessionBranch, readForkSourceTitle, SessionForkError } from "@/lib/session-fork";
 import {
   cacheSessionPath,
   invalidateSessionListCache,
@@ -32,13 +32,16 @@ function refusal(status: number, code: string, error: string) {
   return NextResponse.json({ error, code }, { status, headers: NO_STORE });
 }
 
-// POST /api/sessions/[id]/fork - body {}; answers with the new session.
+// POST /api/sessions/[id]/fork - body {}, or { side: true } for a side chat
+// (`/side`, ADR 0007); answers with the new session.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "request-denied", "Content-Type must be application/json");
   const { id } = await params;
 
   try {
+    const body = await req.json().catch(() => null) as { side?: unknown } | null;
+    const side = body?.side === true;
     const opened = getRpcSession(id);
     const sourcePath = (opened?.isAlive() ? opened.sessionFile : "") || await resolveSessionPath(id);
     if (!sourcePath) {
@@ -48,7 +51,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // The title the sidebar shows for the source, which the copy's name
     // starts with (null: the source has none, the copy stays unnamed). Read
     // first: the copy below allows no await.
-    const sourceTitle = await readForkSourceTitle(sourcePath);
+    const sourceTitle = side ? null : await readForkSourceTitle(sourcePath);
 
     // No await from here until the copy exists: pi appends finished entries
     // synchronously in this process, so the leaf read here and the file read
@@ -62,7 +65,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const diskLatest = readLatestSessionEntryId(wrapper.sessionFile);
       if (diskLatest && !wrapper.inner.sessionManager.getEntry(diskLatest)) liveLeafId = undefined;
     }
-    const fork = forkSessionBranch(sourcePath, liveLeafId, sourceTitle);
+    const fork = side ? createSideSession(sourcePath, liveLeafId) : forkSessionBranch(sourcePath, liveLeafId, sourceTitle);
     cacheSessionPath(fork.sessionId, fork.path);
     invalidateSessionListCache();
 
@@ -70,7 +73,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const info = await readSessionInfo(fork.path);
     if (!info) throw new Error("The forked session could not be read");
     // Only the copy was scanned, so its origin is added here.
-    const session: SessionInfo = { ...info, parentSessionId: id, relation: { kind: "fork", originSessionId: id } };
+    const session: SessionInfo = {
+      ...info,
+      parentSessionId: id,
+      relation: side ? { kind: "side", parentSessionId: id } : { kind: "fork", originSessionId: id },
+    };
     return NextResponse.json({ sessionId: fork.sessionId, session } satisfies SessionForkResponse, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof SessionForkError) {

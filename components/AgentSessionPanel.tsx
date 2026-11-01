@@ -193,7 +193,8 @@ function AgentRow({
   const profile = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
   const modelId = usage?.model?.modelId;
   const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
-  const secondary = main ? sessionTitle(session) : profile;
+  // Every side chat has the same name: when it last ran tells two rows apart.
+  const secondary = main ? sessionTitle(session) : side ? formatRelativeTime(session.modified, locale) : profile;
   const secondaryTitle = main ? secondary : [
     profile,
     usage?.model ? `${usage.model.provider}/${usage.model.modelId}` : undefined,

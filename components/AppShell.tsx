@@ -17,8 +17,7 @@ import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { DebugPanel, DebugPanelBoundary } from "./DebugPanel";
-import { SubagentViewer } from "./SubagentViewer";
-import { SideChatPanel } from "./SideChatPanel";
+import { SessionChatPanel } from "./SessionChatPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -77,7 +76,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
-import { getAgentsBadge, getFoldedMoreAgentsBadge, getSessionFamily } from "@/lib/session-family";
+import { getAgentsBadge, getFoldedMoreAgentsBadge, getSessionFamily, isHiddenRelation } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 import { focusIfLost } from "@/lib/stacked-dialog";
 
@@ -1068,7 +1067,7 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
 
-    if (end.aborted || end.subagentsActive || selectedSession?.relation?.kind === "subagent" || selectedSession?.relation?.kind === "side") return;
+    if (end.aborted || end.subagentsActive || isHiddenRelation(selectedSession?.relation)) return;
     if (!shouldShowBrowserNotification()) return;
     const targetSession = selectedSession;
     deliverSessionNotification({
@@ -1080,7 +1079,7 @@ export function AppShell() {
   }, [deliverSessionNotification, selectedSession, translate]);
 
   const handleAttentionNeeded = useCallback((request: BlockingExtensionUiRequest) => {
-    if (selectedSession?.relation?.kind === "subagent" || selectedSession?.relation?.kind === "side") return;
+    if (isHiddenRelation(selectedSession?.relation)) return;
     if (!shouldShowBrowserNotification()) return;
     if (!claimExtensionAttentionNotification(request, notifiedAttentionRequestIdsRef.current)) return;
 
@@ -1253,11 +1252,10 @@ export function AppShell() {
   const handleOpenSubagentTab = useCallback((sessionId: string, label: string, side?: boolean) => {
     setAgentTabs((prev) => {
       if (prev.some((tab) => tab.sessionId === sessionId)) return prev;
-      // Every side chat starts out with the same name, and `/side` can be used
-      // again and again: number the later tabs so the strip tells them apart.
-      const numbered = side && prev.some((tab) => tab.side)
-        ? `${label} ${prev.filter((tab) => tab.side).length + 1}`
-        : label;
+      // Every side chat has the same name, and `/side` can be used again and
+      // again: the lowest number no open tab shows tells them apart.
+      let numbered = label;
+      for (let number = 2; side && prev.some((tab) => tab.label === numbered); number += 1) numbered = `${label} ${number}`;
       return [...prev, { sessionId, label: numbered, ...(side ? { side: true } : {}) }];
     });
     setActiveFileTabId(`agent:${sessionId}`);
@@ -2907,17 +2905,8 @@ export function AppShell() {
               />
             </div>
           ))}
-          {activeAgentTab && !activeAgentTab.side && (
-            <SubagentViewer
-              key={activeAgentTab.sessionId}
-              sessionId={activeAgentTab.sessionId}
-              fallbackLabel={activeAgentTab.label}
-              running={runningSessionIds.has(activeAgentTab.sessionId)}
-              onOpenFile={handleOpenLinkedFile}
-            />
-          )}
-          {activeAgentTab?.side && (
-            <SideChatPanel
+          {activeAgentTab && (
+            <SessionChatPanel
               key={activeAgentTab.sessionId}
               sessionId={activeAgentTab.sessionId}
               running={runningSessionIds.has(activeAgentTab.sessionId)}

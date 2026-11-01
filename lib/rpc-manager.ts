@@ -51,7 +51,9 @@ import {
 import {
   hasSideMetadata,
   readSideRelation,
-  readSideSessionResources,
+  SIDE_SYSTEM_PROMPT,
+  SIDE_TOOLS,
+  sideToolNames,
 } from "./side-session";
 import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
@@ -938,8 +940,7 @@ export class AgentSessionWrapper {
     if (result.cancelled || this.chatOnly) return { cancelled: result.cancelled };
 
     const entries = this.inner.sessionManager.getEntries() as unknown as SessionEntry[];
-    // A side chat's tools are fixed at fork, like a subagent's by its profile.
-    if (!readSubagentSessionResources(entries) && !readSideSessionResources(entries)) {
+    if (!readSubagentSessionResources(entries)) {
       const activeAfter = this.inner.getActiveToolNames();
       const isToolChanged = activeBefore.length !== activeAfter.length
         || activeBefore.some((name) => !activeAfter.includes(name));
@@ -954,6 +955,13 @@ export class AgentSessionWrapper {
       }
     }
     return { cancelled: false };
+  }
+
+  /** A copy of a side chat would be read as one, or show its parent's history as a new session. */
+  private refuseForkOfSideChat(): void {
+    if (hasSideMetadata(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+      throw new Error("A side chat cannot be forked");
+    }
   }
 
   private emit(event: AgentEvent): void {
@@ -1385,9 +1393,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
-        if (readSideRelation(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
-          throw new Error("A side chat cannot be forked (promote it instead)");
-        }
+        this.refuseForkOfSideChat();
         // Forking copies finished entries from disk into a new file and never
         // touches this AgentSession, so a running source keeps its run. Only an
         // idle source is shut down, because the browser moves to the child.
@@ -1443,9 +1449,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
-        if (readSideRelation(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
-          throw new Error("A side chat cannot be forked (promote it instead)");
-        }
+        this.refuseForkOfSideChat();
         const entryId = command.entryId as string;
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
@@ -1469,9 +1473,7 @@ export class AgentSessionWrapper {
         if (this.isSessionRunningForReplacement()) {
           throw new Error("Cannot clone while the session is running");
         }
-        if (readSideRelation(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
-          throw new Error("A side chat cannot be forked (promote it instead)");
-        }
+        this.refuseForkOfSideChat();
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
         const leafId = typeof command.leafId === "string" ? command.leafId : sessionManager.getLeafId();
@@ -2708,10 +2710,8 @@ export async function setRpcSessionTools(
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
-    // By metadata, not by a valid snapshot: a corrupt side file is refused by
-    // startRpcSession, never re-pinned here.
     if (hasSideMetadata(manager.getEntries() as unknown as SessionEntry[])) {
-      throw new Error("Side chat tool selection is fixed at fork");
+      throw new Error("Side chat tools are fixed when it is forked");
     }
     if (toolNames === undefined) appendClearedSessionToolSelection(manager);
     else appendSessionToolSelection(manager, toolNames);
@@ -2725,7 +2725,7 @@ export async function setRpcSessionTools(
     throw new Error("Subagent tool selection is fixed by its profile");
   }
   if (hasSideMetadata(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
-    throw new Error("Side chat tool selection is fixed at fork");
+    throw new Error("Side chat tools are fixed when it is forked");
   }
 
   const hasCurrentResourcePolicy = typeof existing.isChatOnly === "function"
@@ -3088,27 +3088,26 @@ export async function startRpcSession(
   if (hasPersistedSubagentSnapshot && !subagentResources) {
     throw new Error("Invalid subagent resource snapshot");
   }
-  // A side chat's policy is the same shape a subagent reopens with (ADR 0007):
-  // one child path through this function, never one reader for both kinds.
-  const hasPersistedSideSnapshot = sessionFile && hasSideMetadata(sessionEntries);
-  const sideResources = sessionFile
-    ? readSideSessionResources(sessionEntries)
-    : null;
-  if (hasPersistedSideSnapshot && !sideResources) {
-    throw new Error("Invalid side resource snapshot");
-  }
-  const childResources = subagentResources ?? sideResources;
-  const persistedToolNames = childResources
+  const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionEntries);
-  const selectedToolNames = childResources?.tools ?? persistedToolNames ?? requestedToolNames;
-  if (!childResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
+  const pinnedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
+  if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
   const subagentLoadsResources = Boolean(
-    childResources?.loadExtensions || childResources?.loadSkills || childResources?.codemode || childResources?.mcp,
+    subagentResources?.loadExtensions || subagentResources?.loadSkills || subagentResources?.codemode || subagentResources?.mcp,
   );
-  const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
+  const chatOnly = pinnedToolNames?.length === 0 && !subagentLoadsResources;
+  // A side chat (ADR 0007) starts as a normal session, or as Chat only, with fewer tools.
+  const isSideChat = hasSideMetadata(sessionEntries);
+  if (isSideChat && !readSideRelation(sessionEntries)) throw new Error("Invalid side chat metadata");
+  const sideChatTools = isSideChat && !chatOnly;
+  const selectedToolNames = sideChatTools
+    ? sideToolNames(pinnedToolNames, sessionManager.getBranch().flatMap((entry) => (
+        entry.type === "message" && entry.message.role === "system" ? [entry.message] : []
+      )))
+    : pinnedToolNames;
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -3119,7 +3118,7 @@ export async function startRpcSession(
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
     // A subagent's tools come from its snapshot (subagentToolOptions() below).
     let toolsOption: string[] | undefined;
-    if (!childResources && selectedToolNames !== undefined) {
+    if (!subagentResources && selectedToolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
       // set allowedToolNames to coding builtins only, which filtered every
@@ -3129,12 +3128,14 @@ export async function startRpcSession(
       // tools (and activate extension tools); we narrow the ACTIVE set below.
       toolsOption = selectedToolNames.length === 0 ? [] : undefined;
     }
+    // Here the allow-list is the point: extensions stay loaded, their tools stay out.
+    if (sideChatTools) toolsOption = [...SIDE_TOOLS];
 
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
-    const trustReloadOptions = childResources
+    const trustReloadOptions = subagentResources
       ? subagentLoadsResources
         ? projectTrustReloadOptions(sessionCwd, agentDir)
         : undefined
@@ -3150,34 +3151,34 @@ export async function startRpcSession(
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
-    const builtins = childResources || chatOnly
+    const builtins = subagentResources || chatOnly || sideChatTools
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
-    const subagentCodemode = childResources?.codemode
+    const subagentCodemode = subagentResources?.codemode
       ? await createSubagentCodemodeExtension({
           agentDir,
           cwd: sessionCwd,
           projectTrusted: () => settingsManager.isProjectTrusted(),
         })
       : undefined;
-    const subagentMcp = childResources?.mcp
+    const subagentMcp = subagentResources?.mcp
       ? await createSubagentMcpExtensions({
           agentDir,
           cwd: sessionCwd,
           projectTrusted: () => settingsManager.isProjectTrusted(),
-          codemode: childResources.codemode === true,
+          codemode: subagentResources.codemode === true,
         })
       : undefined;
-    const skillsBinding = childResources ? createSubagentSkillsBinding({
-      loadSkills: childResources.loadSkills,
-      skills: childResources.skills,
-      exactSystemPrompt: childResources.exactSystemPrompt
-        ?? (chatOnly ? childResources.appendSystemPrompt[0] ?? "" : undefined),
+    const skillsBinding = subagentResources ? createSubagentSkillsBinding({
+      loadSkills: subagentResources.loadSkills,
+      skills: subagentResources.skills,
+      exactSystemPrompt: subagentResources.exactSystemPrompt
+        ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
     const subagentExtensionFactories = [
       ...(subagentCodemode ? [subagentCodemode] : []),
-      ...(subagentMcp && childResources
-        ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => childResources)]
+      ...(subagentMcp && subagentResources
+        ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
         : []),
       ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
     ];
@@ -3185,9 +3186,9 @@ export async function startRpcSession(
       cwd: sessionCwd,
       agentDir,
       settingsManager,
-      resourceLoaderOptions: childResources
+      resourceLoaderOptions: subagentResources
         ? {
-            ...subagentExtensionLoaderOptions(childResources),
+            ...subagentExtensionLoaderOptions(subagentResources),
             ...skillsBinding!.loaderOptions,
             ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,
@@ -3199,11 +3200,12 @@ export async function startRpcSession(
                   systemPromptOverride: () => undefined,
                 }
               : {}),
-            appendSystemPrompt: childResources.appendSystemPrompt,
+            appendSystemPrompt: subagentResources.appendSystemPrompt,
           }
         : chatOnly
           ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
         : {
+            ...(sideChatTools ? { appendSystemPromptOverride: (base: string[]) => [...base, SIDE_SYSTEM_PROMPT] } : {}),
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
@@ -3221,7 +3223,7 @@ export async function startRpcSession(
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
-    if (childResources?.codemode
+    if (subagentResources?.codemode
       && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
       throw new Error("Code mode is unavailable: builtin:codemode was not registered");
     }
@@ -3311,8 +3313,8 @@ export async function startRpcSession(
       ...(startupModel ? { model: startupModel } : {}),
       ...(initial?.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
-      ...(childResources
-        ? subagentToolOptions(childResources)
+      ...(subagentResources
+        ? subagentToolOptions(subagentResources)
         : toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
 
@@ -3320,7 +3322,7 @@ export async function startRpcSession(
     // already holds the extension tools pi activates on registration and whatever
     // `defaultTools` names (such as `+codemode`), so installed extensions stay usable in
     // Pi Web just like in the `pi` CLI.
-    if (!childResources && !chatOnly) {
+    if (!subagentResources && !chatOnly) {
       const initialToolNames = inner.getActiveToolNames();
       inner.setActiveToolsByName(
         resolveActiveToolNames(inner, selectedToolNames ?? initialToolNames, initialToolNames),
@@ -3328,7 +3330,7 @@ export async function startRpcSession(
     }
 
     skillsBinding?.setActiveToolsGetter(() => inner.getActiveToolNames());
-    const exactSystemPrompt = childResources
+    const exactSystemPrompt = subagentResources
       ? skillsBinding!.getExactSystemPrompt
       : chatOnly
         ? () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
@@ -3343,7 +3345,7 @@ export async function startRpcSession(
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });
       },
-      suppressCompletionNotifications: Boolean(childResources),
+      suppressCompletionNotifications: Boolean(subagentResources) || isSideChat,
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
     });

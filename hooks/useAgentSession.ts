@@ -200,7 +200,6 @@ const SIDE_REFUSAL_MESSAGES = {
   empty: "sideChat.error.empty",
   subagent: "sideChat.error.subagent",
   side: "sideChat.error.side",
-  chat_only: "sideChat.error.chatOnly",
 } as const;
 
 /** How a run ended, for the completion sound and notifications. */
@@ -2666,21 +2665,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
 
         case "side": {
-          // A side chat of a side chat is refused by the route; say why first.
-          if (opts.session?.relation?.kind === "side") {
-            return complete({ handled: true, error: translate("sideChat.error.side") });
-          }
-          if (!onSideSession) {
-            return complete({ handled: true, error: translate("sideChat.error.unavailable") });
+          // The route refuses these too; a tab has nowhere to open another tab from.
+          const relationKind = opts.session?.relation?.kind;
+          if (relationKind === "side" || relationKind === "subagent") {
+            return complete({ handled: true, error: translate(SIDE_REFUSAL_MESSAGES[relationKind]) });
           }
           // Unlike the other built-ins, no ensureNewSession(): forking a session
           // that does not exist yet has nothing to inherit.
           const sourceId = sessionIdRef.current;
           if (!sourceId) return complete({ handled: true, error: translate("sideChat.error.noSession") });
-          const res = await fetch(`/api/sessions/${encodeURIComponent(sourceId)}/side`, {
+          const res = await fetch(`/api/sessions/${encodeURIComponent(sourceId)}/fork`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: "{}",
+            body: JSON.stringify({ side: true }),
             cache: "no-store",
           });
           const data = await res.json().catch(() => null) as
@@ -2694,7 +2691,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               : data?.error ?? `HTTP ${res.status}`;
             return complete({ handled: true, error: message });
           }
-          onSideSession(data.session, args || null);
+          onSideSession?.(data.session, args || null);
           return complete({ handled: true, action: "openSideChat" });
         }
 

@@ -1,10 +1,10 @@
-import { randomBytes } from "crypto";
-import { existsSync, writeFileSync } from "fs";
+import { randomBytes, randomUUID } from "crypto";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { forkSessionName, sessionDisplayTitle } from "./session-fork-name";
 import { scanSessionFileInfo } from "./session-list-scanner";
 import { readSubagentRun } from "./subagents";
-import { readSideRelation } from "./side-session";
+import { createSideMetadataEntry, readSideRelation, SIDE_SESSION_NAME } from "./side-session";
 import type { SessionEntry } from "./types";
 
 /**
@@ -65,6 +65,37 @@ export function forkSessionBranch(
   liveLeafId?: string | null,
   sourceTitle?: string | null,
 ): { sessionId: string; path: string; name: string | undefined } {
+  return copySessionBranch(sourcePath, liveLeafId, (manager) => (sourceTitle === null ? undefined : forkSessionName(
+    sourceTitle?.trim() || manager.getSessionId().slice(0, 12),
+    randomBytes(2).toString("hex"),
+    typeof manager.getHeader()?.parentSession === "string",
+  )));
+}
+
+/**
+ * The same copy as a side chat (ADR 0007, `lib/side-session.ts`): the metadata
+ * entry goes directly after the header, where the list's bounded head read
+ * finds it, and the first copied entry is chained under it. The copy is brand
+ * new and has no wrapper yet, so this is the only rewrite it ever gets.
+ */
+export function createSideSession(
+  sourcePath: string,
+  liveLeafId?: string | null,
+): { sessionId: string; path: string } {
+  const copy = copySessionBranch(sourcePath, liveLeafId, () => SIDE_SESSION_NAME);
+  const [header, first, ...rest] = readFileSync(copy.path, "utf8").trimEnd().split("\n");
+  const firstEntry = JSON.parse(first) as { parentId?: string | null };
+  const metadata = createSideMetadataEntry(copy.sourceSessionId, `side-${randomUUID()}`, firstEntry.parentId ?? null);
+  firstEntry.parentId = metadata.id;
+  writeFileSync(copy.path, [header, JSON.stringify(metadata), JSON.stringify(firstEntry), ...rest].join("\n") + "\n", { encoding: "utf8" });
+  return { sessionId: copy.sessionId, path: copy.path };
+}
+
+function copySessionBranch(
+  sourcePath: string,
+  liveLeafId: string | null | undefined,
+  nameFor: (source: SessionManager) => string | undefined,
+): { sessionId: string; path: string; name: string | undefined; sourceSessionId: string } {
   const live = liveLeafId !== undefined;
   // SessionManager.open() of a missing path silently starts an empty session.
   if (!existsSync(sourcePath)) {
@@ -96,11 +127,8 @@ export function forkSessionBranch(
   }
 
   // Read before createBranchedSession() repoints the instance to the copy.
-  const name = sourceTitle === null ? undefined : forkSessionName(
-    sourceTitle?.trim() || manager.getSessionId().slice(0, 12),
-    randomBytes(2).toString("hex"),
-    typeof manager.getHeader()?.parentSession === "string",
-  );
+  const name = nameFor(manager);
+  const sourceSessionId = manager.getSessionId();
   const path = manager.createBranchedSession(leafId);
   // Appended to the copy's file; a shell-only copy keeps it in memory until
   // it is written below.
@@ -115,5 +143,5 @@ export function forkSessionBranch(
     }
   }
   if (!path || !existsSync(path)) throw new Error("Failed to fork the session");
-  return { sessionId: manager.getSessionId(), path, name };
+  return { sessionId: manager.getSessionId(), path, name, sourceSessionId };
 }
