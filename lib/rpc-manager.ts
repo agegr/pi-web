@@ -55,6 +55,7 @@ import {
   SIDE_TOOLS,
   sideToolNames,
 } from "./side-session";
+import { SIDE_SESSION_NAME, sideChatNameFrom } from "./session-family";
 import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
@@ -174,6 +175,7 @@ type AgentSessionWrapperOptions = {
   mcpHost?: WrapperMcpHost;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
+  sideChat?: boolean;
 };
 
 /**
@@ -378,6 +380,7 @@ export class AgentSessionWrapper {
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: WrapperMcpHost;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
+  private readonly sideChat: boolean;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
@@ -418,6 +421,7 @@ export class AgentSessionWrapper {
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
+    this.sideChat = options.sideChat === true;
   }
 
   get sessionId(): string {
@@ -957,6 +961,15 @@ export class AgentSessionWrapper {
     return { cancelled: false };
   }
 
+  /** The first prompt names a side chat that still has the name it started with. */
+  private nameSideChat(message: unknown): void {
+    if (this.inner.sessionManager.getSessionName() !== SIDE_SESSION_NAME || typeof message !== "string") return;
+    const name = sideChatNameFrom(message);
+    if (!name) return;
+    this.inner.setSessionName(name);
+    invalidateSessionListCache();
+  }
+
   /** A copy of a side chat would be read as one, or show its parent's history as a new session. */
   private refuseForkOfSideChat(): void {
     if (hasSideMetadata(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
@@ -1153,6 +1166,7 @@ export class AgentSessionWrapper {
           if (this.inner.isBashRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
+          if (this.sideChat) this.nameSideChat(command.message);
           const model = this.inner.model;
           if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
@@ -2860,7 +2874,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
         },
       } : side ? {
         parentSessionId: side.parentSessionId,
-        relation: { kind: "side" as const, parentSessionId: side.parentSessionId },
+        relation: { kind: "side" as const, ...side },
       } : {}),
       transient: !persisted,
     });
@@ -3348,6 +3362,7 @@ export async function startRpcSession(
       suppressCompletionNotifications: Boolean(subagentResources) || isSideChat,
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
+      sideChat: isSideChat,
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);

@@ -262,7 +262,7 @@ function mapScannedSession(
     ...(subagent
       ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }
       : side
-        ? { relation: { kind: "side" as const, parentSessionId: side.parentSessionId } }
+        ? { relation: { kind: "side" as const, ...side } }
         : scanned.parentSessionPath
           ? { relation: { kind: "fork" as const, ...(originSessionId ? { originSessionId } : {}) } }
           : {}),

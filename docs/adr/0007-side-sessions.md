@@ -58,13 +58,20 @@ task or losing the parent's context.
    miss. OpenAI's `prompt_cache_key` follows the session id, so it differs from the
    parent's.
 
-6. **Surface: `/side` and a right-panel tab.** `/side [prompt]` is a client-side
-   built-in available while streaming, so nothing reaches the running model. The tab
-   is `SessionChatPanel`, a `ChatWindow` for that session; subagent tabs use the same
-   panel. It rewrites no URL, and global shortcuts stay with the main chat. Side
-   chats are quiet like subagent runs. Search skips them, since they copy their
-   parent's text. Usage counts only entries newer than `createdAt`, or the parent's
-   would count again.
+6. **Surface: the same as a subagent's.** `/side [prompt]` is a client-side built-in
+   available while streaming, so nothing reaches the running model, and it opens a
+   right-panel tab: `SessionChatPanel`, a `ChatWindow` for that session, which subagent
+   tabs use too. It rewrites no URL, and global shortcuts stay with the main chat. In
+   the Agents switcher a row opens the side chat in the main chat, as a subagent's
+   does, and its button toggles the tab. That is only a place to look at it: it stays
+   hidden with the same tools, and promoting it is another matter. One session has one
+   chat: opening it in the main chat closes its tab.
+
+   A line marks where the inherited history ends (`forkedAtEntryId`), since the two
+   look alike. The first prompt names the side chat, so rows and tabs tell them apart
+   without a model call. Side chats are quiet like subagent runs. Search skips them,
+   since they copy their parent's text. Usage counts only entries newer than
+   `createdAt`, or the parent's would count again.
 
 7. **Refusals.** `not_found`, `unsaved`, `empty`, `subagent`, `side` (no nesting). A
    side chat cannot be forked: the copy would be read as one.

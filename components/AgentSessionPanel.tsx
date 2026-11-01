@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { countRunningSubagents } from "@/lib/session-family";
+import { countRunningSubagents, sideChatTitle } from "@/lib/session-family";
 import type { SessionUsageSummary } from "@/lib/session-stats";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
@@ -17,8 +17,6 @@ interface Props {
   openSubagentTabIds: ReadonlySet<string>;
   /** Opens a subagent's read-only viewer tab in the right panel (the `Agent` card's button), or closes it when open. */
   onToggleSubagentTab: (sessionId: string, label: string, side?: boolean) => void;
-  /** A side chat's row: opens (and focuses) its interactive tab, never the main chat. */
-  onOpenSideSession: (session: SessionInfo) => void;
 }
 
 const STATS_POLL_MS = 3000;
@@ -189,7 +187,7 @@ function AgentRow({
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
   const side = session.relation?.kind === "side";
   const status: SubagentSessionStatus = running ? "running" : relation?.status ?? "completed";
-  const primary = main ? t("agentSwitcher.main") : side ? t("agentSwitcher.sideChat") : relation?.description || sessionTitle(session);
+  const primary = main ? t("agentSwitcher.main") : side ? sideChatTitle(session, t("agentSwitcher.sideChat")) : relation?.description || sessionTitle(session);
   const profile = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
   const modelId = usage?.model?.modelId;
   const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
@@ -267,11 +265,9 @@ function AgentRow({
           </span>
           {hasUsage(usage) && <UsageLine usage={usage} style={{ marginTop: 3 }} />}
         </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 6, color: main && !running ? "var(--text-dim)" : statusColor(status), fontSize: 11, whiteSpace: "nowrap" }}>
-          {main && !running ? (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, color: (main || side) && !running ? "var(--text-dim)" : statusColor(status), fontSize: 11, whiteSpace: "nowrap" }}>
+          {(main || side) && !running ? (
             selected ? t("agentSwitcher.current") : null
-          ) : side && !running ? (
-            null
           ) : (
             <>
               <StatusIcon status={status} />
@@ -301,7 +297,7 @@ function AgentRow({
   );
 }
 
-export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab, onOpenSideSession }: Props) {
+export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const sortedSubagents = useMemo(() => [...subagents].sort((a, b) => {
@@ -413,13 +409,10 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
               selected={session.id === selectedSessionId}
               running={runningSessionIds.has(session.id)}
               usage={usage[session.id]}
-              onSelect={() => {
-                // A side chat never becomes the main chat: its row opens the tab.
-                if (session.relation?.kind === "side") onOpenSideSession(session);
-                else onSelectSession(session);
-              }}
+              onSelect={() => onSelectSession(session)}
               tabShown={openSubagentTabIds.has(session.id)}
-              onToggleTab={() => {
+              // The row open in the main chat has no tab: one session, one chat.
+              onToggleTab={session.id === selectedSessionId ? undefined : () => {
                 const relation = session.relation?.kind === "subagent" ? session.relation : null;
                 if (session.relation?.kind === "side") {
                   onToggleSubagentTab(session.id, t("sideChat.title"), true);

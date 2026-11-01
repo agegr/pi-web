@@ -1,5 +1,22 @@
 import type { SessionInfo } from "./types";
 
+/** The name a side chat starts with, until its first question replaces it. */
+export const SIDE_SESSION_NAME = "Side chat";
+
+const SIDE_NAME_MAX_LENGTH = 40;
+
+/** A side chat's name from a message: its first line, shortened. Commands name nothing. */
+export function sideChatNameFrom(message: string): string | null {
+  const line = message.trim().split("\n")[0].trim();
+  if (!line || line.startsWith("/") || line.startsWith("!")) return null;
+  return line.length > SIDE_NAME_MAX_LENGTH ? `${line.slice(0, SIDE_NAME_MAX_LENGTH).trimEnd()}…` : line;
+}
+
+/** What to call a side chat: its own name, or the caller's words for one that has none yet. */
+export function sideChatTitle(session: Pick<SessionInfo, "name">, untitled: string): string {
+  return session.name && session.name !== SIDE_SESSION_NAME ? session.name : untitled;
+}
+
 /** Relation kinds that hide a session as a family member instead of a sidebar row. */
 export type HiddenRelationKind = "subagent" | "side";
 export type HiddenRelation = Extract<SessionInfo["relation"], { kind: HiddenRelationKind }>;

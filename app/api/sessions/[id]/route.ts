@@ -17,7 +17,7 @@ import { startServerPerf } from "@/lib/perf";
 import { computeSessionRevision } from "@/lib/session-revision";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources } from "@/lib/subagents";
-import { readSideRelation } from "@/lib/side-session";
+import { readSideRelation, sideOwnEntries } from "@/lib/side-session";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
 import { deleteSessions } from "@/lib/session-delete";
@@ -80,11 +80,12 @@ export async function GET(
       sessionId: id, // local: lazy URLs for historical tool-result images
     }), transcriptNotices);
     perf?.span("context");
-    const totalActiveMs = computeSessionTotalActiveMs(entries);
+    const ownEntries = sideOwnEntries(entries) as typeof entries;
+    const totalActiveMs = computeSessionTotalActiveMs(ownEntries);
     // Cumulative usage over ALL entries, including history compacted away —
     // the same aggregation the SDK's getSessionStats() uses. Lets the client
     // keep monotonic token/cost counters across compaction and page reloads.
-    const stats = computeSessionStats(entries as unknown as SessionEntry[]);
+    const stats = computeSessionStats(ownEntries as unknown as SessionEntry[]);
     perf?.span("stats");
     // Opaque freshness token for the session view cache. Derived from the
     // disk fingerprint and the actual read source; null tells the client the
@@ -132,7 +133,7 @@ export async function GET(
       ...(subagent
         ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagentDisplayStatus(header.id, subagent.status) } }
         : side
-          ? { relation: { kind: "side" as const, parentSessionId: side.parentSessionId } }
+          ? { relation: { kind: "side" as const, ...side } }
           : header.parentSession
             ? { relation: { kind: "fork" as const, ...(parentSessionId ? { originSessionId: parentSessionId } : {}) } }
             : {}),

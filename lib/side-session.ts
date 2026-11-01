@@ -12,9 +12,6 @@ import type { SessionEntry } from "./types";
 
 export const SIDE_META_TYPE = "pi-web:side";
 
-/** The name a side chat's `session_info` entry carries. */
-export const SIDE_SESSION_NAME = "Side chat";
-
 /**
  * The tools a side chat may keep, as pi's allow-list: it also leaves out what
  * has no name to list, every extension, MCP, Code mode and subagent tool.
@@ -27,7 +24,13 @@ const SIDE_FALLBACK_TOOLS: readonly string[] = ["read", "bash"];
 /** Appended to the prompt once. A Chat-only side chat keeps its exact prompt without it. */
 export const SIDE_SYSTEM_PROMPT = "Messages before the user's first side-chat message are inherited background from a parent session, not your current task.";
 
-type SideMetadata = { version: 1; parentSessionId: string; createdAt: string };
+type SideMetadata = {
+  version: 1;
+  parentSessionId: string;
+  createdAt: string;
+  /** The last inherited entry the chat shows: its side chat starts below it. */
+  forkedAtEntryId?: string;
+};
 
 function readSideMetadata(entries: readonly SessionEntry[]): SideMetadata | null {
   const entry = entries.find((item) => item.type === "custom" && item.customType === SIDE_META_TYPE);
@@ -38,9 +41,13 @@ function readSideMetadata(entries: readonly SessionEntry[]): SideMetadata | null
 }
 
 /** A side chat's parent, from its metadata entry; null when the entries hold none. */
-export function readSideRelation(entries: readonly SessionEntry[]): { parentSessionId: string } | null {
+export function readSideRelation(entries: readonly SessionEntry[]): { parentSessionId: string; forkedAtEntryId?: string } | null {
   const data = readSideMetadata(entries);
-  return data ? { parentSessionId: data.parentSessionId } : null;
+  if (!data) return null;
+  return {
+    parentSessionId: data.parentSessionId,
+    ...(typeof data.forkedAtEntryId === "string" ? { forkedAtEntryId: data.forkedAtEntryId } : {}),
+  };
 }
 
 /** Whether any entry is a side metadata entry, valid or not: a broken one must never reopen with full tools. */
@@ -49,12 +56,22 @@ export function hasSideMetadata(entries: readonly SessionEntry[]): boolean {
 }
 
 /** The metadata entry a new side chat carries, to be written directly after its header. */
-export function createSideMetadataEntry(parentSessionId: string, id: string, parentId: string | null) {
+export function createSideMetadataEntry(
+  parentSessionId: string,
+  forkedAtEntryId: string | undefined,
+  id: string,
+  parentId: string | null,
+) {
   const timestamp = new Date().toISOString();
   return {
     type: "custom",
     customType: SIDE_META_TYPE,
-    data: { version: 1, parentSessionId, createdAt: timestamp } satisfies SideMetadata,
+    data: {
+      version: 1,
+      parentSessionId,
+      createdAt: timestamp,
+      ...(forkedAtEntryId ? { forkedAtEntryId } : {}),
+    } satisfies SideMetadata,
     id,
     parentId,
     timestamp,

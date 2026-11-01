@@ -377,7 +377,7 @@ export interface SessionInfo {
         description: string;
         status: SubagentSessionStatus;
       }
-    | { kind: "side"; parentSessionId: string };
+    | { kind: "side"; parentSessionId: string; forkedAtEntryId?: string };
   /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */

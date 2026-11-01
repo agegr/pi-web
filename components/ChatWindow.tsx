@@ -1192,7 +1192,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               };
 
               const rendered: ReactNode[] = [];
+              // The inherited history can be loaded only in part, and compacted away: no line then.
+              const forkedAtEntryId = session?.relation?.kind === "side" ? session.relation.forkedAtEntryId : undefined;
+              let forkIdx = forkedAtEntryId ? entryIds.indexOf(forkedAtEntryId) : -1;
               for (let idx = 0; idx < messages.length;) {
+                if (forkIdx !== -1 && idx > forkIdx) {
+                  rendered.push(<SideChatDivider key="side-chat-divider" />);
+                  forkIdx = -1;
+                }
                 const msg = messages[idx];
                 const hasAnchor = isMessageGroupAnchor(msg);
                 if (!hasAnchor && idx !== 0) {
@@ -1326,6 +1333,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
                 idx = endIdx;
               }
+              if (forkIdx !== -1) rendered.push(<SideChatDivider key="side-chat-divider" />);
               const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
               const hasMore = startIndex > 0 || hasEarlierMessages;
               return (
@@ -1530,6 +1538,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 }
 
 // The reply being streamed: the one part of the chat a chunk re-renders.
+function SideChatDivider() {
+  const { t } = useI18n();
+  return (
+    <div role="separator" className="my-4 flex items-center gap-3 text-xs" style={{ color: "var(--text-dim)" }}>
+      <span className="h-px flex-1" style={{ background: "var(--border)" }} />
+      <span>{t("sideChat.divider")}</span>
+      <span className="h-px flex-1" style={{ background: "var(--border)" }} />
+    </div>
+  );
+}
+
 const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent }: {
   store: StreamingStore;
   /** Runs after each chunk is in the DOM. */

@@ -4,7 +4,8 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { forkSessionName, sessionDisplayTitle } from "./session-fork-name";
 import { scanSessionFileInfo } from "./session-list-scanner";
 import { readSubagentRun } from "./subagents";
-import { createSideMetadataEntry, readSideRelation, SIDE_SESSION_NAME } from "./side-session";
+import { SIDE_SESSION_NAME } from "./session-family";
+import { createSideMetadataEntry, readSideRelation } from "./side-session";
 import type { SessionEntry } from "./types";
 
 /**
@@ -85,7 +86,7 @@ export function createSideSession(
   const copy = copySessionBranch(sourcePath, liveLeafId, () => SIDE_SESSION_NAME);
   const [header, first, ...rest] = readFileSync(copy.path, "utf8").trimEnd().split("\n");
   const firstEntry = JSON.parse(first) as { parentId?: string | null };
-  const metadata = createSideMetadataEntry(copy.sourceSessionId, `side-${randomUUID()}`, firstEntry.parentId ?? null);
+  const metadata = createSideMetadataEntry(copy.sourceSessionId, copy.lastShownEntryId, `side-${randomUUID()}`, firstEntry.parentId ?? null);
   firstEntry.parentId = metadata.id;
   writeFileSync(copy.path, [header, JSON.stringify(metadata), JSON.stringify(firstEntry), ...rest].join("\n") + "\n", { encoding: "utf8" });
   return { sessionId: copy.sessionId, path: copy.path };
@@ -95,7 +96,7 @@ function copySessionBranch(
   sourcePath: string,
   liveLeafId: string | null | undefined,
   nameFor: (source: SessionManager) => string | undefined,
-): { sessionId: string; path: string; name: string | undefined; sourceSessionId: string } {
+): { sessionId: string; path: string; name: string | undefined; sourceSessionId: string; lastShownEntryId: string | undefined } {
   const live = liveLeafId !== undefined;
   // SessionManager.open() of a missing path silently starts an empty session.
   if (!existsSync(sourcePath)) {
@@ -129,6 +130,10 @@ function copySessionBranch(
   // Read before createBranchedSession() repoints the instance to the copy.
   const name = nameFor(manager);
   const sourceSessionId = manager.getSessionId();
+  // Entries the chat shows; the system messages pi records and metadata are not.
+  const lastShownEntryId = [...branch].reverse().find((entry) => (
+    entry.type === "message" ? entry.message.role !== "system" : entry.type === "compaction" || entry.type === "branch_summary"
+  ))?.id;
   const path = manager.createBranchedSession(leafId);
   // Appended to the copy's file; a shell-only copy keeps it in memory until
   // it is written below.
@@ -143,5 +148,5 @@ function copySessionBranch(
     }
   }
   if (!path || !existsSync(path)) throw new Error("Failed to fork the session");
-  return { sessionId: manager.getSessionId(), path, name, sourceSessionId };
+  return { sessionId: manager.getSessionId(), path, name, sourceSessionId, lastShownEntryId };
 }

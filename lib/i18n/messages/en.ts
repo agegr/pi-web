@@ -171,6 +171,7 @@ export const enLocale: LocalePlugin = {
     "sessionPanel.loading": "Loading…",
     "sessionPanel.missing": "This session no longer exists.",
     "sessionPanel.error": "Could not load this session.",
+    "sideChat.divider": "Side chat starts here · not sent to the main chat",
     "sideChat.title": "Side chat",
     "sideChat.tabLabel": "Side chat",
     "sideChat.openTab": "Open side chat in side panel",
