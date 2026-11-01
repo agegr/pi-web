@@ -15,6 +15,7 @@ import type {
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { AgentCommandError, agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
 import {
   deleteSessionViewSnapshot,
@@ -192,15 +193,6 @@ export interface SlashCommandInfo {
 export type BuiltinSlashCommandResult =
   | { handled: false }
   | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" | "openSideChat" };
-
-/** `/side` refusals (the side route's codes) to translated notices. */
-const SIDE_REFUSAL_MESSAGES = {
-  not_found: "sideChat.error.notFound",
-  unsaved: "sideChat.error.unsaved",
-  empty: "sideChat.error.empty",
-  subagent: "sideChat.error.subagent",
-  side: "sideChat.error.side",
-} as const;
 
 /** How a run ended, for the completion sound and notifications. */
 export interface AgentEndInfo {
@@ -2552,21 +2544,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // that does not exist yet has nothing to inherit.
     const sourceId = sessionIdRef.current;
     if (!sourceId) return translate("sideChat.error.noSession");
-    const res = await fetch(`/api/sessions/${encodeURIComponent(sourceId)}/fork`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ side: true, ...(name ? { name } : {}) }),
-      cache: "no-store",
-    });
-    const data = await res.json().catch(() => null) as
-      | { sessionId?: string; session?: SessionInfo; code?: string; error?: string }
-      | null;
-    if (!res.ok || !data?.sessionId || !data.session) {
-      return data?.code && data.code in SIDE_REFUSAL_MESSAGES
-        ? translate(SIDE_REFUSAL_MESSAGES[data.code as keyof typeof SIDE_REFUSAL_MESSAGES])
-        : data?.error ?? `HTTP ${res.status}`;
-    }
-    onSideSession?.(data.session, prompt);
+    const result = await createSideChat(sourceId, translate, name);
+    if ("error" in result) return result.error;
+    onSideSession?.(result.session, prompt);
     return null;
   }, [onSideSession, opts.session?.relation?.kind, translate]);
 

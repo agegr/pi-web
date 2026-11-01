@@ -31,6 +31,6 @@
 
 ## Tab
 - The `Agent` card's button opens the child in a right-panel tab (`components/SessionChatPanel.tsx`, the panel side chats use, tab id `agent:<sessionId>`), beside file and terminal tabs: the full chat with its live stream and composer, as when the child is opened as the main chat. The agent switcher above the chat opens a child as the main chat from its row; the row's side-panel button toggles this tab (accent-coloured and filled while the open panel has it, active or not; a click then closes the tab, and the panel with its last tab) and leaves the switcher open, except on phones, where the panel covers the chat.
-- One session has one chat: opening a child in the main chat closes its tab, and its row then offers no tab button (`AppShell`).
+- One session has one chat: opening a child in the main chat closes its tab, and its row's tab button is then greyed (`AppShell`).
 - A tab is a real view of the session, so opening one on a finished child starts a wrapper through the events route, as opening it in the main chat does; the idle timer releases it. While a child just dispatched has no session to read yet, the panel retries. Only the active tab is mounted. Subagent tabs are not persisted and are dropped on every project switch (`changeFileWorkspace()`), while the file tabs are parked; an active subagent tab hands the panel to the restored project's file tabs.
 
