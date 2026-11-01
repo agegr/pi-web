@@ -8,11 +8,17 @@ export const SIDE_SESSION_NAME = "Side chat";
 
 const SIDE_NAME_MAX_LENGTH = 40;
 
-/** A side chat's name from a message: its first line, shortened. Commands name nothing. */
-export function sideChatNameFrom(message: string): string | null {
-  const line = message.trim().split("\n")[0].trim();
-  if (!line || line.startsWith("/") || line.startsWith("!")) return null;
+/** Text as a side chat's name: its first line, shortened. */
+export function sideChatNameFromText(text: string): string | null {
+  const line = text.trim().split("\n")[0].trim();
+  if (!line) return null;
   return line.length > SIDE_NAME_MAX_LENGTH ? `${line.slice(0, SIDE_NAME_MAX_LENGTH).trimEnd()}…` : line;
+}
+
+/** A side chat's name from a message it is sent. Commands name nothing. */
+export function sideChatNameFrom(message: string): string | null {
+  const text = message.trim();
+  return text.startsWith("/") || text.startsWith("!") ? null : sideChatNameFromText(text);
 }
 
 /** What to call a side chat: its own name, or the caller's words for one that has none yet. */

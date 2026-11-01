@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { ChatWindow } from "./ChatWindow";
+import type { ChatInputHandle } from "./ChatInput";
 import { useI18n } from "@/hooks/useI18n";
 import type { SessionInfo } from "@/lib/types";
 
 type ChatProps = ComponentProps<typeof ChatWindow>;
 
-interface Props extends Pick<ChatProps, "modelsRefreshKey" | "onOpenFile" | "onOpenSubagent" | "onToolEnd" | "onFilesUploaded" | "initialPrompt" | "onInitialPromptConsumed" | "soundEnabled" | "onSoundToggle" | "playDoneSound" | "unlockAudio" | "holdAudio"> {
+interface Props extends Pick<ChatProps, "modelsRefreshKey" | "onOpenFile" | "onOpenSubagent" | "onToolEnd" | "onFilesUploaded" | "initialPrompt" | "onInitialPromptConsumed" | "soundEnabled" | "onSoundToggle" | "playDoneSound" | "unlockAudio" | "holdAudio" | "quoteSelectionEnabled"> {
   sessionId: string;
   running: boolean;
 }
@@ -24,6 +25,8 @@ export function SessionChatPanel({ sessionId, running, ...chatProps }: Props) {
   const { t } = useI18n();
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [state, setState] = useState<"loading" | "missing" | "error">("loading");
+  // Edit from here, dropped files and a failed send's text all reach the composer through this.
+  const chatInputRef = useRef<ChatInputHandle | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,7 +54,7 @@ export function SessionChatPanel({ sessionId, running, ...chatProps }: Props) {
   }, [sessionId, running]);
 
   if (info) {
-    return <ChatWindow {...chatProps} session={info} sessionRunning={running} newSessionCwd={null} newSessionDraftKey={null} panel />;
+    return <ChatWindow {...chatProps} session={info} sessionRunning={running} newSessionCwd={null} newSessionDraftKey={null} chatInputRef={chatInputRef} panel />;
   }
   return (
     <div role={state === "error" ? "alert" : undefined} style={{ padding: "24px 16px", color: "var(--text-dim)", fontSize: 12, textAlign: "center" }}>

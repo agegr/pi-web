@@ -62,7 +62,9 @@ task or losing the parent's context.
    parent's.
 
 6. **Surface: the same as a subagent's.** `/side [prompt]` is a client-side built-in
-   available while streaming, so nothing reaches the running model, and it opens a
+   available while streaming, so nothing reaches the running model. The selected-text
+   popover's "Ask in side chat" is the same thing with a quote, and replaces its "Ask
+   in new chat": two ways to ask something aside were one too many. Both open a
    right-panel tab: `SessionChatPanel`, a `ChatWindow` for that session, which subagent
    tabs use too. It rewrites no URL, and global shortcuts stay with the main chat. In
    the Agents switcher a row opens the side chat in the main chat, as a subagent's

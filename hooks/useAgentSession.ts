@@ -2538,6 +2538,38 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     reloadModelsQuietly();
   }, [addNotice, displayModel, handleModelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
+
+  /**
+   * Fork this session into a side chat and open its tab: `/side` and the selected-text
+   * popover. `prompt` is its first message, `name` what to call it instead of that
+   * message's first line. Answers the refusal to show, or null.
+   */
+  const startSideChat = useCallback(async (prompt: string | null, name?: string): Promise<string | null> => {
+    // The route refuses these too; a tab has nowhere to open another tab from.
+    const relationKind = opts.session?.relation?.kind;
+    if (relationKind === "side" || relationKind === "subagent") return translate(SIDE_REFUSAL_MESSAGES[relationKind]);
+    // Unlike the other built-ins, no ensureNewSession(): forking a session
+    // that does not exist yet has nothing to inherit.
+    const sourceId = sessionIdRef.current;
+    if (!sourceId) return translate("sideChat.error.noSession");
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sourceId)}/fork`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ side: true, ...(name ? { name } : {}) }),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null) as
+      | { sessionId?: string; session?: SessionInfo; code?: string; error?: string }
+      | null;
+    if (!res.ok || !data?.sessionId || !data.session) {
+      return data?.code && data.code in SIDE_REFUSAL_MESSAGES
+        ? translate(SIDE_REFUSAL_MESSAGES[data.code as keyof typeof SIDE_REFUSAL_MESSAGES])
+        : data?.error ?? `HTTP ${res.status}`;
+    }
+    onSideSession?.(data.session, prompt);
+    return null;
+  }, [onSideSession, opts.session?.relation?.kind, translate]);
+
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
     const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
@@ -2665,34 +2697,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
 
         case "side": {
-          // The route refuses these too; a tab has nowhere to open another tab from.
-          const relationKind = opts.session?.relation?.kind;
-          if (relationKind === "side" || relationKind === "subagent") {
-            return complete({ handled: true, error: translate(SIDE_REFUSAL_MESSAGES[relationKind]) });
-          }
-          // Unlike the other built-ins, no ensureNewSession(): forking a session
-          // that does not exist yet has nothing to inherit.
-          const sourceId = sessionIdRef.current;
-          if (!sourceId) return complete({ handled: true, error: translate("sideChat.error.noSession") });
-          const res = await fetch(`/api/sessions/${encodeURIComponent(sourceId)}/fork`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ side: true }),
-            cache: "no-store",
-          });
-          const data = await res.json().catch(() => null) as
-            | { sessionId?: string; session?: SessionInfo; code?: string; error?: string }
-            | null;
-          if (!res.ok || !data?.sessionId || !data.session) {
-            // A route refusal (empty, subagent, chat-only, ...) never throws
-            // past the composer: it lands as a notice, like the fork's.
-            const message = data?.code && data.code in SIDE_REFUSAL_MESSAGES
-              ? translate(SIDE_REFUSAL_MESSAGES[data.code as keyof typeof SIDE_REFUSAL_MESSAGES])
-              : data?.error ?? `HTTP ${res.status}`;
-            return complete({ handled: true, error: message });
-          }
-          onSideSession?.(data.session, args || null);
-          return complete({ handled: true, action: "openSideChat" });
+          const error = await startSideChat(args || null);
+          return complete(error ? { handled: true, error } : { handled: true, action: "openSideChat" });
         }
 
         default:
@@ -2701,7 +2707,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSideSession, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, opts.session, slashCommandsForMcp, translate]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, slashCommandsForMcp, startSideChat]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -3322,7 +3328,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, startSideChat, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,

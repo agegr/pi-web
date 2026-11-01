@@ -83,8 +83,9 @@ export function forkSessionBranch(
 export function createSideSession(
   sourcePath: string,
   liveLeafId?: string | null,
+  name: string = SIDE_SESSION_NAME,
 ): { sessionId: string; path: string } {
-  const copy = copySessionBranch(sourcePath, liveLeafId, () => SIDE_SESSION_NAME);
+  const copy = copySessionBranch(sourcePath, liveLeafId, () => name);
   const [header, first, ...rest] = readFileSync(copy.path, "utf8").trimEnd().split("\n");
   const firstEntry = JSON.parse(first) as { parentId?: string | null };
   const metadata = createSideMetadataEntry(copy.sourceSessionId, `side-${randomUUID()}`, firstEntry.parentId ?? null);
