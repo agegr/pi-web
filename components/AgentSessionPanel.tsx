@@ -214,6 +214,7 @@ function AgentRow({
         role="option"
         aria-selected={selected}
         onClick={onSelect}
+        className={selected ? "bg-transparent" : "bg-transparent hover:bg-bg-hover"}
         style={{
           flex: 1,
           minWidth: 0,
@@ -224,16 +225,9 @@ function AgentRow({
           gap: 9,
           padding: "7px 12px",
           border: "none",
-          background: "transparent",
           color: "var(--text)",
           cursor: "pointer",
           textAlign: "left",
-        }}
-        onMouseEnter={(event) => {
-          if (!selected) event.currentTarget.style.background = "var(--bg-hover)";
-        }}
-        onMouseLeave={(event) => {
-          if (!selected) event.currentTarget.style.background = "transparent";
         }}
       >
         <span style={{ width: 28, height: 28, display: "grid", placeItems: "center", color: main ? "var(--text-muted)" : "var(--accent)" }}>

@@ -171,7 +171,7 @@ export const zhCNLocale: LocalePlugin = {
     "sessionPanel.loading": "正在加载…",
     "sessionPanel.missing": "该会话已不存在。",
     "sessionPanel.error": "无法加载该会话。",
-    "sideChat.divider": "侧聊从这里开始 · 不会发送到主聊天",
+    "sideChat.divider": "侧聊从这里开始",
     "sideChat.title": "侧聊",
     "sideChat.tabLabel": "侧聊",
     "sideChat.openTab": "在侧面板中打开侧聊",

@@ -171,7 +171,7 @@ export const zhTWLocale: LocalePlugin = {
     "sessionPanel.loading": "正在載入…",
     "sessionPanel.missing": "此工作階段已不存在。",
     "sessionPanel.error": "無法載入此工作階段。",
-    "sideChat.divider": "側聊從這裡開始 · 不會傳送到主聊天",
+    "sideChat.divider": "側聊從這裡開始",
     "sideChat.title": "側聊",
     "sideChat.tabLabel": "側聊",
     "sideChat.openTab": "在側面板中開啟側聊",
