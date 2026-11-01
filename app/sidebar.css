@@ -753,6 +753,20 @@ a.session-tree-main {
   font-size: 11px;
 }
 
+/* "No sessions yet" and an unpinned group's "Pin to keep" side by side. */
+.session-tree-group-empty-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tree-group-empty .session-tree-more-toggle {
+  flex: none;
+  margin-left: 14px;
+}
+
 /* "Show more · N" and, once more is shown, "Show less" side by side. A lone
    button takes the whole row; on a narrow sidebar "show more" gives way so
    "Show less" is never clipped. */

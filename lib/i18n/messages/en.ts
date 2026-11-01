@@ -619,6 +619,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.deleteAllArchived": "Delete all… · {count}",
     "sidebar.deleteOldArchived": "Delete archived over 30 days ago… · {count}",
     "sidebar.noLiveSessions": "No sessions yet",
+    "sidebar.pinToKeep": "Pin to keep",
     "sidebar.noArchived": "No archived sessions",
     "sidebar.backToSessions": "Back",
     "sidebar.cannotArchiveRunning": "Running",

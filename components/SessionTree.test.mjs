@@ -55,6 +55,7 @@ const defaults = {
   onDeleteCancel: noop,
   onGroupNew: noop,
   onGroupMenu: noop,
+  onPinEmptyGroup: noop,
   onOpenOtherProject: noop,
   onOpenArchive: noop,
 };
@@ -397,7 +398,13 @@ test("show more, empty groups, footer links and archive groups", () => {
     rowMarkup(html, "more:/work/big"),
     /data-more-action="more">Show more · 24<\/button><button type="button" class="session-tree-more-toggle" data-more-action="less">Show less<\/button>/,
   );
-  assert.match(rowMarkup(html, "empty:/work/app"), /style="top:78px;height:28px" data-row-key="empty:\/work\/app">No sessions yet<\/div>/);
+  // Without sessions only a pin keeps a project listed once another one is current (#1476).
+  assert.match(
+    rowMarkup(html, "empty:/work/app"),
+    /style="top:78px;height:28px" data-row-key="empty:\/work\/app"><span class="session-tree-group-empty-label">No sessions yet<\/span><button type="button" class="session-tree-more-toggle">Pin to keep<\/button><\/div>/,
+  );
+  const pinnedEmpty = render({ rows: [{ kind: "group-empty", key: "empty:/work/app", project: { ...project, pinned: true } }] });
+  assert.match(rowMarkup(pinnedEmpty, "empty:/work/app"), /No sessions yet<\/span><\/div>/);
   assert.doesNotMatch(html, /footer-spacer/);
   // The archive's project header is a group header that folds its rows: the
   // chevron, the name, the count; ⋯ for its archived sessions, no "+".
