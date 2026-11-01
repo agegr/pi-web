@@ -52,7 +52,6 @@ import {
   hasSideMetadata,
   readSideRelation,
   SIDE_SYSTEM_PROMPT,
-  SIDE_TOOLS,
   sideToolNames,
 } from "./side-session";
 import { SIDE_SESSION_NAME, sideChatNameFrom } from "./session-family";
@@ -3142,8 +3141,6 @@ export async function startRpcSession(
       // tools (and activate extension tools); we narrow the ACTIVE set below.
       toolsOption = selectedToolNames.length === 0 ? [] : undefined;
     }
-    // Here the allow-list is the point: extensions stay loaded, their tools stay out.
-    if (sideChatTools) toolsOption = [...SIDE_TOOLS];
 
     // Build services first so extension-registered providers are available
     // before the SDK restores the saved model from the session file.
@@ -3157,6 +3154,9 @@ export async function startRpcSession(
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    // Here the allow-list is the point: extensions stay loaded, their tools and what
+    // the parent did not have stay out of the registry.
+    if (sideChatTools) toolsOption = resolveShellTools(selectedToolNames ?? [], settingsManager.getDefaultTools());
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only

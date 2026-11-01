@@ -36,11 +36,11 @@ task or losing the parent's context.
 
 3. **Policy: the parent's session minus tools.** A side chat starts through the normal
    path of `startRpcSession()`, or the Chat-only path for a Chat-only parent. Only
-   tools change. `SIDE_TOOLS` (`read`, `bash`, `powershell`, `grep`, `find`, `ls`) is
-   pi's allow-list, which also leaves out what has no name to list: every extension,
-   MCP, Code mode and subagent tool. The active tools are the parent's cut down to
-   that list, so a side chat never has more than its parent: a Read-only parent stays
-   without a shell, a Chat-only one without any tool. Extensions, skills and context
+   tools change. Its tools are the parent's cut down to `SIDE_TOOLS` (`read`, `bash`,
+   `powershell`, `grep`, `find`, `ls`), so it never has more than its parent: a
+   Read-only parent stays without a shell, a Chat-only one without any tool. They are
+   passed as pi's allow-list, which also leaves out what has no name to list: every
+   extension, MCP, Code mode and subagent tool. Extensions, skills and context
    files stay loaded, MCP and Code mode are not started. There is no snapshot:
    reopening reads the same answer from the transcript, and metadata that does not
    parse is refused rather than reopened with the parent's tools.

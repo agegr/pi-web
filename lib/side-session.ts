@@ -12,10 +12,7 @@ import type { SessionEntry } from "./types";
 
 export const SIDE_META_TYPE = "pi-web:side";
 
-/**
- * The tools a side chat may keep, as pi's allow-list: it also leaves out what
- * has no name to list, every extension, MCP, Code mode and subagent tool.
- */
+/** The tools a side chat may keep of its parent's. */
 export const SIDE_TOOLS: readonly string[] = ["read", "bash", "powershell", "grep", "find", "ls"];
 
 /** What pi's default tools leave when a parent recorded no tools (older transcripts). */
@@ -88,10 +85,12 @@ export function sideOwnEntries<T extends { timestamp?: string }>(entries: readon
 }
 
 /**
- * A side chat's active tools: the ones its transcript gives it, a pin first,
- * then the loadout pi recorded, cut down to `SIDE_TOOLS`. Never more than the
- * parent had, so a Read-only parent stays without a shell. Reopening reads the
- * same answer back from the side chat's own transcript.
+ * A side chat's tools, which `startRpcSession()` passes as pi's allow-list, so
+ * nothing else registers, every extension, MCP, Code mode and subagent tool
+ * included: the ones its transcript gives it, a pin first, then the loadout pi
+ * recorded, cut down to `SIDE_TOOLS`. Never more than the parent had, so a
+ * Read-only parent stays without a shell. Reopening reads the same answer back
+ * from the side chat's own transcript.
  */
 export function sideToolNames(
   pinned: readonly string[] | undefined,
