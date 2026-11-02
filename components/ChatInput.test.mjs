@@ -669,6 +669,10 @@ test("locks built-in command submission until it settles", async () => {
 test("keeps only read-only built-ins available while a run is active", () => {
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/copy"), true);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/session"), true);
+  // /side forks the session at file level, so a side question during a long
+  // parent run is the primary use case (ADR 0007).
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/side"), true);
+  assert.equal(canRunBuiltinSlashCommandWhileStreaming("/side why did the test fail?"), true);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/auto-compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/reload"), false);

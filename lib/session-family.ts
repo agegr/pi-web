@@ -1,7 +1,42 @@
 import type { SessionInfo } from "./types";
 
+/** The hidden message at the end of a side chat's inherited history; the chat draws its line there. */
+export const SIDE_BOUNDARY_MESSAGE_TYPE = "pi-web:side-boundary";
+
+/** The name a side chat starts with, until its first question replaces it. */
+export const SIDE_SESSION_NAME = "Side chat";
+
+const SIDE_NAME_MAX_LENGTH = 40;
+
+/** Text as a side chat's name: its first line, shortened. */
+export function sideChatNameFromText(text: string): string | null {
+  const line = text.trim().split("\n")[0].trim();
+  if (!line) return null;
+  return line.length > SIDE_NAME_MAX_LENGTH ? `${line.slice(0, SIDE_NAME_MAX_LENGTH).trimEnd()}…` : line;
+}
+
+/** A side chat's name from a message it is sent. Commands name nothing. */
+export function sideChatNameFrom(message: string): string | null {
+  const text = message.trim();
+  return text.startsWith("/") || text.startsWith("!") ? null : sideChatNameFromText(text);
+}
+
+/** What to call a side chat: its own name, or the caller's words for one that has none yet. */
+export function sideChatTitle(session: Pick<SessionInfo, "name">, untitled: string): string {
+  return session.name && session.name !== SIDE_SESSION_NAME ? session.name : untitled;
+}
+
+/** Relation kinds that hide a session as a family member instead of a sidebar row. */
+export type HiddenRelationKind = "subagent" | "side";
+export type HiddenRelation = Extract<SessionInfo["relation"], { kind: HiddenRelationKind }>;
+
+export function isHiddenRelation(relation: SessionInfo["relation"]): relation is HiddenRelation {
+  return relation?.kind === "subagent" || relation?.kind === "side";
+}
+
 export interface SessionFamily {
   root: SessionInfo;
+  /** Every hidden member of the family: subagent runs and side chats (ADR 0007). */
   subagents: SessionInfo[];
   latestModified: string;
 }
@@ -29,7 +64,7 @@ function resolveFamilyRoots(sessions: readonly SessionInfo[]): Map<string, strin
       path.push(currentId);
       const current = byId.get(currentId);
       if (!current) break;
-      if (current.relation?.kind !== "subagent") {
+      if (!isHiddenRelation(current.relation)) {
         rootId = current.id;
         break;
       }
@@ -48,7 +83,7 @@ export function listSessionFamilies(sessions: readonly SessionInfo[]): SessionFa
   const families = new Map<string, SessionFamily>();
 
   for (const session of sessions) {
-    if (session.relation?.kind === "subagent") continue;
+    if (isHiddenRelation(session.relation)) continue;
     families.set(session.id, {
       root: session,
       subagents: [],
@@ -57,7 +92,7 @@ export function listSessionFamilies(sessions: readonly SessionInfo[]): SessionFa
   }
 
   for (const session of sessions) {
-    if (session.relation?.kind !== "subagent") continue;
+    if (!isHiddenRelation(session.relation)) continue;
     const rootId = rootsBySessionId.get(session.id);
     const family = rootId ? families.get(rootId) : undefined;
     if (!family) continue;

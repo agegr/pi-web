@@ -14,6 +14,13 @@ export function formatCostShort(cost: number): string | null {
   return cost >= 0.01 ? `$${cost.toFixed(2)}` : "<$0.01";
 }
 
+/** "4 messages · 18k tokens · $0.12": the one line `/session` answers with in a tab, which has no popover. */
+export function formatSessionSummary(stats: { totalMessages: number; tokens: { total: number }; cost: number } | null): string {
+  if (!stats) return "No usage yet";
+  const cost = formatCostShort(stats.cost);
+  return [`${stats.totalMessages} messages`, `${formatCompactCount(stats.tokens.total)} tokens`, ...(cost ? [cost] : [])].join(" · ");
+}
+
 /** 0s · 42s · 3m 5s · 1h 20m */
 export function formatActiveDuration(ms: number): string {
   if (ms <= 0) return "0s";

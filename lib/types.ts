@@ -365,9 +365,9 @@ export interface SessionInfo {
   firstMessage: string;
   /** True while the sidebar has only header/stat metadata for this session. */
   detailsPending?: boolean;
-  parentSessionId?: string; // source session for a fork, or parent session for a subagent
+  parentSessionId?: string; // source session for a fork, or parent session for a subagent or side chat
   /** How this session relates to another session. Forks remain top-level in the
-   *  UI; only subagent relations form a visible parent/child tree. */
+   *  UI; subagent and side relations form a visible parent/child tree. */
   relation?:
     | { kind: "fork"; originSessionId?: string }
     | {
@@ -376,7 +376,8 @@ export interface SessionInfo {
         profile: string;
         description: string;
         status: SubagentSessionStatus;
-      };
+      }
+    | { kind: "side"; parentSessionId: string };
   /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
    *  Always set by the server; optional because the client builds transient
    *  SessionInfo objects before the first refresh. Fall back to cwd. */

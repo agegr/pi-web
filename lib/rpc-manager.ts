@@ -48,6 +48,12 @@ import {
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
+import {
+  hasSideMetadata,
+  readSideRelation,
+  sideToolNames,
+} from "./side-session";
+import { SIDE_SESSION_NAME, sideChatNameFrom } from "./session-family";
 import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
@@ -169,6 +175,7 @@ type AgentSessionWrapperOptions = {
   mcpHost?: WrapperMcpHost;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
+  sideChat?: boolean;
 };
 
 /**
@@ -379,6 +386,7 @@ export class AgentSessionWrapper {
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: WrapperMcpHost;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
+  private readonly sideChat: boolean;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
@@ -420,6 +428,7 @@ export class AgentSessionWrapper {
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
+    this.sideChat = options.sideChat === true;
   }
 
   get sessionId(): string {
@@ -961,6 +970,22 @@ export class AgentSessionWrapper {
     return { cancelled: false };
   }
 
+  /** The first prompt names a side chat that still has the name it started with. */
+  private nameSideChat(message: unknown): void {
+    if (this.inner.sessionManager.getSessionName() !== SIDE_SESSION_NAME || typeof message !== "string") return;
+    const name = sideChatNameFrom(message);
+    if (!name) return;
+    this.inner.setSessionName(name);
+    invalidateSessionListCache();
+  }
+
+  /** A copy of a side chat would be read as one, or show its parent's history as a new session. */
+  private refuseForkOfSideChat(): void {
+    if (hasSideMetadata(this.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+      throw new Error("A side chat cannot be forked");
+    }
+  }
+
   private emit(event: AgentEvent): void {
     for (const listener of this.listeners) {
       try {
@@ -1150,6 +1175,7 @@ export class AgentSessionWrapper {
           if (this.inner.isBashRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
+          if (this.sideChat) this.nameSideChat(command.message);
           const model = this.inner.model;
           if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
@@ -1390,6 +1416,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
+        this.refuseForkOfSideChat();
         // Forking copies finished entries from disk into a new file and never
         // touches this AgentSession, so a running source keeps its run. Only an
         // idle source is shut down, because the browser moves to the child.
@@ -1445,6 +1472,7 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
+        this.refuseForkOfSideChat();
         const entryId = command.entryId as string;
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
@@ -1468,6 +1496,7 @@ export class AgentSessionWrapper {
         if (this.isSessionRunningForReplacement()) {
           throw new Error("Cannot clone while the session is running");
         }
+        this.refuseForkOfSideChat();
         const sessionManager = this.inner.sessionManager;
         const currentSessionFile = this.inner.sessionFile;
         const leafId = typeof command.leafId === "string" ? command.leafId : sessionManager.getLeafId();
@@ -2705,6 +2734,9 @@ export async function setRpcSessionTools(
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
+    if (hasSideMetadata(manager.getEntries() as unknown as SessionEntry[])) {
+      throw new Error("Side chat tools are fixed when it is forked");
+    }
     if (toolNames === undefined) appendClearedSessionToolSelection(manager);
     else appendSessionToolSelection(manager, toolNames);
     invalidateSessionListCache();
@@ -2715,6 +2747,9 @@ export async function setRpcSessionTools(
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
   if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Subagent tool selection is fixed by its profile");
+  }
+  if (hasSideMetadata(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
+    throw new Error("Side chat tools are fixed when it is forked");
   }
 
   const hasCurrentResourcePolicy = typeof existing.isChatOnly === "function"
@@ -2813,6 +2848,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
     const sessionFile = manager.getSessionFile() ?? session.sessionFile;
     const persisted = Boolean(sessionFile && existsSync(sessionFile));
     const subagent = readSubagentRun(entries as unknown as SessionEntry[], header?.id ?? session.sessionId, sessionFile ?? "");
+    const side = subagent ? null : readSideRelation(entries as unknown as SessionEntry[]);
 
     // An ensure_session call creates an idle, empty runtime while the composer
     // loads commands. Do not leak it into history before a prompt is accepted.
@@ -2846,6 +2882,9 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
           description: subagent.description,
           status: session.isRunning() ? "running" as const : subagent.status,
         },
+      } : side ? {
+        parentSessionId: side.parentSessionId,
+        relation: { kind: "side" as const, ...side },
       } : {}),
       transient: !persisted,
     });
@@ -3076,14 +3115,23 @@ export async function startRpcSession(
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionEntries);
-  const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
+  const pinnedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
   const subagentLoadsResources = Boolean(
     subagentResources?.loadExtensions || subagentResources?.loadSkills || subagentResources?.codemode || subagentResources?.mcp,
   );
-  const chatOnly = selectedToolNames?.length === 0 && !subagentLoadsResources;
+  const chatOnly = pinnedToolNames?.length === 0 && !subagentLoadsResources;
+  // A side chat (ADR 0007) starts as a normal session, or as Chat only, with fewer tools.
+  const isSideChat = hasSideMetadata(sessionEntries);
+  if (isSideChat && !readSideRelation(sessionEntries)) throw new Error("Invalid side chat metadata");
+  const sideChatTools = isSideChat && !chatOnly;
+  const selectedToolNames = sideChatTools
+    ? sideToolNames(pinnedToolNames, sessionManager.getBranch().flatMap((entry) => (
+        entry.type === "message" && entry.message.role === "system" ? [entry.message] : []
+      )))
+    : pinnedToolNames;
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
@@ -3117,6 +3165,9 @@ export async function startRpcSession(
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    // Here the allow-list is the point: extensions stay loaded, their tools and what
+    // the parent did not have stay out of the registry.
+    if (sideChatTools) toolsOption = resolveShellTools(selectedToolNames ?? [], settingsManager.getDefaultTools());
     // Chat-only sessions and subagents that replace Pi's prompt send an exact
     // system prompt. The prompt is resolved at prompt time through this inline
     // extension: it may read the session's context files, which exist only
@@ -3125,7 +3176,7 @@ export async function startRpcSession(
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
-    const builtins = subagentResources || chatOnly
+    const builtins = subagentResources || chatOnly || sideChatTools
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
     const subagentCodemode = subagentResources?.codemode
@@ -3318,12 +3369,13 @@ export async function startRpcSession(
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });
       },
-      suppressCompletionNotifications: Boolean(subagentResources),
+      suppressCompletionNotifications: Boolean(subagentResources) || isSideChat,
       ...(subagentResources
         ? { onDirectTurnSettled: (aborted: boolean) => SUBAGENT_CONTROLLER.settleDirectTurn(inner.sessionId, aborted) }
         : {}),
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
+      sideChat: isSideChat,
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);

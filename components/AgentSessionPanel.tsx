@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
-import { countRunningSubagents } from "@/lib/session-family";
+import { countRunningSubagents, sideChatTitle } from "@/lib/session-family";
 import type { SessionUsageSummary } from "@/lib/session-stats";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
@@ -16,7 +16,9 @@ interface Props {
   /** Subagents with a viewer tab in the open right panel. */
   openSubagentTabIds: ReadonlySet<string>;
   /** Opens a subagent's read-only viewer tab in the right panel (the `Agent` card's button), or closes it when open. */
-  onToggleSubagentTab: (sessionId: string, label: string) => void;
+  onToggleSubagentTab: (sessionId: string, label: string, side?: boolean) => void;
+  /** Forks the main agent into a side chat and opens its tab; answers the refusal to show, or null. */
+  onNewSideChat: () => Promise<string | null>;
 }
 
 const STATS_POLL_MS = 3000;
@@ -173,6 +175,8 @@ function AgentRow({
   onSelect,
   tabShown,
   onToggleTab,
+  onNewSideChat,
+  newSideChatPending,
 }: {
   session: SessionInfo;
   main?: boolean;
@@ -182,15 +186,19 @@ function AgentRow({
   onSelect: () => void;
   tabShown?: boolean;
   onToggleTab?: () => void;
+  onNewSideChat?: () => void;
+  newSideChatPending?: boolean;
 }) {
   const { locale, t } = useI18n();
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
+  const side = session.relation?.kind === "side";
   const status: SubagentSessionStatus = running ? "running" : relation?.status ?? "completed";
-  const primary = main ? t("agentSwitcher.main") : relation?.description || sessionTitle(session);
-  const profile = relation?.profile ?? t("agentSwitcher.subagent");
+  const primary = main ? t("agentSwitcher.main") : side ? sideChatTitle(session, t("agentSwitcher.sideChat")) : relation?.description || sessionTitle(session);
+  const profile = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
   const modelId = usage?.model?.modelId;
   const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
-  const secondary = main ? sessionTitle(session) : profile;
+  // Every side chat has the same name: when it last ran tells two rows apart.
+  const secondary = main ? sessionTitle(session) : side ? formatRelativeTime(session.modified, locale) : profile;
   const secondaryTitle = main ? secondary : [
     profile,
     usage?.model ? `${usage.model.provider}/${usage.model.modelId}` : undefined,
@@ -212,6 +220,7 @@ function AgentRow({
         role="option"
         aria-selected={selected}
         onClick={onSelect}
+        className={selected ? "bg-transparent" : "bg-transparent hover:bg-bg-hover"}
         style={{
           flex: 1,
           minWidth: 0,
@@ -222,22 +231,19 @@ function AgentRow({
           gap: 9,
           padding: "7px 12px",
           border: "none",
-          background: "transparent",
           color: "var(--text)",
           cursor: "pointer",
           textAlign: "left",
-        }}
-        onMouseEnter={(event) => {
-          if (!selected) event.currentTarget.style.background = "var(--bg-hover)";
-        }}
-        onMouseLeave={(event) => {
-          if (!selected) event.currentTarget.style.background = "transparent";
         }}
       >
         <span style={{ width: 28, height: 28, display: "grid", placeItems: "center", color: main ? "var(--text-muted)" : "var(--accent)" }}>
           {main ? (
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" />
+            </svg>
+          ) : side ? (
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" />
             </svg>
           ) : (
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -259,8 +265,8 @@ function AgentRow({
           </span>
           {hasUsage(usage) && <UsageLine usage={usage} style={{ marginTop: 3 }} />}
         </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 6, color: main && !running ? "var(--text-dim)" : statusColor(status), fontSize: 11, whiteSpace: "nowrap" }}>
-          {main && !running ? (
+        <span style={{ display: "flex", alignItems: "center", gap: 6, color: (main || side) && !running ? "var(--text-dim)" : statusColor(status), fontSize: 11, whiteSpace: "nowrap" }}>
+          {(main || side) && !running ? (
             selected ? t("agentSwitcher.current") : null
           ) : (
             <>
@@ -270,30 +276,76 @@ function AgentRow({
           )}
         </span>
       </button>
+      {onNewSideChat && (
+        <RowSideButton title={t("sideChat.new")} disabled={newSideChatPending} onClick={onNewSideChat}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" /><path d="M13 8.5v7M9.5 12h7" />
+          </svg>
+        </RowSideButton>
+      )}
       {onToggleTab && (
-        <button
-          type="button"
+        // Greyed, not gone: the row open in the main chat has no tab (one session, one chat),
+        // and the rows keep their layout.
+        <RowSideButton
+          title={selected ? t("agentSwitcher.openInMainChat") : t(tabShown ? (side ? "sideChat.closeTab" : "subagent.closeTab") : side ? "sideChat.openTab" : "subagent.openTab")}
+          pressed={tabShown}
+          disabled={selected}
           onClick={onToggleTab}
-          title={t(tabShown ? "subagent.closeTab" : "subagent.openTab")}
-          aria-label={t(tabShown ? "subagent.closeTab" : "subagent.openTab")}
-          aria-pressed={tabShown}
-          style={{ width: 36, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", background: "none", color: tabShown ? "var(--accent)" : "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
-          onMouseEnter={(event) => { event.currentTarget.style.background = "var(--bg-hover)"; if (!tabShown) event.currentTarget.style.color = "var(--text)"; }}
-          onMouseLeave={(event) => { event.currentTarget.style.background = "none"; if (!tabShown) event.currentTarget.style.color = "var(--text-muted)"; }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />
             {tabShown && <path d="M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4z" fill="currentColor" />}
           </svg>
-        </button>
+        </RowSideButton>
       )}
     </div>
   );
 }
 
-export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab }: Props) {
+function RowSideButton({ title, pressed, disabled, onClick, children }: {
+  title: string;
+  pressed?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const state = disabled
+    ? "cursor-not-allowed text-text-dim opacity-40"
+    : pressed
+      ? "cursor-pointer text-accent hover:bg-bg-hover"
+      : "cursor-pointer text-text-muted hover:bg-bg-hover hover:text-text";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={pressed}
+      disabled={disabled}
+      className={`bg-transparent ${state}`}
+      style={{ width: 36, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", flexShrink: 0 }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab, onNewSideChat }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const [newSideChatPending, setNewSideChatPending] = useState(false);
+  const [newSideChatError, setNewSideChatError] = useState<string | null>(null);
+  const handleNewSideChat = async () => {
+    setNewSideChatPending(true);
+    setNewSideChatError(null);
+    try {
+      setNewSideChatError(await onNewSideChat());
+    } catch (error) {
+      setNewSideChatError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setNewSideChatPending(false);
+    }
+  };
   const sortedSubagents = useMemo(() => [...subagents].sort((a, b) => {
     const aRunning = runningSessionIds.has(a.id);
     const bRunning = runningSessionIds.has(b.id);
@@ -304,7 +356,8 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
   const visibleSubagents = normalizedQuery
     ? sortedSubagents.filter((session) => {
         const relation = session.relation?.kind === "subagent" ? session.relation : null;
-        return [relation?.description, relation?.profile, session.name, session.firstMessage]
+        const sideLabel = session.relation?.kind === "side" ? t("agentSwitcher.sideChat") : null;
+        return [relation?.description, relation?.profile, sideLabel, session.name, session.firstMessage]
           .some((value) => value?.toLowerCase().includes(normalizedQuery));
       })
     : sortedSubagents;
@@ -351,9 +404,13 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
       <div>
         <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--border)" }}>
           <strong style={{ fontSize: 12, fontWeight: 600 }}>{t("agentSwitcher.title")}</strong>
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-            {t("agentSwitcher.count", { count: subagents.length })}
-          </span>
+          {subagents.length > 0 && (
+            <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
+              {subagents.length === 1
+                ? t("agentSwitcher.countOne", { count: subagents.length })
+                : t("agentSwitcher.count", { count: subagents.length })}
+            </span>
+          )}
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             {familyUsage && (
               <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
@@ -392,7 +449,14 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
             running={runningSessionIds.has(rootSession.id)}
             usage={usage[rootSession.id]}
             onSelect={() => onSelectSession(rootSession)}
+            onNewSideChat={handleNewSideChat}
+            newSideChatPending={newSideChatPending}
           />
+          {newSideChatError && (
+            <div role="alert" style={{ padding: "6px 12px", borderBottom: "1px solid var(--border)", color: "#dc2626", fontSize: 12, overflowWrap: "anywhere" }}>
+              {newSideChatError}
+            </div>
+          )}
           {visibleSubagents.map((session) => (
             <AgentRow
               key={session.id}
@@ -404,11 +468,15 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
               tabShown={openSubagentTabIds.has(session.id)}
               onToggleTab={() => {
                 const relation = session.relation?.kind === "subagent" ? session.relation : null;
+                if (session.relation?.kind === "side") {
+                  onToggleSubagentTab(session.id, t("sideChat.title"), true);
+                  return;
+                }
                 onToggleSubagentTab(session.id, relation?.description || relation?.profile || sessionTitle(session));
               }}
             />
           ))}
-          {visibleSubagents.length === 0 && (
+          {subagents.length > 0 && visibleSubagents.length === 0 && (
             <div style={{ padding: "22px 12px", color: "var(--text-dim)", fontSize: 12, textAlign: "center" }}>
               {t("agentSwitcher.noMatches")}
             </div>
