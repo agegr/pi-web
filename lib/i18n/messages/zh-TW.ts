@@ -820,7 +820,6 @@ export const zhTWLocale: LocalePlugin = {
     "chat.saveDefaultThinking": "使用並設為新工作階段預設推理層級",
     "chat.defaultThinking": "新工作階段預設推理層級",
     "chat.moreControls": "更多控制項",
-    "chat.moreControlsAgentsRunning": "更多控制項 · Agents：{count} 個執行中",
     "chat.collapseControls": "收起控制項",
     "chat.shell": "Shell",
     "terminal.title": "終端機",

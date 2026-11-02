@@ -64,14 +64,14 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
       className="tabbar-scroll"
       style={{
         // The scrollbar is hidden (globals.css): it would take its height out
-        // of the 36px bar, squeezing the tabs or clipping their tops (#1225).
+        // of the bar (--top-bar-height), squeezing the tabs or clipping their tops (#1225).
         display: "flex",
         alignItems: "stretch",
         background: "var(--bg-panel)",
         overflowX: "auto",
         overflowY: "hidden",
         flexShrink: 0,
-        height: 36,
+        height: "var(--top-bar-height)",
       }}
     >
       {tabs.map((tab) => {

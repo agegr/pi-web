@@ -130,14 +130,3 @@ export function getAgentsBadge(
   const running = countRunningSubagents(subagents, runningSessionIds);
   return running > 0 ? { count: running, running: true } : { count: subagents.length, running: false };
 }
-
-/**
- * The badge a narrow phone's folded More button carries in place of the
- * Agents button it hides: only while subagents run, never once it is open.
- */
-export function getFoldedMoreAgentsBadge(
-  badge: { count: number; running: boolean } | null,
-  moreOpen: boolean,
-): { count: number; running: true } | null {
-  return badge?.running && !moreOpen ? { count: badge.count, running: true } : null;
-}

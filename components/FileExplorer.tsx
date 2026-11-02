@@ -372,7 +372,7 @@ export function TreeNode({
           gap: 4,
           paddingLeft: 8 + depth * 14,
           paddingRight: 8,
-          height: 24,
+          height: "var(--file-row-height)",
           cursor: "pointer",
           background: isDropTarget
             ? "color-mix(in srgb, var(--accent) 16%, transparent)"
@@ -472,7 +472,7 @@ export function TreeNode({
               justifyContent: "center",
               gap: 4,
               padding: "0 8px",
-              height: 20,
+              height: "calc(var(--file-row-height) - 4px)",
               background: "var(--bg-panel)",
               border: "1px solid var(--border)",
               borderRadius: 4,
@@ -503,7 +503,7 @@ export function TreeNode({
               justifyContent: "center",
               gap: 4,
               padding: "0 5px",
-              height: 20,
+              height: "calc(var(--file-row-height) - 4px)",
               background: "var(--bg-panel)",
               border: "1px solid var(--border)",
               borderRadius: 4,
@@ -548,7 +548,7 @@ export function TreeNode({
             disabled={allowingLink}
             title={t("files.allowOutsideLinkTitle", { target: pendingLinkTarget })}
             style={{
-              height: 20,
+              height: "calc(var(--file-row-height) - 4px)",
               padding: "0 8px",
               background: "var(--bg-panel)",
               border: "1px solid var(--border)",
@@ -648,7 +648,7 @@ function ChangeRow({
         gap: treeMode ? 4 : 6,
         paddingLeft: treeMode ? 8 + depth * 14 : 10,
         paddingRight: 8,
-        height: 24,
+        height: "var(--file-row-height)",
         cursor: "pointer",
         background: hovered ? "var(--bg-hover)" : "transparent",
         borderRadius: 4,
@@ -715,7 +715,7 @@ function ChangeRow({
             justifyContent: "center",
             gap: 4,
             padding: "0 8px",
-            height: 20,
+            height: "calc(var(--file-row-height) - 4px)",
             background: "var(--bg-panel)",
             border: "1px solid var(--border)",
             borderRadius: 4,
@@ -758,7 +758,7 @@ function ChangesFolderRow({
         gap: 4,
         paddingLeft: 8 + depth * 14,
         paddingRight: 8,
-        height: 24,
+        height: "var(--file-row-height)",
         cursor: "pointer",
         background: hovered ? "var(--bg-hover)" : "transparent",
         borderRadius: 4,

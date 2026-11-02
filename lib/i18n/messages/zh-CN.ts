@@ -820,7 +820,6 @@ export const zhCNLocale: LocalePlugin = {
     "chat.saveDefaultThinking": "使用并设为新会话默认推理级别",
     "chat.defaultThinking": "新会话默认推理级别",
     "chat.moreControls": "更多控件",
-    "chat.moreControlsAgentsRunning": "更多控件 · Agents：{count} 个运行中",
     "chat.collapseControls": "收起控件",
     "chat.shell": "Shell",
     "terminal.title": "终端",

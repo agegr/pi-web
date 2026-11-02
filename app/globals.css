@@ -1100,6 +1100,21 @@ button.extension-widget-trigger:focus-visible {
   }
 }
 
+/* The chat's top bar, the sidebar's toolbar row and the file panel's tab bar
+   share one height, so they read as one bar. A phone or touch screen gets a
+   finger's 44px; its icon buttons stay square. The file tree's rows
+   (FileExplorer) grow to 36px there, their row buttons with them. */
+:root {
+  --top-bar-height: 36px;
+  --file-row-height: 24px;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  :root {
+    --top-bar-height: 44px;
+    --file-row-height: 36px;
+  }
+}
+
 :root {
   --font-ui-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono-default: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
@@ -2761,8 +2776,8 @@ span.token.table {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: var(--top-bar-height);
+  height: var(--top-bar-height);
   padding: 0;
   background: var(--bg-selected);
   border: none;

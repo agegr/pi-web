@@ -950,7 +950,7 @@ a.session-tree-main {
   display: flex;
   flex: none;
   align-items: stretch;
-  height: 36px;
+  height: var(--top-bar-height);
   box-sizing: border-box;
   border-bottom: 1px solid var(--border);
 }
@@ -1086,7 +1086,7 @@ a.session-tree-main {
 }
 
 .sidebar-search-toggle {
-  width: 36px;
+  width: var(--top-bar-height);
   padding: 0;
 }
 
@@ -1101,7 +1101,7 @@ a.session-tree-main {
    label is still each one's name. */
 .sidebar-header[data-fit="1"] .sidebar-new-button,
 .sidebar-header[data-fit="2"] .sidebar-new-button {
-  width: 36px;
+  width: var(--top-bar-height);
   padding: 0;
 }
 

@@ -172,7 +172,8 @@ export function ModelSelector({
         gap: 6,
         width: isMobile ? "100%" : undefined,
         maxWidth: isMobile ? "100%" : 220,
-        height: 32,
+        // As tall as ChatInput's other controls: 44px on a phone.
+        height: isMobile ? 44 : 32,
         padding: isMobile ? "8px 10px" : "8px 12px",
         overflow: "hidden",
         border: "none",
