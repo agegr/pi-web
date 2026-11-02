@@ -1543,10 +1543,9 @@
   flex-shrink: 0;
   align-items: center;
   gap: 2px;
-  max-width: 45%;
+  max-width: 100%;
   height: 44px;
-  margin-left: -8px;
-  padding: 0 10px 0 2px;
+  padding: 0 6px 0 2px;
   border: 0;
   background: transparent;
   color: var(--accent);
@@ -1565,7 +1564,8 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  padding: 8px 0;
+  /* The first row meets the header's line: each row draws only its bottom line. */
+  padding: 0 0 8px;
   overflow-y: auto;
 }
 
@@ -2058,8 +2058,9 @@
   }
 
   .settings-dialog-close {
-    top: 3px;
-    right: 4px;
+    position: static;
+    grid-column: 3;
+    justify-self: end;
   }
 
   .settings-dialog-surface,
@@ -2103,14 +2104,25 @@
     display: none;
   }
 
+  /* Back, title, close: equal side columns keep the title in the middle
+     whatever Back says; a long title is cut short in its own column. */
   .settings-dialog-header {
-    gap: 4px;
-    padding-left: 16px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) minmax(0, 1fr);
+    align-items: center;
+    padding: 0 4px;
+  }
+
+  .settings-phone-back {
+    grid-column: 1;
+    justify-self: start;
   }
 
   .settings-dialog-title {
+    grid-column: 2;
     overflow: hidden;
     font-size: 16px;
+    text-align: center;
     text-overflow: ellipsis;
   }
 

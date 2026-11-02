@@ -509,6 +509,36 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 type PhoneLevel = "home" | "section" | "detail";
 
 const PHONE_PARENT_LEVEL: Record<PhoneLevel, PhoneLevel> = { home: "home", section: "home", detail: "section" };
+const PHONE_LEVEL_DEPTH: Record<PhoneLevel, number> = { home: 0, section: 1, detail: 2 };
+const PHONE_LEVEL_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+
+/**
+ * A phone's level change slides the new level in: from the right going in,
+ * from the left (a shorter way, fading up) going back, as a navigation stack
+ * does. The header's Back and title fade in with it. Only the new level moves
+ * (the old one is gone at once), so the main area clips it; nothing moves
+ * under prefers-reduced-motion.
+ */
+function animatePhoneLevelChange(main: HTMLElement | null, header: HTMLElement | null, from: PhoneLevel, to: PhoneLevel) {
+  if (!main || typeof main.animate !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const forward = PHONE_LEVEL_DEPTH[to] > PHONE_LEVEL_DEPTH[from];
+  main.animate(forward
+    ? [
+      { transform: "translateX(100%)", boxShadow: "-12px 0 24px rgba(0, 0, 0, 0.12)" },
+      { transform: "translateX(0)", boxShadow: "-12px 0 24px rgba(0, 0, 0, 0)" },
+    ]
+    : [{ transform: "translateX(-30%)", opacity: 0.4 }, { transform: "translateX(0)", opacity: 1 }], {
+    duration: 280,
+    easing: PHONE_LEVEL_EASING,
+  });
+  header?.querySelectorAll<HTMLElement>(".settings-phone-back, .settings-dialog-title").forEach((element) => {
+    element.animate([
+      { opacity: 0, transform: `translateX(${forward ? 16 : -16}px)` },
+      { opacity: 1, transform: "translateX(0)" },
+    ], { duration: 220, easing: PHONE_LEVEL_EASING });
+  });
+}
 
 /**
  * The phone's level, with an entry in the browser history for each level
@@ -586,6 +616,15 @@ export function SettingsPanel({
   const isPhone = useIsMobile();
   const phone = usePhoneSettingsLevel(isPhone, openAtHome);
   const { dropHistory, enter: enterPhoneLevel, goUp: goUpPhoneLevel, levelRef: phoneLevelRef } = phone;
+  const headerRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const shownPhoneLevelRef = useRef(phone.level);
+  // Before paint, so the new level never shows in place first.
+  useLayoutEffect(() => {
+    const from = shownPhoneLevelRef.current;
+    shownPhoneLevelRef.current = phone.level;
+    if (isPhone && from !== phone.level) animatePhoneLevelChange(mainRef.current, headerRef.current, from, phone.level);
+  }, [isPhone, phone.level]);
   const onClose = useCallback(() => {
     dropHistory();
     closeSettings();
@@ -662,7 +701,7 @@ export function SettingsPanel({
       className="settings-dialog-backdrop"
     >
       <div className="settings-dialog-surface">
-        <div className="settings-dialog-header">
+        <div ref={headerRef} className="settings-dialog-header">
           {isPhone && phone.level !== "home" && (() => {
             const backName = phone.level === "detail" ? sectionLabel : t("settings.title");
             return (
@@ -708,7 +747,7 @@ export function SettingsPanel({
           <button type="button" onClick={onClose} title={t("i18n.close")} aria-label={t("i18n.close")} className="config-close-button settings-dialog-close">×</button>
         </div>
 
-        <main className="settings-dialog-main">
+        <main ref={mainRef} className="settings-dialog-main">
           {isPhone && phone.level === "home" && (
             <nav aria-label={t("settings.title")} className="settings-phone-home">
               {sections.map((item) => {

@@ -46,3 +46,12 @@ test("a phone's Settings levels live in the history: Back goes up one, closing d
   assert.match(hook, /if \(pushed > 0\) window\.history\.go\(-pushed\);/);
   assert.match(panelSource, /const onClose = useCallback\(\(\) => \{\s*dropHistory\(\);\s*closeSettings\(\);/);
 });
+
+test("a phone's level change slides in by direction, before paint, and stands still under reduced motion", () => {
+  const animate = panelSource.match(/function animatePhoneLevelChange[\s\S]*?\n\}\n/)?.[0] ?? "";
+  assert.match(animate, /prefers-reduced-motion: reduce\)"\)\.matches\) return;/);
+  assert.match(animate, /const forward = PHONE_LEVEL_DEPTH\[to\] > PHONE_LEVEL_DEPTH\[from\];/);
+  assert.match(animate, /translateX\(100%\)/, "going in comes from the right");
+  assert.match(animate, /translateX\(-30%\)/, "going back comes from the left");
+  assert.match(panelSource, /useLayoutEffect\(\(\) => \{\s*const from = shownPhoneLevelRef\.current;[\s\S]*?animatePhoneLevelChange\(mainRef\.current, headerRef\.current, from, phone\.level\);\s*\}, \[isPhone, phone\.level\]\);/);
+});
