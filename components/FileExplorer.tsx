@@ -17,7 +17,6 @@ import { uploadFiles, type DroppedItem, type UploadConflictStrategy, type Upload
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import type { FileTreeHiddenReason } from "@/lib/file-tree-visibility";
 import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
-import { buildChangesTree, listChangesDirectoryPaths, type ChangesTreeNode } from "@/lib/changes-tree";
 import { loadChangesViewMode, saveChangesViewMode, type ChangesViewMode } from "@/lib/sidebar-prefs";
 import { droppedItems } from "@/hooks/useDragDrop";
 import { useI18n } from "@/hooks/useI18n";
@@ -741,7 +740,7 @@ function ChangesFolderRow({
   open,
   onToggle,
 }: {
-  node: ChangesTreeNode;
+  node: SearchTreeNode;
   depth: number;
   open: boolean;
   onToggle: (path: string, open: boolean) => void;
@@ -797,16 +796,18 @@ function ChangesTreeRows({
   nodes,
   depth,
   cwd,
-  expandedPaths,
+  statusByPath,
+  collapsedPaths,
   onToggleExpanded,
   onOpenFile,
   onAtMention,
   t,
 }: {
-  nodes: ChangesTreeNode[];
+  nodes: SearchTreeNode[];
   depth: number;
   cwd: string;
-  expandedPaths: Set<string>;
+  statusByPath: Map<string, GitFileStatus>;
+  collapsedPaths: Set<string>;
   onToggleExpanded: (path: string, open: boolean) => void;
   onOpenFile: OpenFileHandler;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
@@ -816,7 +817,7 @@ function ChangesTreeRows({
     <>
       {nodes.map((node) => {
         if (node.isDir) {
-          const open = expandedPaths.has(node.path);
+          const open = !collapsedPaths.has(node.path);
           return (
             <div key={`dir:${node.path}`}>
               <ChangesFolderRow
@@ -830,7 +831,8 @@ function ChangesTreeRows({
                   nodes={node.children}
                   depth={depth + 1}
                   cwd={cwd}
-                  expandedPaths={expandedPaths}
+                  statusByPath={statusByPath}
+                  collapsedPaths={collapsedPaths}
                   onToggleExpanded={onToggleExpanded}
                   onOpenFile={onOpenFile}
                   onAtMention={onAtMention}
@@ -840,11 +842,12 @@ function ChangesTreeRows({
             </div>
           );
         }
-        if (!node.status) return null;
+        const status = statusByPath.get(node.path);
+        if (!status) return null;
         return (
           <ChangeRow
-            key={node.status.filePath}
-            status={node.status}
+            key={status.filePath}
+            status={status}
             cwd={cwd}
             onOpenFile={onOpenFile}
             onAtMention={onAtMention}
@@ -902,7 +905,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [gitFiles, setGitFiles] = useState<GitFileStatus[]>([]);
   const [gitLineStats, setGitLineStats] = useState({ additions: 0, deletions: 0 });
   const [changesViewMode, setChangesViewMode] = useState<ChangesViewMode>("list");
-  const [changesExpanded, setChangesExpanded] = useState<Set<string>>(() => new Set());
+  // Folders stay open unless collapsed here, so a refresh or a newly changed folder never folds them.
+  const [collapsedChangeDirs, setCollapsedChangeDirs] = useState<Set<string>>(() => new Set());
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -1012,11 +1016,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     return directories;
   }, [cwd, gitFiles]);
 
-  const changesTree = useMemo(() => buildChangesTree(gitFiles, cwd), [gitFiles, cwd]);
-  const changesTreeKey = useMemo(
-    () => gitFiles.map((status) => status.filePath).join("\0"),
-    [gitFiles],
-  );
+  const changesByRelativePath = useMemo(() => new Map(gitFiles.map((status) => [
+    normalizeFilePathSlashes(getRelativeFilePath(status.filePath, cwd)).replace(/^\/+/, ""),
+    status,
+  ])), [cwd, gitFiles]);
+  const changesTree = useMemo(() => buildSearchTree([...changesByRelativePath.keys()]), [changesByRelativePath]);
 
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
     setExpandedPaths((prev) => {
@@ -1260,16 +1264,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setChangesViewMode(loadChangesViewMode());
   }, []);
 
-  // Expand every folder when entering tree mode or when the changed-file set changes.
-  useEffect(() => {
-    if (changesViewMode !== "tree") return;
-    setChangesExpanded(new Set(listChangesDirectoryPaths(changesTree)));
-  }, [changesViewMode, changesTree, changesTreeKey]);
-
   const handleToggleChangesExpanded = useCallback((path: string, open: boolean) => {
-    setChangesExpanded((prev) => {
+    setCollapsedChangeDirs((prev) => {
       const next = new Set(prev);
-      if (open) next.add(path); else next.delete(path);
+      if (open) next.delete(path); else next.add(path);
       return next;
     });
   }, []);
@@ -1541,7 +1539,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               nodes={changesTree}
               depth={0}
               cwd={cwd}
-              expandedPaths={changesExpanded}
+              statusByPath={changesByRelativePath}
+              collapsedPaths={collapsedChangeDirs}
               onToggleExpanded={handleToggleChangesExpanded}
               onOpenFile={onOpenFile}
               onAtMention={onAtMention}
