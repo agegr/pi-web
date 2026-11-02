@@ -187,7 +187,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   };
 
   const hasUncommittedPath = pathInput.trim() !== currentPath;
-  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
+  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy && !loading;
   const canCreate = canSelect && !loading;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
 
