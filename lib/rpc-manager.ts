@@ -308,6 +308,10 @@ const SESSION_TOOL_NAMES = new Set<string>(["codemode", "tool_search", ...SUBAGE
  * tool one switched off stays off. Nothing else is added: pi itself activates the extension
  * tools it registers (all of them when it builds or reloads a session, then each new one), so
  * `carry` already holds them. An empty selection is Chat only.
+ *
+ * Order follows `carry`, the order the `pi` CLI declares for the same set: regrouping the
+ * coding tools ahead rewrites the prompt's `<tools>` section and drops the provider's prompt
+ * cache on every harness switch (#1405). Newly selected coding tools go at the end.
  */
 export function resolveActiveToolNames(
   session: AgentSessionLike,
@@ -323,11 +327,12 @@ export function resolveActiveToolNames(
     session.settingsManager.getDefaultTools(),
   );
   const carriedToolNames = carry.filter((name) => {
+    if (codingToolNames.has(name)) return selectedToolNames.includes(name);
     const tool = registered.get(name);
-    return tool !== undefined && !codingToolNames.has(name) && tool.exposure !== "hidden";
+    return tool !== undefined && tool.exposure !== "hidden";
   });
 
-  return [...new Set([...selectedToolNames, ...carriedToolNames])];
+  return [...new Set([...carriedToolNames, ...selectedToolNames])];
 }
 
 /** pi's "Cannot submit a prompt while compaction is in progress" rejection. */
@@ -951,9 +956,6 @@ export class AgentSessionWrapper {
           readSessionToolSelection(entries) ?? activeAfter,
           [...activeAfter, ...activeBefore.filter((name) => SESSION_TOOL_NAMES.has(name))],
         );
-      } else if (activeBefore.some((name, index) => name !== activeAfter[index])) {
-        // Same tools, other order: pi declares them in this order, so keep the previous one.
-        this.inner.setActiveToolsByName(activeBefore);
       }
     }
     return { cancelled: false };
