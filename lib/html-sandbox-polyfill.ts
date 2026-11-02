@@ -74,15 +74,27 @@ export const SANDBOX_STORAGE_POLYFILL_SCRIPT = `<script data-pi-web-polyfill="st
 })();
 </script>`;
 
+// Matched one at a time: nested in one pattern, the lazy comments retry every
+// split when no head follows, and a few dozen of them freeze the page.
+const PROLOGUE = /\uFEFF?(?:\s|<!--[\s\S]*?-->|<!doctype\b[^>]*>|<\?[^>]*>)*/iy;
+const HTML_TAG = /<html(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>(?:\s|<!--[\s\S]*?-->)*/iy;
+const HEAD_TAG = /<head(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/iy;
+
+function matchEnd(pattern: RegExp, html: string, from: number): number {
+  pattern.lastIndex = from;
+  return pattern.exec(html) ? pattern.lastIndex : from;
+}
+
 /** Add the shim to preview HTML only, without changing the file on disk. */
 export function injectSandboxedHtmlPolyfill(html: string): string {
   if (!html || html.includes(SANDBOX_STORAGE_POLYFILL_SCRIPT)) return html;
   // Only match a head in the document prologue: a later match could be inside
   // a comment or script, or after a script that already needs storage.
-  const prologue = /^\uFEFF?(?:(?:\s|<!--[\s\S]*?-->)|<!doctype\b[^>]*>)*/i.exec(html)![0].length;
-  const head = /^(?:<html(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>(?:\s|<!--[\s\S]*?-->)*)?<head(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/i.exec(html.slice(prologue));
+  const prologue = matchEnd(PROLOGUE, html, 0);
+  const afterHtml = matchEnd(HTML_TAG, html, prologue);
+  const afterHead = matchEnd(HEAD_TAG, html, afterHtml);
   // Without an explicit head, the browser creates one for this script. Keep
   // the doctype ahead of it so standards-mode documents stay in standards mode.
-  const pos = prologue + (head?.[0].length ?? 0);
+  const pos = afterHead > afterHtml ? afterHead : prologue;
   return html.slice(0, pos) + SANDBOX_STORAGE_POLYFILL_SCRIPT + html.slice(pos);
 }
