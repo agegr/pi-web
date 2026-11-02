@@ -31,3 +31,14 @@ export async function createSideChat(
       : data?.error ?? `HTTP ${res.status}`,
   };
 }
+
+/** Delete one side chat. Answers the failure to show, or null. */
+export async function deleteSideChat(sessionId: string): Promise<{ error: string } | null> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (res.ok) return null;
+  const data = await res.json().catch(() => null) as { error?: string } | null;
+  return { error: data?.error ?? `HTTP ${res.status}` };
+}

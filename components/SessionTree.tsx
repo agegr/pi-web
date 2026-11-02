@@ -775,7 +775,8 @@ function RenameInput({
   );
 }
 
-function DeleteConfirm({
+/** A row's delete confirmation; also a side chat's in the Agents switcher (AgentSessionPanel). */
+export function DeleteConfirm({
   label,
   deleteLabel,
   cancelLabel,

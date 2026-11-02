@@ -12,6 +12,7 @@ const jiti = createJiti(import.meta.url, {
   moduleCache: false,
 });
 const { POST: deleteSessionsRoute } = await jiti.import("./delete/route.ts");
+const { DELETE: deleteSessionRoute } = await jiti.import("./[id]/route.ts");
 const { MAX_SESSION_DELETE_IDS } = await jiti.import("../../../lib/session-delete.ts");
 const { PROJECT_DELETE_IDS_PER_REQUEST } = await jiti.import("../../../lib/sidebar-actions.ts");
 const { invalidateSessionListCache, invalidateSessionPathCache } = await jiti.import("../../../lib/session-reader.ts");
@@ -32,8 +33,8 @@ function post(body, headers = JSON_HEADERS) {
   }));
 }
 
-/** A session file as pi writes it: header, then one exchange; a subagent's carries pi-web's meta entry. */
-async function writeSession(dir, name, { id, cwd, parentSession, subagentOf }) {
+/** A session file as pi writes it: header, then one exchange; a subagent's or a side chat's carries pi-web's meta entry. */
+async function writeSession(dir, name, { id, cwd, parentSession, subagentOf, sideOf }) {
   const path = join(dir, `${name}.jsonl`);
   const lines = [{ type: "session", version: 3, id, timestamp: TIME, cwd, ...(parentSession ? { parentSession } : {}) }];
   if (subagentOf) {
@@ -44,6 +45,16 @@ async function writeSession(dir, name, { id, cwd, parentSession, subagentOf }) {
       parentId: null,
       timestamp: TIME,
       data: { version: 1, parentSessionId: subagentOf.id, parentSessionPath: subagentOf.path, profile: "Explore", description: "Look around" },
+    });
+  }
+  if (sideOf) {
+    lines.push({
+      type: "custom",
+      customType: "pi-web:side",
+      id: `${id}-meta`,
+      parentId: null,
+      timestamp: TIME,
+      data: { version: 1, parentSessionId: sideOf.id, createdAt: TIME },
     });
   }
   lines.push(
@@ -121,6 +132,32 @@ test("deletes a project's sessions in one request, with their subagents, keeping
   assert.equal(forkHeader.parentSession, keepRoot);
   // Pins and archive times go with the sessions; the others stay.
   assert.deepEqual(Object.keys(readSessionUiState().sessions), ["keep-root"]);
+});
+
+test("deletes one side chat alone, and still takes the rest with its parent", async (t) => {
+  const { sessionsDir, ids } = await scratchAgentDir(t);
+  const cwd = "/work/alpha";
+  const parent = await writeSession(sessionsDir, "parent", { id: "parent", cwd });
+  const sideA = await writeSession(sessionsDir, "side-a", { id: "side-a", cwd, parentSession: parent, sideOf: { id: "parent", path: parent } });
+  const sideB = await writeSession(sessionsDir, "side-b", { id: "side-b", cwd, parentSession: parent, sideOf: { id: "parent", path: parent } });
+  ids.push("parent", "side-a", "side-b");
+
+  const alone = await deleteSessionRoute(
+    new Request("http://localhost/api/sessions/side-a", { method: "DELETE" }),
+    { params: Promise.resolve({ id: "side-a" }) },
+  );
+  assert.equal(alone.status, 200);
+  assert.equal(existsSync(sideA), false);
+  assert.equal(existsSync(parent), true);
+  assert.equal(existsSync(sideB), true);
+
+  const family = await deleteSessionRoute(
+    new Request("http://localhost/api/sessions/parent", { method: "DELETE" }),
+    { params: Promise.resolve({ id: "parent" }) },
+  );
+  assert.equal(family.status, 200);
+  assert.equal(existsSync(parent), false);
+  assert.equal(existsSync(sideB), false);
 });
 
 test("what stays is re-pointed at its nearest ancestor left, or loses a parent none of whose ancestors stay", async (t) => {
