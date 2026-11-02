@@ -525,7 +525,7 @@ test("a row's controls fit its height with room to spare: 28px rows on a desktop
   // confirmation's buttons; a group header's + and ⋯ (its rename field is
   // the session row's). At least 2px clear above and below.
   const desktop = SIDEBAR_ROW_HEIGHTS.desktop;
-  for (const selector of [".session-tree-action", ".session-tree-rename", ".session-tree .session-tree-confirm-delete"]) {
+  for (const selector of [".session-tree-action", ".session-tree-rename", ".session-tree-confirm-delete"]) {
     assert.ok(heightOf(selector) + 4 <= desktop.session, selector);
   }
   assert.ok(heightOf(".session-tree .session-tree-group-action") + 4 <= desktop.group);
