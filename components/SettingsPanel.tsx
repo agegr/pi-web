@@ -548,6 +548,9 @@ function animatePhoneLevelChange(main: HTMLElement | null, header: HTMLElement |
  */
 function usePhoneSettingsLevel(isPhone: boolean, openAtHome: boolean) {
   const [level, setLevel] = useState<PhoneLevel>(openAtHome ? "home" : "section");
+  // A desktop shows a section, so a window narrowed to a phone's width stays
+  // on it instead of falling back to the level the panel opened at.
+  if (!isPhone && level !== "section") setLevel("section");
   const levelRef = useRef(level);
   levelRef.current = level;
   const pushedRef = useRef(0);
@@ -582,7 +585,7 @@ function usePhoneSettingsLevel(isPhone: boolean, openAtHome: boolean) {
     if (pushed > 0) window.history.go(-pushed);
   }, []);
 
-  return { level: isPhone ? level : "section", levelRef, enter, goUp, dropHistory };
+  return { level, levelRef, enter, goUp, dropHistory };
 }
 
 export function SettingsPanel({
