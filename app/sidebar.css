@@ -478,8 +478,9 @@ a.session-tree-main {
   white-space: nowrap;
 }
 
-.session-tree .session-tree-confirm-delete,
-.session-tree .session-tree-confirm-cancel {
+/* Also the Agents switcher's side-chat Delete (AgentSessionPanel), outside the tree. */
+.session-tree-confirm-delete,
+.session-tree-confirm-cancel {
   display: flex;
   flex: none;
   align-items: center;
@@ -490,23 +491,24 @@ a.session-tree-main {
   border-radius: 6px;
   font-size: 12px;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.session-tree .session-tree-confirm-delete {
+.session-tree-confirm-delete {
   border: 1px solid #ef4444;
   background: #ef4444;
   color: #fff;
   font-weight: 600;
 }
 
-.session-tree .session-tree-confirm-cancel {
+.session-tree-confirm-cancel {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-muted);
   font-weight: 500;
 }
 
-.session-tree .session-tree-confirm-cancel:hover {
+.session-tree-confirm-cancel:hover {
   background: var(--bg-hover);
 }
 
