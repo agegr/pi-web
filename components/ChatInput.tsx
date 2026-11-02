@@ -23,6 +23,7 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
+import { quoteSeparator } from "@/lib/quoted-selection";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
@@ -108,6 +109,8 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  /** Insert at the caret as a paragraph of its own: a blockquote must start a line. */
+  insertQuote: (text: string) => void;
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
@@ -925,6 +928,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       const before = ta.value.slice(0, start);
       const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
       replaceTextareaRange(ta, start, end, sep + text);
+      setAtQuery(null);
+    },
+    insertQuote(text: string) {
+      const ta = textareaRef.current;
+      if (!ta) {
+        setValue((v) => v + quoteSeparator(v) + text);
+        return;
+      }
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? ta.value.length;
+      replaceTextareaRange(ta, start, end, quoteSeparator(ta.value.slice(0, start)) + text);
       setAtQuery(null);
     },
     addImages(files: File[]) {
@@ -2303,7 +2317,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           <textarea
             ref={textareaRef}
             className="chat-input-textarea"
-            aria-label={compact ? t("chat.quoteQuestion") : undefined}
+            aria-label={compact ? t("chat.askInSideChat") : undefined}
             value={value}
             onChange={(e) => {
               valueRef.current = e.target.value;
