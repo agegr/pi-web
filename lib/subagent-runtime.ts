@@ -79,6 +79,8 @@ export interface SubagentController {
   get(sessionId: string): Promise<SubagentRunInfo | null>;
   steer(sessionId: string, message: string): Promise<void>;
   abort(sessionId: string): Promise<void>;
+  /** A turn in a child's own chat ended: settles the run a restart cut off, if that is what the file holds. */
+  settleDirectTurn(sessionId: string, aborted: boolean): void;
 }
 
 type StoredSubagentExecution = {
@@ -1052,10 +1054,31 @@ export function createSubagentController(
     await wrapper.inner.abort();
   }
 
+  function settleDirectTurn(sessionId: string, aborted: boolean): void {
+    // A run in the map records its own result, and a settled run keeps its report.
+    if (getSubagentRuns().has(sessionId)) return;
+    const wrapper = dependencies.getSession(sessionId);
+    if (!wrapper?.isAlive()) return;
+    const manager = wrapper.inner.sessionManager;
+    const run = readSubagentRun(manager.getEntries() as unknown as SessionEntry[], sessionId, wrapper.sessionFile);
+    if (!run || (run.status !== "running" && run.status !== "queued")) return;
+    const text = wrapper.inner.getLastAssistantText()?.trim();
+    const stop = aborted ? undefined : lastAssistantStop(manager);
+    recordResult(manager, {
+      ...run,
+      status: aborted || stop?.aborted ? "aborted" : stop?.error ? "failed" : "completed",
+      completedAt: new Date().toISOString(),
+      ...(text ? { result: text } : {}),
+      ...(stop?.error ? { error: stop.error } : {}),
+    });
+    dependencies.invalidateSessionList();
+  }
+
   return {
     extensionRuntime: { start, resume, get, steer, notifyParent, markResultConsumed },
     get,
     steer,
     abort,
+    settleDirectTurn,
   };
 }
