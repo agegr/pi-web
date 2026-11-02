@@ -1,8 +1,9 @@
 # Release Checklist
 
-This repo publishes two artifacts for each release:
+This repo publishes three artifacts for each release:
 
 - npm package: `@agegr/pi-web`, published by GitHub Actions (`.github/workflows/publish.yml`) when a `v*` tag is pushed
+- Docker image: `ghcr.io/agegr/pi-web`, tagged `<version>`, `<major>.<minor>` and `latest`, published by `.github/workflows/container.yml` on the same tag (see [docker.md](./docker.md))
 - GitHub Release: `agegr/pi-web`
 
 Use this checklist from a clean `main` checkout.
@@ -36,7 +37,7 @@ gh run list --branch main --workflow ci.yml --limit 1
 Expected:
 
 - `git status` is clean: `npm version` refuses a dirty tree.
-- `main` and `origin/main` are aligned (`0	0`).
+- `main` and `origin/main` are aligned (`0	0`), and every commit meant for this release is on `origin/main`. A commit merged only locally has had no CI run: push `main` first and wait for CI.
 - GitHub is authenticated as an account that can push and create releases.
 - CI on the commit you are releasing passed. The publish workflow only builds; it does not lint or test.
 
@@ -80,7 +81,7 @@ git show --stat HEAD
 git tag --points-at HEAD
 ```
 
-## 3. Push: CI Publishes to npm
+## 3. Push: CI Publishes to npm and GHCR
 
 ```bash
 git push origin main v<version>
@@ -88,14 +89,22 @@ git push origin main v<version>
 
 Push the release tag by name. Do not use `git push --tags`: the local checkout holds tags fetched from contributor forks that are not on origin, and `--tags` publishes them (it leaked a stray `v0.10.5`, on a commit that is on no branch, during the v0.11.0 release). If you ever need `--tags`, compare `git tag` with `git ls-remote --tags origin` first.
 
-The tag starts the Publish workflow. It fails at once if the tag is not `v` + the `package.json` version, then runs `npm ci`, `npm run build` and `npm publish --access public`. Follow it:
+The tag starts two workflows. Both fail at once if the tag is not `v` + the `package.json` version.
+
+- Publish (`publish.yml`) runs `npm ci`, `npm run build` and `npm publish --access public`. It takes about three minutes.
+- Container image (`container.yml`) builds `linux/amd64` and `linux/arm64` images and pushes them to GHCR. The arm64 half runs under QEMU: the v0.14.1 build took 33 minutes of its 45-minute timeout.
+
+Follow both:
 
 ```bash
 gh run list --workflow publish.yml --limit 1
+gh run list --workflow container.yml --limit 1
 gh run watch <run-id> --exit-status
 ```
 
 Notes:
+
+- `gh run watch` can return a non-zero exit while the run is still going (it did on the long container build). Check `gh run view <run-id>` before treating it as a failure.
 
 - A newly published version may take a few minutes to show up. `npm view @agegr/pi-web@<version> version` can return E404 and `npm view @agegr/pi-web version` can show the previous version even though the workflow log printed `+ @agegr/pi-web@<version>`. This is registry propagation, not a failed publish: do not re-run the workflow. Poll the registry until the version appears:
 
@@ -120,6 +129,20 @@ git push origin main v<version>
 ```
 
 - An `ENEEDAUTH` or 404 on `npm publish` means the Trusted Publisher entry (step 0) does not match this repository and `publish.yml`.
+
+If the container workflow fails after npm has the version, the tag can no longer move. A passing cause: `gh run rerun <run-id>`; image tags are overwritten, so a partial push does no harm. A rerun builds the tagged commit again, so a fix to the Dockerfile or the workflow reaches GHCR only with the next release.
+
+### Pushed the tag too early
+
+If the tag went out before the release was ready (a commit still missing, say), cancel both runs before `npm publish` runs:
+
+```bash
+gh run cancel <publish-run-id>
+gh run cancel <container-run-id>
+curl -s https://registry.npmjs.org/@agegr%2Fpi-web/<version> | head -c 80   # still "version not found"
+```
+
+Then either move the tag once the fix is on `main`, as above, or release the next patch instead. The second leaves an unpublished `v<version>` tag on origin, as `v0.14.0` was: base the next release notes on the last version that was published, and say there that the skipped tag was never released.
 
 ## 4. Generate Release Notes from Commits
 
@@ -228,11 +251,24 @@ git log --oneline --decorate -3
 git ls-remote --tags origin
 ```
 
+Check that the image can be pulled without signing in:
+
+```bash
+T=$(curl -s "https://ghcr.io/token?scope=repository:agegr/pi-web:pull" | node -p 'JSON.parse(require("fs").readFileSync(0)).token')
+for tag in <version> <major>.<minor> latest; do
+  printf '%s: ' "$tag"
+  curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $T" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json' \
+    "https://ghcr.io/v2/agegr/pi-web/manifests/$tag"
+done
+```
+
 Expected:
 
 - GitHub Release exists and is not a draft unless intentionally published as one.
-- The Publish run for `v<version>` succeeded.
+- The Publish and Container image runs for `v<version>` succeeded.
 - npm exact version resolves and `latest` points at it (allow a few minutes, see step 3).
+- Every image tag answers `200`.
 - `git ls-remote --tags origin` shows no tag you did not mean to publish.
 - `main` is aligned with `origin/main`.
 - `HEAD` points at the release commit and `v<version>` tag.
