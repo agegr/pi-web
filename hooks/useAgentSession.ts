@@ -406,6 +406,7 @@ type ModelsResponse = {
   thinkingLevelPins?: Record<string, string>;
   modelError?: string;
   modelScopeWarnings?: string[];
+  isScoped?: boolean;
 };
 
 type SlashCommandsResponse = {
@@ -450,6 +451,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [promptMissingCwd, setPromptMissingCwd] = useState<string | null>(null);
   const missingCwd = promptMissingCwd ?? modelsMissingCwd;
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
+  const [isModelScopeActive, setIsModelScopeActive] = useState(false);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
@@ -2450,6 +2452,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
+    if (typeof setIsModelScopeActive === "function") setIsModelScopeActive(Boolean(d.isScoped));
     setModelThinkingLevels(d.thinkingLevels ?? {});
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
     const nextModelList = d.modelList ?? [];
@@ -2487,6 +2490,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [isNew, newSessionCwd, session?.cwd]);
+
+  const loadAllModels = useCallback(async (): Promise<ModelEntry[]> => {
+    const modelCwd = newSessionCwd ?? session?.cwd ?? "";
+    const url = modelCwd
+      ? `/api/models?cwd=${encodeURIComponent(modelCwd)}&scope=all`
+      : "/api/models?scope=all";
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to load all models (HTTP ${res.status})`);
+    }
+    const d = await res.json() as ModelsResponse;
+    setModelNames((prev) => ({ ...prev, ...(d.models ?? {}) }));
+    setModelThinkingLevels((prev) => ({ ...prev, ...(d.thinkingLevels ?? {}) }));
+    setModelThinkingLevelMaps((prev) => ({ ...prev, ...(d.thinkingLevelMaps ?? {}) }));
+    return d.modelList ?? [];
+  }, [newSessionCwd, session?.cwd]);
 
   // Picking a model or reasoning level is session-scoped, as in the TUI. The
   // selectors' star is the explicit Ctrl+S equivalent: it saves the global
@@ -3292,7 +3311,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -3320,7 +3339,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     cancelEdit: editEntryId ? cancelEdit : undefined,
     addNotice,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, loadAllModels, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

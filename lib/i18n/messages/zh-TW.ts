@@ -807,6 +807,8 @@ export const zhTWLocale: LocalePlugin = {
     "chat.attachFiles": "附加檔案",
     "chat.previewImage": "預覽圖片",
     "chat.filterModels": "篩選模型…",
+    "chat.modelScopeScoped": "已限定",
+    "chat.modelScopeAll": "全部",
     "chat.selectModel": "選擇模型",
     "chat.noModels": "沒有模型",
     "chat.switchingModel": "正在切換模型",
