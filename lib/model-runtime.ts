@@ -42,8 +42,10 @@ declare global {
 
 // Pi Web's own plugin changes and reloads invalidate the entry, so the TTL is
 // only a backstop for changes made outside Pi Web: `pi install` from a
-// terminal, an edited extension file.
-const SHARED_MODEL_RUNTIME_TTL_MS = 10 * 60_000;
+// terminal, an edited extension file. A build blocks the event loop while it
+// imports (13 s with 11 extensions, #1465), so this stays rare; `/reload` applies
+// such a change at once.
+const SHARED_MODEL_RUNTIME_TTL_MS = 60 * 60_000;
 const REFRESH_QUEUE_KEY: symbol = Symbol.for("pi-web:shared-model-runtime-refresh");
 
 /**
