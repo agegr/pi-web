@@ -71,8 +71,8 @@ task or losing the parent's context.
    are the same again. All open a right-panel tab: `SessionChatPanel`, a `ChatWindow` for that session, which subagent
    tabs use too. It rewrites no URL, and global shortcuts stay with the main chat. In
    the Agents switcher a row opens the side chat in the main chat, as a subagent's
-   does, its button toggles the tab, and its Delete removes that one side chat after a
-   confirmation (which marks a running side chat as such; its run stops). That is only
+   does, its button toggles the tab, and its Delete removes that one side chat after the
+   sidebar's confirmation (a run stops; a main chat showing it goes back to the parent). That is only
    a place to look at it: it stays hidden with the same tools, and promoting it is
    another matter. One session has one chat: opening it in the main chat closes its tab.
 

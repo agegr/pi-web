@@ -1355,22 +1355,21 @@ export function AppShell() {
     });
   }, [fileTabs, terminalTabs, agentTabs]);
 
-  // The Agents switcher's Delete on a side chat: its tab and its pending first
-  // prompt go with it. `handleSessionDeleted` refreshes the list and falls back
-  // to a fresh composer when the side chat was open in the main chat.
-  const handleDeleteSideChat = useCallback(async (sessionId: string): Promise<string | null> => {
+  // The Agents switcher's Delete on a side chat: its tab goes with it, and the
+  // main chat showing it goes back to the parent, as the Main agent row does
+  // (`handleSessionDeleted` would leave the family for a fresh composer).
+  const handleDeleteSideChat = useCallback(async (sessionId: string, root: SessionInfo): Promise<string | null> => {
     const result = await deleteSideChat(sessionId);
     if (result) return result.error;
     handleCloseFileTab(`agent:${sessionId}`);
-    setSideChatPrompts((prev) => {
-      if (!(sessionId in prev)) return prev;
-      const next = { ...prev };
-      delete next[sessionId];
-      return next;
-    });
-    handleSessionDeleted(sessionId);
+    if (selectedSessionRef.current?.id === sessionId) {
+      handleSelectSession(root);
+      setRefreshKey((key) => key + 1);
+    } else {
+      handleSessionDeleted(sessionId);
+    }
     return null;
-  }, [handleCloseFileTab, handleSessionDeleted]);
+  }, [handleCloseFileTab, handleSelectSession, handleSessionDeleted]);
 
   // One session, one chat: opening a subagent or side chat in the main chat closes its tab.
   const selectedSessionId = selectedSession?.id;
@@ -2509,7 +2508,7 @@ export function AppShell() {
                   openSubagentTabIds={openSubagentTabIds}
                   onToggleSubagentTab={handleToggleSubagentTab}
                   onNewSideChat={() => handleNewSideChat(activeSessionFamily.root.id)}
-                  onDeleteSideChat={handleDeleteSideChat}
+                  onDeleteSideChat={(sessionId) => handleDeleteSideChat(sessionId, activeSessionFamily.root)}
                 />
               )}
               {activeTopPanel === "system" && (
