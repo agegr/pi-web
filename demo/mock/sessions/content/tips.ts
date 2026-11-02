@@ -111,7 +111,7 @@ Get familiar with the pi-web repository and its recent history.
 **Also worth knowing**
 - The tool preset button switches between *Chat only*, read-only tools, the default four (\`read\`, \`bash\`, \`edit\`, \`write\`) and the full set.
 - The divider above marks a **compaction**: older turns were summarized to free up context. \`/compact\` does it on demand; expand the divider to read the summary.
-- **Settings → General → Chat** can show *Ask here* / *Ask in new chat* actions when you select text in a reply.
+- **Settings → General → Chat** can show *Quote* / *Ask in new chat* actions when you select text in a reply.
 - **Settings → General** has themes (Light, Dark, Mist, Rose, Pine or System), languages, chat width and font size.
 - The search button above the session list searches **all** conversations; the strip on the right of the chat is a minimap for long sessions.
 - On a phone, add Pi Web to the home screen and turn on push notifications to hear when a long run finishes.`,
@@ -132,7 +132,7 @@ Get familiar with the pi-web repository and its recent history.
 **其他值得了解的**
 - 工具预设按钮可以在「仅聊天」、只读工具、默认四件套（\`read\`、\`bash\`、\`edit\`、\`write\`）和全部工具之间切换。
 - 上方的分隔线表示发生过一次 **上下文压缩**：较早的对话被总结以腾出上下文空间。\`/compact\` 可以手动触发，展开分隔线可以阅读摘要。
-- **设置 → 常规 → 对话** 中可以开启选中文字后的「在当前对话询问 / 在新对话询问」操作。
+- **设置 → 常规 → 对话** 中可以开启选中文字后的「引用 / 在新对话询问」操作。
 - **设置 → 常规** 中可以切换主题（浅色、深色、雾青、蔷薇、松夜或跟随系统）、语言、聊天宽度和字号。
 - 会话列表上方的搜索按钮可以搜索 **所有** 对话；聊天区右侧的细条是长会话的小地图。
 - 在手机上可以把 Pi Web 添加到主屏幕并开启推送通知，长任务完成时就会收到提醒。`,
