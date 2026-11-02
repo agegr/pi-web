@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { countRunningSubagents, sideChatTitle } from "@/lib/session-family";
 import type { SessionUsageSummary } from "@/lib/session-stats";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
+import { TrashIcon } from "./SidebarIcons";
 
 interface Props {
   rootSession: SessionInfo;
@@ -19,9 +20,47 @@ interface Props {
   onToggleSubagentTab: (sessionId: string, label: string, side?: boolean) => void;
   /** Forks the main agent into a side chat and opens its tab; answers the refusal to show, or null. */
   onNewSideChat: () => Promise<string | null>;
+  /** Deletes one side chat and its tab; answers the failure to show, or null. */
+  onDeleteSideChat: (sessionId: string) => Promise<string | null>;
 }
 
 const STATS_POLL_MS = 3000;
+
+const sideChatConfirmTextStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  overflow: "hidden",
+  color: "var(--text)",
+  fontSize: 12,
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+const sideChatConfirmDeleteStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 4,
+  height: 24,
+  padding: "0 10px",
+  border: "1px solid #ef4444",
+  borderRadius: 6,
+  background: "#ef4444",
+  color: "#fff",
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+const sideChatConfirmCancelStyle: CSSProperties = {
+  height: 24,
+  padding: "0 10px",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  background: "var(--bg)",
+  color: "var(--text-muted)",
+  fontSize: 12,
+  fontWeight: 500,
+  whiteSpace: "nowrap",
+};
 
 /**
  * Usage of every agent in the family, as the toolbar's stats popover counts
@@ -177,6 +216,11 @@ function AgentRow({
   onToggleTab,
   onNewSideChat,
   newSideChatPending,
+  onDelete,
+  confirming,
+  onDeleteConfirm,
+  onDeleteCancel,
+  deleting,
 }: {
   session: SessionInfo;
   main?: boolean;
@@ -188,6 +232,11 @@ function AgentRow({
   onToggleTab?: () => void;
   onNewSideChat?: () => void;
   newSideChatPending?: boolean;
+  onDelete?: () => void;
+  confirming?: boolean;
+  onDeleteConfirm?: () => void;
+  onDeleteCancel?: () => void;
+  deleting?: boolean;
 }) {
   const { locale, t } = useI18n();
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
@@ -205,6 +254,19 @@ function AgentRow({
     thinkingLevel,
     formatRelativeTime(session.modified, locale),
   ].filter(Boolean).join(" · ");
+
+  if (confirming && onDeleteConfirm && onDeleteCancel) {
+    return (
+      <SideChatDeleteConfirm
+        selected={selected}
+        name={primary}
+        running={running}
+        deleting={deleting}
+        onConfirm={onDeleteConfirm}
+        onCancel={onDeleteCancel}
+      />
+    );
+  }
 
   return (
     <div
@@ -298,22 +360,91 @@ function AgentRow({
           </svg>
         </RowSideButton>
       )}
+      {onDelete && (
+        <RowSideButton title={t("sideChat.delete")} danger disabled={deleting} onClick={onDelete}>
+          <TrashIcon size={14} />
+        </RowSideButton>
+      )}
     </div>
   );
 }
 
-function RowSideButton({ title, pressed, disabled, onClick, children }: {
+function SideChatDeleteConfirm({ selected, name, running, deleting, onConfirm, onCancel }: {
+  selected: boolean;
+  name: string;
+  running: boolean;
+  deleting?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) cancelRef.current?.focus();
+  }, []);
+  const cancelHover = (event: ReactMouseEvent<HTMLButtonElement>, hovered: boolean) => {
+    event.currentTarget.style.background = hovered ? "var(--bg-hover)" : "var(--bg)";
+  };
+  const deleteStyle: CSSProperties = deleting ? { ...sideChatConfirmDeleteStyle, cursor: "default", opacity: 0.6 } : sideChatConfirmDeleteStyle;
+  const cancelStyle: CSSProperties = deleting ? { ...sideChatConfirmCancelStyle, cursor: "default" } : sideChatConfirmCancelStyle;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        minHeight: 56,
+        padding: "7px 12px",
+        borderBottom: "1px solid var(--border)",
+        borderLeft: selected ? "2px solid var(--accent)" : "2px solid transparent",
+        background: selected ? "var(--bg-selected)" : "transparent",
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || deleting) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }}
+    >
+      <span style={sideChatConfirmTextStyle}>
+        {t(running ? "sideChat.deleteRunningConfirm" : "sideChat.deleteConfirm", { name })}
+      </span>
+      <button type="button" disabled={deleting} onClick={onConfirm} style={deleteStyle}>
+        <TrashIcon size={12} />
+        {t("sidebar.delete")}
+      </button>
+      <button
+        ref={cancelRef}
+        type="button"
+        disabled={deleting}
+        onClick={onCancel}
+        onMouseEnter={(event) => cancelHover(event, true)}
+        onMouseLeave={(event) => cancelHover(event, false)}
+        style={cancelStyle}
+      >
+        {t("sidebar.cancel")}
+      </button>
+    </div>
+  );
+}
+
+function RowSideButton({ title, pressed, danger, disabled, onClick, children }: {
   title: string;
   pressed?: boolean;
+  danger?: boolean;
   disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
   const state = disabled
     ? "cursor-not-allowed text-text-dim opacity-40"
-    : pressed
-      ? "cursor-pointer text-accent hover:bg-bg-hover"
-      : "cursor-pointer text-text-muted hover:bg-bg-hover hover:text-text";
+    : danger
+      ? "cursor-pointer"
+      : pressed
+        ? "cursor-pointer text-accent hover:bg-bg-hover"
+        : "cursor-pointer text-text-muted hover:bg-bg-hover hover:text-text";
+  const dangerHover = danger && !disabled;
   return (
     <button
       type="button"
@@ -323,18 +454,33 @@ function RowSideButton({ title, pressed, disabled, onClick, children }: {
       aria-pressed={pressed}
       disabled={disabled}
       className={`bg-transparent ${state}`}
-      style={{ width: 36, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", flexShrink: 0 }}
+      style={{
+        width: 36,
+        display: "grid",
+        placeItems: "center",
+        border: "none",
+        borderLeft: "1px solid var(--border)",
+        flexShrink: 0,
+        ...(dangerHover ? { color: "#ef4444" } : {}),
+      }}
+      onMouseEnter={dangerHover ? (event) => { event.currentTarget.style.background = "rgba(239,68,68,0.08)"; } : undefined}
+      onMouseLeave={dangerHover ? (event) => { event.currentTarget.style.background = "transparent"; } : undefined}
+      onFocus={dangerHover ? (event) => { event.currentTarget.style.background = "rgba(239,68,68,0.08)"; } : undefined}
+      onBlur={dangerHover ? (event) => { event.currentTarget.style.background = "transparent"; } : undefined}
     >
       {children}
     </button>
   );
 }
 
-export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab, onNewSideChat }: Props) {
+export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, runningSessionIds, onSelectSession, openSubagentTabIds, onToggleSubagentTab, onNewSideChat, onDeleteSideChat }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [newSideChatPending, setNewSideChatPending] = useState(false);
   const [newSideChatError, setNewSideChatError] = useState<string | null>(null);
+  const [confirmDeleteSideChatId, setConfirmDeleteSideChatId] = useState<string | null>(null);
+  const [deletingSideChatId, setDeletingSideChatId] = useState<string | null>(null);
+  const [deleteSideChatError, setDeleteSideChatError] = useState<string | null>(null);
   const handleNewSideChat = async () => {
     setNewSideChatPending(true);
     setNewSideChatError(null);
@@ -344,6 +490,19 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
       setNewSideChatError(error instanceof Error ? error.message : String(error));
     } finally {
       setNewSideChatPending(false);
+    }
+  };
+  const handleDeleteSideChat = async (session: SessionInfo) => {
+    setDeletingSideChatId(session.id);
+    setDeleteSideChatError(null);
+    try {
+      const error = await onDeleteSideChat(session.id);
+      if (error) setDeleteSideChatError(t("sideChat.deleteFailed", { error }));
+    } catch (error) {
+      setDeleteSideChatError(t("sideChat.deleteFailed", { error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setDeletingSideChatId(null);
+      setConfirmDeleteSideChatId((current) => (current === session.id ? null : current));
     }
   };
   const sortedSubagents = useMemo(() => [...subagents].sort((a, b) => {
@@ -452,9 +611,9 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
             onNewSideChat={handleNewSideChat}
             newSideChatPending={newSideChatPending}
           />
-          {newSideChatError && (
+          {(newSideChatError || deleteSideChatError) && (
             <div role="alert" style={{ padding: "6px 12px", borderBottom: "1px solid var(--border)", color: "#dc2626", fontSize: 12, overflowWrap: "anywhere" }}>
-              {newSideChatError}
+              {newSideChatError ?? deleteSideChatError}
             </div>
           )}
           {visibleSubagents.map((session) => (
@@ -474,6 +633,11 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
                 }
                 onToggleSubagentTab(session.id, relation?.description || relation?.profile || sessionTitle(session));
               }}
+              onDelete={session.relation?.kind === "side" ? () => setConfirmDeleteSideChatId(session.id) : undefined}
+              confirming={confirmDeleteSideChatId === session.id}
+              onDeleteConfirm={() => { void handleDeleteSideChat(session); }}
+              onDeleteCancel={() => setConfirmDeleteSideChatId(null)}
+              deleting={deletingSideChatId === session.id}
             />
           ))}
           {subagents.length > 0 && visibleSubagents.length === 0 && (

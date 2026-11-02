@@ -71,9 +71,10 @@ task or losing the parent's context.
    are the same again. All open a right-panel tab: `SessionChatPanel`, a `ChatWindow` for that session, which subagent
    tabs use too. It rewrites no URL, and global shortcuts stay with the main chat. In
    the Agents switcher a row opens the side chat in the main chat, as a subagent's
-   does, and its button toggles the tab. That is only a place to look at it: it stays
-   hidden with the same tools, and promoting it is another matter. One session has one
-   chat: opening it in the main chat closes its tab.
+   does, its button toggles the tab, and its Delete removes that one side chat after a
+   confirmation (which marks a running side chat as such; its run stops). That is only
+   a place to look at it: it stays hidden with the same tools, and promoting it is
+   another matter. One session has one chat: opening it in the main chat closes its tab.
 
    The boundary message draws a line in the chat, since the two histories look alike. The first prompt names the side chat, so rows and tabs tell them apart
    without a model call. Side chats are quiet like subagent runs. Search skips them,
@@ -85,8 +86,8 @@ task or losing the parent's context.
 
 ## Consequences
 
-- Every `/side` copies the parent's branch, whatever its size, and a side chat can
-  be deleted only with its parent.
+- Every `/side` copies the parent's branch, whatever its size. A side chat can be
+  deleted on its own from the Agents switcher, or with its parent.
 - Extensions' `session_start` and other handlers run in a side chat too, as they do
   in any session. That is what keeps its prompt and models the parent's.
 - Viewing a subagent in its tab now opens its event stream, which can start a wrapper
@@ -96,3 +97,5 @@ task or losing the parent's context.
 
 - Send a side chat's reply back to the parent as a user-triggered custom message.
 - Promote a side chat to a visible fork by rewriting its metadata entry out.
+- Do not persist a side chat that never received a message: a promptless `/side`
+  currently copies the parent before anyone types in it.

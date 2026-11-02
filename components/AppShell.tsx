@@ -75,7 +75,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
-import { createSideChat } from "@/lib/side-chat-client";
+import { createSideChat, deleteSideChat } from "@/lib/side-chat-client";
 import { getAgentsBadge, getFoldedMoreAgentsBadge, getSessionFamily, isHiddenRelation, sideChatNameFrom, sideChatTitle } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 import { focusIfLost } from "@/lib/stacked-dialog";
@@ -1355,6 +1355,23 @@ export function AppShell() {
     });
   }, [fileTabs, terminalTabs, agentTabs]);
 
+  // The Agents switcher's Delete on a side chat: its tab and its pending first
+  // prompt go with it. `handleSessionDeleted` refreshes the list and falls back
+  // to a fresh composer when the side chat was open in the main chat.
+  const handleDeleteSideChat = useCallback(async (sessionId: string): Promise<string | null> => {
+    const result = await deleteSideChat(sessionId);
+    if (result) return result.error;
+    handleCloseFileTab(`agent:${sessionId}`);
+    setSideChatPrompts((prev) => {
+      if (!(sessionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    handleSessionDeleted(sessionId);
+    return null;
+  }, [handleCloseFileTab, handleSessionDeleted]);
+
   // One session, one chat: opening a subagent or side chat in the main chat closes its tab.
   const selectedSessionId = selectedSession?.id;
   useEffect(() => {
@@ -2492,6 +2509,7 @@ export function AppShell() {
                   openSubagentTabIds={openSubagentTabIds}
                   onToggleSubagentTab={handleToggleSubagentTab}
                   onNewSideChat={() => handleNewSideChat(activeSessionFamily.root.id)}
+                  onDeleteSideChat={handleDeleteSideChat}
                 />
               )}
               {activeTopPanel === "system" && (
