@@ -163,6 +163,8 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /** A subagent's wrapper: a run ended and nothing is left to do. */
+  onDirectTurnSettled?: (aborted: boolean) => void;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
   mcpHost?: WrapperMcpHost;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
@@ -306,6 +308,10 @@ const SESSION_TOOL_NAMES = new Set<string>(["codemode", "tool_search", ...SUBAGE
  * tool one switched off stays off. Nothing else is added: pi itself activates the extension
  * tools it registers (all of them when it builds or reloads a session, then each new one), so
  * `carry` already holds them. An empty selection is Chat only.
+ *
+ * Order follows `carry`, the order the `pi` CLI declares for the same set: regrouping the
+ * coding tools ahead rewrites the prompt's `<tools>` section and drops the provider's prompt
+ * cache on every harness switch (#1405). Newly selected coding tools go at the end.
  */
 export function resolveActiveToolNames(
   session: AgentSessionLike,
@@ -321,11 +327,12 @@ export function resolveActiveToolNames(
     session.settingsManager.getDefaultTools(),
   );
   const carriedToolNames = carry.filter((name) => {
+    if (codingToolNames.has(name)) return selectedToolNames.includes(name);
     const tool = registered.get(name);
-    return tool !== undefined && !codingToolNames.has(name) && tool.exposure !== "hidden";
+    return tool !== undefined && tool.exposure !== "hidden";
   });
 
-  return [...new Set([...selectedToolNames, ...carriedToolNames])];
+  return [...new Set([...carriedToolNames, ...selectedToolNames])];
 }
 
 /** pi's "Cannot submit a prompt while compaction is in progress" rejection. */
@@ -368,6 +375,7 @@ export class AgentSessionWrapper {
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
+  private readonly onDirectTurnSettled?: (aborted: boolean) => void;
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: WrapperMcpHost;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
@@ -408,6 +416,7 @@ export class AgentSessionWrapper {
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
+    this.onDirectTurnSettled = options.onDirectTurnSettled;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
@@ -641,6 +650,11 @@ export class AgentSessionWrapper {
   private notifyAgentRunCompleteIfIdle(): void {
     if (!this.agentRunNeedsCompletion || this.isRunning()) return;
     this.agentRunNeedsCompletion = false;
+    try {
+      this.onDirectTurnSettled?.(this.lastRunAborted);
+    } catch (error) {
+      console.error("[pi-web] could not settle the subagent turn:", error instanceof Error ? error.message : error);
+    }
     // A stopped run did not finish a task, as pi's own status reporting has it: nothing to announce.
     if (this.suppressCompletionNotifications || this.lastRunAborted) return;
     // A subagent of this session is still at work: each report starts a run here, and the run
@@ -942,9 +956,6 @@ export class AgentSessionWrapper {
           readSessionToolSelection(entries) ?? activeAfter,
           [...activeAfter, ...activeBefore.filter((name) => SESSION_TOOL_NAMES.has(name))],
         );
-      } else if (activeBefore.some((name, index) => name !== activeAfter[index])) {
-        // Same tools, other order: pi declares them in this order, so keep the previous one.
-        this.inner.setActiveToolsByName(activeBefore);
       }
     }
     return { cancelled: false };
@@ -2523,6 +2534,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         : {}),
       chatOnly: options?.chatOnly,
       suppressCompletionNotifications: true,
+      onDirectTurnSettled: (aborted) => SUBAGENT_CONTROLLER.settleDirectTurn(inner.sessionId, aborted),
       ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
     });
     registerRpcWrapper(wrapper);
@@ -3307,6 +3319,9 @@ export async function startRpcSession(
         });
       },
       suppressCompletionNotifications: Boolean(subagentResources),
+      ...(subagentResources
+        ? { onDirectTurnSettled: (aborted: boolean) => SUBAGENT_CONTROLLER.settleDirectTurn(inner.sessionId, aborted) }
+        : {}),
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
     });
