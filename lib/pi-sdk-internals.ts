@@ -122,8 +122,8 @@ export interface McpOAuthSettings {
   callbackUrl?: string;
   scope?: string;
   clientName?: string;
-  /** How pi identifies itself without `clientId`: dynamic registration, or its Client ID Metadata Document (pi 1.0.1). */
-  clientRegistration?: "dcr" | "cimd";
+  /** How pi identifies itself without `clientId`: its Client ID Metadata Document when supported (pi 1.5's default), dynamic registration, or always the document. */
+  clientRegistration?: "auto" | "dcr" | "cimd";
   authServerMetadataUrl?: URL;
 }
 

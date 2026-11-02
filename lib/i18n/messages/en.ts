@@ -1493,7 +1493,7 @@ export const enLocale: LocalePlugin = {
     "mcp.importProblem.callback-port-mismatch": "the OAuth callback address uses port {value}, not the callback port.",
     "mcp.importProblem.oauth-scope": "oauth.scope must be text.",
     "mcp.importProblem.oauth-client-name": "oauth.clientName must be non-empty text.",
-    "mcp.importProblem.oauth-client-registration": "oauth.clientRegistration {value} must be \"dcr\" or \"cimd\".",
+    "mcp.importProblem.oauth-client-registration": "oauth.clientRegistration {value} must be \"auto\", \"dcr\" or \"cimd\".",
     "mcp.importProblem.oauth-client-registration-client": "oauth.clientRegistration \"cimd\" cannot go with oauth.clientId or oauth.clientName.",
     "mcp.importProblem.oauth-client-registration-callback": "oauth.clientRegistration \"cimd\" needs oauth.callbackUrl on localhost or 127.0.0.1 with the path /callback.",
     "mcp.importProblem.auth-server-metadata-url": "oauth.authServerMetadataUrl {value} must be an https address (or http on localhost).",

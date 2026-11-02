@@ -1,4 +1,5 @@
 import {
+  type DraftOAuth,
   GEMINI_GRAMMAR,
   LITERAL_GRAMMAR,
   type McpImportNote,
@@ -194,11 +195,20 @@ const PI_ADD_OPTIONS: Record<string, PiOptionKind> = {
   "oauth-client-secret": "value",
   "oauth-callback-port": "value",
   "oauth-client-name": "value",
+  "oauth-client-registration": "value",
   exposure: "value",
   description: "value",
 };
 const PI_OPTION_ALIASES = new Map([["-l", "--local"]]);
-const PI_HTTP_ONLY = ["header", "bearer-token-env-var", "oauth-client-id", "oauth-client-secret", "oauth-callback-port", "oauth-client-name"];
+const PI_HTTP_ONLY = [
+  "header",
+  "bearer-token-env-var",
+  "oauth-client-id",
+  "oauth-client-secret",
+  "oauth-callback-port",
+  "oauth-client-name",
+  "oauth-client-registration",
+];
 const PI_STDIO_ONLY = ["env", "cwd"];
 
 function readPiMcpAdd(args: ShellWord[], mcpArgs: ShellWord[]): EntryOutcome | { error: McpImportNote } {
@@ -277,14 +287,22 @@ function readPiMcpAdd(args: ShellWord[], mcpArgs: ShellWord[]): EntryOutcome | {
     const clientSecret = value("oauth-client-secret");
     const port = value("oauth-callback-port");
     const clientName = value("oauth-client-name");
+    const registration = value("oauth-client-registration");
     if (clientId) draft.oauth.clientId = wordSegments(clientId.parts, "pi", false);
     if (clientSecret) draft.oauth.clientSecret = wordSegments(clientSecret.parts, "pi", true);
     if (port) draft.oauth.callbackPort = Number(port.text);
     if (clientName) draft.oauth.clientName = wordSegments(clientName.parts, "pi", false);
+    // validationProblem() refuses any other value below, as pi does.
+    if (registration) draft.oauth.clientRegistration = registration.text as DraftOAuth["clientRegistration"];
     // A variable the shell would have replaced becomes a field; validate the rest.
     config.url = url.parts.some((part) => part.type === "variable") ? "https://placeholder.invalid/" : url.text;
-    if (port || clientName) {
-      config.oauth = { ...(port ? { callbackPort: Number(port.text) } : {}), ...(clientName ? { clientName: clientName.text } : {}) };
+    if (port || clientName || registration) {
+      config.oauth = {
+        ...(clientId ? { clientId: clientId.text } : {}),
+        ...(port ? { callbackPort: Number(port.text) } : {}),
+        ...(clientName ? { clientName: clientName.text } : {}),
+        ...(registration ? { clientRegistration: registration.text } : {}),
+      };
     }
   } else {
     draft.transport = "stdio";

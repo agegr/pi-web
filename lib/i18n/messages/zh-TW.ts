@@ -1493,7 +1493,7 @@ export const zhTWLocale: LocalePlugin = {
     "mcp.importProblem.callback-port-mismatch": "OAuth 回呼位址使用的連接埠是 {value}，與回呼連接埠不一致。",
     "mcp.importProblem.oauth-scope": "oauth.scope 必須是文字。",
     "mcp.importProblem.oauth-client-name": "oauth.clientName 必須是非空文字。",
-    "mcp.importProblem.oauth-client-registration": "oauth.clientRegistration 的值 {value} 必須是 \"dcr\" 或 \"cimd\"。",
+    "mcp.importProblem.oauth-client-registration": "oauth.clientRegistration 的值 {value} 必須是 \"auto\"、\"dcr\" 或 \"cimd\"。",
     "mcp.importProblem.oauth-client-registration-client": "oauth.clientRegistration 為 \"cimd\" 時不能同時設定 oauth.clientId 或 oauth.clientName。",
     "mcp.importProblem.oauth-client-registration-callback": "oauth.clientRegistration 為 \"cimd\" 時，oauth.callbackUrl 必須在 localhost 或 127.0.0.1 上，且路徑為 /callback。",
     "mcp.importProblem.auth-server-metadata-url": "oauth.authServerMetadataUrl {value} 必須是 https 位址（或 localhost 上的 http）。",

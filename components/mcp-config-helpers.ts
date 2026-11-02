@@ -100,7 +100,8 @@ export interface McpRowContext {
  * Whether sessions read the project's `.pi/mcp.json`: only while a decision,
  * exact or inherited, trusts the folder, as the MCP host's
  * `mayReadProjectConfigNow()` decides on every prompt. Not `trust.trusted`,
- * which is true for a folder that requires no trust; that folder has no
+ * which is true for a folder that requires no trust (without a saved
+ * `false`); that folder has no
  * `.pi/mcp.json`, and one that appeared after the status was read is not read
  * without a decision. An unreadable trust store counts as untrusted.
  */

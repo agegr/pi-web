@@ -39,10 +39,12 @@ function describeDecision(
  * inherited from an ancestor, so `decision` and `decisionPath` tell exact
  * trust from trust through a parent, and no decision from an explicit `false`,
  * which `trusted` alone cannot. They are read for a folder that requires no
- * trust too: a fresh folder (no decision anywhere) and one inside a trusted
- * tree both report `trusted: true`. Such a folder never failed on an
- * unreadable `trust.json` before, and callers that only need `trusted` still
- * must not, so that failure is reported in `decisionError` instead.
+ * trust too, which is trusted unless a saved decision says otherwise, as pi
+ * 1.5 resolves it (earendil-works/pi#10947): a fresh folder and one inside a
+ * trusted tree report `trusted: true`, one under an explicit `false` reports
+ * `trusted: false`. Such a folder never failed on an unreadable `trust.json`
+ * before, and callers that only need `trusted` still must not, so that failure
+ * is reported in `decisionError` instead, with `trusted: true`.
  */
 export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTrustStatus {
   const requiresTrust = Boolean(cwd) && hasTrustRequiringProjectResources(cwd);
@@ -50,7 +52,8 @@ export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTru
   if (!requiresTrust) {
     if (!cwd) return { requiresTrust: false, trusted: true, decision: null, inherited: false };
     try {
-      return { requiresTrust: false, trusted: true, ...describeDecision(cwd, trustStore.getEntry(cwd)) };
+      const entry = trustStore.getEntry(cwd);
+      return { requiresTrust: false, trusted: entry?.decision ?? true, ...describeDecision(cwd, entry) };
     } catch (error) {
       return {
         requiresTrust: false,

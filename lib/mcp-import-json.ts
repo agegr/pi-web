@@ -433,8 +433,8 @@ function mapOAuth(draft: ServerDraft, oauth: Record<string, unknown>, value: Val
         else draft.note("oauth-option-dropped", { key: `${prefix}${key}` });
         break;
       case "clientRegistration":
-        // pi's own key: "dcr" (its default) or "cimd"; validation says when "cimd" cannot work with the rest.
-        if (raw === "dcr" || raw === "cimd") draft.oauth.clientRegistration = raw;
+        // pi's own key: "auto" (its default), "dcr" or "cimd"; validation says when "cimd" cannot work with the rest.
+        if (raw === "auto" || raw === "dcr" || raw === "cimd") draft.oauth.clientRegistration = raw;
         else draft.note("oauth-option-dropped", { key: `${prefix}${key}` });
         break;
       case "authServerMetadataUrl":

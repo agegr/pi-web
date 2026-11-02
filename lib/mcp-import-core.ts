@@ -446,8 +446,8 @@ export interface DraftOAuth {
   clientSecret?: Segment[];
   callbackPort?: number;
   clientName?: Segment[];
-  /** pi's `oauth.clientRegistration` (pi 1.0.1): dynamic registration, or pi's Client ID Metadata Document. */
-  clientRegistration?: "dcr" | "cimd";
+  /** pi's `oauth.clientRegistration`: `auto` (pi 1.5's default), dynamic registration, or pi's Client ID Metadata Document. */
+  clientRegistration?: "auto" | "dcr" | "cimd";
   callbackUrl?: Segment[];
   scope?: Segment[];
   authServerMetadataUrl?: Segment[];
@@ -1172,7 +1172,7 @@ function oauthValidationProblem(oauth: unknown): { problem: string; [key: string
   if (oauth.clientName !== undefined && (typeof oauth.clientName !== "string" || !oauth.clientName.trim())) {
     return { problem: "oauth-client-name" };
   }
-  if (oauth.clientRegistration !== undefined && oauth.clientRegistration !== "dcr") {
+  if (oauth.clientRegistration !== undefined && oauth.clientRegistration !== "auto" && oauth.clientRegistration !== "dcr") {
     if (oauth.clientRegistration !== "cimd") return { problem: "oauth-client-registration", value: String(oauth.clientRegistration) };
     if (oauth.clientId !== undefined || oauth.clientName !== undefined) return { problem: "oauth-client-registration-client" };
     // pi's Client ID Metadata Document lists only the default callback path, on localhost or 127.0.0.1.
