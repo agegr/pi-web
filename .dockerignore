@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+demo
+e2e
+.next
+node_modules
+coverage
+test-results
+.env
+.env.*
+!.env.example
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+workspace
