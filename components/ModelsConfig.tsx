@@ -1812,7 +1812,7 @@ function AddProviderPicker({
       style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => {
-        if (e.key !== "Escape") return;
+        if (e.key !== "Escape" || e.nativeEvent.isComposing || e.keyCode === 229) return;
         e.preventDefault();
         e.stopPropagation();
         onClose();
