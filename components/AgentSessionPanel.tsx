@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { countRunningSubagents, sideChatTitle } from "@/lib/session-family";
 import type { SessionUsageSummary } from "@/lib/session-stats";
@@ -217,15 +217,20 @@ function AgentRow({
     thinkingLevel,
     formatRelativeTime(session.modified, locale),
   ].filter(Boolean).join(" · ");
+  const rowRef = useRef<HTMLDivElement>(null);
+  // The row's height when Delete was clicked: a usage line makes it taller
+  // than 56px, and the confirmation in its place keeps the list still.
+  const [confirmHeight, setConfirmHeight] = useState<number>();
 
   if (confirming && onDeleteConfirm && onDeleteCancel) {
     return (
-      // The sidebar's confirmation, in a row as tall as the others.
+      // The sidebar's confirmation, in a row as tall as the one it replaces.
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 5,
+          height: confirmHeight,
           minHeight: 56,
           padding: "7px 12px",
           borderBottom: "1px solid var(--border)",
@@ -252,6 +257,7 @@ function AgentRow({
 
   return (
     <div
+      ref={rowRef}
       style={{
         display: "flex",
         borderBottom: "1px solid var(--border)",
@@ -343,7 +349,14 @@ function AgentRow({
         </RowSideButton>
       )}
       {onDelete && (
-        <RowSideButton title={t("sidebar.delete")} danger onClick={onDelete}>
+        <RowSideButton
+          title={t("sidebar.delete")}
+          danger
+          onClick={() => {
+            setConfirmHeight(rowRef.current?.offsetHeight);
+            onDelete();
+          }}
+        >
           <TrashIcon size={14} />
         </RowSideButton>
       )}
