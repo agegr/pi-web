@@ -76,6 +76,7 @@ export const zhTWLocale: LocalePlugin = {
     "settings.pushRegisterFailed": "❌ 註冊失敗：",
     "settings.usePowerShell": "使用 PowerShell 取代 Bash",
     "settings.projectRequired": "開啟專案後才能設定此項",
+    "settings.backTo": "返回{name}",
     "settings.mcp": "MCP",
     "auth.prompt": "登入後繼續使用",
     "auth.password": "密碼",

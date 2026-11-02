@@ -76,6 +76,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.pushRegisterFailed": "❌ 注册失败：",
     "settings.usePowerShell": "使用 PowerShell 替代 Bash",
     "settings.projectRequired": "打开项目后才能配置此项",
+    "settings.backTo": "返回{name}",
     "settings.mcp": "MCP",
     "auth.prompt": "登录后继续使用",
     "auth.password": "密码",

@@ -76,6 +76,7 @@ export const enLocale: LocalePlugin = {
     "settings.pushRegisterFailed": "❌ Registration failed:",
     "settings.usePowerShell": "Use PowerShell instead of Bash",
     "settings.projectRequired": "Open a project to configure this section",
+    "settings.backTo": "Back to {name}",
     "settings.mcp": "MCP",
     "auth.prompt": "Sign in to continue",
     "auth.password": "Password",

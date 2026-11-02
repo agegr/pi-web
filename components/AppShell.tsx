@@ -230,6 +230,8 @@ export function AppShell() {
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  // The plain Settings button opens a phone's Settings on its list of sections; shortcuts open theirs.
+  const [settingsOpenAtHome, setSettingsOpenAtHome] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [projectTrust, setProjectTrust] = useState<ProjectTrustStatus | null>(null);
   const [projectTrustDialogOpen, setProjectTrustDialogOpen] = useState(false);
@@ -470,6 +472,7 @@ export function AppShell() {
 
   // The composer opens Settings too: a bare /mcp opens Settings › MCP (useAgentSession).
   const openSettingsSection = useCallback((section: SettingsSection) => {
+    setSettingsOpenAtHome(false);
     setSettingsSection(section);
   }, []);
 
@@ -1566,7 +1569,7 @@ export function AppShell() {
             <button
               key={section}
               type="button"
-              onClick={() => setSettingsSection(section)}
+              onClick={() => openSettingsSection(section)}
               disabled={disabled}
               title={disabled ? translate("settings.projectRequired") : label}
               aria-label={label}
@@ -1587,7 +1590,10 @@ export function AppShell() {
         })}
         <button
           type="button"
-          onClick={() => setSettingsSection(getLastSettingsSection(projectTrustCwd))}
+          onClick={() => {
+            setSettingsOpenAtHome(true);
+            setSettingsSection(getLastSettingsSection(projectTrustCwd));
+          }}
           title={translate("common.settings")}
           aria-label={translate("common.settings")}
           style={{
@@ -2992,6 +2998,7 @@ export function AppShell() {
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
         initialSection={settingsSection}
+        openAtHome={settingsOpenAtHome}
         quoteSelectionEnabled={quoteSelectionEnabled}
         onQuoteSelectionChange={handleQuoteSelectionChange}
         onClose={() => {

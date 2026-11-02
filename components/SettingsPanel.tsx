@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTheme } from "@/hooks/useTheme";
 import { THEME_OPTIONS } from "@/lib/theme";
 import {
@@ -33,13 +34,15 @@ import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
-import { ConfigButton, ConfigSwitch } from "./SettingsUi";
+import { ConfigButton, ConfigDetailNavigationContext, ConfigSwitch, type ConfigDetailNavigation } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
 
 interface Props {
   cwd: string | null;
   sessionId: string | null;
   initialSection: SettingsSection;
+  /** A phone opens on the list of sections instead of `initialSection` (the plain Settings button). */
+  openAtHome?: boolean;
   onClose: () => void;
   onSessionReloaded: () => void;
   quoteSelectionEnabled: boolean;
@@ -502,11 +505,62 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   );
 }
 
+// A phone shows Settings one level at a time: the sections, a section (its list), a row's detail.
+type PhoneLevel = "home" | "section" | "detail";
+
+const PHONE_PARENT_LEVEL: Record<PhoneLevel, PhoneLevel> = { home: "home", section: "home", detail: "section" };
+
+/**
+ * The phone's level, with an entry in the browser history for each level
+ * entered, so the system Back gesture goes up one level instead of leaving the
+ * page. The entry copies the current history state (Next's router reads it)
+ * and keeps the URL. Closing Settings drops the entries it added.
+ */
+function usePhoneSettingsLevel(isPhone: boolean, openAtHome: boolean) {
+  const [level, setLevel] = useState<PhoneLevel>(openAtHome ? "home" : "section");
+  const levelRef = useRef(level);
+  levelRef.current = level;
+  const pushedRef = useRef(0);
+
+  useEffect(() => {
+    if (!isPhone) return;
+    const onPopState = () => {
+      if (pushedRef.current === 0) return;
+      pushedRef.current -= 1;
+      setLevel((current) => PHONE_PARENT_LEVEL[current]);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [isPhone]);
+
+  const enter = useCallback((next: PhoneLevel) => {
+    if (!isPhone) return;
+    window.history.pushState(window.history.state, "");
+    pushedRef.current += 1;
+    setLevel(next);
+  }, [isPhone]);
+
+  const goUp = useCallback(() => {
+    // An entry this panel added: popstate goes up, as the system Back does.
+    if (pushedRef.current > 0) window.history.back();
+    else setLevel((current) => PHONE_PARENT_LEVEL[current]);
+  }, []);
+
+  const dropHistory = useCallback(() => {
+    const pushed = pushedRef.current;
+    pushedRef.current = 0;
+    if (pushed > 0) window.history.go(-pushed);
+  }, []);
+
+  return { level: isPhone ? level : "section", levelRef, enter, goUp, dropHistory };
+}
+
 export function SettingsPanel({
   cwd,
   sessionId,
   initialSection,
-  onClose,
+  openAtHome = false,
+  onClose: closeSettings,
   onSessionReloaded,
   quoteSelectionEnabled,
   onQuoteSelectionChange,
@@ -529,6 +583,28 @@ export function SettingsPanel({
     { id: "mcp", label: t("settings.mcp") },
   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
   const sectionRequiresProject = settingsSectionRequiresProject(section);
+  const isPhone = useIsMobile();
+  const phone = usePhoneSettingsLevel(isPhone, openAtHome);
+  const { dropHistory, enter: enterPhoneLevel, goUp: goUpPhoneLevel, levelRef: phoneLevelRef } = phone;
+  const onClose = useCallback(() => {
+    dropHistory();
+    closeSettings();
+  }, [closeSettings, dropHistory]);
+  const sectionLabel = sections.find((item) => item.id === section)?.label ?? t("settings.title");
+  // Named by the detail's active row (ConfigSidebarItem); none until one reports.
+  const [detailTitle, setDetailTitle] = useState<string | null>(null);
+  const detailNavigation = useMemo<ConfigDetailNavigation>(() => ({
+    detailOpen: phone.level === "detail",
+    openDetail: () => {
+      if (phoneLevelRef.current !== "section") return;
+      setDetailTitle(null);
+      enterPhoneLevel("detail");
+    },
+    closeDetail: () => {
+      if (phoneLevelRef.current === "detail") goUpPhoneLevel();
+    },
+    reportDetailTitle: setDetailTitle,
+  }), [enterPhoneLevel, goUpPhoneLevel, phone.level, phoneLevelRef]);
 
   useEffect(() => setLastSettingsSection(initialSection), [initialSection]);
 
@@ -559,10 +635,16 @@ export function SettingsPanel({
     setLastSettingsSection(nextSection);
   };
 
+  const openSectionFromHome = (nextSection: SettingsSection) => {
+    activateSection(nextSection);
+    enterPhoneLevel("section");
+  };
+
   const sectionHost = (id: SettingsSection, content: ReactNode) => mountedSections.has(id) ? (
     <div
       key={id}
-      hidden={section !== id}
+      hidden={section !== id || phone.level === "home"}
+      data-phone-level={isPhone ? phone.level : undefined}
       className="settings-section-host"
     >
       {content}
@@ -581,19 +663,28 @@ export function SettingsPanel({
     >
       <div className="settings-dialog-surface">
         <div className="settings-dialog-header">
-          <strong className="settings-dialog-title">{t("settings.title")}</strong>
-          <select
-            aria-label={t("settings.title")}
-            value={section}
-            onChange={(event) => activateSection(event.target.value as SettingsSection)}
-            className="settings-mobile-section-picker"
-          >
-            {sections.map((item) => (
-              <option key={item.id} value={item.id} disabled={item.requiresProject && !cwd}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          {isPhone && phone.level !== "home" && (() => {
+            const backName = phone.level === "detail" ? sectionLabel : t("settings.title");
+            return (
+              <button
+                type="button"
+                className="settings-phone-back"
+                onClick={goUpPhoneLevel}
+                aria-label={t("settings.backTo", { name: backName })}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+                <span>{backName}</span>
+              </button>
+            );
+          })()}
+          {/* A phone names the level it shows: Settings, the section, the detail's row. */}
+          <strong className="settings-dialog-title">
+            {!isPhone || phone.level === "home"
+              ? t("settings.title")
+              : phone.level === "section" ? sectionLabel : detailTitle}
+          </strong>
           <nav aria-label={t("settings.title")} className="settings-section-tabs">
             {sections.map((item) => {
               const selected = section === item.id;
@@ -618,6 +709,37 @@ export function SettingsPanel({
         </div>
 
         <main className="settings-dialog-main">
+          {isPhone && phone.level === "home" && (
+            <nav aria-label={t("settings.title")} className="settings-phone-home">
+              {sections.map((item) => {
+                const disabled = item.requiresProject && !cwd;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="settings-phone-home-item"
+                    disabled={disabled}
+                    aria-describedby={disabled ? `settings-phone-home-${item.id}-note` : undefined}
+                    onClick={() => openSectionFromHome(item.id)}
+                  >
+                    <SettingsSectionIcon section={item.id} size={20} />
+                    <span className="settings-phone-home-label">
+                      <span>{item.label}</span>
+                      {disabled && (
+                        <span id={`settings-phone-home-${item.id}-note`} className="settings-phone-home-note">
+                          {t("settings.projectRequired")}
+                        </span>
+                      )}
+                    </span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="settings-phone-home-chevron">
+                      <path d="m9 18 6-6-6-6" />
+                    </svg>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+          <ConfigDetailNavigationContext.Provider value={detailNavigation}>
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
@@ -627,6 +749,7 @@ export function SettingsPanel({
           {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
+          </ConfigDetailNavigationContext.Provider>
         </main>
       </div>
     </div>

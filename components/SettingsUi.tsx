@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useId, useRef } from "react";
+import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useRef } from "react";
 import type { ButtonHTMLAttributes, ClipboardEvent, CSSProperties, HTMLAttributes, ReactNode, Ref } from "react";
 
 type ConfigButtonVariant = "primary" | "secondary" | "danger" | "ghost";
@@ -70,8 +70,65 @@ export function ConfigPanelShell({
   );
 }
 
+/**
+ * A phone shows a split view one pane at a time: the list, then the detail a
+ * row opens (SettingsPanel keeps the level and a Back button). Without a
+ * provider, as outside Settings, both panes stack as before.
+ */
+export interface ConfigDetailNavigation {
+  detailOpen: boolean;
+  openDetail: () => void;
+  closeDetail: () => void;
+  /** The active row's label, the phone's title over its detail. */
+  reportDetailTitle: (title: string) => void;
+}
+
+export const ConfigDetailNavigationContext = createContext<ConfigDetailNavigation | null>(null);
+
+/** Opens or closes the detail pane on a phone; no-ops elsewhere. */
+export function useConfigDetailNavigation(): ConfigDetailNavigation {
+  return useContext(ConfigDetailNavigationContext) ?? NO_DETAIL_NAVIGATION;
+}
+
+const NO_DETAIL_NAVIGATION: ConfigDetailNavigation = {
+  detailOpen: false,
+  openDetail: () => {},
+  closeDetail: () => {},
+  reportDetailTitle: () => {},
+};
+
+/**
+ * An active row or add button names the open detail: its text, read after
+ * each render, so a rename shows at once. A row's `.config-sidebar-text` is
+ * its name without badges and counts.
+ */
+function useReportDetailTitle(active: boolean, ref: Ref<HTMLButtonElement> | undefined) {
+  const { detailOpen, reportDetailTitle } = useConfigDetailNavigation();
+  const nodeRef = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    // Settings keeps visited sections mounted, hidden: only the one on screen names its detail.
+    if (!active || !detailOpen || !node || node.closest("[hidden]")) return;
+    const text = (node.querySelector(".config-sidebar-text") ?? node).textContent?.trim();
+    if (text) reportDetailTitle(text);
+  });
+  return (node: HTMLButtonElement | null) => {
+    nodeRef.current = node;
+    if (typeof ref === "function") ref(node);
+    else if (ref) ref.current = node;
+  };
+}
+
 export function ConfigSplitView({ children }: { children: ReactNode }) {
-  return <div className="config-split-view">{children}</div>;
+  const navigation = useContext(ConfigDetailNavigationContext);
+  return (
+    <div
+      className="config-split-view"
+      data-pane={navigation ? (navigation.detailOpen ? "detail" : "list") : undefined}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function ConfigSidebar({ children }: { children: ReactNode }) {
@@ -148,16 +205,26 @@ export function ConfigSidebarGroupStatus({ error, note }: { error?: string | nul
 }
 
 /** A sidebar row; `ref` reaches its button (a prop since React 19), so a panel can move focus to it. */
+/** A row's click opens its detail on a phone, unless the handler called `preventDefault()`. */
 export function ConfigSidebarItem({
   active = false,
   className,
   children,
+  onClick,
+  ref,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; ref?: Ref<HTMLButtonElement> }) {
+  const { openDetail } = useConfigDetailNavigation();
+  const buttonRef = useReportDetailTitle(active, ref);
   return (
     <button
       type="button"
       {...props}
+      ref={buttonRef}
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) openDetail();
+      }}
       aria-current={active ? "page" : undefined}
       className={["config-sidebar-item", className].filter(Boolean).join(" ")}
     >
@@ -774,12 +841,20 @@ export function ConfigSwitch({
   );
 }
 
-export function ConfigListAction({ active = false, children, className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; ref?: Ref<HTMLButtonElement> }) {
+/** The list's add button; like a row, its click opens the detail on a phone unless prevented. */
+export function ConfigListAction({ active = false, children, className, onClick, ref, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; ref?: Ref<HTMLButtonElement> }) {
+  const { openDetail } = useConfigDetailNavigation();
+  const buttonRef = useReportDetailTitle(active, ref);
   return (
     <div className="config-list-action">
       <button
         type="button"
         {...props}
+        ref={buttonRef}
+        onClick={(event) => {
+          onClick?.(event);
+          if (!event.defaultPrevented) openDetail();
+        }}
         aria-current={active ? "page" : undefined}
         className={["config-list-action-button", className].filter(Boolean).join(" ")}
       >
