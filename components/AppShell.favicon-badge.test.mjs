@@ -3,8 +3,10 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
 import vm from "node:vm";
+import { createJiti } from "jiti";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const { isHiddenRelation } = await createJiti(import.meta.url).import("../lib/session-family.ts");
 
 function callbackBody(name, endAnchor) {
   const start = source.indexOf(`const ${name} = useCallback`);
@@ -21,6 +23,7 @@ function runHandleAgentEnd({ end, selectedSession, attention }) {
     setRefreshKey: () => {},
     setExplorerRefreshKey: () => {},
     selectedSession,
+    isHiddenRelation,
     shouldShowBrowserNotification: () => attention,
     deliverSessionNotification: (notice) => notifications.push(notice),
     translate: (key) => key,
@@ -53,12 +56,13 @@ test("a selected session that finishes while the tab is hidden badges the favico
   assert.deepEqual([...seen.hiddenFinishedSessionIds], []);
 });
 
-test("a stopped run, an unfinished task or a subagent never badges (#1484)", () => {
+test("a stopped run, an unfinished task, a subagent or a side chat never badges (#1484)", () => {
   const selectedSession = { id: "open", name: "open" };
   for (const [label, end, session] of [
     ["aborted", { aborted: true }, selectedSession],
     ["subagents active", { aborted: false, subagentsActive: true }, selectedSession],
     ["subagent session", { aborted: false }, { ...selectedSession, relation: { kind: "subagent" } }],
+    ["side chat", { aborted: false }, { ...selectedSession, relation: { kind: "side", parentSessionId: "parent" } }],
   ]) {
     const { hiddenFinishedSessionIds } = runHandleAgentEnd({ end, selectedSession: session, attention: true });
     assert.deepEqual([...hiddenFinishedSessionIds], [], label);

@@ -2950,6 +2950,11 @@ export function AppShell() {
               quoteSelectionEnabled={quoteSelectionEnabled}
               onOpenFile={handleOpenLinkedFile}
               onOpenSubagent={handleOpenSubagentTab}
+              onSessionForked={(newSessionId) => {
+                if (isMobile) setRightPanelOpen(false);
+                handleSessionForked(newSessionId);
+              }}
+              onOpenSettings={openSettingsSection}
               onToolEnd={handleToolEnd}
               onFilesUploaded={handleExplorerRefresh}
               soundEnabled={soundEnabled}

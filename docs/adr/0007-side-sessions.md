@@ -38,7 +38,9 @@ task or losing the parent's context.
    path of `startRpcSession()`, or the Chat-only path for a Chat-only parent. Only
    tools change. Its tools are the parent's cut down to `SIDE_TOOLS` (`read`, `bash`,
    `powershell`, `grep`, `find`, `ls`), so it never has more than its parent: a
-   Read-only parent stays without a shell, a Chat-only one without any tool. They are
+   Read-only parent stays without a shell, a Chat-only one without any tool. A parent
+   reads its pin from the whole file, so the copy of one branch gets the pin written
+   again, or going back behind a pin would widen the tools. They are
    passed as pi's allow-list, which also leaves out what has no name to list: every
    extension, MCP, Code mode and subagent tool. Extensions, skills and context
    files stay loaded, MCP and Code mode are not started. There is no snapshot:
