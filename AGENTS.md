@@ -118,7 +118,7 @@ lib/
   session-tree.ts           sidebar row model: pinned section, project groups and their order, archived predicate, virtual rows, drop targets
   session-ui-state.ts       pi-web-session-state.json (pins, archive, project order and names): lock, atomic write, revision, corrupt backup
   session-ui-state-shared.ts client-safe types and rules of that state: request parsing, apply, undo snapshot
-  sidebar-prefs.ts          per-browser sidebar tab, group expand choices, archive folds, pinned-section collapse, files-section fold, folders found outside git
+  sidebar-prefs.ts          per-browser sidebar tab, group expand choices, archive folds, pinned-section collapse, files-section fold, changed files as list or tree, folders found outside git
   sidebar-actions.ts        session row menu entries, a project group's name entries and rename request, fork refusal messages, delete-all requests
   session-links.ts          same-instance links: a session's (?session=<id>), a fresh composer's (?cwd=<dir>); the plain-click rule the sidebar keeps in the page
   new-session-context.ts    client-safe: what the project/worktree pickers show (project, worktrees, project list), lag-safe contextForCwd, the directory a group's + and Open in new tab use

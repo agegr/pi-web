@@ -691,6 +691,8 @@ export const zhCNLocale: LocalePlugin = {
     "files.noFiles": "未找到文件",
     "files.changedCount": "{count} 个文件",
     "files.changeStats": "{count} 个变更文件，新增 {additions} 行，删除 {deletions} 行",
+    "files.viewAsTree": "树状视图",
+    "files.viewAsList": "列表视图",
     "files.conflictSummary": "已有 {count} 个文件：{files}",
     "files.cannotReplace": "无法替换：{files}",
     "files.replace": "替换",
