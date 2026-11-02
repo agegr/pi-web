@@ -3,7 +3,7 @@
 This repo publishes three artifacts for each release:
 
 - npm package: `@agegr/pi-web`, published by GitHub Actions (`.github/workflows/publish.yml`) when a `v*` tag is pushed
-- Docker image: `ghcr.io/agegr/pi-web`, tagged `<version>`, `<major>.<minor>` and `latest`, published by `.github/workflows/container.yml` on the same tag (see [docker.md](./docker.md))
+- Docker image: `ghcr.io/agegr/pi-web`, tagged `<version>`, `<major>.<minor>` and `latest`, published by the same workflow on the same tag (see [docker.md](./docker.md))
 - GitHub Release: `agegr/pi-web`
 
 Use this checklist from a clean `main` checkout.
@@ -89,18 +89,19 @@ git push origin main v<version>
 
 Push the release tag by name. Do not use `git push --tags`: the local checkout holds tags fetched from contributor forks that are not on origin, and `--tags` publishes them (it leaked a stray `v0.10.5`, on a commit that is on no branch, during the v0.11.0 release). If you ever need `--tags`, compare `git tag` with `git ls-remote --tags origin` first.
 
-The tag starts two workflows. Both fail at once if the tag is not `v` + the `package.json` version.
+The tag starts the Release workflow (`publish.yml`). Its `check-tag` job fails the run at once if the tag is not `v` + the `package.json` version; after it, two jobs run side by side:
 
-- Publish (`publish.yml`) runs `npm ci`, `npm run build` and `npm publish --access public`. It takes about three minutes.
-- Container image (`container.yml`) builds `linux/amd64` and `linux/arm64` images and pushes them to GHCR. The arm64 half runs under QEMU: the v0.14.1 build took 33 minutes of its 45-minute timeout.
+- `npm` runs `npm ci`, `npm run build` and `npm publish --access public`. It takes about three minutes.
+- `container` builds `linux/amd64` and `linux/arm64` images and pushes them to GHCR. The arm64 half runs under QEMU: the v0.14.1 build took 33 minutes of its 45-minute timeout.
 
-Follow both:
+Follow it:
 
 ```bash
 gh run list --workflow publish.yml --limit 1
-gh run list --workflow container.yml --limit 1
 gh run watch <run-id> --exit-status
 ```
+
+The same push to `main` also redeploys the demo (`demo-pages.yml`), since the release commit changes `package.json`.
 
 Notes:
 
@@ -130,15 +131,14 @@ git push origin main v<version>
 
 - An `ENEEDAUTH` or 404 on `npm publish` means the Trusted Publisher entry (step 0) does not match this repository and `publish.yml`.
 
-If the container workflow fails after npm has the version, the tag can no longer move. A passing cause: `gh run rerun <run-id>`; image tags are overwritten, so a partial push does no harm. A rerun builds the tagged commit again, so a fix to the Dockerfile or the workflow reaches GHCR only with the next release.
+If the `container` job fails after npm has the version, the tag can no longer move. A passing cause: `gh run rerun <run-id> --failed`, which reruns that job only; image tags are overwritten, so a partial push does no harm. A rerun builds the tagged commit again, so a fix to the Dockerfile or the workflow reaches GHCR only with the next release.
 
 ### Pushed the tag too early
 
-If the tag went out before the release was ready (a commit still missing, say), cancel both runs before `npm publish` runs:
+If the tag went out before the release was ready (a commit still missing, say), cancel the Release run before `npm publish` runs:
 
 ```bash
-gh run cancel <publish-run-id>
-gh run cancel <container-run-id>
+gh run cancel <run-id>
 curl -s https://registry.npmjs.org/@agegr%2Fpi-web/<version> | head -c 80   # still "version not found"
 ```
 
@@ -266,7 +266,7 @@ done
 Expected:
 
 - GitHub Release exists and is not a draft unless intentionally published as one.
-- The Publish and Container image runs for `v<version>` succeeded.
+- The Release run for `v<version>` succeeded, both its `npm` and `container` jobs.
 - npm exact version resolves and `latest` points at it (allow a few minutes, see step 3).
 - Every image tag answers `200`.
 - `git ls-remote --tags origin` shows no tag you did not mean to publish.

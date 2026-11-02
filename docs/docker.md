@@ -92,7 +92,7 @@ The mounted workspace is writable by the agent. Only mount directories you inten
 
 ## Released images
 
-Pushing a `v*` release tag makes `.github/workflows/container.yml` publish `linux/amd64` and `linux/arm64` images to GHCR, next to the npm package: `ghcr.io/agegr/pi-web:<version>`, `:<major>.<minor>` and `:latest`. It uses the built-in `GITHUB_TOKEN`, so no registry secret is needed.
+Pushing a `v*` release tag makes the Release workflow (`.github/workflows/publish.yml`) publish `linux/amd64` and `linux/arm64` images to GHCR, next to the npm package: `ghcr.io/agegr/pi-web:<version>`, `:<major>.<minor>` and `:latest`. It uses the built-in `GITHUB_TOKEN`, so no registry secret is needed.
 
 To run a released image instead of building one, replace the `build:` section in `compose.yaml` with:
 

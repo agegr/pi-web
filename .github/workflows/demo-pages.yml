@@ -1,11 +1,18 @@
 name: Demo
 
 # Builds the static Pi Web demo in demo/ and publishes it to GitHub Pages.
-# Pull requests that touch the demo only build it.
+# main deploys it when the demo or package.json changes: a release bumps the
+# version the demo reports, so each release redeploys it. (The github-pages
+# environment accepts main only, so a release tag cannot deploy it.) Pull
+# requests that touch the demo only build it.
 
 on:
   push:
     branches: [main]
+    paths:
+      - "demo/**"
+      - "package.json"
+      - ".github/workflows/demo-pages.yml"
   pull_request:
     paths:
       - "demo/**"

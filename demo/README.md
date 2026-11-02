@@ -80,7 +80,11 @@ To preview the build under a sub-path the way GitHub Pages serves it, set
 
 ## Deployment
 
-`.github/workflows/demo-pages.yml` builds the demo on every push to `main` and
-deploys `out/` to GitHub Pages. Enable Pages once under **Settings → Pages →
-Source: GitHub Actions**; the site is then served at
+`.github/workflows/demo-pages.yml` builds the demo and deploys `out/` to GitHub
+Pages when a push to `main` changes `demo/` or the root `package.json`, so every
+release redeploys it with the new version. The repository snapshot in its file
+explorer is taken then too, so it can trail `main` between releases. The
+`github-pages` environment accepts deployments from `main` only; run the
+workflow by hand from `main` to redeploy at other times. Enable Pages once
+under **Settings → Pages → Source: GitHub Actions**; the site is then served at
 `https://<owner>.github.io/<repo>/`.
