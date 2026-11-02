@@ -612,6 +612,7 @@ interface MarkdownTreeNode {
   value?: string;
   children?: MarkdownTreeNode[];
   data?: { hName?: string };
+  position?: { start: { line: number }; end: { line: number } };
 }
 
 const LINE_ENDING = /[ \t]*(?:\r\n|\r|\n)[ \t]*/;
@@ -662,9 +663,52 @@ function remarkUserText() {
   };
 }
 
+// A custom message may be laid out for a terminal (a status box, aligned bars),
+// and pi's TUI keeps a paragraph's line indents. The parser drops them from the
+// text, so they come back from the source. Only a top-level paragraph: inside a
+// list or a quote the source line's whitespace is part of the container's.
+function restoreLineIndents(paragraph: MarkdownTreeNode, sourceLines: string[]): void {
+  if (!paragraph.position) return;
+  let lineIndex = paragraph.position.start.line - 1;
+  const indentNode = (): MarkdownTreeNode[] => {
+    const indent = /^[ \t]*/.exec(sourceLines[lineIndex] ?? "")?.[0];
+    return indent ? [{ type: "text", value: indent }] : [];
+  };
+  const firstLineIndent = indentNode();
+  const walk = (parent: MarkdownTreeNode) => {
+    parent.children = parent.children?.flatMap((node) => {
+      if (node.type === "lineBreak") {
+        lineIndex += 1;
+        return [node, ...indentNode()];
+      }
+      if (node.children) walk(node);
+      // A code span or image may cross lines without a line break node.
+      else if (node.position) lineIndex += node.position.end.line - node.position.start.line;
+      return [node];
+    });
+  };
+  walk(paragraph);
+  paragraph.children = [...firstLineIndent, ...(paragraph.children ?? [])];
+}
+
+function remarkTextLayout() {
+  return (tree: MarkdownTreeNode, file: { value: unknown }) => {
+    htmlAsText(tree);
+    keepLineBreaks(tree);
+    const sourceLines = String(file.value).split(/\r\n|\r|\n/);
+    for (const node of tree.children ?? []) {
+      if (node.type === "paragraph") restoreLineIndents(node, sourceLines);
+    }
+  };
+}
+
 export const markdownUserRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   ...(markdownRemarkPlugins ?? []),
   remarkUserText,
+];
+export const markdownTextLayoutRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
+  ...(markdownRemarkPlugins ?? []),
+  remarkTextLayout,
 ];
 export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
   [remarkFrontmatter, ["yaml"]],

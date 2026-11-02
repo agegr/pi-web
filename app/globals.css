@@ -1337,10 +1337,34 @@ pre, code {
   white-space: pre-wrap;
 }
 
+/* The page's mono font ships Latin and Cyrillic only, so arrows, box drawing and
+   blocks fell back to glyphs 12-17px wide in a 7.8px column. These faces take
+   those characters from a system mono font, sized to the 0.6em column. */
+@font-face {
+  font-family: "Terminal Drawing";
+  src: local("Menlo Regular"), local("Menlo-Regular"), local("DejaVu Sans Mono");
+  unicode-range: U+2190-21FF, U+2500-259F;
+  size-adjust: 99.67%;
+}
+@font-face {
+  font-family: "Terminal Drawing Windows";
+  src: local("Consolas");
+  unicode-range: U+2190-21FF, U+2500-259F;
+  size-adjust: 109.09%;
+}
+
+/* Monospace with kept spaces, as an extension's text is laid out for pi's TUI:
+   a status box and its bars only line up in columns. */
 .markdown-custom-message {
+  font-family: "Terminal Drawing", "Terminal Drawing Windows", var(--font-mono);
+  font-size: calc(13px + var(--chat-font-size-offset, 0px));
   line-height: 1.32;
 }
-.markdown-custom-message p { margin: 0; }
+.markdown-custom-message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.markdown-custom-message p + p { margin-top: 1.32em; }
 .markdown-custom-message h1,
 .markdown-custom-message h2,
 .markdown-custom-message h3,
