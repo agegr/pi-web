@@ -3286,6 +3286,7 @@ export async function startRpcSession(
         ...(effectiveInitialModel ? { requestedModel: effectiveInitialModel } : {}),
         ...(defaultModel ? { defaultModel } : {}),
         ...(thinkingLevel ? { thinkingLevel } : {}),
+        availableModels: await services.modelRuntime.getAvailable(),
       });
     const startupModel = restoredModel && services.modelRuntime.hasConfiguredAuth(restoredModel.provider)
       ? restoredModel

@@ -462,7 +462,7 @@ export function ModelSelector({
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }} aria-hidden="true">
                     <path d="M21 12a9 9 0 1 1-2.64-6.36" />
                   </svg>
-                  <span>Loading models…</span>
+                  <span>{t("agents.modelsLoading")}</span>
                 </div>
               ) : isScoped && scope === "all" && loadAllError ? (
                 <div style={{ padding: "12px", color: "var(--text-dim)", fontSize: 12 }}>

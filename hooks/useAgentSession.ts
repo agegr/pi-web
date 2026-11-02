@@ -2470,9 +2470,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A picked model this folder does not offer (one carried over from the
       // composer this one replaced, or since scoped out) goes back to automatic.
       // An empty list offers nothing to compare with (a failed load answers
-      // with one): the pick stays.
+      // with one): the pick stays. An active scope does not wipe out an
+      // intentionally selected unscoped model.
       const picked = newSessionModelOverrideRef.current;
       const kept = picked && (nextModelList.length === 0
+        || Boolean(d.isScoped)
         || nextModelList.some((m) => m.provider === picked.provider && m.id === picked.modelId));
       if (picked && !kept) {
         newSessionModelOverrideRef.current = null;

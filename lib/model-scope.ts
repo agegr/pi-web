@@ -45,6 +45,8 @@ export interface InitialModelScopeOptions {
   requestedModel?: { provider: string; modelId: string };
   defaultModel?: { provider: string; modelId: string };
   thinkingLevel?: ThinkingLevel;
+  /** Full available models, allowing explicitly selected unscoped models. */
+  availableModels?: readonly Model<Api>[];
 }
 
 export interface InitialModelScopeResult {
@@ -163,9 +165,12 @@ export function selectInitialModelScope(
 ): InitialModelScopeResult {
   const requestedRef = options.requestedModel;
   const defaultRef = options.defaultModel;
-  const requested = requestedRef
+  let requested = requestedRef
     ? scope.visible.find((model) => matchesModel(model, requestedRef))
     : undefined;
+  if (requestedRef && !requested && options.availableModels) {
+    requested = options.availableModels.find((model) => matchesModel(model, requestedRef));
+  }
   if (requestedRef && !requested) {
     throw new Error(
       `Model is not available in the enabled scope: ${requestedRef.provider}/${requestedRef.modelId}`,
