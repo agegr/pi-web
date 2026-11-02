@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent, useMemo } from "react";
+import React, { memo, useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
 import type { TextContent, UserMessage } from "@/lib/types";
@@ -65,10 +65,10 @@ interface Props {
   missingCwd?: string | null;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
-  /** True when enabledModels restricts the visible model list. */
-  isModelScopeActive?: boolean;
-  /** Loads all available models on demand when switching to "all" scope. */
-  onLoadAllModels?: () => Promise<{ id: string; name: string; provider: string }[]>;
+  /** Every available model, once loaded for the selector's "all" scope. */
+  allModelList?: { id: string; name: string; provider: string }[] | null;
+  /** Set only while `enabledModels` narrows the list: loads `allModelList`. */
+  onLoadAllModels?: () => void;
   onModelChange?: (provider: string, modelId: string) => void;
   modelSwitching?: boolean;
   /** The model new sessions start with, starred in the model selector. */
@@ -691,7 +691,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onSideChat, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, onLoadAllModels, onModelChange, modelSwitching,
+  onSend, onAbort, onSteer, onSideChat, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, allModelList, onLoadAllModels, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1689,7 +1689,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, [atMenuOpen, atQuery]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
-  const modelOptions: ModelSelectorOption[] = useMemo(() => {
+  const modelOptions: ModelSelectorOption[] = (() => {
     if (modelList && modelList.length > 0) {
       return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
     }
@@ -1698,7 +1698,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       modelId,
       name,
     }));
-  }, [modelList, modelNames, model?.provider]);
+  })();
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2540,11 +2540,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 isAutoSelection={isAutoModelSelection}
                 defaultValue={defaultModel}
                 onSetDefault={onSetDefaultModel}
-                isScoped={isModelScopeActive}
-                onLoadAllModels={onLoadAllModels ? async () => {
-                  const list = await onLoadAllModels();
-                  return list.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
-                } : undefined}
+                allOptions={allModelList?.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }))}
+                onShowAll={onLoadAllModels}
               />
             )}
           </div>

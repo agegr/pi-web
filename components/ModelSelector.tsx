@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { SelectorRow } from "./SelectorRow";
@@ -30,10 +30,10 @@ interface ModelSelectorProps {
   defaultValue?: { provider: string; modelId: string } | null;
   /** Shows a star on every row that saves it as the default. */
   onSetDefault?: (provider: string, modelId: string) => void;
-  /** True when enabledModels restricts the visible model list. */
-  isScoped?: boolean;
-  /** Loads all available models on demand when switching to "all" scope. */
-  onLoadAllModels?: () => Promise<ModelSelectorOption[]>;
+  /** Every available model, once loaded; listed under "all". */
+  allOptions?: ModelSelectorOption[] | null;
+  /** Set only while `enabledModels` narrows `options`: shows pi's `/model` "scoped | all" row and loads `allOptions`. */
+  onShowAll?: () => void;
 }
 
 const MODEL_FILTER_THRESHOLD = 8;
@@ -65,8 +65,8 @@ export function ModelSelector({
   placement = "up",
   defaultValue,
   onSetDefault,
-  isScoped = false,
-  onLoadAllModels,
+  allOptions,
+  onShowAll,
 }: ModelSelectorProps) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -75,51 +75,21 @@ export function ModelSelector({
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<{ top: number; right: number; bottom: number; left: number; width: number } | null>(null);
   const [filter, setFilter] = useState("");
-  const [scope, setScope] = useState<"scoped" | "all">("scoped");
-  const [allOptions, setAllOptions] = useState<ModelSelectorOption[] | null>(null);
-  const [loadingAll, setLoadingAll] = useState(false);
-  const [loadAllError, setLoadAllError] = useState<string | null>(null);
+  // pi's /model starts on the scope; Tab on the filter or a tap switches.
+  const [showAll, setShowAll] = useState(false);
   const locked = disabled || busy;
-
-  const optionsKey = useMemo(
-    () => options.map((option) => `${option.provider}:${option.modelId}`).join(","),
-    [options],
-  );
-  const prevOptionsKeyRef = useRef(optionsKey);
-
-  useEffect(() => {
-    if (prevOptionsKeyRef.current !== optionsKey) {
-      prevOptionsKeyRef.current = optionsKey;
-      setAllOptions(null);
-      setLoadingAll(false);
-      setLoadAllError(null);
-      setScope("scoped");
-    }
-  }, [optionsKey]);
-
-  const handleSwitchScope = (nextScope: "scoped" | "all") => {
-    setScope(nextScope);
-    if (nextScope === "all" && allOptions === null && onLoadAllModels && !loadingAll) {
-      setLoadingAll(true);
-      setLoadAllError(null);
-      onLoadAllModels()
-        .then((loaded) => {
-          setAllOptions(loaded);
-        })
-        .catch((err) => {
-          setLoadAllError(err instanceof Error ? err.message : String(err));
-        })
-        .finally(() => {
-          setLoadingAll(false);
-        });
-    }
-  };
-
+  const listed = showAll ? allOptions : options;
   // Options arrive in pi's /model order (orderSelectorModels()); never re-sort
   // them, or a models.json provider loses the order its file gives (#783).
-  const activeOptions = (isScoped && scope === "all" && allOptions !== null) ? allOptions : options;
-  const filteredOptions = filterModelOptions(activeOptions, filter);
-  const showFilter = Boolean(isScoped) || activeOptions.length > MODEL_FILTER_THRESHOLD;
+  const filteredOptions = filterModelOptions(listed ?? [], filter);
+  const showFilter = Boolean(onShowAll) || options.length > MODEL_FILTER_THRESHOLD;
+  const isListed = (list: ModelSelectorOption[] | null | undefined, ref: { provider: string; modelId: string }) => (
+    list?.find((option) => option.modelId === ref.modelId && option.provider === ref.provider)
+  );
+  const switchScope = () => {
+    if (!showAll) onShowAll?.();
+    setShowAll(!showAll);
+  };
   const modelsByProvider: { provider: string; options: ModelSelectorOption[] }[] = [];
 
   for (const option of filteredOptions) {
@@ -128,15 +98,8 @@ export function ModelSelector({
     else modelsByProvider.push({ provider: option.provider, options: [option] });
   }
 
-  const scopedKeys = useMemo(
-    () => new Set(options.map((option) => `${option.provider}:${option.modelId}`)),
-    [options],
-  );
-
   const currentName = selectedLabel ?? (value
-    ? options.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name
-      ?? allOptions?.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name
-      ?? value.modelId
+    ? (isListed(options, value) ?? isListed(allOptions, value))?.name ?? value.modelId
     : emptyLabel ?? (options.length > 0 ? t("chat.selectModel") : t("chat.noModels")));
 
   useEffect(() => {
@@ -147,7 +110,6 @@ export function ModelSelector({
       ) {
         setOpen(false);
         setFilter("");
-        setScope("scoped");
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
@@ -183,7 +145,6 @@ export function ModelSelector({
     if (!locked) return;
     setOpen(false);
     setFilter("");
-    setScope("scoped");
   }, [locked]);
 
   const buttonStyle: CSSProperties = variant === "field"
@@ -228,7 +189,6 @@ export function ModelSelector({
     const active = option.modelId === value?.modelId && option.provider === value?.provider;
     setOpen(false);
     setFilter("");
-    if (typeof setScope !== "undefined") setScope("scoped");
     if (!active || isAutoSelection) onChange(option.provider, option.modelId);
     else onReselect?.(option.provider, option.modelId);
   };
@@ -236,7 +196,6 @@ export function ModelSelector({
   const saveDefault = (option: ModelSelectorOption) => {
     setOpen(false);
     setFilter("");
-    if (typeof setScope !== "undefined") setScope("scoped");
     onSetDefault?.(option.provider, option.modelId);
   };
 
@@ -250,7 +209,6 @@ export function ModelSelector({
         event.preventDefault();
         event.stopPropagation();
         setFilter("");
-        setScope("scoped");
         setOpen(false);
       }}
     >
@@ -267,10 +225,8 @@ export function ModelSelector({
           const rect = event.currentTarget.getBoundingClientRect();
           setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
           setOpen((current) => {
-            if (current) {
-              setFilter("");
-              setScope("scoped");
-            }
+            if (current) setFilter("");
+            else setShowAll(false);
             return !current;
           });
         }}
@@ -352,85 +308,40 @@ export function ModelSelector({
               boxShadow: openAbove ? "0 -4px 16px rgba(0,0,0,0.10)" : "0 4px 16px rgba(0,0,0,0.10)",
             }}
           >
-            {isScoped && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: "6px 8px 4px",
-                  borderBottom: showFilter ? "none" : "1px solid var(--border)",
-                }}
-              >
-                <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 2 }}>
-                  Scope:
-                </span>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={scope === "scoped"}
-                  onClick={() => handleSwitchScope("scoped")}
-                  style={{
-                    padding: "2px 7px",
-                    fontSize: 11,
-                    borderRadius: 4,
-                    border: "1px solid",
-                    borderColor: scope === "scoped" ? "var(--border)" : "transparent",
-                    background: scope === "scoped" ? "var(--bg-hover)" : "none",
-                    color: scope === "scoped" ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer",
-                    fontWeight: scope === "scoped" ? 500 : 400,
-                    transition: "background 0.1s, color 0.1s",
-                  }}
-                >
-                  {t("chat.modelScopeScoped")}
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={scope === "all"}
-                  onClick={() => handleSwitchScope("all")}
-                  style={{
-                    padding: "2px 7px",
-                    fontSize: 11,
-                    borderRadius: 4,
-                    border: "1px solid",
-                    borderColor: scope === "all" ? "var(--border)" : "transparent",
-                    background: scope === "all" ? "var(--bg-hover)" : "none",
-                    color: scope === "all" ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer",
-                    fontWeight: scope === "all" ? 500 : 400,
-                    transition: "background 0.1s, color 0.1s",
-                  }}
-                >
-                  {t("chat.modelScopeAll")}
-                </button>
-                {!isMobile && (
-                  <span
+            {onShowAll && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 8px 0", fontSize: 11 }}>
+                {[false, true].map((all) => (
+                  <button
+                    key={String(all)}
+                    type="button"
+                    aria-pressed={showAll === all}
+                    onClick={() => { if (showAll !== all) switchScope(); }}
                     style={{
-                      marginLeft: "auto",
-                      fontSize: 10,
-                      fontFamily: "var(--font-mono)",
-                      color: "var(--text-dim)",
+                      padding: "2px 7px",
+                      border: "1px solid",
+                      borderColor: showAll === all ? "var(--border)" : "transparent",
+                      borderRadius: 4,
+                      background: showAll === all ? "var(--bg-hover)" : "none",
+                      color: showAll === all ? "var(--text)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 11,
                     }}
-                    title="Press Tab in filter to switch scope"
                   >
-                    Tab
-                  </span>
-                )}
+                    {t(all ? "chat.modelScopeAll" : "chat.modelScopeScoped")}
+                  </button>
+                ))}
+                {!isMobile && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 10 }}>Tab</span>}
               </div>
             )}
             {showFilter && (
-              <div style={{ flexShrink: 0, padding: isScoped ? "4px 8px 6px" : "6px 8px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ flexShrink: 0, padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                 <input
                   value={filter}
                   onChange={(event) => setFilter(event.target.value)}
                   onKeyDown={(event) => {
-                    if (isScoped && event.key === "Tab") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      handleSwitchScope(scope === "scoped" ? "all" : "scoped");
-                    }
+                    if (!onShowAll || event.key !== "Tab") return;
+                    event.preventDefault();
+                    switchScope();
                   }}
                   placeholder={t("chat.filterModels")}
                   aria-label={t("chat.filterModels")}
@@ -457,62 +368,46 @@ export function ModelSelector({
               </div>
             )}
             <div style={{ minHeight: 0, overflowY: "auto" }}>
-              {isScoped && scope === "all" && loadingAll ? (
-                <div style={{ padding: "12px", color: "var(--text-dim)", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }} aria-hidden="true">
-                    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                  </svg>
-                  <span>{t("agents.modelsLoading")}</span>
-                </div>
-              ) : isScoped && scope === "all" && loadAllError ? (
-                <div style={{ padding: "12px", color: "var(--text-dim)", fontSize: 12 }}>
-                  {loadAllError}
-                </div>
-              ) : (
-                <>
-                  {onClear && !filter.trim() && (
-                    <SelectorRow active={!value} gutter={Boolean(onSetDefault)} onSelect={() => {
-                      setOpen(false);
-                      setFilter("");
-                      setScope("scoped");
-                      onClear();
-                    }}>
-                      <OptionLabel label={emptyLabel ?? t("i18n.default")} />
-                    </SelectorRow>
-                  )}
-                  {modelsByProvider.length === 0 ? (
-                    <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                      {filter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
-                    </div>
-                  ) : modelsByProvider.map((group, index) => (
-                    <div key={group.provider}>
-                      {modelsByProvider.length > 1 && (
-                        <div style={{ padding: "6px 12px 4px", borderTop: index > 0 || onClear ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, letterSpacing: 0, textTransform: "uppercase" }}>
-                          {group.provider}
-                        </div>
-                      )}
-                      {group.options.map((option) => {
-                        const isOptionScoped = !isScoped || scope === "scoped" || scopedKeys.has(`${option.provider}:${option.modelId}`);
-                        return (
-                          <SelectorRow
-                            key={`${option.provider}:${option.modelId}`}
-                            active={option.modelId === value?.modelId && option.provider === value?.provider}
-                            onSelect={() => choose(option)}
-                            star={onSetDefault && isOptionScoped ? {
-                              isDefault: option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider,
-                              saveLabel: t("chat.saveDefaultModel"),
-                              defaultLabel: t("chat.defaultModel"),
-                              onSave: () => saveDefault(option),
-                            } : undefined}
-                          >
-                            <OptionLabel label={option.name} />
-                          </SelectorRow>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </>
+              {onClear && !filter.trim() && (
+                <SelectorRow active={!value} gutter={Boolean(onSetDefault)} onSelect={() => {
+                  setOpen(false);
+                  setFilter("");
+                  onClear();
+                }}>
+                  <OptionLabel label={emptyLabel ?? t("i18n.default")} />
+                </SelectorRow>
               )}
+              {modelsByProvider.length === 0 ? (
+                <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
+                  {!listed ? t("agents.modelsLoading") : filter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
+                </div>
+              ) : modelsByProvider.map((group, index) => (
+                <div key={group.provider}>
+                  {modelsByProvider.length > 1 && (
+                    <div style={{ padding: "6px 12px 4px", borderTop: index > 0 || onClear ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, letterSpacing: 0, textTransform: "uppercase" }}>
+                      {group.provider}
+                    </div>
+                  )}
+                  {group.options.map((option) => {
+                    return (
+                      <SelectorRow
+                        key={`${option.provider}:${option.modelId}`}
+                        active={option.modelId === value?.modelId && option.provider === value?.provider}
+                        onSelect={() => choose(option)}
+                        // The default is saved only from the scope: PUT /api/models/default refuses others.
+                        star={onSetDefault && (!showAll || isListed(options, option)) ? {
+                          isDefault: option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider,
+                          saveLabel: t("chat.saveDefaultModel"),
+                          defaultLabel: t("chat.defaultModel"),
+                          onSave: () => saveDefault(option),
+                        } : undefined}
+                      >
+                        <OptionLabel label={option.name} />
+                      </SelectorRow>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         );

@@ -40,14 +40,14 @@ function setup(fetchImpl) {
     controller: new AbortController(),
     newSessionCwd: "/project", session: null, isNew: true,
     sessionIdRef: { current: null }, thinkingLevelOverrideRef: { current: null }, newSessionModelOverrideRef: { current: null },
-    thinkingLevelPinsRef: { current: {} }, defaultThinkingLevelRef: { current: null },
+    thinkingLevelPinsRef: { current: {} }, defaultThinkingLevelRef: { current: null }, allModelsLoadRef: { current: null },
     asConcreteThinkingLevel: (value) => (!value || value === "auto" ? null : value),
     fetch: fetchImpl,
     missingCwdFromBody,
     MODELS_RETRY_DELAYS_MS: script(schedule.initializer.getText(source)).runInNewContext(),
     delay: async (ms) => { delays.push(ms); },
   };
-  for (const name of ["ModelError", "ModelsMissingCwd", "ModelNames", "ModelScopeWarnings", "IsModelScopeActive", "ModelThinkingLevels", "ModelThinkingLevelMaps", "ModelList", "NewSessionDefaultModel", "NewSessionDefaultThinkingLevel", "SavedDefaultThinkingLevel", "NewSessionModel"]) {
+  for (const name of ["ModelError", "ModelsMissingCwd", "ModelNames", "ModelScopeWarnings", "IsModelScopeActive", "AllModelList", "ModelThinkingLevels", "ModelThinkingLevelMaps", "ModelList", "NewSessionDefaultModel", "NewSessionDefaultThinkingLevel", "SavedDefaultThinkingLevel", "NewSessionModel"]) {
     context[`set${name}`] = (value) => writes.push([name, value]);
   }
   context.loadModels = loadScript.runInNewContext(context);

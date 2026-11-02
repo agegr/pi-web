@@ -452,6 +452,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const missingCwd = promptMissingCwd ?? modelsMissingCwd;
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [isModelScopeActive, setIsModelScopeActive] = useState(false);
+  // Every available model, fetched only when the selector switches to "all" or the
+  // shown model is outside the scope; null until then and after each loadModels.
+  const [allModelList, setAllModelList] = useState<ModelEntry[] | null>(null);
+  const allModelsLoadRef = useRef<object | null>(null);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
@@ -2452,7 +2456,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
-    if (typeof setIsModelScopeActive === "function") setIsModelScopeActive(Boolean(d.isScoped));
+    setIsModelScopeActive(Boolean(d.isScoped));
+    // The maps below replace the ones loadAllModels merged into: load that list again.
+    setAllModelList(null);
+    allModelsLoadRef.current = null;
     setModelThinkingLevels(d.thinkingLevels ?? {});
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
     const nextModelList = d.modelList ?? [];
@@ -2493,21 +2500,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, session?.cwd]);
 
-  const loadAllModels = useCallback(async (): Promise<ModelEntry[]> => {
+  // pi's /model "all" scope: names and reasoning levels of models outside
+  // `enabledModels` join the maps, so a picked unscoped model shows them too.
+  const loadAllModels = useCallback(() => {
+    if (allModelsLoadRef.current) return;
+    const load = {};
+    allModelsLoadRef.current = load;
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
-    const url = modelCwd
-      ? `/api/models?cwd=${encodeURIComponent(modelCwd)}&scope=all`
-      : "/api/models?scope=all";
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Failed to load all models (HTTP ${res.status})`);
-    }
-    const d = await res.json() as ModelsResponse;
-    setModelNames((prev) => ({ ...prev, ...(d.models ?? {}) }));
-    setModelThinkingLevels((prev) => ({ ...prev, ...(d.thinkingLevels ?? {}) }));
-    setModelThinkingLevelMaps((prev) => ({ ...prev, ...(d.thinkingLevelMaps ?? {}) }));
-    return d.modelList ?? [];
-  }, [newSessionCwd, session?.cwd]);
+    fetch(`/api/models?scope=all${modelCwd ? `&cwd=${encodeURIComponent(modelCwd)}` : ""}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to load models (HTTP ${res.status})`);
+        const d = await res.json() as ModelsResponse;
+        if (allModelsLoadRef.current !== load) return;
+        setModelNames((prev) => ({ ...d.models, ...prev }));
+        setModelThinkingLevels((prev) => ({ ...d.thinkingLevels, ...prev }));
+        setModelThinkingLevelMaps((prev) => ({ ...d.thinkingLevelMaps, ...prev }));
+        setAllModelList(d.modelList ?? []);
+      })
+      .catch((e) => {
+        if (allModelsLoadRef.current !== load) return;
+        allModelsLoadRef.current = null;
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      });
+  }, [addNotice, newSessionCwd, session?.cwd]);
+
+  useEffect(() => {
+    if (!isModelScopeActive || !displayModel || allModelList) return;
+    if (modelList.some((m) => m.provider === displayModel.provider && m.id === displayModel.modelId)) return;
+    loadAllModels();
+  }, [allModelList, displayModel, isModelScopeActive, loadAllModels, modelList]);
 
   // Picking a model or reasoning level is session-scoped, as in the TUI. The
   // selectors' star is the explicit Ctrl+S equivalent: it saves the global
@@ -3313,7 +3334,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
