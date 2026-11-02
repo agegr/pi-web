@@ -450,12 +450,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const askInSideChat = useCallback(async (message: string) => {
     let refusal: string | null;
     try {
-      refusal = await startSideChat(message);
+      refusal = await startSideChat(message || null);
     } catch (error) {
       refusal = error instanceof Error ? error.message : String(error);
     }
     if (!refusal) return;
-    chatInputRef?.current?.restoreSubmission(message);
+    if (message) chatInputRef?.current?.restoreSubmission(message);
     addNotice({ type: "error", message: refusal });
   }, [addNotice, chatInputRef, startSideChat]);
 
