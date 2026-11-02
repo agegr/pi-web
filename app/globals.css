@@ -1865,6 +1865,14 @@ pre, code {
   pointer-events: auto;
 }
 
+/* Below about 370px the labels of a message's actions push its timestamp onto a
+   second line, and its Copy button past the left edge. Every button keeps its title. */
+@media (max-width: 380px) {
+  .message-action-label {
+    display: none;
+  }
+}
+
 .chat-scroll-to-bottom {
   display: inline-flex;
   align-items: center;
