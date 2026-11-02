@@ -84,7 +84,7 @@ export function ModelSelector({
 
   const currentName = selectedLabel ?? (value
     ? options.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
-    : emptyLabel ?? (options.length > 0 ? "Select model" : "No models"));
+    : emptyLabel ?? (options.length > 0 ? t("chat.selectModel") : t("chat.noModels")));
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -203,7 +203,7 @@ export function ModelSelector({
         aria-expanded={open}
         aria-busy={busy || undefined}
         disabled={locked}
-        title={busy ? "Switching model" : locked ? currentName : options.length > 0 || onClear ? "Change model" : "No available models"}
+        title={busy ? t("chat.switchingModel") : locked ? currentName : options.length > 0 || onClear ? t("chat.changeModel") : t("chat.noAvailableModels")}
         style={buttonStyle}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -327,12 +327,12 @@ export function ModelSelector({
                   setFilter("");
                   onClear();
                 }}>
-                  <OptionLabel label={emptyLabel ?? "Default"} />
+                  <OptionLabel label={emptyLabel ?? t("i18n.default")} />
                 </SelectorRow>
               )}
               {modelsByProvider.length === 0 ? (
                 <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                  {filter.trim() ? t("chat.noMatchingModels") : "No available models"}
+                  {filter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
                 </div>
               ) : modelsByProvider.map((group, index) => (
                 <div key={group.provider}>
