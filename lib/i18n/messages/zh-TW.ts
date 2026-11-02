@@ -619,6 +619,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.deleteAllArchived": "全部刪除… · {count}",
     "sidebar.deleteOldArchived": "刪除 30 天前封存的工作階段… · {count}",
     "sidebar.noLiveSessions": "還沒有工作階段",
+    "sidebar.pinToKeep": "釘選以保留",
     "sidebar.noArchived": "沒有已封存的工作階段",
     "sidebar.backToSessions": "返回",
     "sidebar.cannotArchiveRunning": "執行中",

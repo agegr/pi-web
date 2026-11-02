@@ -2689,6 +2689,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     },
     onGroupNew: handleGroupNew,
     onGroupMenu: handleGroupMenu,
+    onPinEmptyGroup: (project: SidebarProject) => {
+      void applyUiState({ action: "pin-project", projectKey: project.key, root: project.root, pinned: true });
+      // The button goes with the pin: its group's header takes the focus.
+      focusAfterCommit(() => groupHeaderButton(project.key));
+    },
     onToggleArchiveGroup: handleToggleArchiveGroup,
     onArchiveGroupMenu: handleArchiveGroupMenu,
     onOpenOtherProject: handleOpenOtherProject,

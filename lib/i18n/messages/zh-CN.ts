@@ -619,6 +619,7 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.deleteAllArchived": "全部删除… · {count}",
     "sidebar.deleteOldArchived": "删除 30 天前归档的会话… · {count}",
     "sidebar.noLiveSessions": "还没有会话",
+    "sidebar.pinToKeep": "置顶以保留",
     "sidebar.noArchived": "没有已归档的会话",
     "sidebar.backToSessions": "返回",
     "sidebar.cannotArchiveRunning": "运行中",
