@@ -45,6 +45,8 @@ export interface InitialModelScopeOptions {
   requestedModel?: { provider: string; modelId: string };
   defaultModel?: { provider: string; modelId: string };
   thinkingLevel?: ThinkingLevel;
+  /** Every available model: an explicit choice may lie outside the scope, as pi's --model. */
+  availableModels?: readonly Model<Api>[];
 }
 
 export interface InitialModelScopeResult {
@@ -165,10 +167,11 @@ export function selectInitialModelScope(
   const defaultRef = options.defaultModel;
   const requested = requestedRef
     ? scope.visible.find((model) => matchesModel(model, requestedRef))
+      ?? options.availableModels?.find((model) => matchesModel(model, requestedRef))
     : undefined;
   if (requestedRef && !requested) {
     throw new Error(
-      `Model is not available in the enabled scope: ${requestedRef.provider}/${requestedRef.modelId}`,
+      `Model is not available${options.availableModels ? "" : " in the enabled scope"}: ${requestedRef.provider}/${requestedRef.modelId}`,
     );
   }
 

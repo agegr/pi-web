@@ -807,6 +807,8 @@ export const zhCNLocale: LocalePlugin = {
     "chat.attachFiles": "附加文件",
     "chat.previewImage": "预览图片",
     "chat.filterModels": "筛选模型…",
+    "chat.modelScopeScoped": "已限定",
+    "chat.modelScopeAll": "全部",
     "chat.selectModel": "选择模型",
     "chat.noModels": "没有模型",
     "chat.switchingModel": "正在切换模型",

@@ -18,7 +18,7 @@ import { cwdMissingBody } from "@/lib/missing-cwd";
 
 export const dynamic = "force-dynamic";
 
-async function loadModels(cwd: string): Promise<ModelsData> {
+async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
   let modelList: { id: string; name: string; provider: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
@@ -42,7 +42,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   // way the CLI does instead of comparing pattern strings literally (#307).
   const scope = await resolveVisibleModels(
     withDeferredProviderModels(services.modelRuntime),
-    settings.getEnabledModels(),
+    scopeAll ? undefined : settings.getEnabledModels(),
   );
   const { visible, thinkingLevelPins, warnings } = scope;
   modelList = orderSelectorModels(scope).map((m) => ({
@@ -86,6 +86,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
       thinkingLevelMaps,
       thinkingLevelPins,
       ...(warnings.length > 0 ? { modelScopeWarnings: warnings } : {}),
+      isScoped: scopeAll ? false : scope.scopedModels.length > 0,
     },
     modelError,
   );
@@ -100,10 +101,13 @@ const EMPTY_MODELS: ModelsData = {
   thinkingLevels: {},
   thinkingLevelMaps: {},
   thinkingLevelPins: {},
+  isScoped: false,
 };
 
 export async function GET(req: Request) {
-  const requestedCwd = resolve(new URL(req.url).searchParams.get("cwd") || process.cwd());
+  const url = new URL(req.url);
+  const requestedCwd = resolve(url.searchParams.get("cwd") || process.cwd());
+  const scopeAll = url.searchParams.get("scope") === "all";
   // A subagent run isolated in a worktree has that worktree removed when the run
   // finishes, yet its session file still records the worktree as its cwd. Fall back
   // to the main repo it branched from, so opening a finished subagent resolves the
@@ -130,7 +134,8 @@ export async function GET(req: Request) {
   }
 
   try {
-    return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
+    const cacheKey = scopeAll ? `${cwd}#all` : cwd;
+    return Response.json(await loadModelsWithCache(cacheKey, () => loadModels(cwd, scopeAll)));
   } catch {
     return Response.json(withSafeModelLoadFailure(EMPTY_MODELS));
   }

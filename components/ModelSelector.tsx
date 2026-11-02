@@ -30,6 +30,10 @@ interface ModelSelectorProps {
   defaultValue?: { provider: string; modelId: string } | null;
   /** Shows a star on every row that saves it as the default. */
   onSetDefault?: (provider: string, modelId: string) => void;
+  /** Every available model, once loaded; listed under "all". */
+  allOptions?: ModelSelectorOption[] | null;
+  /** Set only while `enabledModels` narrows `options`: shows pi's `/model` "scoped | all" row and loads `allOptions`. */
+  onShowAll?: () => void;
 }
 
 const MODEL_FILTER_THRESHOLD = 8;
@@ -61,6 +65,8 @@ export function ModelSelector({
   placement = "up",
   defaultValue,
   onSetDefault,
+  allOptions,
+  onShowAll,
 }: ModelSelectorProps) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -69,11 +75,21 @@ export function ModelSelector({
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<{ top: number; right: number; bottom: number; left: number; width: number } | null>(null);
   const [filter, setFilter] = useState("");
+  // pi's /model starts on the scope; Tab on the filter or a tap switches.
+  const [showAll, setShowAll] = useState(false);
   const locked = disabled || busy;
+  const listed = showAll ? allOptions : options;
   // Options arrive in pi's /model order (orderSelectorModels()); never re-sort
   // them, or a models.json provider loses the order its file gives (#783).
-  const filteredOptions = filterModelOptions(options, filter);
-  const showFilter = options.length > MODEL_FILTER_THRESHOLD;
+  const filteredOptions = filterModelOptions(listed ?? [], filter);
+  const showFilter = Boolean(onShowAll) || options.length > MODEL_FILTER_THRESHOLD;
+  const isListed = (list: ModelSelectorOption[] | null | undefined, ref: { provider: string; modelId: string }) => (
+    list?.find((option) => option.modelId === ref.modelId && option.provider === ref.provider)
+  );
+  const switchScope = () => {
+    if (!showAll) onShowAll?.();
+    setShowAll(!showAll);
+  };
   const modelsByProvider: { provider: string; options: ModelSelectorOption[] }[] = [];
 
   for (const option of filteredOptions) {
@@ -83,7 +99,7 @@ export function ModelSelector({
   }
 
   const currentName = selectedLabel ?? (value
-    ? options.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
+    ? (isListed(options, value) ?? isListed(allOptions, value))?.name ?? value.modelId
     : emptyLabel ?? (options.length > 0 ? t("chat.selectModel") : t("chat.noModels")));
 
   useEffect(() => {
@@ -210,6 +226,7 @@ export function ModelSelector({
           setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
           setOpen((current) => {
             if (current) setFilter("");
+            else setShowAll(false);
             return !current;
           });
         }}
@@ -291,11 +308,41 @@ export function ModelSelector({
               boxShadow: openAbove ? "0 -4px 16px rgba(0,0,0,0.10)" : "0 4px 16px rgba(0,0,0,0.10)",
             }}
           >
+            {onShowAll && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 8px 0", fontSize: 11 }}>
+                {[false, true].map((all) => (
+                  <button
+                    key={String(all)}
+                    type="button"
+                    aria-pressed={showAll === all}
+                    onClick={() => { if (showAll !== all) switchScope(); }}
+                    style={{
+                      padding: "2px 7px",
+                      border: "1px solid",
+                      borderColor: showAll === all ? "var(--border)" : "transparent",
+                      borderRadius: 4,
+                      background: showAll === all ? "var(--bg-hover)" : "none",
+                      color: showAll === all ? "var(--text)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 11,
+                    }}
+                  >
+                    {t(all ? "chat.modelScopeAll" : "chat.modelScopeScoped")}
+                  </button>
+                ))}
+                {!isMobile && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 10 }}>Tab</span>}
+              </div>
+            )}
             {showFilter && (
               <div style={{ flexShrink: 0, padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
                 <input
                   value={filter}
                   onChange={(event) => setFilter(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (!onShowAll || event.key !== "Tab") return;
+                    event.preventDefault();
+                    switchScope();
+                  }}
                   placeholder={t("chat.filterModels")}
                   aria-label={t("chat.filterModels")}
                   // On phones, focusing the filter opens the on-screen keyboard,
@@ -332,7 +379,7 @@ export function ModelSelector({
               )}
               {modelsByProvider.length === 0 ? (
                 <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
-                  {filter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
+                  {!listed ? t("agents.modelsLoading") : filter.trim() ? t("chat.noMatchingModels") : t("chat.noAvailableModels")}
                 </div>
               ) : modelsByProvider.map((group, index) => (
                 <div key={group.provider}>
@@ -347,7 +394,8 @@ export function ModelSelector({
                         key={`${option.provider}:${option.modelId}`}
                         active={option.modelId === value?.modelId && option.provider === value?.provider}
                         onSelect={() => choose(option)}
-                        star={onSetDefault ? {
+                        // The default is saved only from the scope: PUT /api/models/default refuses others.
+                        star={onSetDefault && (!showAll || isListed(options, option)) ? {
                           isDefault: option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider,
                           saveLabel: t("chat.saveDefaultModel"),
                           defaultLabel: t("chat.defaultModel"),

@@ -17,6 +17,13 @@ const agentDir = join(root, "agent");
 const repo = join(root, "repo");
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousOffline = process.env.PI_OFFLINE;
+const preservedEnv = {};
+for (const key of ["DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]) {
+  if (key in process.env) {
+    preservedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+}
 process.env.PI_CODING_AGENT_DIR = agentDir;
 // The list is served from the SDK's own data and the models.json below, so the route
 // never reaches for the network here.
@@ -44,13 +51,18 @@ async function initRepo(name) {
 await initRepo("repo");
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
+delete globalThis.__piWebProviderModelCatalog;
 const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
+const { invalidateModelsCache } = await jiti.import("../../../lib/models-cache.ts");
 const { GET } = await jiti.import("./route.ts");
 // The repo of the removed worktree below is a project some session named, which is what
 // makes it an allowed root; the fallback never adds one of its own.
 allowFileRoot(repo);
 
 after(async () => {
+  for (const [key, val] of Object.entries(preservedEnv)) {
+    process.env[key] = val;
+  }
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
   else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
   if (previousOffline === undefined) delete process.env.PI_OFFLINE;
@@ -58,8 +70,9 @@ after(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function models(cwd) {
-  const response = await GET(new Request(`http://localhost/api/models?cwd=${encodeURIComponent(cwd)}`, { headers: { host: "localhost" } }));
+async function models(cwd, scope) {
+  const url = `http://localhost/api/models?cwd=${encodeURIComponent(cwd)}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`;
+  const response = await GET(new Request(url, { headers: { host: "localhost" } }));
   return { status: response.status, body: await response.json() };
 }
 
@@ -104,4 +117,49 @@ test("a missing folder that is not a removed worktree of a repo is refused as be
   const orphan = await models(join(`${root}-worktrees`, "orphan"));
   assert.equal(orphan.status, 400);
   assert.equal(orphan.body.error, `Directory does not exist: ${join(`${root}-worktrees`, "orphan")}`);
+});
+
+test("honors ?scope=all on demand and reports isScoped accurately", async () => {
+  await writeFile(join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      acme: {
+        baseUrl: "https://example.invalid/v1",
+        apiKey: "sk-test",
+        api: "openai-completions",
+        models: [
+          { id: "one", name: "Acme One" },
+          { id: "two", name: "Acme Two" },
+        ],
+      },
+    },
+  }, null, 2));
+
+  await writeFile(join(agentDir, "settings.json"), JSON.stringify({
+    enabledModels: ["acme/one"],
+  }, null, 2));
+  invalidateModelsCache();
+
+  try {
+    const scoped = await models(repo);
+    assert.equal(scoped.status, 200);
+    assert.equal(scoped.body.isScoped, true);
+    assert.deepEqual(scoped.body.modelList.map((m) => `${m.provider}:${m.id}`), ["acme:one"]);
+
+    const all = await models(repo, "all");
+    assert.equal(all.status, 200);
+    assert.equal(all.body.isScoped, false);
+    assert.deepEqual(
+      all.body.modelList.map((m) => `${m.provider}:${m.id}`),
+      ["acme:one", "acme:two"],
+    );
+
+    // Caches are independent: scoped call still returns scoped models
+    const scopedAgain = await models(repo);
+    assert.equal(scopedAgain.status, 200);
+    assert.equal(scopedAgain.body.isScoped, true);
+    assert.deepEqual(scopedAgain.body.modelList.map((m) => `${m.provider}:${m.id}`), ["acme:one"]);
+  } finally {
+    await rm(join(agentDir, "settings.json"), { force: true });
+    invalidateModelsCache();
+  }
 });

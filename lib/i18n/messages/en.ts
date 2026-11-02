@@ -807,6 +807,8 @@ export const enLocale: LocalePlugin = {
     "chat.attachFiles": "Attach files",
     "chat.previewImage": "Preview image",
     "chat.filterModels": "Filter models…",
+    "chat.modelScopeScoped": "scoped",
+    "chat.modelScopeAll": "all",
     "chat.selectModel": "Select model",
     "chat.noModels": "No models",
     "chat.switchingModel": "Switching model",
