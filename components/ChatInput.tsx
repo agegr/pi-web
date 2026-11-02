@@ -2283,6 +2283,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             );
           })()}
           <div
+            className={stackedComposer ? undefined : "chat-composer-row"}
             style={{
               minWidth: 0,
               display: "flex",
@@ -2354,12 +2355,35 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           />
 
           {isStreaming ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+            <div style={{ display: "flex", alignItems: "stretch", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+              {onSideChat && (
+                <button
+                  type="button"
+                  onClick={sendToSideChat}
+                  disabled={!value.trim() || attachedImages.length > 0}
+                  title={t("chat.sideChatHint")}
+                  aria-label={t("chat.sideChat")}
+                  className={`bg-transparent ${value.trim() && !attachedImages.length ? "cursor-pointer text-text-muted hover:bg-bg-hover hover:text-text" : "cursor-not-allowed text-text-dim"}`}
+                  style={{
+                    width: 38,
+                    display: "grid", placeItems: "center",
+                    padding: 0,
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" /><path d="M13 8.5v7M9.5 12h7" />
+                  </svg>
+                </button>
+              )}
               {onSteer && (
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!canQueueStreamingMessage}
                   title={t("chat.steerHint")}
+                  aria-label={t("chat.steer")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -2375,7 +2399,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  {t("chat.steer")}
+                  <span className="chat-composer-run-label">{t("chat.steer")}</span>
                 </button>
               )}
               {onFollowUp && (
@@ -2383,6 +2407,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   onClick={() => sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
                   title={`${t("chat.followUpHint")} (${isMobile ? "Ctrl/Cmd+" : ""}Alt/Option+Enter)`}
+                  aria-label={t("chat.followUp")}
                   aria-keyshortcuts={isMobile ? "Control+Alt+Enter Meta+Alt+Enter" : "Alt+Enter"}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
@@ -2400,32 +2425,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                     <line x1="2" y1="9" x2="8" y2="9" />
                   </svg>
-                  {t("chat.followUp")}
-                </button>
-              )}
-              {onSideChat && (
-                <button
-                  type="button"
-                  onClick={sendToSideChat}
-                  disabled={!value.trim() || attachedImages.length > 0}
-                  title={t("chat.sideChatHint")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 5,
-                    padding: "7px 12px",
-                    background: "none",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    color: value.trim() && !attachedImages.length ? "var(--text-muted)" : "var(--text-dim)",
-                    cursor: value.trim() && !attachedImages.length ? "pointer" : "not-allowed",
-                    fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em",
-                    whiteSpace: "nowrap",
-                    transition: "background 0.12s",
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" />
-                  </svg>
-                  {t("chat.sideChat")}
+                  <span className="chat-composer-run-label">{t("chat.followUp")}</span>
                 </button>
               )}
             </div>

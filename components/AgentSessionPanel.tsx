@@ -278,8 +278,8 @@ function AgentRow({
       </button>
       {onNewSideChat && (
         <RowSideButton title={t("sideChat.new")} disabled={newSideChatPending} onClick={onNewSideChat}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" /><path d="M13 8v8M9 12h8" />
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" /><path d="M13 8.5v7M9.5 12h7" />
           </svg>
         </RowSideButton>
       )}
@@ -404,11 +404,13 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
       <div>
         <div style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderBottom: "1px solid var(--border)" }}>
           <strong style={{ fontSize: 12, fontWeight: 600 }}>{t("agentSwitcher.title")}</strong>
-          <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
-            {subagents.length === 1
-              ? t("agentSwitcher.countOne", { count: subagents.length })
-              : t("agentSwitcher.count", { count: subagents.length })}
-          </span>
+          {subagents.length > 0 && (
+            <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
+              {subagents.length === 1
+                ? t("agentSwitcher.countOne", { count: subagents.length })
+                : t("agentSwitcher.count", { count: subagents.length })}
+            </span>
+          )}
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             {familyUsage && (
               <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
@@ -474,7 +476,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
               }}
             />
           ))}
-          {visibleSubagents.length === 0 && (
+          {subagents.length > 0 && visibleSubagents.length === 0 && (
             <div style={{ padding: "22px 12px", color: "var(--text-dim)", fontSize: 12, textAlign: "center" }}>
               {t("agentSwitcher.noMatches")}
             </div>

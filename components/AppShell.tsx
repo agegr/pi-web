@@ -172,7 +172,6 @@ export function AppShell() {
     () => getSessionFamily(sessionsWithSelection, selectedSession?.id),
     [selectedSession?.id, sessionsWithSelection],
   );
-  const hasSubagentSessions = Boolean(activeSessionFamily?.subagents.length);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -413,10 +412,10 @@ export function AppShell() {
   }, [sessionHasBranches]);
 
   useEffect(() => {
-    if (!hasSubagentSessions) {
+    if (!activeSessionFamily) {
       setActiveTopPanel((panel) => panel === "agents" ? null : panel);
     }
-  }, [hasSubagentSessions]);
+  }, [activeSessionFamily]);
 
   useEffect(() => {
     if (rightPanelFullWidth) setActiveTopPanel(null);
@@ -1790,35 +1789,35 @@ export function AppShell() {
             </button>
           );
         })()}
-        {hasSubagentSessions && agentsBadge && (
-          <button
-            type="button"
-            onClick={() => toggleTopPanel("agents", mobile)}
-            title={agentsButtonLabel}
-            aria-label={agentsButtonLabel}
-            aria-pressed={activeTopPanel === "agents"}
-            style={{
-              position: "relative",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-              height: "100%", padding: mobile ? 0 : "0 12px",
-              background: activeTopPanel === "agents" ? "var(--bg-selected)" : "none",
-              border: "none",
-              borderTop: activeTopPanel === "agents" ? "2px solid var(--accent)" : "2px solid transparent",
-              borderRight: "1px solid var(--border)",
-              color: activeTopPanel === "agents" ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer", flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
-              transition: "color 0.1s, background 0.1s",
-            }}
-            data-mobile-toolbar-action={mobile ? "agents" : undefined}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
-            </svg>
-            {!mobile && <span>{translate("agentSwitcher.title")}</span>}
-            {renderAgentsBadge(agentsBadge, mobile)}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => toggleTopPanel("agents", mobile)}
+          disabled={!activeSessionFamily}
+          title={agentsButtonLabel}
+          aria-label={agentsButtonLabel}
+          aria-pressed={activeTopPanel === "agents"}
+          style={{
+            position: "relative",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%", padding: mobile ? 0 : "0 12px",
+            background: activeTopPanel === "agents" ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderTop: activeTopPanel === "agents" ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            color: activeTopPanel === "agents" ? "var(--text)" : activeSessionFamily ? "var(--text-muted)" : "var(--text-dim)",
+            cursor: activeSessionFamily ? "pointer" : "not-allowed", opacity: activeSessionFamily ? 1 : 0.45,
+            flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+            transition: "color 0.1s, background 0.1s",
+          }}
+          data-mobile-toolbar-action={mobile ? "agents" : undefined}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
+          </svg>
+          {!mobile && <span>{translate("agentSwitcher.title")}</span>}
+          {agentsBadge && agentsBadge.count > 0 && renderAgentsBadge(agentsBadge, mobile)}
+        </button>
         {sessionHasBranches && (mobile ? (
           <button
             type="button"

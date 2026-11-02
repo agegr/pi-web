@@ -2820,6 +2820,18 @@ span.token.table {
   }
 }
 
+/* A composer too narrow for the run's button labels, with a panel open beside
+   it: icons only, so the draft keeps the width. A stacked composer has its own
+   row for them and is not a container. */
+.chat-composer-row {
+  container-type: inline-size;
+}
+@container (max-width: 480px) {
+  .chat-composer-run-label {
+    display: none;
+  }
+}
+
 /* While the software keyboard is up (set by useViewportHeight), only a few
    hundred pixels remain above it. Hand them to the conversation: collapse the
    model/controls row, the extension status shelf and a fresh composer's
