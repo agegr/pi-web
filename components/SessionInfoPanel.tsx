@@ -17,6 +17,8 @@ interface Props {
   /** The live reading pushed by the chat; the stats' own snapshot is the fallback. */
   contextUsage: ContextUsage | null;
   contextBreakdown: ContextBreakdownState;
+  contextBreakdownOpen: boolean;
+  onToggleContextBreakdown: () => void;
   onRefreshContextBreakdown: () => void;
   copiedSessionField: SessionCopyField | null;
   onCopySessionField: (field: SessionCopyField, value: string) => void;
@@ -25,9 +27,12 @@ interface Props {
   isMobile: boolean;
 }
 
-/** The Session Info dropdown: the context map above the session, project, message and token sections. */
+/** The Session Info dropdown: the session, project, message and token sections, then the folded context map. */
 export function SessionInfoPanel(props: Props) {
-  const { contextBreakdown, onRefreshContextBreakdown, translate, locale, isMobile, sessionStats } = props;
+  const {
+    contextBreakdown, contextBreakdownOpen, onToggleContextBreakdown, onRefreshContextBreakdown,
+    translate, locale, isMobile, sessionStats,
+  } = props;
   return (
     <div className="session-info-popover" style={{
       background: "var(--bg-panel)",
@@ -35,27 +40,29 @@ export function SessionInfoPanel(props: Props) {
       boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
       padding: "12px 16px",
     }}>
+      {sessionStats ? <SessionStatsSections {...props} sessionStats={sessionStats} /> : (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+          {translate("session.load")}
+        </div>
+      )}
       <div style={{
         fontSize: 12,
         lineHeight: 1.5,
         fontFamily: "var(--font-mono)",
-        paddingBottom: 12,
-        marginBottom: 12,
-        borderBottom: "1px solid var(--border)",
+        paddingTop: 12,
+        marginTop: 12,
+        borderTop: "1px solid var(--border)",
       }}>
         <ContextUsageSection
           state={contextBreakdown}
+          open={contextBreakdownOpen}
+          onToggle={onToggleContextBreakdown}
           onRefresh={onRefreshContextBreakdown}
           translate={translate}
           locale={locale}
           isMobile={isMobile}
         />
       </div>
-      {sessionStats ? <SessionStatsSections {...props} sessionStats={sessionStats} /> : (
-        <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-          {translate("session.load")}
-        </div>
-      )}
     </div>
   );
 }

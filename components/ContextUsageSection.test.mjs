@@ -11,9 +11,9 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { ContextUsageSection } = await jiti.import("./ContextUsageSection.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
-function render(state, isMobile = false) {
+function render(state, isMobile = false, open = true) {
   return renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(ContextUsageSection, {
-    state, onRefresh: () => {}, locale: "en", isMobile, translate: (key, params) => `${key}${params ? JSON.stringify(params) : ""}`,
+    state, open, onToggle: () => {}, onRefresh: () => {}, locale: "en", isMobile, translate: (key, params) => `${key}${params ? JSON.stringify(params) : ""}`,
   })));
 }
 
@@ -49,4 +49,11 @@ test("says why there is nothing to show yet", () => {
   assert.match(render({ status: "loading" }), /session\.contextLoading/);
   assert.match(render({ status: "failed" }), /session\.contextFailed/);
   assert.match(render({ status: "compacting" }), /session\.contextCompacting/);
+});
+
+test("folded, shows only its title", () => {
+  const html = render({ status: "ready", breakdown }, false, false);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /session\.contextUsage/);
+  assert.doesNotMatch(html, /context-map|context-legend-row|session\.contextRefresh/);
 });

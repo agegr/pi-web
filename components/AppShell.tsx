@@ -438,11 +438,14 @@ export function AppShell() {
   const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "debug" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
+  // Folded by default; while folded nothing loads, so a dormant session's wrapper stays down
+  const [contextBreakdownOpen, setContextBreakdownOpen] = useState(false);
+  const toggleContextBreakdown = useCallback(() => setContextBreakdownOpen((open) => !open), []);
   const sessionPanelOpen = activeTopPanel === "session";
   const contextUsageKey = contextUsage ? `${contextUsage.tokens ?? "null"}|${contextUsage.contextWindow}` : "";
   useEffect(() => {
-    if (sessionPanelOpen) loadContextBreakdown();
-  }, [sessionPanelOpen, contextUsageKey, contextBreakdownLoaderVersion, loadContextBreakdown]);
+    if (sessionPanelOpen && contextBreakdownOpen) loadContextBreakdown();
+  }, [sessionPanelOpen, contextBreakdownOpen, contextUsageKey, contextBreakdownLoaderVersion, loadContextBreakdown]);
 
   useEffect(() => {
     if (!sessionHasBranches) {
@@ -2577,6 +2580,8 @@ export function AppShell() {
                   selectedSession={selectedSession}
                   contextUsage={contextUsage}
                   contextBreakdown={contextBreakdown}
+                  contextBreakdownOpen={contextBreakdownOpen}
+                  onToggleContextBreakdown={toggleContextBreakdown}
                   onRefreshContextBreakdown={loadContextBreakdown}
                   copiedSessionField={copiedSessionField}
                   onCopySessionField={handleCopySessionField}

@@ -13,6 +13,9 @@ export type ContextBreakdownState =
 
 interface Props {
   state: ContextBreakdownState;
+  /** Folded, only the title shows; the panel loads the breakdown once it is open. */
+  open: boolean;
+  onToggle: () => void;
   onRefresh: () => void;
   translate: Translate;
   locale: string;
@@ -50,7 +53,7 @@ function topLevelId(categories: readonly ContextCategory[], id: string): string 
   return categories.find((category) => category.id === id || (category.children && findCategory(category.children, id)))?.id;
 }
 
-export function ContextUsageSection({ state, onRefresh, translate, locale, isMobile }: Props) {
+export function ContextUsageSection({ state, open, onToggle, onRefresh, translate, locale, isMobile }: Props) {
   const breakdown = state.breakdown ?? null;
   const [scale, setScale] = useState<"window" | "fit">("window");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -74,9 +77,27 @@ export function ContextUsageSection({ state, onRefresh, translate, locale, isMob
   const count = (value: number) => value.toLocaleString(locale);
   const percent = (tokens: number) => (contextWindow > 0 ? `${(tokens / contextWindow * 100).toFixed(1)}%` : "");
 
+  const title = (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      style={{
+        display: "inline-flex", alignItems: "baseline", gap: 4, padding: 0,
+        border: "none", background: "transparent", cursor: "pointer",
+        font: "inherit", fontSize: 11, fontWeight: 700, color: "var(--text)",
+      }}
+    >
+      <span aria-hidden="true" style={{ color: "var(--text-dim)", fontWeight: 400 }}>{open ? "▾" : "▸"}</span>
+      {translate("session.contextUsage")}
+    </button>
+  );
+
+  if (!open) return <div data-context-usage="true">{title}</div>;
+
   const header = (
     <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: "4px 12px", marginBottom: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)" }}>{translate("session.contextUsage")}</div>
+      {title}
       {breakdown?.reported && (
         <div style={{ color: "var(--text-muted)" }}>
           {translate("session.contextReported", {
