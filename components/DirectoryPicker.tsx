@@ -189,8 +189,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   };
 
   const hasUncommittedPath = pathInput.trim() !== currentPath;
-  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
-  const canCreate = canSelect && !loading;
+  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy && !loading;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
 
   if (!portalTarget) return null;
@@ -324,8 +323,8 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
               setCreateOpen(true);
               setCreateError(null);
             }}
-            disabled={!canCreate}
-            style={{ ...secondaryActionStyle, marginRight: "auto", opacity: canCreate ? 1 : 0.6, cursor: canCreate ? "pointer" : "default" }}
+            disabled={!canSelect}
+            style={{ ...secondaryActionStyle, marginRight: "auto", opacity: canSelect ? 1 : 0.6, cursor: canSelect ? "pointer" : "default" }}
           >
             {t("directoryPicker.newDirectory")}
           </button>
