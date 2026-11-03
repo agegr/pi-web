@@ -16,6 +16,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { useSidebarPosition, setSidebarPosition } from "@/hooks/useSidebarPosition";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -83,6 +84,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const filesPlacement = useFilesPlacement();
+  const sidebarPosition = useSidebarPosition();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -387,6 +389,37 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.sidebar")}</h3>
         <div className="settings-chat-options">
+          <div
+            className="settings-chat-option settings-chat-switch-option"
+            role="radiogroup"
+            aria-label={t("settings.sidebarPosition")}
+          >
+            <span>{t("settings.sidebarPosition")}</span>
+            <div className="settings-send-mode-options">
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="sidebar-position"
+                  value="left"
+                  checked={sidebarPosition === "left"}
+                  onChange={() => setSidebarPosition("left")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.sidebarPositionLeft")}</span>
+              </label>
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="sidebar-position"
+                  value="right"
+                  checked={sidebarPosition === "right"}
+                  onChange={() => setSidebarPosition("right")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.sidebarPositionRight")}</span>
+              </label>
+            </div>
+          </div>
           <div
             className="settings-chat-option settings-chat-switch-option"
             role="radiogroup"

@@ -2744,6 +2744,7 @@ span.token.table {
     width: 0;
     min-width: 0;
     border-right: none !important;
+    border-left: none !important;
   }
   /* keep inner content at fixed width so it doesn't reflow during animation */
   .sidebar-container > * {

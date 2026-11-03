@@ -24,6 +24,7 @@ import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTa
 import { appendSideTab, restoreSideTabs, sideTabsKey } from "./side-tab-state";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
+import { useSidebarPosition } from "@/hooks/useSidebarPosition";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
@@ -243,6 +244,8 @@ export function AppShell() {
   const [projectTrustError, setProjectTrustError] = useState<ProjectTrustFailure | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
+  const sidebarPosition = useSidebarPosition();
+  const sidebarOnRight = sidebarPosition === "right" && !isMobile;
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
@@ -285,7 +288,7 @@ export function AppShell() {
     cssVariable: "--sidebar-width",
     defaultWidth: SIDEBAR_DEFAULT_WIDTH,
     getMaxWidth: getResponsiveSidebarMaxWidth,
-    growthDirection: "right",
+    growthDirection: sidebarOnRight ? "left" : "right",
     maxWidth: SIDEBAR_MAX_WIDTH,
     minWidth: SIDEBAR_MIN_WIDTH,
     storageKey: "pi-sidebar-width",
@@ -2373,7 +2376,7 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
+    <div data-sidebar-position={sidebarPosition} style={{
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
@@ -2397,7 +2400,7 @@ export function AppShell() {
         }}
       />
 
-      {/* Left sidebar */}
+      {/* Session sidebar: CSS order moves it without remounting its contents. */}
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
@@ -2406,7 +2409,9 @@ export function AppShell() {
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
           background: "var(--bg-panel)",
-          borderRight: "1px solid var(--border)",
+          borderRight: sidebarOnRight ? undefined : "1px solid var(--border)",
+          borderLeft: sidebarOnRight ? "1px solid var(--border)" : undefined,
+          order: sidebarOnRight ? 3 : undefined,
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
@@ -2424,6 +2429,7 @@ export function AppShell() {
           aria-controls="session-sidebar"
           className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="sidebar"
+          style={{ order: sidebarOnRight ? 2 : undefined }}
           title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
         />
       )}
@@ -2448,7 +2454,7 @@ export function AppShell() {
           >
             {sidebarOpen ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+                <rect x="3" y="3" width="18" height="18" rx="2" /><line x1={sidebarOnRight ? "15" : "9"} y1="3" x2={sidebarOnRight ? "15" : "9"} y2="21" />
               </svg>
             ) : (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
