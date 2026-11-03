@@ -73,6 +73,7 @@ import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
+import { clearExtensionWindowTitle, useExtensionWindowTitle } from "@/lib/extension-window-title";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
@@ -1583,7 +1584,10 @@ export function AppShell() {
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  // An extension's `ctx.ui.setTitle()` for the session in view, until another one is.
+  useEffect(() => clearExtensionWindowTitle(selectedSessionId ?? null), [selectedSessionId]);
+  const extensionWindowTitle = useExtensionWindowTitle(selectedSessionId ?? null);
+  const windowTitle = extensionWindowTitle ?? (activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web");
 
   useEffect(() => {
     const syncWindowTitle = () => {

@@ -17,6 +17,7 @@ import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { AgentCommandError, agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
+import { setExtensionWindowTitle } from "@/lib/extension-window-title";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
 import {
   deleteSessionViewSnapshot,
@@ -1491,9 +1492,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           request.widgetPlacement,
         ));
         break;
-      case "setTitle":
-        if (request.title) document.title = stripAnsi(request.title);
+      case "setTitle": {
+        // The page owns document.title (AppShell keeps it in sync), so it goes through there.
+        const sid = sessionIdRef.current;
+        if (request.title && sid) setExtensionWindowTitle(sid, stripAnsi(request.title));
         break;
+      }
       case "set_editor_text":
         opts.chatInputRef?.current?.insertText(stripAnsi(request.text));
         break;
