@@ -9,10 +9,10 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { TabBar } = await jiti.import("./TabBar.tsx");
 
-function renderTabBar(count) {
+function renderTabBar(count, onReorderTab) {
   const tabs = Array.from({ length: count }, (_, index) => ({ id: `t${index}`, label: `file-${index}.ts`, filePath: `/p/file-${index}.ts` }));
   return renderToStaticMarkup(React.createElement(I18nProvider, null,
-    React.createElement(TabBar, { tabs, activeTabId: "t0", onSelectTab() {}, onCloseTab() {} })));
+    React.createElement(TabBar, { tabs, activeTabId: "t0", onSelectTab() {}, onCloseTab() {}, onReorderTab })));
 }
 
 /** The inline style of every element with that role, as property maps. */
@@ -23,6 +23,11 @@ function styles(html, role) {
       return [declaration.slice(0, colon), declaration.slice(colon + 1)];
     })));
 }
+
+test("right-panel tabs can be dragged when a reorder handler is provided", () => {
+  assert.match(renderTabBar(2, () => {}), /role="tab"[^>]*draggable="true"/);
+  assert.doesNotMatch(renderTabBar(2), /role="tab"[^>]*draggable="true"/);
+});
 
 test("overflowing tabs keep the whole bar: the strip has no scrollbar", () => {
   // The app's 10px (6px on touch) scrollbar took its height out of the 36px
