@@ -371,6 +371,8 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
+  /** A `!` command waiting on its `user_bash` handlers, before pi counts it as running. */
+  private userBashPending = false;
   // The armed idle timer is the forced cleanup Stop scheduled.
   private forcedIdleTimerArmed = false;
   private _alive = true;
@@ -435,8 +437,13 @@ export class AgentSessionWrapper {
     return this._alive && !this.closing;
   }
 
+  /** A `!` command is under way: its `user_bash` handlers, or pi running it. */
+  private get shellRunning(): boolean {
+    return this.inner.isBashRunning || this.userBashPending;
+  }
+
   isRunning(): boolean {
-    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
+    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.shellRunning);
   }
 
   /**
@@ -1083,7 +1090,7 @@ export class AgentSessionWrapper {
   }
 
   private isSessionRunningForReplacement(): boolean {
-    return this.inner.isBashRunning
+    return this.shellRunning
       || this.inner.isStreaming
       || this.inner.isCompacting
       || this.pendingPromptCount > 0;
@@ -1147,7 +1154,7 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
-          if (this.inner.isBashRunning) {
+          if (this.shellRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           if (this.sideChat) this.nameSideChat(command.message);
@@ -1328,7 +1335,7 @@ export class AgentSessionWrapper {
           sessionFile: this.inner.sessionFile ?? "",
           isStreaming: this.inner.isStreaming,
           isPromptRunning: this.pendingPromptCount > 0,
-          isBashRunning: this.inner.isBashRunning,
+          isBashRunning: this.shellRunning,
           isCompacting: this.inner.isCompacting,
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
@@ -1388,7 +1395,7 @@ export class AgentSessionWrapper {
       }
 
       case "fork": {
-        if (this.inner.isBashRunning) {
+        if (this.shellRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
         this.refuseForkOfSideChat();
@@ -1444,7 +1451,7 @@ export class AgentSessionWrapper {
       }
 
       case "fork_branch": {
-        if (this.inner.isBashRunning) {
+        if (this.shellRunning) {
           throw new Error("Cannot fork while a shell command is running");
         }
         this.refuseForkOfSideChat();
@@ -1497,7 +1504,7 @@ export class AgentSessionWrapper {
       }
 
       case "navigate_tree": {
-        if (this.inner.isBashRunning) {
+        if (this.shellRunning) {
           throw new Error("Cannot navigate while a shell command is running");
         }
         return this.navigateTreeKeepingToolSelection(command.targetId as string, {});
@@ -1678,24 +1685,41 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
-        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
+        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.shellRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
-        const execution = this.inner.executeBash(
-          command.command as string,
-          undefined,
-          {
-            excludeFromContext: command.excludeFromContext as boolean | undefined,
-            operations: createProjectCommandBashOperations({
-              shellPath: this.inner.settingsManager.getShellPath(),
-            }),
-          },
-        );
+        const bashCommand = command.command as string;
+        const excludeFromContext = command.excludeFromContext === true;
+        // pi counts a command as running only once executeBash starts; the hook comes first.
+        this.userBashPending = true;
         try {
-          const result = await execution;
+          // pi's TUI and RPC mode ask `user_bash` handlers first: one may run the
+          // command itself (a sandbox, a remote host) or hand over how to. A handler
+          // that throws has been reported by the runner and runs nothing, as there.
+          const hooked = await this.inner.extensionRunner.emitUserBash?.({
+            type: "user_bash",
+            command: bashCommand,
+            excludeFromContext,
+            cwd: this.inner.sessionManager.getCwd(),
+          });
+          let result;
+          if (hooked?.result) {
+            this.inner.recordBashResult?.(bashCommand, hooked.result, { excludeFromContext });
+            result = hooked.result;
+          } else {
+            result = await this.inner.executeBash(bashCommand, undefined, {
+              excludeFromContext,
+              // An extension's operations still get the sanitized environment.
+              operations: createProjectCommandBashOperations({
+                shellPath: this.inner.settingsManager.getShellPath(),
+                ...(hooked?.operations ? { localOperations: hooked.operations } : {}),
+              }),
+            });
+          }
           this.persistBashOnlySession();
           return result;
         } finally {
+          this.userBashPending = false;
           this.resetIdleTimer();
           invalidateSessionListCache();
         }
