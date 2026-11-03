@@ -191,8 +191,8 @@ function chatOnlyExtensionModelError(provider: string, modelId: string): Error {
 
 export const MCP_WAIT_STOPPED_MESSAGE = "Stopped while MCP servers were connecting; the message was not sent.";
 
-/** A running `!` command's output tail sent to the page, and how often (createBashOutputSnapshots). */
-const BASH_OUTPUT_TAIL_BYTES = 64 * 1024;
+/** A running `!` command's output tail sent to the page (UTF-16 units), and how often (createBashOutputSnapshots). */
+const BASH_OUTPUT_TAIL_CHARS = 16 * 1024;
 const BASH_OUTPUT_INTERVAL_MS = 150;
 
 const IDLE_RESET_EVENT_TYPES = new Set([
@@ -443,20 +443,22 @@ export class AgentSessionWrapper {
 
   /**
    * A running `!` command's output for the page, as pi's TUI draws it while it runs:
-   * the tail (`BASH_OUTPUT_TAIL_BYTES`) at most every `BASH_OUTPUT_INTERVAL_MS`, as
+   * the tail (`BASH_OUTPUT_TAIL_CHARS`) at most every `BASH_OUTPUT_INTERVAL_MS`, as
    * `bash_output` snapshots a later one replaces, never pi's per-chunk deltas, which a
    * command printing megabytes would pile up in a slow stream.
    */
-  private createBashOutputSnapshots(): { onChunk: (chunk: string) => void; stop: () => void } {
+  private createBashOutputSnapshots(command: string): { onChunk: (chunk: string) => void; stop: () => void } {
     let tail = "";
     let timer: ReturnType<typeof setTimeout> | null = null;
     return {
       onChunk: (chunk) => {
-        tail = (tail + chunk).slice(-BASH_OUTPUT_TAIL_BYTES);
+        tail = (tail + chunk).slice(-BASH_OUTPUT_TAIL_CHARS);
+        // A cut through a surrogate pair would start the tail with half a character.
+        if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1);
         if (timer) return;
         timer = setTimeout(() => {
           timer = null;
-          this.emit({ type: "bash_output", output: tail } as unknown as AgentEvent);
+          this.emit({ type: "bash_output", command, output: tail } as unknown as AgentEvent);
         }, BASH_OUTPUT_INTERVAL_MS);
       },
       stop: () => {
@@ -1726,7 +1728,7 @@ export class AgentSessionWrapper {
         const excludeFromContext = command.excludeFromContext === true;
         // pi counts a command as running only once executeBash starts; the hook comes first.
         this.userBashPending = true;
-        const liveOutput = this.createBashOutputSnapshots();
+        const liveOutput = this.createBashOutputSnapshots(bashCommand);
         try {
           // pi's TUI and RPC mode ask `user_bash` handlers first: one may run the
           // command itself (a sandbox, a remote host) or hand over how to. A handler

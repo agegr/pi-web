@@ -9,7 +9,7 @@ import { normalizeCustomPanelLines, stripAnsi } from "@/lib/ansi";
 import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks, liveOutputPreview } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
@@ -1353,13 +1353,25 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 message={{
                   role: "bashExecution",
                   command: pendingBash.command,
-                  output: pendingBash.liveOutput ?? "",
+                  output: "",
                   ...pendingBash.result,
                   excludeFromContext: pendingBash.excludeFromContext,
+                  // Its own card: a later command's does not open because this one was opened.
+                  timestamp: pendingBash.startedAt,
                 } as BashExecutionMessage}
                 sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                 onOpenSubagent={onOpenSubagent}
               />
+            )}
+            {pendingBash?.liveOutput && !pendingBash.result && (
+              // The last lines while it runs, as pi's TUI previews a command's output.
+              <pre
+                aria-live="off"
+                className="m-0 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-border px-2.5 py-1.5 font-mono text-[12px] leading-[1.45] text-text-muted"
+                style={{ marginTop: -2, background: "var(--tool-bg)" }}
+              >
+                {liveOutputPreview(pendingBash.liveOutput)}
+              </pre>
             )}
 
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
