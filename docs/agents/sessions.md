@@ -74,6 +74,8 @@ Collapsed by default, as pi's TUI `CompactionSummaryMessageComponent` (#1026): t
 ## Streaming token rate
 The streaming reply's `t/s` counts estimated tokens from when its first ones showed. That start lives in `lib/stream-token-rate.ts`, keyed by the reply (provider, model and request `timestamp`), not in `MessageView`: switching sessions remounts the chat, and a start taken at the remount divided every token streamed so far by a fraction of a second. A reply joined with no record (a reload) counts only the tokens that follow.
 
+The assistant's model/streaming header (`AssistantMessageHeader`, `components/MessageView.tsx`) reserves its line height plus the TPS badge's 2px vertical padding even when metrics are absent. Its numeric fields use tabular digits and minimum widths (six output-token digits, ten characters for the speed badge), not fixed widths that would clip larger values. The count's extra pixel accommodates per-glyph rounding at the six-digit boundary. `e2e/streaming-metrics.mjs` checks the production component's layout across metric states, fonts and phone widths without a live model; ordinary markup tests cannot catch these shifts.
+
 ## Auto-retry banner
 `auto_retry_start` shows "Retrying (n/max)…" above the composer for the backoff wait. The retried run's `agent_start` clears it, as pi's TUI replaces its retry indicator at that run's `turn_start`: pi emits a successful `auto_retry_end` only with the retry's first complete assistant message, minutes into a long reply. `auto_retry_end`, `agent_end` and settling clear it too.
 
