@@ -259,5 +259,6 @@ test("the Models sidebar labels a provider by its models.json name and falls bac
   assert.equal(providerSidebarLabel("typesafe", {}), "typesafe");
   assert.equal(providerSidebarLabel("typesafe", { name: "  " }), "typesafe");
   assert.equal(providerSidebarLabel("openai", {}, "OpenAI"), "OpenAI");
+  assert.equal(providerSidebarLabel("typesafe", {}, "TypeSafe"), "TypeSafe");
   assert.equal(providerSidebarLabel("openai", { name: "OpenAI API" }, "OpenAI"), "OpenAI API");
 });

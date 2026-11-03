@@ -1927,6 +1927,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
+  /** Runtime display names of every provider, including ones with no chat models. */
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
   /** Set once the provider lists have answered; until then an overrides-only entry may be a managed provider's. */
   const [authListed, setAuthListed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1948,9 +1950,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
-      .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[] }) => {
+      .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[]; providerNames?: Record<string, string> }) => {
         if (Array.isArray(d.oauthProviders)) setOauthProviders(d.oauthProviders);
         if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
+        setProviderNames(d.providerNames ?? {});
       })
       .catch(() => {})
       .finally(() => setAuthListed(true));
@@ -2305,7 +2308,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                         {providerSidebarLabel(
                           pName,
                           pData,
-                          enabledModels.view?.providers.find((provider) => provider.id === pName)?.name,
+                          providerNames[pName]
+                            ?? enabledModels.view?.providers.find((provider) => provider.id === pName)?.name,
                         )}
                       </ConfigSidebarText>
                       {scopeBadge(pName)}
