@@ -2028,6 +2028,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "auto_retry_end":
         setRetryInfo(null);
         break;
+      // A compaction's or branch summary's summarizer call failed and waits to try
+      // again, on the same retry budget as a turn: pi's TUI shows the error and the
+      // countdown, here the retry banner does for the wait, as for a turn's retry.
+      case "summarization_retry_scheduled":
+        setRetryInfo({ attempt: event.attempt as number, maxAttempts: event.maxAttempts as number, errorMessage: event.errorMessage as string | undefined });
+        break;
+      case "summarization_retry_attempt_start":
+      case "summarization_retry_finished":
+        setRetryInfo(null);
+        break;
       case "auto_compaction_start":
       case "compaction_start":
         setIsCompacting(true);
