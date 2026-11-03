@@ -18,6 +18,7 @@ type RuntimeModel = Awaited<ReturnType<ModelRuntime["getAvailable"]>>[number];
  */
 declare global {
   var __piWebProviderModelCatalog: Map<string, RuntimeModel[]> | undefined;
+  var __piWebProviderNameCatalog: Map<string, string> | undefined;
 }
 
 function catalog(): Map<string, RuntimeModel[]> {
@@ -37,6 +38,10 @@ export async function rememberProviderModels(runtime: ModelRuntime): Promise<voi
     }
     byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model]);
   }
+  globalThis.__piWebProviderNameCatalog ??= new Map();
+  for (const provider of runtime.getProviders?.() ?? []) {
+    if (byProvider.has(provider.id) && provider.name.trim()) globalThis.__piWebProviderNameCatalog.set(provider.id, provider.name.trim());
+  }
   const added = [...byProvider.keys()].some((provider) => !catalog().has(provider));
   for (const [provider, models] of byProvider) catalog().set(provider, models);
   // A listing cached before this provider was known would hide it for the cache lifetime.
@@ -51,6 +56,13 @@ export async function rememberProviderModels(runtime: ModelRuntime): Promise<voi
 export function deferredProviderModels(runtime: ModelRuntime): RuntimeModel[] {
   const registered = new Set(runtime.getModels().map((model) => model.provider));
   return [...catalog()].flatMap(([provider, models]) => (registered.has(provider) ? [] : models));
+}
+
+/** Display names by provider id: this runtime's, then a deferred provider's remembered one, so its heading does not flip to the id. */
+export function providerDisplayNames(runtime: ModelRuntime): Map<string, string> {
+  const names = new Map(globalThis.__piWebProviderNameCatalog ?? []);
+  for (const provider of runtime.getProviders()) names.set(provider.id, provider.name.trim() || provider.id);
+  return names;
 }
 
 /** The runtime as a model listing should see it: its own available models plus deferred ones. */
