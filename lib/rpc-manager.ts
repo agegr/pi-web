@@ -1670,6 +1670,7 @@ export class AgentSessionWrapper {
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload();
+        this.reportReloadIssues();
         // pi rebuilds from the tools active before, then extensions adjust them as they start
         // again; carry that result so a tool one switched off during reload stays off.
         this.setActiveToolSelection(activeToolNames);
@@ -2442,10 +2443,34 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
           },
         });
+        this.reportReloadIssues();
         // As the `reload` command: the provider lists' runtime follows.
         invalidateModelRuntimeWithExtensions();
       },
     };
+  }
+
+  /** pi's TUI lists `[Extension issues]` again after `/reload`: an edited extension that broke says so. */
+  private reportReloadIssues(): void {
+    let issues: StartupIssue[];
+    try {
+      issues = collectStartupIssues({
+        extensions: this.inner.resourceLoader?.getExtensions?.(),
+        commandDiagnostics: this.inner.extensionRunner?.getCommandDiagnostics?.(),
+      });
+    } catch {
+      return; // The reload itself went through; its report is best effort.
+    }
+    for (const issue of issues) {
+      console.warn(`[pi-web] session ${this.sessionId} reload: ${issue.message}`);
+      this.emit({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "notify",
+        notifyType: issue.type,
+        message: issue.message,
+      } as ExtensionUiRequest as AgentEvent);
+    }
   }
 
   private syncProjectTrust(): void {
@@ -3371,6 +3396,8 @@ export async function startRpcSession(
       modelFallbackMessage,
     });
     for (const issue of startupIssues) console.warn(`[pi-web] session ${inner.sessionId}: ${issue.message}`);
+    // A subagent's or side chat's tab would say again what its parent's page said.
+    const notifiedIssues = subagentResources || isSideChat ? [] : startupIssues;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
@@ -3386,7 +3413,7 @@ export async function startRpcSession(
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
       sideChat: isSideChat,
-      startupIssues,
+      startupIssues: notifiedIssues,
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
