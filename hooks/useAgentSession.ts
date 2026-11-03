@@ -196,6 +196,22 @@ export type BuiltinSlashCommandResult =
   | { handled: false }
   | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" | "openSideChat" };
 
+/**
+ * A `!` command on its way into the transcript: running, or finished during a run, whose
+ * result pi holds until the run ends (`recordBashResult`). `seen` counts the transcript's
+ * identical entries at that point, so the card goes once the run's flush has added one.
+ */
+export interface PendingBash {
+  command: string;
+  excludeFromContext: boolean;
+  result?: { output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string };
+  seen?: number;
+}
+
+function countBashEntries(messages: readonly AgentMessage[], command: string, output: string): number {
+  return messages.filter((m) => m.role === "bashExecution" && m.command === command && m.output === output).length;
+}
+
 /** How a run ended, for the completion sound and notifications. */
 export interface AgentEndInfo {
   /** The run was stopped (Esc, Stop, another client's abort), not finished: nothing to announce. */
@@ -441,7 +457,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const dispatch = streamingStore.dispatch;
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
-  const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
+  const [pendingBash, setPendingBash] = useState<PendingBash | null>(null);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -2058,7 +2074,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
-    if (agentRunningRef.current || bashRunningRef.current) {
+    const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
+    // A `!` command may run beside a run, as in pi's TUI; one at a time.
+    if (bashRunningRef.current || (agentRunningRef.current && !isBashCommand)) {
       restoreSubmission(message, images, composerDraftKey);
       return;
     }
@@ -2075,7 +2093,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
-    const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
     if (isBashCommand) {
       const isExcluded = trimmedMessage.startsWith("!!");
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
@@ -2228,32 +2245,44 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
-    if (agentRunningRef.current || bashRunningRef.current) return;
+    if (bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
     setPendingBash({ command, excludeFromContext });
     setBashRunning(true);
+    let deferred: PendingBash | null = null;
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
-      await sendAgentCommand(sid, {
+      const result = await sendAgentCommand<PendingBash["result"]>(sid, {
         type: "bash",
         command,
         excludeFromContext,
       });
-      await loadSession(sid);
-      promoteNewSession(1, inputText);
+      if (agentRunningRef.current && result) {
+        // pi writes it once the run ends; the card shows the output until then.
+        deferred = { command, excludeFromContext, result, seen: countBashEntries(messagesRef.current, command, result.output) };
+      } else {
+        await loadSession(sid);
+        promoteNewSession(1, inputText);
+      }
     } catch (e) {
       console.error("Failed to execute shell command:", e);
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       restoreSubmission(inputText, undefined, composerDraftKey);
     } finally {
       bashRunningRef.current = false;
-      setPendingBash(null);
+      setPendingBash(deferred);
       setBashRunning(false);
     }
   }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
+
+  // The run's end wrote the deferred result: the transcript shows it now.
+  useEffect(() => {
+    if (!pendingBash?.result || agentRunning) return;
+    if (countBashEntries(messages, pendingBash.command, pendingBash.result.output) > (pendingBash.seen ?? 0)) setPendingBash(null);
+  }, [agentRunning, messages, pendingBash]);
 
   /** Recall's and Stop's queued texts, and the images of prompts parked behind a compaction, back in the composer. */
   const restoreRecalledPrompts = useCallback((recalled: RecalledPrompts | null | undefined) => {
