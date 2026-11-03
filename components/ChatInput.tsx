@@ -782,6 +782,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         setValue(text);
         return;
       }
+      // Selected whole, the draft goes in one undoable insert; a collapsed caret
+      // would delete it character by character.
+      ta.setSelectionRange(0, ta.value.length);
       replaceTextareaRange(ta, 0, ta.value.length, text);
       setAtQuery(null);
       requestAnimationFrame(() => autoGrowTextarea(ta));
