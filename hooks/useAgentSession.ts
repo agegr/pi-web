@@ -1751,6 +1751,34 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  /**
+   * The read for a message an extension posted while idle. A read already under way
+   * was answered before that message was written (reads share one flight), so one
+   * more follows it; messages arriving meanwhile share that one.
+   */
+  const idleMessageReadRef = useRef({ running: false, again: false });
+  const readAfterIdleMessage = useCallback((sid: string) => {
+    const read = idleMessageReadRef.current;
+    if (read.running) {
+      read.again = true;
+      return;
+    }
+    read.running = true;
+    // Joining a flight that started before this message would miss it.
+    read.again = loadFlightsRef.current.has(sid);
+    void (async () => {
+      try {
+        do {
+          if (read.again && loadFlightsRef.current.has(sid)) await loadFlightsRef.current.get(sid)?.catch(() => {});
+          read.again = false;
+          await loadSession(sid);
+        } while (read.again && sessionIdRef.current === sid);
+      } finally {
+        read.running = false;
+      }
+    })();
+  }, [loadSession]);
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
@@ -1913,8 +1941,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           // watcher): pi writes it before this event, so the file read shows it,
           // as pi's TUI prints it at once.
           const idle = event.message as { role?: string; display?: boolean } | undefined;
-          if (idle?.role === "custom" && idle.display !== false && !bashRunningRef.current && sessionIdRef.current) {
-            void loadSession(sessionIdRef.current);
+          if (idle?.role === "custom" && idle.display === true && !bashRunningRef.current && sessionIdRef.current) {
+            readAfterIdleMessage(sessionIdRef.current);
           }
           break;
         }
@@ -2061,7 +2089,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [readAfterIdleMessage, addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
