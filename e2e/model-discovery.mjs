@@ -31,7 +31,7 @@ export async function checkModelDiscovery(page) {
     const modelRows = settings.locator(".models-sidebar-indented-item");
     await modelRows.filter({ hasText: /^claude-existing$/ }).waitFor(); // a model without a name is listed by its id
     assert.equal(await modelRows.filter({ hasText: /^Relay Existing$/ }).count(), 1, "A model is listed by its models.json name");
-    await settings.locator(".config-sidebar-item").filter({ hasText: /^anthropic$/ }).click();
+    await settings.locator(".config-sidebar-item").filter({ hasText: /^Anthropic$/ }).click();
     const api = settings.locator(".config-field-label").filter({ hasText: /^API$/ }).locator("..").locator("select");
     assert.equal(await api.inputValue(), "", "A missing protocol stays unspecified in the editor");
     const discover = async () => {

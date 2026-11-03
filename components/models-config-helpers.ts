@@ -227,3 +227,12 @@ export function providerMatchesSearch(search: string, id: string, label: string)
 export function modelSidebarLabel(model: { id: string; name?: string }): string {
   return model.name?.trim() || model.id;
 }
+
+/** Models sidebar: a provider shows its models.json name (else the runtime's), as the selector does; the id when it has none. */
+export function providerSidebarLabel(
+  providerId: string,
+  provider: { name?: string },
+  runtimeName?: string,
+): string {
+  return provider.name?.trim() || runtimeName?.trim() || providerId;
+}

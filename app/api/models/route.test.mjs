@@ -123,6 +123,7 @@ test("honors ?scope=all on demand and reports isScoped accurately", async () => 
   await writeFile(join(agentDir, "models.json"), JSON.stringify({
     providers: {
       acme: {
+        name: "Acme Gateway",
         baseUrl: "https://example.invalid/v1",
         apiKey: "sk-test",
         api: "openai-completions",
@@ -144,6 +145,7 @@ test("honors ?scope=all on demand and reports isScoped accurately", async () => 
     assert.equal(scoped.status, 200);
     assert.equal(scoped.body.isScoped, true);
     assert.deepEqual(scoped.body.modelList.map((m) => `${m.provider}:${m.id}`), ["acme:one"]);
+    assert.deepEqual(scoped.body.modelList.map((m) => m.providerName), ["Acme Gateway"]);
 
     const all = await models(repo, "all");
     assert.equal(all.status, 200);
@@ -152,6 +154,7 @@ test("honors ?scope=all on demand and reports isScoped accurately", async () => 
       all.body.modelList.map((m) => `${m.provider}:${m.id}`),
       ["acme:one", "acme:two"],
     );
+    assert.deepEqual(all.body.modelList.map((m) => m.providerName), ["Acme Gateway", "Acme Gateway"]);
 
     // Caches are independent: scoped call still returns scoped models
     const scopedAgain = await models(repo);

@@ -9,6 +9,7 @@ import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessio
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
+import { movePanelTab, orderPanelTabs } from "@/lib/panel-tab-order";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
@@ -576,7 +577,8 @@ export function AppShell() {
   const sideTabsSavedOnWorkspaceSwitchRef = useRef(false);
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const activeProjectKeyRef = useRef<string | null>(null);
-  const panelTabs: Tab[] = [
+  const [panelTabOrder, setPanelTabOrder] = useState<string[]>([]);
+  const panelTabs: Tab[] = orderPanelTabs([
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
       id: tab.id,
@@ -595,7 +597,13 @@ export function AppShell() {
         kind: (tab.side ? "side" : "agent") as "agent" | "side",
       };
     }),
-  ];
+  ], panelTabOrder);
+  // A closed tab leaves the saved order, so reopening it appends it like any new tab.
+  const panelTabIds = panelTabs.map((tab) => tab.id).join("\n");
+  useEffect(() => {
+    const open = new Set(panelTabIds.split("\n"));
+    setPanelTabOrder((order) => order.every((id) => open.has(id)) ? order : order.filter((id) => open.has(id)));
+  }, [panelTabIds]);
 
   useEffect(() => {
     try {
@@ -2934,6 +2942,7 @@ export function AppShell() {
               activeTabId={activeFileTabId ?? ""}
               onSelectTab={setActiveFileTabId}
               onCloseTab={handleCloseFileTab}
+              onReorderTab={(source, target, after) => setPanelTabOrder(movePanelTab(panelTabs.map((tab) => tab.id), source, target, after))}
             />
           </div>
           <button
