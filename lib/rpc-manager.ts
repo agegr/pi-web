@@ -1406,6 +1406,9 @@ export class AgentSessionWrapper {
 
           const entry = sessionManager.getEntry(entryId);
           if (!entry) throw new Error("Invalid entry ID for forking");
+          // pi's fork asks `session_before_fork` handlers first: one may cancel it, or
+          // ask (a dialog in the page) whether to restore the code to that point.
+          if (await this.forkCancelledByExtension(entryId)) return { cancelled: true };
 
           const sessionDir = sessionManager.getSessionDir();
           let newSessionFile: string;
@@ -2421,6 +2424,14 @@ export class AgentSessionWrapper {
         invalidateModelRuntimeWithExtensions();
       },
     };
+  }
+
+  /** As AgentSessionRuntime.emitBeforeFork(): only when a handler listens, and true on `{ cancel: true }`. */
+  private async forkCancelledByExtension(entryId: string): Promise<boolean> {
+    const runner = this.inner.extensionRunner;
+    if (!runner.emit || !runner.hasHandlers?.("session_before_fork")) return false;
+    const result = await runner.emit({ type: "session_before_fork", entryId, position: "before" });
+    return (result as { cancel?: unknown } | undefined)?.cancel === true;
   }
 
   private syncProjectTrust(): void {
