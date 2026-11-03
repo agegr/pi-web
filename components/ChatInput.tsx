@@ -101,7 +101,7 @@ interface Props {
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
-  /** The page answers `/new`, `/tree`, `/resume` and `/settings` (the main chat, not a tab's): offered in the palette. */
+  /** The page answers `/new`, `/tree` and `/resume` (the main chat, not a tab's): offered in the palette. */
   pageCommands?: boolean;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
@@ -306,7 +306,7 @@ type BuiltinSlashCommand = {
   description: string;
   source: "builtin";
   availableWhileStreaming?: boolean;
-  /** Answered by the page (`pageCommands`): a new session, the branch panel, the session search, Settings. */
+  /** Answered by the page (`pageCommands`): a new session, the branch panel, the session search. */
   page?: boolean;
 };
 
@@ -1137,8 +1137,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
     if (attachedImages.length || !msg.startsWith("/")) return false;
-    if (runPickerCommandRef.current(msg)) {
-      clearInput();
+    const picked = runPickerCommandRef.current(msg);
+    if (picked) {
+      if (picked !== "keep") clearInput();
       return true;
     }
     if (!onBuiltinCommand) return false;
@@ -1395,7 +1396,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       }
     };
     if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
-      void runBuiltinCommand(msg);
+      // One the chat cannot answer (a page command in a tab, `/new foo`) is queued as before.
+      void runBuiltinCommand(msg).then((handled) => {
+        if (!handled) queue();
+      }, () => queue());
       return;
     }
     if (!attachedImages.length && onBuiltinCommand && isBareMcpCommand(msg)) {
@@ -1756,32 +1760,43 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   // `/model` and `/thinking` open the composer's own pickers, as pi's TUI opens
   // its selectors; an exact model or a level offered is chosen at once. A ref:
-  // runBuiltinCommand is built before the options are.
-  const runPickerCommandRef = useRef<(msg: string) => boolean>(() => false);
+  // runBuiltinCommand is built before the options are. "keep" leaves the text
+  // in the composer: a model switch is still pending.
+  const runPickerCommandRef = useRef<(msg: string) => boolean | "keep">(() => false);
   runPickerCommandRef.current = (msg: string) => {
     const match = msg.match(/^\/(model|thinking)(?:\s+([\s\S]*))?$/);
     if (!match) return false;
     const [, command, rawArgs = ""] = match;
     const args = rawArgs.trim();
-    if (command === "model") {
-      if (!onModelChange) return false;
-      const exact = args ? findExactModelOption(args, modelOptions) : undefined;
-      if (exact) {
-        if (exact.provider !== model?.provider || exact.modelId !== model?.modelId || isAutoModelSelection) onModelChange(exact.provider, exact.modelId);
-      } else {
-        modelSelectorRef.current?.open(args);
+    if (command === "model" ? !onModelChange : !onThinkingLevelChange) return false;
+    const exactModel = command === "model" && args ? findExactModelOption(args, modelOptions) : undefined;
+    const level = command === "thinking" && args ? findThinkingLevel(args, availableThinkingLevels) : null;
+    if (command === "model" && modelSwitching) return "keep";
+    if (exactModel) {
+      if (exactModel.provider !== model?.provider || exactModel.modelId !== model?.modelId || isAutoModelSelection) {
+        onModelChange?.(exactModel.provider, exactModel.modelId);
       }
       return true;
     }
-    if (!onThinkingLevelChange) return false;
-    const level = args ? findThinkingLevel(args, availableThinkingLevels) : null;
     if (level) {
-      onThinkingLevelChange(level);
-    } else {
+      onThinkingLevelChange?.(level);
+      return true;
+    }
+    // A phone's keyboard hides the controls row (globals.css): close it, then
+    // open the picker once the row is back.
+    if (isMobile) textareaRef.current?.blur();
+    if (command === "thinking") {
       // On a phone the reasoning button lives in the More strip.
       if (isMobile) setControlsMenuOpen(true);
       setThinkingDropdownOpen(true);
+      return true;
     }
+    let frames = 0;
+    const openPicker = () => {
+      if (modelSelectorRef.current?.open(args) || ++frames > 60) return;
+      requestAnimationFrame(openPicker);
+    };
+    openPicker();
     return true;
   };
 

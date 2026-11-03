@@ -50,7 +50,7 @@ import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
-import type { SettingsSection } from "@/lib/settings-navigation";
+import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
 import { withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import {
   enqueueExtensionUiRequest,
@@ -2635,20 +2635,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
 
     // These open something and need no session: a fresh composer must not start one.
+    // pi's TUI takes them only as typed (`/login` and `/export` take an argument);
+    // with any other text they are a prompt there too.
     switch (commandName) {
       case "new":
       case "tree":
-      case "resume":
-      case "settings": {
-        if (!onPageCommand) return { handled: false };
+      case "resume": {
+        if (args || !onPageCommand) return { handled: false };
         const refusal = onPageCommand(commandName);
         return complete(refusal ? { handled: true, error: translate(refusal) } : { handled: true, action: "page" });
       }
+      case "settings":
+        if (args) return { handled: false };
+        // The page opens it as its gear does; a tab's chat at the last section.
+        if (onPageCommand) onPageCommand("settings");
+        else if (onOpenSettings) onOpenSettings(getLastSettingsSection(opts.session?.cwd ?? newSessionCwd ?? null));
+        else return { handled: false };
+        return complete({ handled: true, action: "openSettings" });
       case "login":
       case "logout":
       case "scoped-models":
         // pi's TUI signs in and scopes models in its own selectors; here both are Settings › Models.
-        if (!onOpenSettings) return { handled: false };
+        if ((commandName !== "login" && args) || !onOpenSettings) return { handled: false };
         onOpenSettings("models");
         return complete({ handled: true, action: "openSettings" });
       case "export": {
@@ -2783,7 +2791,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onPageCommand, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, sessionStats, slashCommandsForMcp, startSideChat, translate]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, newSessionCwd, promoteNewSession, onOpenSettings, onPageCommand, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, opts.session?.cwd, sessionStats, slashCommandsForMcp, startSideChat, translate]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in

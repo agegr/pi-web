@@ -15,7 +15,8 @@ export interface ModelSelectorOption {
 
 /** Opens the picker from elsewhere: the composer's `/model` with no exact match. */
 export interface ModelSelectorHandle {
-  open: (filter?: string) => void;
+  /** False while the trigger is not laid out (a phone keyboard hides its row) or locked. */
+  open: (filter?: string) => boolean;
 }
 
 /**
@@ -151,13 +152,14 @@ export function ModelSelector({
 
   useImperativeHandle(handleRef, () => ({
     open(initialFilter = "") {
-      if (locked) return;
+      if (locked) return false;
       const rect = rootRef.current?.querySelector("button")?.getBoundingClientRect();
-      if (!rect?.height) return;
+      if (!rect?.height) return false;
       setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
       setShowAll(false);
       setFilter(initialFilter);
       setOpen(true);
+      return true;
     },
   }), [locked]);
 
