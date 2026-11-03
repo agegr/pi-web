@@ -1580,6 +1580,7 @@ export const zhCNLocale: LocalePlugin = {
     "models.oauthDeviceCode": "打开验证页面，输入下面的代码：",
     "models.addHeader": "添加 Header",
     "models.displayNamePlaceholder": "显示名称",
+    "models.sortByName": "按显示名称排序模型（A–Z）",
     "models.discoveryAdded": "已添加",
     "models.discoveryShowing": "显示前 {shown} 个，共 {total} 个",
     "models.discoveryFetched": "已获取 {count} 个模型",

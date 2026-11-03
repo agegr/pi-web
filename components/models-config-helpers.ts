@@ -86,7 +86,7 @@ export function serializeHeaderRows(rows: readonly HeaderRow[]): Record<string, 
 
 /** The parts of models.json the rename tracking needs. */
 export interface ModelsConfigDraft {
-  providers?: Record<string, { models?: { id: string }[] }>;
+  providers?: Record<string, { models?: { id: string; name?: string }[] }>;
 }
 
 /** Snapshot of the model ids models.json holds, by provider and slot. */
@@ -101,6 +101,71 @@ export function trackAddedModels(slots: Map<string, (string | null)[]>, provider
   if (count <= 0) return;
   const existing = slots.get(providerName) ?? [];
   slots.set(providerName, [...existing, ...Array.from({ length: count }, () => null)]);
+}
+
+/** A provider's models in a new order: the draft to set, and the old index now at each slot. */
+export interface ModelOrderChange<T extends ModelsConfigDraft> {
+  config: T;
+  providerName: string;
+  order: number[];
+}
+
+/** Puts a provider's models in `order` and moves its saved slots along; null when nothing moves. */
+function reorderModelEntries<T extends ModelsConfigDraft>(
+  config: T,
+  slots: Map<string, (string | null)[]>,
+  providerName: string,
+  order: number[],
+): ModelOrderChange<T> | null {
+  const providers = config.providers ?? {};
+  const provider = providers[providerName];
+  const models = provider?.models;
+  if (!models || order.every((index, position) => index === position)) return null;
+  const saved = slots.get(providerName);
+  if (saved) slots.set(providerName, order.map((index) => saved[index] ?? null));
+  return {
+    config: {
+      ...config,
+      providers: { ...providers, [providerName]: { ...provider, models: order.map((index) => models[index]) } },
+    },
+    providerName,
+    order,
+  };
+}
+
+/** Moves one model to slot `to` within its provider; mutates `slots` to match. Null when either slot is outside the list. */
+export function moveModelEntry<T extends ModelsConfigDraft>(
+  config: T,
+  slots: Map<string, (string | null)[]>,
+  providerName: string,
+  from: number,
+  to: number,
+): ModelOrderChange<T> | null {
+  const models = config.providers?.[providerName]?.models ?? [];
+  if (from < 0 || from >= models.length || to < 0 || to >= models.length) return null;
+  const order = [...models.keys()];
+  order.splice(from, 1);
+  order.splice(to, 0, from);
+  return reorderModelEntries(config, slots, providerName, order);
+}
+
+/** The slot a model dragged from `from` ends up in when dropped before or after the row at `target`. */
+export function modelDropIndex(from: number, target: number, after: boolean): number {
+  const slot = after ? target + 1 : target;
+  return from < slot ? slot - 1 : slot;
+}
+
+/** Sorts a provider's models once by shown name (natural, case-insensitive, stable); mutates `slots` to match. Null when already sorted. */
+export function sortModelEntries<T extends ModelsConfigDraft>(
+  config: T,
+  slots: Map<string, (string | null)[]>,
+  providerName: string,
+): ModelOrderChange<T> | null {
+  const models = config.providers?.[providerName]?.models ?? [];
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const order = [...models.keys()].sort((left, right) =>
+    collator.compare(modelSidebarLabel(models[left]), modelSidebarLabel(models[right])));
+  return reorderModelEntries(config, slots, providerName, order);
 }
 
 /**

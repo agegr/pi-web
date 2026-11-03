@@ -1580,6 +1580,7 @@ export const zhTWLocale: LocalePlugin = {
     "models.oauthDeviceCode": "開啟驗證頁面，輸入下方的代碼：",
     "models.addHeader": "新增 Header",
     "models.displayNamePlaceholder": "顯示名稱",
+    "models.sortByName": "依顯示名稱排序模型（A–Z）",
     "models.discoveryAdded": "已新增",
     "models.discoveryShowing": "顯示前 {shown} 個，共 {total} 個",
     "models.discoveryFetched": "已取得 {count} 個模型",

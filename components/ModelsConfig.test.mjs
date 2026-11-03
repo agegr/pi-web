@@ -8,7 +8,9 @@ const {
   deleteProviderEntry,
   hasModelCostDraftValue,
   modelCostToDraft,
+  modelDropIndex,
   modelSidebarLabel,
+  moveModelEntry,
   parseCompleteModelCost,
   providerSidebarLabel,
   providerMatchesSearch,
@@ -17,6 +19,7 @@ const {
   serializeHeaderRows,
   setCompatBool,
   setCompatFlag,
+  sortModelEntries,
   trackAddedModels,
   updateHeaderRow,
 } = await jiti.import("./models-config-helpers.ts");
@@ -152,6 +155,89 @@ test("a blank id in a half-typed row is not a rename yet", () => {
 
 test("a provider added since the last save has no saved slots to compare", () => {
   assert.deepEqual(collectModelRenames(draft(["aaa"]), new Map(), new Map()), []);
+});
+
+test("moving a model changes only its provider's draft and keeps saved slots aligned", () => {
+  const model = { id: "second", name: "Second", contextWindow: 1234 };
+  const config = {
+    providers: {
+      relay: { baseUrl: "https://example.invalid/v1", models: [{ id: "first" }, model, { id: "third" }] },
+      other: { models: [{ id: "keep" }] },
+    },
+  };
+  const slots = savedModelIds(config);
+  const moved = moveModelEntry(config, slots, "relay", 1, 0);
+  assert.deepEqual(moved.order, [1, 0, 2]);
+  assert.deepEqual(moved.config.providers.relay.models.map((entry) => entry.id), ["second", "first", "third"]);
+  assert.equal(moved.config.providers.relay.models[0], model);
+  assert.equal(moved.config.providers.relay.baseUrl, config.providers.relay.baseUrl);
+  assert.equal(moved.config.providers.other, config.providers.other);
+  assert.deepEqual(config.providers.relay.models.map((entry) => entry.id), ["first", "second", "third"]);
+  assert.deepEqual(slots.get("relay"), ["second", "first", "third"]);
+  assert.deepEqual(slots.get("other"), ["keep"]);
+  assert.deepEqual(moveModelEntry(moved.config, slots, "relay", 0, 1).config, config);
+});
+
+test("model moves stay inside their provider's list and skip a move to the same slot", () => {
+  const config = draft(["first", "second"]);
+  const slots = savedModelIds(config);
+  for (const [from, to] of [[0, -1], [1, 2], [-1, 0], [2, 1], [0, 0]]) {
+    assert.equal(moveModelEntry(config, slots, "stepfun", from, to), null);
+  }
+  assert.equal(moveModelEntry(config, slots, "missing", 0, 1), null);
+  assert.deepEqual(slots.get("stepfun"), ["first", "second"]);
+});
+
+test("a model moves across the list in one step, and its drop slot counts the row it leaves", () => {
+  const config = draft(["a", "b", "c", "d"]);
+  const slots = savedModelIds(config);
+  const moved = moveModelEntry(config, slots, "stepfun", 3, 0);
+  assert.deepEqual(moved.order, [3, 0, 1, 2]);
+  assert.deepEqual(slots.get("stepfun"), ["d", "a", "b", "c"]);
+  // Dragging "a" (slot 0): before "c" lands at 1, after "c" at 2, before "a" or "b" stays at 0.
+  assert.equal(modelDropIndex(0, 2, false), 1);
+  assert.equal(modelDropIndex(0, 2, true), 2);
+  assert.equal(modelDropIndex(0, 0, true), 0);
+  assert.equal(modelDropIndex(0, 1, false), 0);
+  // Dragging "d" (slot 3) upward: before "a" lands at 0, after "b" at 2.
+  assert.equal(modelDropIndex(3, 0, false), 0);
+  assert.equal(modelDropIndex(3, 1, true), 2);
+});
+
+test("A–Z sorts shown names naturally and stably without changing another provider", () => {
+  const sameNameFirst = { id: "z-id", name: " Same " };
+  const sameNameSecond = { id: "a-id", name: "same" };
+  const config = {
+    providers: {
+      relay: { models: [{ id: "z-id-lower", name: "model 10" }, sameNameFirst, { id: "A-id", name: "Model 2" }, sameNameSecond, { id: "beta" }, { id: "alpha" }] },
+      other: { models: [{ id: "last" }] },
+    },
+  };
+  const slots = savedModelIds(config);
+  const sorted = sortModelEntries(config, slots, "relay");
+  assert.deepEqual(sorted.config.providers.relay.models, [
+    { id: "alpha" }, { id: "beta" }, { id: "A-id", name: "Model 2" },
+    { id: "z-id-lower", name: "model 10" }, sameNameFirst, sameNameSecond,
+  ]);
+  assert.deepEqual(sorted.order, [5, 4, 2, 0, 1, 3]);
+  assert.equal(config.providers.relay.models[0].id, "z-id-lower");
+  assert.equal(sorted.config.providers.other, config.providers.other);
+  assert.deepEqual(slots.get("relay"), ["alpha", "beta", "A-id", "z-id-lower", "z-id", "a-id"]);
+  assert.equal(sortModelEntries(sorted.config, slots, "relay"), null);
+  assert.equal(sortModelEntries(config, slots, "missing"), null);
+});
+
+test("reordering preserves rename, addition and deletion tracking", () => {
+  const config = draft(["first", "second", "added"]);
+  const slots = savedModelIds(draft(["first", "second"]));
+  trackAddedModels(slots, "stepfun", 1);
+  const moved = moveModelEntry(config, slots, "stepfun", 2, 1).config;
+  const renamed = { providers: { stepfun: { models: [{ id: "first" }, { id: "new" }, { id: "second-renamed" }] } } };
+  assert.deepEqual(collectModelRenames(renamed, slots, new Map()), [{ from: "stepfun/second", to: "stepfun/second-renamed" }]);
+  slots.get("stepfun").splice(1, 1);
+  const remaining = { providers: { stepfun: { models: renamed.providers.stepfun.models.filter((model) => model.id !== "new") } } };
+  assert.deepEqual(collectModelRenames(remaining, slots, new Map()), [{ from: "stepfun/second", to: "stepfun/second-renamed" }]);
+  assert.deepEqual(moved.providers.stepfun.models.map((model) => model.id), ["first", "added", "second"]);
 });
 
 const tracking = (config) => ({

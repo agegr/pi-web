@@ -1580,6 +1580,7 @@ export const enLocale: LocalePlugin = {
     "models.oauthDeviceCode": "Open the verification page and enter this code:",
     "models.addHeader": "Add header",
     "models.displayNamePlaceholder": "Display name",
+    "models.sortByName": "Sort models by shown name (A–Z)",
     "models.discoveryAdded": "added",
     "models.discoveryShowing": "Showing first {shown} of {total}",
     "models.discoveryFetched": "{count} models fetched",
