@@ -394,7 +394,7 @@ type UnconfirmedSend = {
 };
 /** `clear_queue` and `abort`: queued texts, plus the images of prompts parked behind a compaction. */
 type RecalledPrompts = { steering?: string[]; followUp?: string[]; images?: Array<{ data: string; mimeType: string }> };
-type ModelEntry = { id: string; name: string; provider: string };
+type ModelEntry = { id: string; name: string; provider: string; providerName: string };
 type ModelsResponse = {
   models: Record<string, string>;
   modelList?: ModelEntry[];

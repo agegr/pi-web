@@ -17,6 +17,7 @@ import {
   modelCostToDraft,
   modelSidebarLabel,
   parseCompleteModelCost,
+  providerSidebarLabel,
   providerMatchesSearch,
   savedModelIds,
   serializeHeaderRows,
@@ -113,6 +114,7 @@ interface ModelEntry {
 }
 
 interface ProviderEntry {
+  name?: string;
   baseUrl?: string;
   api?: string;
   apiKey?: string;
@@ -2300,7 +2302,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                         <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                       </svg>
                       <ConfigSidebarText className="is-grow">
-                        {pName}
+                        {providerSidebarLabel(
+                          pName,
+                          pData,
+                          enabledModels.view?.providers.find((provider) => provider.id === pName)?.name,
+                        )}
                       </ConfigSidebarText>
                       {scopeBadge(pName)}
                     </ConfigSidebarItem>

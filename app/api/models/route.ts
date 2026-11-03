@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
+  let modelList: { id: string; name: string; provider: string; providerName: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
@@ -36,6 +36,9 @@ async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
   const modelError = services.modelRuntime.getError();
+  const providerNames = new Map(
+    services.modelRuntime.getProviders().map((provider) => [provider.id, provider.name.trim() || provider.id]),
+  );
   const settings: SettingsManager = services.settingsManager;
   await rememberProviderModels(services.modelRuntime);
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
@@ -49,6 +52,9 @@ async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
     id: m.id,
     name: m.name,
     provider: m.provider,
+    // The selector groups by provider id, but labels the group with its display
+    // name; models.json providers get theirs from `name` too.
+    providerName: providerNames.get(m.provider) ?? m.provider,
     input: m.input,
   }));
   for (const m of visible) {
