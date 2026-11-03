@@ -122,6 +122,7 @@ type AgentStateResponse = {
   isCompacting?: boolean;
   autoCompactionEnabled?: boolean;
   extensionStatuses?: ExtensionStatusItem[];
+  extensionTitle?: string | null;
   extensionWidgets?: ExtensionWidgetItem[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
 };
@@ -526,6 +527,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isCompactingRef = useRef(false);
   const extensionUiCountRef = useRef(0);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  /** An extension's window title for this session (lib/extension-window-title.ts); undefined leaves it. */
+  const applyExtensionTitle = useCallback((title: string | null | undefined) => {
+    const sid = sessionIdRef.current;
+    if (title === undefined || !sid) return;
+    setExtensionWindowTitle(sid, title ? stripAnsi(title) : null);
+  }, []);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   // False while the session carries no tool selection of its own, so its loadout
   // follows settings.json defaultTools and the picker must say so rather than
@@ -926,6 +933,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           applyLiveUsage(liveState, sid, runId, usageRequestId);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
+          applyExtensionTitle(liveState.extensionTitle);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
           if (liveState.autoCompactionEnabled !== undefined) setAutoCompactionEnabled(liveState.autoCompactionEnabled ?? true);
@@ -949,7 +957,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
     return await flight;
-  }, [applyLiveUsage, setToolPresetState, syncLiveModel]);
+  }, [applyExtensionTitle, applyLiveUsage, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -1492,12 +1500,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           request.widgetPlacement,
         ));
         break;
-      case "setTitle": {
+      case "setTitle":
         // The page owns document.title (AppShell keeps it in sync), so it goes through there.
-        const sid = sessionIdRef.current;
-        if (request.title && sid) setExtensionWindowTitle(sid, stripAnsi(request.title));
+        applyExtensionTitle(request.title || null);
         break;
-      }
       case "set_editor_text":
         opts.chatInputRef?.current?.insertText(stripAnsi(request.text));
         break;
@@ -1507,7 +1513,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           : upsertExtensionUiRequest(queue, request));
         break;
     }
-  }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
+  }, [applyExtensionTitle, addNotice, onAttentionNeeded, opts.chatInputRef]);
 
   const settleUiStage = useCallback(() => {
     const wasRunning = agentRunningRef.current;
@@ -1711,6 +1717,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!agentRunningRef.current) return;
       if (state) {
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
+        applyExtensionTitle(state.extensionTitle);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
         // The poll leaves the prompt out: read the one the run ended with once, as agent_end does.
         fetch(`/api/agent/${encodeURIComponent(sid)}`)
@@ -1725,7 +1732,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [applyLiveUsage, finishPromptWithoutStream, syncLiveModel]);
+  }, [applyExtensionTitle, applyLiveUsage, finishPromptWithoutStream, syncLiveModel]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1814,6 +1821,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               applyLiveUsage(d.state, sid, runId, usageRequestId);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
+              applyExtensionTitle(d.state?.extensionTitle);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
@@ -2056,7 +2064,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [applyExtensionTitle, addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -3020,10 +3028,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
       if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
       if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
+      applyExtensionTitle(agentState.state.extensionTitle);
       if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
       if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
     }
-  }, [dispatch, loadTools, waitForBashSettlement, waitForPromptSettlement]);
+  }, [applyExtensionTitle, dispatch, loadTools, waitForBashSettlement, waitForPromptSettlement]);
 
   // Open a released stream again and read what it missed (a run another tab, a
   // device or an extension started or finished, statuses), shown as the mount

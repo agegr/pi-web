@@ -157,7 +157,7 @@ lib/
   worktree.ts               project/worktree resolution and git worktree operations
   draft-store.ts            local draft persistence
   extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
-  extension-window-title.ts client: an extension's ctx.ui.setTitle() for its session, the page's window title while it is selected
+  extension-window-title.ts client: each session's ctx.ui.setTitle(), the page's window title while that session is selected
   extension-ui-theme.ts     the pi Theme extension panels, widgets and statuses get: pi's system theme for a terminal reporting no colors (ANSI palette), plain text until it loads
   favicon-badge.ts          the tab's favicon badge: awaiting and unread counts drawn over the stock icon
   session-stats-format.ts   client-safe compact counts, costs and active durations of the stats toolbar and agent switcher

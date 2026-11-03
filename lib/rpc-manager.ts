@@ -338,6 +338,8 @@ export class AgentSessionWrapper {
   private activeCustomUis = new Map<string, ActiveCustomUi>();
   private extensionUiAbortController = new AbortController();
   private extensionStatuses = new Map<string, string>();
+  /** The last `ctx.ui.setTitle()`: a page that subscribes later, or loads again, shows it. */
+  private extensionTitle: string | undefined;
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
   private activeExtensionWidgets = new Map<string, ActiveExtensionWidget>();
   private extensionWidgetGenerations = new Map<string, number>();
@@ -1354,6 +1356,7 @@ export class AgentSessionWrapper {
           systemPrompt: this.exactSystemPrompt?.() ?? (this.inner.agent.state?.systemPrompt || this.inner.systemPrompt || ""),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
+          extensionTitle: this.extensionTitle ?? null,
           extensionWidgets: this.getExtensionWidgets(),
         };
       }
@@ -2343,6 +2346,7 @@ export class AgentSessionWrapper {
       setFooter: () => {},
       setHeader: () => {},
       setTitle: (title) => {
+        this.extensionTitle = title;
         this.emit({
           type: "extension_ui_request",
           id: randomUUID(),
