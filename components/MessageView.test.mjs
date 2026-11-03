@@ -71,7 +71,8 @@ test("optionally prefixes the model label with the provider's display name", () 
 
   assert.equal(getModelLabel("deepseek", "deepseek-v4.1-flash", names, providers, false), "DeepSeek V4.1 Flash");
   assert.equal(getModelLabel("deepseek", "deepseek-v4.1-flash", names, providers, true), "DeepSeek · DeepSeek V4.1 Flash");
-  assert.equal(getModelLabel("unknown", "m", names, providers, true), "unknown · unknown/m");
+  assert.equal(getModelLabel("unknown", "m", names, providers, true), "UNKNOWN · unknown/m");
+  assert.equal(getModelLabel("acme", "m", names, { acme: "  " }, true), "ACME · acme/m");
 });
 
 test("renders the provider name before the model name when the preference is on", () => {

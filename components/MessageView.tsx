@@ -256,9 +256,9 @@ export function getModelLabel(
 ): string {
   const modelName = getModelDisplayName(provider, responseModel, modelNames);
   if (!showProviderName) return modelName;
-  const providerName = providerNames?.[provider]
-    ?? Object.entries(providerNames ?? {}).find(([id]) => id.toLowerCase() === provider.toLowerCase())?.[1]
-    ?? provider;
+  const providerName = providerNames?.[provider]?.trim()
+    || Object.entries(providerNames ?? {}).find(([id]) => id.toLowerCase() === provider.toLowerCase())?.[1]?.trim()
+    || provider.toUpperCase();
   return `${providerName} · ${modelName}`;
 }
 
