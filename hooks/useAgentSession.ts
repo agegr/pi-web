@@ -1908,7 +1908,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Same late-event guard: after reconcile finished this run,
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
-        if (!agentRunningRef.current) break;
+        if (!agentRunningRef.current) {
+          // An extension's sendMessage({ display: true }) while idle (a timer, a
+          // watcher): pi writes it before this event, so the file read shows it,
+          // as pi's TUI prints it at once.
+          const idle = event.message as { role?: string; display?: boolean } | undefined;
+          if (idle?.role === "custom" && idle.display !== false && !bashRunningRef.current && sessionIdRef.current) {
+            void loadSession(sessionIdRef.current);
+          }
+          break;
+        }
         if (isSystemMessageEvent(event)) break;
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
