@@ -122,6 +122,8 @@ type AgentStateResponse = {
   autoCompactionEnabled?: boolean;
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
+  /** Extensions that failed to load, as pi's TUI lists them under "[Extension issues]". */
+  extensionLoadErrors?: Array<{ path: string; error: string }>;
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
 };
 
@@ -493,6 +495,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([]);
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
+  const translateRef = useRef(opts.t);
+  translateRef.current = opts.t;
+  // Each failed extension is announced once per page, like pi's startup listing:
+  // reopening the session or the next state read would otherwise repeat it.
+  const reportedExtensionLoadErrorsRef = useRef(new Set<string>());
+  const reportExtensionLoadErrors = useCallback((state: AgentStateResponse | undefined) => {
+    for (const entry of state?.extensionLoadErrors ?? []) {
+      const key = `${entry.path}\n${entry.error}`;
+      if (reportedExtensionLoadErrorsRef.current.has(key)) continue;
+      reportedExtensionLoadErrorsRef.current.add(key);
+      dispatchNotice({
+        type: "add",
+        notice: {
+          id: createNoticeId(),
+          type: "error",
+          message: translateRef.current("chat.extensionLoadFailed", { path: entry.path, error: stripAnsi(entry.error).trim().replace(/^Failed to load extension:\s*/i, "") }),
+        },
+      });
+    }
+  }, []);
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
   const [extensionDialogs, setExtensionDialogs] = useState<ExtensionUiDialogRequest[]>([]);
   const [extensionCustomUis, setExtensionCustomUis] = useState<ExtensionUiCustomRequest[]>([]);
@@ -926,6 +948,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
+          reportExtensionLoadErrors(liveState);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
           if (liveState.autoCompactionEnabled !== undefined) setAutoCompactionEnabled(liveState.autoCompactionEnabled ?? true);
         } else if (!agentState.running) {
@@ -948,7 +971,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
     return await flight;
-  }, [applyLiveUsage, setToolPresetState, syncLiveModel]);
+  }, [applyLiveUsage, reportExtensionLoadErrors, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -1381,8 +1404,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       },
     });
   }, []);
-  const translateRef = useRef(opts.t);
-  translateRef.current = opts.t;
   const translate = useCallback((key: string, params?: TranslationParams) => translateRef.current(key, params), []);
   // A steer or follow-up whose request failed without the server's refusal (the
   // network dropped, a proxy answered) may still have been accepted. Its text
@@ -1811,6 +1832,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
+              reportExtensionLoadErrors(d.state);
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
@@ -2052,7 +2074,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, reportExtensionLoadErrors, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

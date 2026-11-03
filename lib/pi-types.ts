@@ -75,6 +75,7 @@ interface SkillLike {
 interface ResourceLoaderLike {
   getSkills(): { skills: SkillLike[] };
   getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
+  getExtensions?(): { errors?: Array<{ path: string; error: string }> };
 }
 
 interface ExtensionRunnerLike {

@@ -889,6 +889,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.dropFoldersUnsupported": "不支持拖入文件夹，请拖入其中的文件：{names}",
     "chat.dropFailed": "上传失败：{message}",
     "chat.sendUnconfirmed": "无法确认消息是否已发送。原文已放回输入框，重发前请先检查会话。",
+    "chat.extensionLoadFailed": "扩展加载失败：{path}\n{error}",
     "chat.sendNotReceived": "消息没有送达服务器，原文已放回输入框。",
     "chat.tokensSaved": "节省 {saved}",
     "chatMinimap.earlierTurns": "更早的 {count} 轮还没加载，点击加载",

@@ -889,6 +889,7 @@ export const enLocale: LocalePlugin = {
     "chat.dropFoldersUnsupported": "Folders cannot be dropped here; drop the files inside instead: {names}",
     "chat.dropFailed": "Upload failed: {message}",
     "chat.sendUnconfirmed": "Couldn't confirm the message was sent. Its text is back in the input box: check the conversation before sending it again.",
+    "chat.extensionLoadFailed": "Extension failed to load: {path}\n{error}",
     "chat.sendNotReceived": "The message did not reach the server. Its text is back in the input box.",
     "chat.tokensSaved": "{saved} saved",
     "chatMinimap.earlierTurns": "Earlier turns not loaded: {count}. Click to load",
