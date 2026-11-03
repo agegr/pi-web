@@ -173,6 +173,7 @@ export function StatusIcon({ status }: { status: SubagentSessionStatus }) {
 function AgentRow({
   session,
   main,
+  sideTitle,
   selected,
   running,
   usage,
@@ -188,6 +189,7 @@ function AgentRow({
 }: {
   session: SessionInfo;
   main?: boolean;
+  sideTitle?: string;
   selected: boolean;
   running: boolean;
   usage?: SessionUsageSummary;
@@ -205,7 +207,7 @@ function AgentRow({
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
   const side = session.relation?.kind === "side";
   const status: SubagentSessionStatus = running ? "running" : relation?.status ?? "completed";
-  const primary = main ? t("agentSwitcher.main") : side ? sideChatTitle(session, t("agentSwitcher.sideChat")) : relation?.description || sessionTitle(session);
+  const primary = main ? t("agentSwitcher.main") : side ? sideTitle ?? t("agentSwitcher.sideChat") : relation?.description || sessionTitle(session);
   const profile = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
   const modelId = usage?.model?.modelId;
   const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
@@ -540,6 +542,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
             <AgentRow
               key={session.id}
               session={session}
+              sideTitle={session.relation?.kind === "side" ? sideChatTitle(session, t("agentSwitcher.sideChat"), subagents) : undefined}
               selected={session.id === selectedSessionId}
               running={runningSessionIds.has(session.id)}
               usage={usage[session.id]}
