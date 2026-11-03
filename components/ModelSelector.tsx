@@ -410,7 +410,7 @@ export function ModelSelector({
                   {modelsByProvider.length > 1 && (
                     <div
                       title={group.providerName === group.provider ? undefined : group.provider}
-                      style={{ padding: "6px 12px 4px", borderTop: index > 0 || onClear ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, letterSpacing: 0, textTransform: "uppercase" }}
+                      style={{ padding: "6px 12px 4px", borderTop: index > 0 || onClear ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, letterSpacing: 0, textTransform: group.providerName === group.provider ? "uppercase" : "none" }}
                     >
                       {group.providerName}
                     </div>
