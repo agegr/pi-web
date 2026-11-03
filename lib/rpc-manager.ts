@@ -1392,12 +1392,22 @@ export class AgentSessionWrapper {
           throw new Error("Cannot fork while a shell command is running");
         }
         this.refuseForkOfSideChat();
+        const entryId = command.entryId as string;
+        // pi's fork asks `session_before_fork` handlers first: one may cancel it, or
+        // ask (a dialog in the page) whether to restore the code to that point. Not
+        // under the copy's lock below: a dialog waits on the user, and Stop or a steer
+        // for a running source must still go through meanwhile.
+        if (this.inner.sessionManager.getEntry(entryId) && await this.forkCancelledByExtension(entryId)) {
+          return { cancelled: true };
+        }
+        if (this.inner.isBashRunning) {
+          throw new Error("Cannot fork while a shell command is running");
+        }
         // Forking copies finished entries from disk into a new file and never
         // touches this AgentSession, so a running source keeps its run. Only an
         // idle source is shut down, because the browser moves to the child.
         const keepSource = this.isSessionRunningForReplacement();
         return this.withSessionReplacement("fork", async () => {
-          const entryId = command.entryId as string;
           const sessionManager = this.inner.sessionManager;
           const currentSessionFile = this.inner.sessionFile;
 
@@ -1406,9 +1416,6 @@ export class AgentSessionWrapper {
 
           const entry = sessionManager.getEntry(entryId);
           if (!entry) throw new Error("Invalid entry ID for forking");
-          // pi's fork asks `session_before_fork` handlers first: one may cancel it, or
-          // ask (a dialog in the page) whether to restore the code to that point.
-          if (await this.forkCancelledByExtension(entryId)) return { cancelled: true };
 
           const sessionDir = sessionManager.getSessionDir();
           let newSessionFile: string;
@@ -2428,6 +2435,14 @@ export class AgentSessionWrapper {
 
   /** As AgentSessionRuntime.emitBeforeFork(): only when a handler listens, and true on `{ cancel: true }`. */
   private async forkCancelledByExtension(entryId: string): Promise<boolean> {
+    // Bound first, as pi forks only a bound session: before that a handler sees no UI
+    // (`ctx.hasUI` false) and takes its non-interactive branch. A binding that failed
+    // leaves no handler to ask; the copy goes on.
+    try {
+      await this.waitForExtensionsBound();
+    } catch {
+      return false;
+    }
     const runner = this.inner.extensionRunner;
     if (!runner.emit || !runner.hasHandlers?.("session_before_fork")) return false;
     const result = await runner.emit({ type: "session_before_fork", entryId, position: "before" });
