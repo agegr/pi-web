@@ -191,6 +191,10 @@ function chatOnlyExtensionModelError(provider: string, modelId: string): Error {
 
 export const MCP_WAIT_STOPPED_MESSAGE = "Stopped while MCP servers were connecting; the message was not sent.";
 
+/** A running `!` command's output tail sent to the page, and how often (createBashOutputSnapshots). */
+const BASH_OUTPUT_TAIL_BYTES = 64 * 1024;
+const BASH_OUTPUT_INTERVAL_MS = 150;
+
 const IDLE_RESET_EVENT_TYPES = new Set([
   "agent_end",
   "agent_settled",
@@ -435,6 +439,31 @@ export class AgentSessionWrapper {
    */
   isAlive(): boolean {
     return this._alive && !this.closing;
+  }
+
+  /**
+   * A running `!` command's output for the page, as pi's TUI draws it while it runs:
+   * the tail (`BASH_OUTPUT_TAIL_BYTES`) at most every `BASH_OUTPUT_INTERVAL_MS`, as
+   * `bash_output` snapshots a later one replaces, never pi's per-chunk deltas, which a
+   * command printing megabytes would pile up in a slow stream.
+   */
+  private createBashOutputSnapshots(): { onChunk: (chunk: string) => void; stop: () => void } {
+    let tail = "";
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    return {
+      onChunk: (chunk) => {
+        tail = (tail + chunk).slice(-BASH_OUTPUT_TAIL_BYTES);
+        if (timer) return;
+        timer = setTimeout(() => {
+          timer = null;
+          this.emit({ type: "bash_output", output: tail } as unknown as AgentEvent);
+        }, BASH_OUTPUT_INTERVAL_MS);
+      },
+      stop: () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      },
+    };
   }
 
   /** A `!` command is under way: its `user_bash` handlers, or pi running it. */
@@ -1697,6 +1726,7 @@ export class AgentSessionWrapper {
         const excludeFromContext = command.excludeFromContext === true;
         // pi counts a command as running only once executeBash starts; the hook comes first.
         this.userBashPending = true;
+        const liveOutput = this.createBashOutputSnapshots();
         try {
           // pi's TUI and RPC mode ask `user_bash` handlers first: one may run the
           // command itself (a sandbox, a remote host) or hand over how to. A handler
@@ -1712,7 +1742,7 @@ export class AgentSessionWrapper {
             this.inner.recordBashResult?.(bashCommand, hooked.result, { excludeFromContext });
             result = hooked.result;
           } else {
-            result = await this.inner.executeBash(bashCommand, undefined, {
+            result = await this.inner.executeBash(bashCommand, liveOutput.onChunk, {
               excludeFromContext,
               // An extension's operations get what pi gives them: no `env` (its
               // executor's own, a sandbox's). Wrapping them would hand the host's
@@ -1726,6 +1756,7 @@ export class AgentSessionWrapper {
           return result;
         } finally {
           this.userBashPending = false;
+          liveOutput.stop();
           // A run that ended while the command went on reports its end now (isRunning() held it).
           this.notifyAgentRunCompleteIfIdle();
           this.resetIdleTimer();

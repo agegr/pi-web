@@ -1353,7 +1353,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 message={{
                   role: "bashExecution",
                   command: pendingBash.command,
-                  output: "",
+                  output: pendingBash.liveOutput ?? "",
                   ...pendingBash.result,
                   excludeFromContext: pendingBash.excludeFromContext,
                 } as BashExecutionMessage}

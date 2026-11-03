@@ -204,6 +204,8 @@ export type BuiltinSlashCommandResult =
 export interface PendingBash {
   command: string;
   excludeFromContext: boolean;
+  /** What the command printed so far (`bash_execution_update`), its tail; the result replaces it. */
+  liveOutput?: string;
   result?: { output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string };
 }
 
@@ -2062,6 +2064,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
         }
         break;
+      case "bash_output": {
+        // The wrapper's snapshot of a running `!` command's output tail.
+        const output = event.output;
+        if (!bashRunningRef.current || typeof output !== "string") break;
+        setPendingBash((pending) => (pending && !pending.result ? { ...pending, liveOutput: output } : pending));
+        break;
+      }
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
@@ -2255,6 +2264,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
+      // Its output streams as it runs, as in pi's TUI; without a stream it comes at the end.
+      await ensureEventsConnected(sid).catch(() => {});
       const result = await sendAgentCommand<PendingBash["result"]>(sid, {
         type: "bash",
         command,
@@ -2278,7 +2289,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setPendingBash(deferred);
       setBashRunning(false);
     }
-  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
+  }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
 
 
