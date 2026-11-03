@@ -2548,14 +2548,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
-            {/* Model selector - visible always, disabled while the session or switch is busy */}
+            {/* Model selector - visible always, busy while a switch is pending; a switch during a run applies from its next request */}
             {(modelOptions.length > 0 || model || modelError) && onModelChange && (
               <ModelSelector
                 options={modelOptions}
                 value={model}
                 onChange={onModelChange}
                 onReselect={onModelChange}
-                disabled={isStreaming}
                 busy={modelSwitching}
                 isAutoSelection={isAutoModelSelection}
                 defaultValue={defaultModel}
