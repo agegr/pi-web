@@ -35,7 +35,7 @@ import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { SelectorRow } from "./SelectorRow";
-import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { ModelSelector, findExactModelOption, type ModelSelectorHandle, type ModelSelectorOption } from "./ModelSelector";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -101,6 +101,8 @@ interface Props {
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
+  /** The page answers `/new`, `/tree`, `/resume` and `/settings` (the main chat, not a tab's): offered in the palette. */
+  pageCommands?: boolean;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
@@ -304,6 +306,8 @@ type BuiltinSlashCommand = {
   description: string;
   source: "builtin";
   availableWhileStreaming?: boolean;
+  /** Answered by the page (`pageCommands`): a new session, the branch panel, the session search, Settings. */
+  page?: boolean;
 };
 
 type SlashCommandPaletteItem = SlashCommandInfo | BuiltinSlashCommand;
@@ -322,7 +326,30 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   // case is a side question during a long parent run, so it must be offered
   // mid-stream. The fork is file-level, never touching the running agent.
   { name: "side", description: "chat.commandSide", source: "builtin", availableWhileStreaming: true },
+  // pi's TUI commands, each opening what does the same here; they would
+  // otherwise reach the model as text. None touches the run.
+  { name: "new", description: "chat.commandNew", source: "builtin", availableWhileStreaming: true, page: true },
+  { name: "model", description: "chat.commandModel", source: "builtin", availableWhileStreaming: true },
+  { name: "thinking", description: "chat.commandThinking", source: "builtin", availableWhileStreaming: true },
+  { name: "tree", description: "chat.commandTree", source: "builtin", availableWhileStreaming: true, page: true },
+  { name: "resume", description: "chat.commandResume", source: "builtin", availableWhileStreaming: true, page: true },
+  { name: "export", description: "chat.commandExport", source: "builtin", availableWhileStreaming: true },
+  { name: "settings", description: "chat.commandSettings", source: "builtin", availableWhileStreaming: true },
+  { name: "login", description: "chat.commandLogin", source: "builtin", availableWhileStreaming: true },
+  { name: "logout", description: "chat.commandLogout", source: "builtin", availableWhileStreaming: true },
+  { name: "scoped-models", description: "chat.commandScopedModels", source: "builtin", availableWhileStreaming: true },
 ];
+
+/**
+ * The reasoning level a `/thinking <level>` names among those offered, as pi's
+ * `handleThinkingCommand()` matches it (case-insensitive); null opens the menu.
+ */
+export function findThinkingLevel(text: string, available: readonly string[] | null | undefined): typeof THINKING_LEVELS[number] | null {
+  const wanted = text.trim().toLowerCase();
+  const level = THINKING_LEVELS.find((candidate) => candidate === wanted);
+  if (!level) return null;
+  return level === "auto" || !available || available.includes(level) ? level : null;
+}
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
   const match = message.trim().match(/^\/([^\s]+)(?:\s|$)/);
@@ -699,6 +726,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
+  pageCommands = false,
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
   draftKey,
@@ -749,6 +777,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const modelSelectorRef = useRef<ModelSelectorHandle>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1107,7 +1136,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
-    if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
+    if (attachedImages.length || !msg.startsWith("/")) return false;
+    if (runPickerCommandRef.current(msg)) {
+      clearInput();
+      return true;
+    }
+    if (!onBuiltinCommand) return false;
     if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
@@ -1139,9 +1173,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
-    const builtinCommands = isStreaming
-      ? BUILTIN_SLASH_COMMANDS.filter((command) => command.availableWhileStreaming)
-      : BUILTIN_SLASH_COMMANDS;
+    const builtinCommands = BUILTIN_SLASH_COMMANDS.filter((command) => (
+      (!isStreaming || command.availableWhileStreaming) && (pageCommands || !command.page)
+    ));
     const commands = [...builtinCommands, ...(slashCommands ?? [])];
     return filterSlashCommands(commands, slashQuery, t);
   })();
@@ -1719,6 +1753,37 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       name,
     }));
   })();
+
+  // `/model` and `/thinking` open the composer's own pickers, as pi's TUI opens
+  // its selectors; an exact model or a level offered is chosen at once. A ref:
+  // runBuiltinCommand is built before the options are.
+  const runPickerCommandRef = useRef<(msg: string) => boolean>(() => false);
+  runPickerCommandRef.current = (msg: string) => {
+    const match = msg.match(/^\/(model|thinking)(?:\s+([\s\S]*))?$/);
+    if (!match) return false;
+    const [, command, rawArgs = ""] = match;
+    const args = rawArgs.trim();
+    if (command === "model") {
+      if (!onModelChange) return false;
+      const exact = args ? findExactModelOption(args, modelOptions) : undefined;
+      if (exact) {
+        if (exact.provider !== model?.provider || exact.modelId !== model?.modelId || isAutoModelSelection) onModelChange(exact.provider, exact.modelId);
+      } else {
+        modelSelectorRef.current?.open(args);
+      }
+      return true;
+    }
+    if (!onThinkingLevelChange) return false;
+    const level = args ? findThinkingLevel(args, availableThinkingLevels) : null;
+    if (level) {
+      onThinkingLevelChange(level);
+    } else {
+      // On a phone the reasoning button lives in the More strip.
+      if (isMobile) setControlsMenuOpen(true);
+      setThinkingDropdownOpen(true);
+    }
+    return true;
+  };
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2551,6 +2616,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {/* Model selector - visible always, busy while a switch is pending; a switch during a run applies from its next request */}
             {(modelOptions.length > 0 || model || modelError) && onModelChange && (
               <ModelSelector
+                handleRef={modelSelectorRef}
                 options={modelOptions}
                 value={model}
                 onChange={onModelChange}

@@ -262,6 +262,8 @@ export interface SessionSidebarControl {
   refreshWorktrees(): void;
   /** Creates a worktree of `project` and lists it at once; the caller starts the session in it. */
   createWorktree(project: ProjectChoice, branch: string): Promise<{ path: string } | { error: string }>;
+  /** The session search, open and focused, on the sessions tab: the composer's `/resume`. */
+  openSessionSearch(): void;
 }
 
 type WorktreeEntry = WorktreeChoice;
@@ -1370,6 +1372,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [onNewSession]);
   // The handle below is made once: it calls the newest closure.
   const startNewSessionInRef = useRef(startNewSessionIn);
+  const openSessionSearchRef = useRef<() => void>(() => {});
   startNewSessionInRef.current = startNewSessionIn;
 
   useImperativeHandle(controlRef, () => ({
@@ -1387,6 +1390,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     },
     refreshWorktrees,
     createWorktree,
+    openSessionSearch: () => openSessionSearchRef.current(),
   }), [createWorktree, refreshWorktrees]);
 
   // Header "+": a new session in the sidebar's current cwd (worktree).
@@ -2725,6 +2729,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // the head has no search of its own. Below the sessions it is the
   // sessions' search alone; the files section's header has the files'.
   const sessionsShown = stacked || sidebarTab === "sessions";
+  openSessionSearchRef.current = () => {
+    if (!sessionsShown) switchTab("sessions");
+    setSessionSearchOpen(true);
+    // An open field keeps its query; autoFocus covers only a new one.
+    requestAnimationFrame(() => document.getElementById("session-search-input")?.focus({ preventScroll: true }));
+  };
   const searchesFiles = !stacked && sidebarTab === "files" && explorerCwd !== null;
   // What the toolbar row's widths depend on: New's label, and the tabs (the
   // chosen tab's label is bolder, the files tab carries the count). The

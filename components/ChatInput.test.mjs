@@ -11,9 +11,9 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, findThinkingLevel, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
-const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
+const { ModelSelector, findExactModelOption } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
 // as a second copy, and ChatInput would never see the drafts set here (#1211).
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store");
@@ -712,6 +712,7 @@ test("locks built-in command submission until it settles", async () => {
     canClearBuiltinCommandInput,
     clearInput() {},
     onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
+    runPickerCommandRef: { current: () => false },
     setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
     valueRef: { current: "/reload" },
   });
@@ -736,6 +737,35 @@ test("keeps only read-only built-ins available while a run is active", () => {
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/auto-compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/reload"), false);
+});
+
+test("pi's TUI commands that only open something stay available while a run is active", () => {
+  for (const command of ["/new", "/model", "/model gpt-5", "/thinking high", "/tree", "/resume", "/export", "/settings", "/login", "/logout", "/scoped-models"]) {
+    assert.equal(canRunBuiltinSlashCommandWhileStreaming(command), true, command);
+  }
+});
+
+test("/model switches only on a reference pi would resolve exactly", () => {
+  const options = [
+    { provider: "anthropic", modelId: "claude-opus-4-5", name: "Opus" },
+    { provider: "openrouter", modelId: "claude-opus-4-5", name: "Opus (OR)" },
+    { provider: "openai", modelId: "gpt-5", name: "GPT-5" },
+  ];
+  assert.equal(findExactModelOption("openai/gpt-5", options)?.provider, "openai");
+  assert.equal(findExactModelOption("GPT-5", options)?.modelId, "gpt-5");
+  assert.equal(findExactModelOption("OpenRouter/Claude-Opus-4-5", options)?.provider, "openrouter");
+  // The same id on two providers is ambiguous: the picker opens filtered instead.
+  assert.equal(findExactModelOption("claude-opus-4-5", options), undefined);
+  assert.equal(findExactModelOption("gpt", options), undefined);
+  assert.equal(findExactModelOption("", options), undefined);
+});
+
+test("/thinking sets only a level the model offers", () => {
+  assert.equal(findThinkingLevel("HIGH", ["off", "low", "high"]), "high");
+  assert.equal(findThinkingLevel("xhigh", ["off", "low", "high"]), null);
+  assert.equal(findThinkingLevel("medium", null), "medium");
+  assert.equal(findThinkingLevel("auto", ["off"]), "auto");
+  assert.equal(findThinkingLevel("loud", null), null);
 });
 
 test("a bare /mcp reaches the built-in handler while a run is active", () => {

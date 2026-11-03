@@ -251,6 +251,13 @@ Files: `lib/markdown.ts` (`markdownClobberPrefix`, `rehypeMatchClobberedIds`, `j
 
 ## Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper and returns its HTML unchanged. pi 1.5.0's template walks the tree iteratively, so very deep linear sessions no longer overflow the browser call stack; pi-web's string patch for that was removed when it stopped matching.
+- The composer's `/export` downloads it (`lib/session-export-client.ts`): fetched first, so a failed export is a notice instead of a saved error page, then saved under the route's `Content-Disposition` name. Its arguments (pi's output path) are ignored; a fresh composer has nothing to export.
+
+## pi's TUI commands in the composer (`BUILTIN_SLASH_COMMANDS`, `components/ChatInput.tsx`)
+- pi's SDK leaves its built-in commands to the TUI (`interactive-mode.js` `setupEditorSubmitHandler`), so without a case here `/new` or `/model` reached the model as text. Each opens what does the same in the page; none touches a run, so all may be typed while one streams.
+- `/model` and `/thinking` are the composer's own (`runPickerCommandRef`, before `onBuiltinCommand`): bare, they open the model picker (`ModelSelectorHandle.open()`) or the reasoning menu (inside More on a phone). With an argument they choose at once what pi's TUI would: a model by `findExactModelOption()` (`provider/id`, else an id only one provider of the scoped list has; pi's `findExactModelReferenceMatch()` without fuzzy matching), a level by `findThinkingLevel()` among those offered. Anything else opens the picker filtered by the text, or the menu.
+- `/new`, `/tree`, `/resume` and `/settings` are the page's (`onPageCommand`, `handlePageCommand` in `AppShell`), so only the main chat lists them (`pageCommands`): Ctrl+Alt+N's new session, the branch panel (a refusal while the session has no branches), the sidebar's session search opened and focused (`SessionSidebarControl.openSessionSearch()`), and the gear's Settings. `/login`, `/logout` and `/scoped-models` open Settings › Models, where providers sign in and the scope is edited. They are handled before `ensureNewSession()`: a fresh composer never starts a session for them.
+- Not mapped: `/fork` (a message's own Fork), `/hotkeys`, `/import`, `/share`, `/bug`, `/changelog`, `/trust`, `/quit`.
 
 ## Deleting the selected session outlives the delete click (`components/AppShell.tsx`)
 - `SessionItem.performDelete` captures `onDeleted` at the delete click, and `handleSessionDeleted` is a `useCallback` whose `selectedSession` closure is from that same render. The DELETE request can complete **after** the user has switched sessions, so the captured selection still names the session being deleted.
