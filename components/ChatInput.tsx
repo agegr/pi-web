@@ -1335,8 +1335,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const sendToSideChat = useCallback(() => {
     const msg = value.trim();
-    if (attachedImages.length || !onSideChat) return;
-    if (msg) clearInput();
+    if (!msg || attachedImages.length || !onSideChat) return;
+    clearInput();
     onSideChat(msg);
   }, [value, attachedImages, onSideChat, clearInput]);
 
@@ -2381,10 +2381,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 <button
                   type="button"
                   onClick={sendToSideChat}
-                  disabled={attachedImages.length > 0}
-                  title={value.trim() ? t("chat.sideChatHint") : t("sideChat.new")}
-                  aria-label={value.trim() ? t("chat.sideChat") : t("sideChat.new")}
-                  className={`bg-transparent ${!attachedImages.length ? "cursor-pointer text-text-muted hover:bg-bg-hover hover:text-text" : "cursor-not-allowed text-text-dim"}`}
+                  disabled={!value.trim() || attachedImages.length > 0}
+                  title={t("chat.sideChatHint")}
+                  aria-label={t("chat.sideChat")}
+                  className={`bg-transparent ${value.trim() && !attachedImages.length ? "cursor-pointer text-text-muted hover:bg-bg-hover hover:text-text" : "cursor-not-allowed text-text-dim"}`}
                   style={{
                     width: 38,
                     display: "grid", placeItems: "center",

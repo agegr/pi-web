@@ -14,6 +14,16 @@ export interface SideTabsState {
 
 export const sideTabsKey = (rootSessionId: string) => `pi-web:side-tabs:${rootSessionId}`;
 
+/** A saved state with one more side tab, active and shown: what returning to its main session restores. */
+export function appendSideTab(raw: string | null, sessionId: string, label: string): string {
+  let tabs: unknown[] = [];
+  try {
+    const saved = JSON.parse(raw ?? "null");
+    if (Array.isArray(saved?.tabs)) tabs = saved.tabs;
+  } catch { /* a broken entry is replaced */ }
+  return JSON.stringify({ tabs: [...tabs, { sessionId, label, side: true }], activeId: `agent:${sessionId}`, open: true });
+}
+
 export function restoreSideTabs(raw: string | null, rootSessionId: string, sessions: readonly SessionInfo[]): SideTabsState {
   try {
     const saved = JSON.parse(raw ?? "null");
