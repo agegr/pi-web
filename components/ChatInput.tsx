@@ -304,13 +304,15 @@ type BuiltinSlashCommand = {
   description: string;
   source: "builtin";
   availableWhileStreaming?: boolean;
+  /** The command takes a prompt, so Enter in the palette completes "/name " instead of running it bare. */
+  takesArguments?: boolean;
 };
 
 type SlashCommandPaletteItem = SlashCommandInfo | BuiltinSlashCommand;
 
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
-const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
+export const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
   { name: "auto-compact", description: "chat.commandAutoCompact", source: "builtin" },
   { name: "reload", description: "chat.commandReload", source: "builtin" },
@@ -321,7 +323,9 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   // A side chat forks the session while it runs (ADR 0007): the primary use
   // case is a side question during a long parent run, so it must be offered
   // mid-stream. The fork is file-level, never touching the running agent.
-  { name: "side", description: "chat.commandSide", source: "builtin", availableWhileStreaming: true },
+  // A bare `/side` opens an empty side chat and `/side <prompt>` sends that
+  // prompt, so the palette must let the prompt be typed before the fork happens.
+  { name: "side", description: "chat.commandSide", source: "builtin", availableWhileStreaming: true, takesArguments: true },
 ];
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
@@ -350,13 +354,15 @@ export function isExactSlashCommand(message: string, command: SlashCommandPalett
 
 /**
  * Whether Enter on the highlighted palette entry submits the message rather
- * than completing it to "/name ": a built-in typed in full (while a run
- * streams, only one that may run then), or a bare `/mcp` on pi's built-in
- * `/mcp`, which opens Settings › MCP at once, as it does before the command
- * list has loaded. Every other extension command still takes a second Enter.
+ * than completing it to "/name ": a built-in that takes a prompt completes
+ * first, then a built-in typed in full (while a run streams, only one that
+ * may run then), or a bare `/mcp` on pi's built-in `/mcp`, which opens
+ * Settings › MCP at once, as it does before the command list has loaded.
+ * Every other extension command still takes a second Enter.
  */
 export function submitsSlashCommandOnEnter(message: string, command: SlashCommandPaletteItem, isStreaming: boolean): boolean {
   if (command.source === "builtin") {
+    if (command.takesArguments) return false;
     return isExactSlashCommand(message, command) && (!isStreaming || command.availableWhileStreaming === true);
   }
   return isBuiltinMcpCommand(command) && isBareMcpCommand(message);

@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { BUILTIN_SLASH_COMMANDS, ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
@@ -765,6 +765,72 @@ test("Enter on pi's built-in /mcp submits it at once; other extension commands s
   assert.equal(submitsSlashCommandOnEnter("/compact", compact, false), true);
   assert.equal(submitsSlashCommandOnEnter("/compact", compact, true), false);
   assert.equal(submitsSlashCommandOnEnter("/co", copy, false), false);
+});
+
+test("a built-in that takes a prompt completes on Enter instead of running bare", () => {
+  const side = BUILTIN_SLASH_COMMANDS.find((command) => command.name === "side");
+  assert.equal(side?.takesArguments, true);
+  // Enter in the palette only completes "/side ": the prompt is typed after it.
+  assert.equal(isExactSlashCommand("/side", side), true);
+  assert.equal(submitsSlashCommandOnEnter("/side", side, false), false);
+  assert.equal(submitsSlashCommandOnEnter("/side", side, true), false);
+  // A prompt after the command is sent as typed, never as a palette pick.
+  assert.equal(submitsSlashCommandOnEnter("/side why did this test fail?", side, false), false);
+  // The other built-ins still run on a full name.
+  const compact = { name: "compact", description: "", source: "builtin" };
+  assert.equal(submitsSlashCommandOnEnter("/compact", compact, false), true);
+});
+
+test("Enter on the palette's /side only completes it; the composers sends it on the next Enter", () => {
+  const side = BUILTIN_SLASH_COMMANDS.find((command) => command.name === "side");
+  const run = (value, { slashMenuOpen = true, slashQuery = "side", isStreaming = false } = {}) => {
+    const calls = { completed: [], sent: 0, prevented: 0 };
+    const handleKeyDown = chatInputCallback("handleKeyDown", {
+      isMobile: false,
+      enterSendMode: "enter",
+      isStreaming,
+      isComposingRef: { current: false },
+      lastCompositionEndAtRef: { current: 0 },
+      COMPOSITION_END_ENTER_GRACE_MS: 500,
+      historyMenuOpen: false,
+      inputHistory: [],
+      historyActiveIndex: 0,
+      slashMenuOpen,
+      slashQuery,
+      displayedSlashCommands: slashQuery === null ? [] : [side],
+      slashActiveIndex: 0,
+      applySlashCommand: (command) => calls.completed.push(command.name),
+      setSlashMenuOpen() {},
+      setSlashActiveIndex() {},
+      getNextSlashIndex: () => 0,
+      atMenuOpen: false,
+      atQuery: null,
+      atMatches: [],
+      atActiveIndex: 0,
+      applyAtCompletion() {},
+      value,
+      submitsSlashCommandOnEnter,
+      handleSend: () => { calls.sent += 1; },
+      sendQueued() { throw new Error("only a streaming run queues"); },
+    });
+    handleKeyDown({
+      key: "Enter",
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      preventDefault() { calls.prevented += 1; },
+      nativeEvent: { isComposing: false, keyCode: 13 },
+    });
+    return calls;
+  };
+
+  // The palette's Enter completes "/side " — the fork waits for the prompt.
+  assert.deepEqual(run("/side"), { completed: ["side"], sent: 0, prevented: 1 });
+  // Nothing left in the menu: the next Enter sends what was typed, which is how a
+  // bare /side opens an empty side chat and /side <prompt> sends that prompt.
+  assert.deepEqual(run("/side ", { slashMenuOpen: false, slashQuery: null }), { completed: [], sent: 1, prevented: 1 });
+  assert.deepEqual(run("/side why did this test fail?", { slashMenuOpen: false, slashQuery: null }), { completed: [], sent: 1, prevented: 1 });
 });
 
 function chatInputCallback(name, context) {
