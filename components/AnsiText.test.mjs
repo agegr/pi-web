@@ -36,8 +36,16 @@ test("xterm 256-color palette", () => {
 
 test("standard 16 colors and full reset", () => {
   const html = toHtml("\x1b[32mgreen\x1b[0m tail");
-  assert.match(html, /color:rgb\(0,187,0\)/);
+  assert.match(html, /<span class="ansi-green-fg">green<\/span>/);
   assert.match(html, /tail/);
+});
+
+test("palette colors follow the app scheme: classes, 256-color indices 0-15 too", () => {
+  const html = toHtml("\x1b[38;5;13mpi\x1b[39m \x1b[95mbright\x1b[39m \x1b[41mbg\x1b[49m");
+  assert.match(html, /<span class="ansi-bright-magenta-fg">pi<\/span>/);
+  assert.match(html, /<span class="ansi-bright-magenta-fg">bright<\/span>/);
+  assert.match(html, /<span class="ansi-red-bg">bg<\/span>/);
+  assert.doesNotMatch(html, /style=/);
 });
 
 test("decoration codes render as styles (not dropped)", () => {
@@ -71,6 +79,6 @@ test("newlines inside text are preserved", () => {
 });
 
 test("styles do not leak between complete widget snapshots", () => {
-  assert.match(toHtml("\x1b[31mred"), /color:rgb\(187,0,0\)/);
+  assert.match(toHtml("\x1b[31mred"), /class="ansi-red-fg"/);
   assert.equal(toHtml("plain"), "<span>plain</span>");
 });

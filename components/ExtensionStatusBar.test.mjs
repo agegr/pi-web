@@ -61,7 +61,7 @@ test("renders each status as its own cell without identifier keys", () => {
   assert.match(html, /extension-status-text/);
   assert.equal(html.match(/class="extension-status-item"/g)?.length, 2);
   assert.match(html, /extension-status-item"><span>ponytail<\/span><\/span>/);
-  assert.match(html, /<span style="[^"]*">memory<\/span>/);
+  assert.match(html, /<span class="ansi-green-fg">memory<\/span>/);
   assert.doesNotMatch(html, /05-ponytail|20-memory/);
   assert.doesNotMatch(html, /<button/);
 });
