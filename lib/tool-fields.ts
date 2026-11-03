@@ -39,3 +39,61 @@ export function toolFieldsOfInput(input: unknown): ToolField[] | null {
   }
   return fields;
 }
+
+const PREVIEW_MAX = 120;
+
+function primitiveText(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() ? value : null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+/** A nested value's first readable text: an object's first primitive, an array's items joined. */
+function nestedText(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => primitiveText(item) ?? (item && typeof item === "object" && !Array.isArray(item)
+        ? Object.values(item).map(primitiveText).find((text) => text !== null) ?? null
+        : null))
+      .filter((text): text is string => text !== null);
+    return items.length > 0 ? items.join(", ") : null;
+  }
+  if (value && typeof value === "object") {
+    for (const inner of Object.values(value)) {
+      const text = primitiveText(inner) ?? nestedText(inner);
+      if (text !== null) return text;
+    }
+  }
+  return null;
+}
+
+/**
+ * The one line a collapsed tool card shows after the tool's name: the path,
+ * command or query when the call has one, else its first readable argument.
+ * An argument that is a list or an object (an `ask_user_question` call's
+ * `questions[]`) is read for its text instead of printing `[object Object]`.
+ */
+export function toolInputPreview(input: unknown, resultPatchPath: string | null = null): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const record = input as Record<string, unknown>;
+  const clip = (text: string) => text.slice(0, PREVIEW_MAX);
+  for (const key of ["command", "path", "file_path"]) {
+    const text = primitiveText(record[key]);
+    if (text !== null) return clip(text);
+  }
+  if (resultPatchPath) return clip(resultPatchPath);
+  for (const key of ["pattern", "query"]) {
+    const text = primitiveText(record[key]);
+    if (text !== null) return clip(text);
+  }
+  const values = Object.values(record);
+  for (const value of values) {
+    const text = primitiveText(value);
+    if (text !== null) return clip(text);
+  }
+  for (const value of values) {
+    const text = nestedText(value);
+    if (text !== null) return clip(text);
+  }
+  return "";
+}
