@@ -25,6 +25,7 @@ pi's `navigateTree()` refuses while streaming or compacting: the file has one le
 
 ## Two kinds of branching — don't confuse them
 - **Fork** ("New session" on a user message, or the sidebar's Fork): a new `.jsonl` file whose header `parentSession` names the source. It is its own row in its project group (`relation.kind: "fork"`); only subagents fold into a family, so copying a subagent session would carry its metadata and hide the copy in the parent's family. Rows sort by their last user/assistant message: a chat fork copies up to the parent of a user message, so it is older than its source and sorts below it (one made at the first message is header-only and sorts by its header time, first); a sidebar Fork of the newest branch ties with its source and sorts first (`[s, ...current]` on the client, newest-mtime-first on the server).
+- A message's "New session" copies the branch up to that message, not with it, so the new session's composer starts with the message (`setDraft()` under the new id before the switch; `forkFromMessage` in ChatWindow, the text and images as "Edit from here" restores them), as pi's `/fork` leaves the selected message in the editor: send it again or change it first.
 - **In-session branch** ("Edit from here" / BranchNavigator): `navigate_tree` within one file; entries share a `parentId`. Switching calls `/api/sessions/[id]/context?leafId=`.
 
 ## Session files can be fully rewritten
