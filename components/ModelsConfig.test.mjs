@@ -10,6 +10,7 @@ const {
   modelCostToDraft,
   modelSidebarLabel,
   parseCompleteModelCost,
+  providerSidebarLabel,
   providerMatchesSearch,
   renameProviderEntry,
   savedModelIds,
@@ -251,4 +252,13 @@ test("the Models sidebar labels a model by its name and falls back to the id", (
   assert.equal(modelSidebarLabel({ id: "m1" }), "m1");
   assert.equal(modelSidebarLabel({ id: "m1", name: "  " }), "m1");
   assert.equal(modelSidebarLabel({ id: "", name: "" }), "");
+});
+
+test("the Models sidebar labels a provider by its models.json name and falls back to the id", () => {
+  assert.equal(providerSidebarLabel("aiflashapi", { name: "AI Flash API" }), "AI Flash API");
+  assert.equal(providerSidebarLabel("typesafe", {}), "typesafe");
+  assert.equal(providerSidebarLabel("typesafe", { name: "  " }), "typesafe");
+  assert.equal(providerSidebarLabel("openai", {}, "OpenAI"), "OpenAI");
+  assert.equal(providerSidebarLabel("typesafe", {}, "TypeSafe"), "TypeSafe");
+  assert.equal(providerSidebarLabel("openai", { name: "OpenAI API" }, "OpenAI"), "OpenAI API");
 });

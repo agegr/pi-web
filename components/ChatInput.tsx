@@ -59,14 +59,14 @@ interface Props {
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
-  modelList?: { id: string; name: string; provider: string; input?: string[] }[];
+  modelList?: { id: string; name: string; provider: string; providerName?: string; input?: string[] }[];
   modelError?: string | null;
   /** The session's folder, when it no longer exists (moved or renamed): said instead of a model error (#1422). */
   missingCwd?: string | null;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
   /** Every available model, once loaded for the selector's "all" scope. */
-  allModelList?: { id: string; name: string; provider: string }[] | null;
+  allModelList?: { id: string; name: string; provider: string; providerName?: string }[] | null;
   /** Set only while `enabledModels` narrows the list: loads `allModelList`. */
   onLoadAllModels?: () => void;
   onModelChange?: (provider: string, modelId: string) => void;
@@ -667,7 +667,7 @@ export function ModelErrorBanner({ error }: { error?: string | null }) {
 /** True when the selected model is known to accept image input (#584). Unknown modality info never blocks the user. */
 export function modelSupportsImageInput(
   model: { provider: string; modelId: string } | null | undefined,
-  modelList: { id: string; name: string; provider: string; input?: string[] }[] | undefined
+  modelList: { id: string; name: string; provider: string; providerName?: string; input?: string[] }[] | undefined
 ): boolean {
   if (!model) return true;
   const entry = modelList?.find((m) => m.provider === model.provider && m.id === model.modelId);
@@ -1693,7 +1693,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelSelectorOption[] = (() => {
     if (modelList && modelList.length > 0) {
-      return modelList.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }));
+      return modelList.map((m) => ({ provider: m.provider, providerName: m.providerName, modelId: m.id, name: m.name }));
     }
     return Object.entries(modelNames ?? {}).map(([modelId, name]) => ({
       provider: model?.provider ?? "unknown",
@@ -2542,7 +2542,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 isAutoSelection={isAutoModelSelection}
                 defaultValue={defaultModel}
                 onSetDefault={onSetDefaultModel}
-                allOptions={allModelList?.map((m) => ({ provider: m.provider, modelId: m.id, name: m.name }))}
+                allOptions={allModelList?.map((m) => ({ provider: m.provider, providerName: m.providerName, modelId: m.id, name: m.name }))}
                 onShowAll={onLoadAllModels}
               />
             )}
