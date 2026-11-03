@@ -1709,10 +1709,11 @@ export class AgentSessionWrapper {
           } else {
             result = await this.inner.executeBash(bashCommand, undefined, {
               excludeFromContext,
-              // An extension's operations still get the sanitized environment.
-              operations: createProjectCommandBashOperations({
+              // An extension's operations get what pi gives them: no `env` (its
+              // executor's own, a sandbox's). Wrapping them would hand the host's
+              // environment and agent bin directory into that sandbox.
+              operations: hooked?.operations ?? createProjectCommandBashOperations({
                 shellPath: this.inner.settingsManager.getShellPath(),
-                ...(hooked?.operations ? { localOperations: hooked.operations } : {}),
               }),
             });
           }
