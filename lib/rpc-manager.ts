@@ -67,6 +67,7 @@ import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
+import { collectStartupIssues, type StartupIssue } from "./startup-issues";
 import { collectLiveAssistantNotices, readShowCacheMissNotices, withSessionPrices } from "./transcript-notices-server";
 import {
   appendClearedSessionToolSelection,
@@ -177,7 +178,12 @@ type AgentSessionWrapperOptions = {
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
   sideChat?: boolean;
+  /** What went wrong as the session started (lib/startup-issues.ts), told to its first watcher. */
+  startupIssues?: readonly StartupIssue[];
 };
+
+/** Notices held for a session nobody watches yet; older ones go first. */
+const UNWATCHED_NOTICE_LIMIT = 20;
 
 /**
  * Chat only loads no extensions, so a provider one registers is missing from its runtime (#804).
@@ -371,6 +377,7 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
+  private readonly unwatchedNotices: AgentEvent[] = [];
   // The armed idle timer is the forced cleanup Stop scheduled.
   private forcedIdleTimerArmed = false;
   private _alive = true;
@@ -404,6 +411,15 @@ export class AgentSessionWrapper {
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
     this.sideChat = options.sideChat === true;
+    for (const issue of options.startupIssues ?? []) {
+      this.unwatchedNotices.push({
+        type: "extension_ui_request",
+        id: randomUUID(),
+        method: "notify",
+        notifyType: issue.type,
+        message: issue.message,
+      } as ExtensionUiRequest as AgentEvent);
+    }
   }
 
   get sessionId(): string {
@@ -962,6 +978,13 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
+    // An extension error at session_start (or in a run no page watches) has no
+    // one to tell yet: the next watcher hears it, as pi's TUI shows it at start.
+    if (this.listeners.size === 0 && event.type === "extension_error") {
+      this.unwatchedNotices.push(event);
+      if (this.unwatchedNotices.length > UNWATCHED_NOTICE_LIMIT) this.unwatchedNotices.shift();
+      return;
+    }
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -1047,6 +1070,8 @@ export class AgentSessionWrapper {
     this.listeners.add(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
     for (const event of this.activeToolEvents.values()) listener(event);
+    const notices = this.unwatchedNotices.splice(0);
+    for (const event of notices) listener(event);
     return () => {
       this.listeners.delete(listener);
     };
@@ -3309,7 +3334,7 @@ export async function startRpcSession(
         ? findDeferredModel(services.modelRuntime, defaultProvider, defaultModelId)
         : undefined)
       : undefined;
-    const { session: inner } = await createAgentSessionFromServices({
+    const { session: inner, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
       ...(startupModel ? { model: startupModel } : {}),
@@ -3339,6 +3364,13 @@ export async function startRpcSession(
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const mcpHost = builtins?.mcpHost ?? subagentMcp?.mcpHost;
+    const startupIssues = collectStartupIssues({
+      diagnostics: services.diagnostics,
+      extensions: services.resourceLoader.getExtensions(),
+      commandDiagnostics: inner.extensionRunner.getCommandDiagnostics?.(),
+      modelFallbackMessage,
+    });
+    for (const issue of startupIssues) console.warn(`[pi-web] session ${inner.sessionId}: ${issue.message}`);
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
@@ -3354,6 +3386,7 @@ export async function startRpcSession(
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
       sideChat: isSideChat,
+      startupIssues,
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
