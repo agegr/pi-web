@@ -660,11 +660,11 @@ export function AssistantMessageHeader({ modelName, estimatedTokens = 0, tps = n
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
             </svg>
-            {/* Leave a pixel for per-glyph rounding at the six-digit boundary. */}
-            <span style={{ minWidth: "calc(6ch + 1px)", textAlign: "right" }}>{estimatedTokens}</span>
+            {/* Both minimum widths leave a pixel for per-glyph rounding at the widest value. */}
+            <span style={{ minWidth: "calc(6ch + 1px)" }}>{estimatedTokens}</span>
           </span>
           {tps !== null && (
-            <span style={{ marginLeft: 6, padding: "1px 6px", minWidth: "10ch", boxSizing: "content-box", textAlign: "right", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
+            <span style={{ marginLeft: 6, padding: "1px 6px", minWidth: "calc(9ch + 1px)", boxSizing: "content-box", textAlign: "center", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
               {tps.toFixed(1)} t/s
             </span>
           )}
