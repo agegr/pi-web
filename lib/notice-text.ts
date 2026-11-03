@@ -32,3 +32,34 @@ export function splitNoticeText(message: string): NoticeTextPart[] {
   });
   return parts;
 }
+
+export interface NoticeLinkPart {
+  kind: "text" | "link";
+  text: string;
+}
+
+// An http(s) URL up to whitespace or a closing bracket or quote; trailing
+// sentence punctuation is trimmed below ("Open http://localhost:3000.").
+const URL_RE = /https?:\/\/[^\s<>"'`)\]}]+/g;
+const TRAILING_PUNCTUATION_RE = /[.,;:!?]+$/;
+
+/**
+ * Splits prose into text and the http(s) URLs in it, so a notice such as
+ * "Code review opened at http://localhost:39193" can be opened with a click,
+ * as a terminal lets one open the same line from pi's TUI. Joining the parts'
+ * text gives back the input.
+ */
+export function splitNoticeLinks(text: string): NoticeLinkPart[] {
+  const parts: NoticeLinkPart[] = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_RE)) {
+    const url = match[0].replace(TRAILING_PUNCTUATION_RE, "");
+    if (!/^https?:\/\/[^/]/.test(url)) continue;
+    const start = match.index ?? 0;
+    if (start > last) parts.push({ kind: "text", text: text.slice(last, start) });
+    parts.push({ kind: "link", text: url });
+    last = start + url.length;
+  }
+  if (last < text.length) parts.push({ kind: "text", text: text.slice(last) });
+  return parts;
+}
