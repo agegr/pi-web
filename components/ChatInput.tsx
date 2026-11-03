@@ -754,6 +754,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
+  const pendingPasteRef = useRef<object | null>(null);
   const slashCommandsRequestedRef = useRef(false);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -1560,6 +1561,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   );
 
   const handleInput = useCallback(() => {
+    pendingPasteRef.current = null;
     const ta = textareaRef.current;
     if (!ta) return;
     autoGrowTextarea(ta);
@@ -1577,6 +1579,22 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
+    if (text) {
+      // A dictation tool that pastes and then restores the clipboard can write
+      // it during this event; Chrome then drops its own insertion (#1513). When
+      // no input followed the paste, insert the text the event delivered.
+      const ta = e.currentTarget;
+      const native = e.nativeEvent;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const paste = {};
+      pendingPasteRef.current = paste;
+      setTimeout(() => {
+        if (pendingPasteRef.current !== paste) return;
+        pendingPasteRef.current = null;
+        if (!native.defaultPrevented && ta.isConnected) replaceTextareaRange(ta, start, end, text);
+      }, 0);
+    }
     if (!html || !text) return;
     const document = new DOMParser().parseFromString(html, "text/html");
     const links = Array.from(document.querySelectorAll("a[href]"), (link) => {

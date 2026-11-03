@@ -218,6 +218,66 @@ test("file mention insertion falls back to a plain edit when execCommand refuses
   }
 });
 
+test("a plain-text paste the browser dropped is inserted from the event's own text (#1513)", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findHandler(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "handlePaste") {
+      return node.initializer.arguments[0];
+    }
+    return ts.forEachChild(node, findHandler);
+  }
+  const script = new Script(ts.transpileModule(findHandler(source).getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+
+  // inputFollows: the browser's own insertion fired input (handleInput clears the ref).
+  function paste({ text, html = "", links = [], inputFollows = false, connected = true }) {
+    const timers = [];
+    const inserted = [];
+    const pendingPasteRef = { current: null };
+    const handler = script.runInNewContext({
+      compact: false, processImageFiles() {}, pendingPasteRef,
+      setTimeout(callback, delay) { timers.push([callback, delay]); },
+      replaceTextareaRange(ta, start, end, value) { inserted.push([start, end, value]); },
+      replaceLinksWithMarkdown,
+      DOMParser: class {
+        parseFromString() {
+          return {
+            body: {},
+            querySelectorAll: () => links.map(([label, href]) => ({ textContent: label, getAttribute: () => href })),
+            createRange: () => ({ setStart() {}, setEndBefore() {}, toString: () => "" }),
+          };
+        }
+      },
+      valueRef: { current: "" }, setValue() {}, setHistoryMenuOpen() {}, updateAtQuery() {}, requestAnimationFrame() {},
+    });
+    const nativeEvent = { defaultPrevented: false };
+    handler({
+      clipboardData: { items: [], getData: (type) => (type === "text/plain" ? text : type === "text/html" ? html : "") },
+      currentTarget: { value: "a draft", selectionStart: 2, selectionEnd: 5, isConnected: connected },
+      nativeEvent,
+      preventDefault() { nativeEvent.defaultPrevented = true; },
+    });
+    if (inputFollows) pendingPasteRef.current = null;
+    for (const [callback, delay] of timers) {
+      assert.equal(delay, 0);
+      callback();
+    }
+    return { inserted, prevented: nativeEvent.defaultPrevented, pending: pendingPasteRef.current };
+  }
+
+  // The native paste stays in charge: never prevented, nothing inserted twice.
+  assert.deepEqual(paste({ text: "dictated", inputFollows: true }), { inserted: [], prevented: false, pending: null });
+  // Dropped by the browser: the delivered text replaces the selection at paste time.
+  assert.deepEqual(paste({ text: "dictated" }), { inserted: [[2, 5, "dictated"]], prevented: false, pending: null });
+  // Rich text without links pastes natively too, and is recovered the same way.
+  assert.deepEqual(paste({ text: "rich", html: "<b>rich</b>" }).inserted, [[2, 5, "rich"]]);
+  // The link path takes the paste over itself: nothing to recover.
+  assert.deepEqual(paste({ text: "rich", html: "<a>rich</a>", links: [["rich", "https://example.com"]] }), { inserted: [], prevented: true, pending: null });
+  assert.deepEqual(paste({ text: "", html: "" }).inserted, []);
+  assert.deepEqual(paste({ text: "gone", connected: false }).inserted, []);
+});
+
 test("file mention arrows wrap around the match list", () => {
   const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   function findHandler(node) {
