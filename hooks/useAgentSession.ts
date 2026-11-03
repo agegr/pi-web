@@ -198,18 +198,13 @@ export type BuiltinSlashCommandResult =
 
 /**
  * A `!` command on its way into the transcript: running, or finished during a run, whose
- * result pi holds until the run ends (`recordBashResult`). `seen` counts the transcript's
- * identical entries at that point, so the card goes once the run's flush has added one.
+ * result pi holds until the run ends (`recordBashResult`) and writes before `agent_settled`.
+ * The first session read after the run's end has it, and the card goes then.
  */
 export interface PendingBash {
   command: string;
   excludeFromContext: boolean;
   result?: { output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string };
-  seen?: number;
-}
-
-function countBashEntries(messages: readonly AgentMessage[], command: string, output: string): number {
-  return messages.filter((m) => m.role === "bashExecution" && m.command === command && m.output === output).length;
 }
 
 /** How a run ended, for the completion sound and notifications. */
@@ -551,6 +546,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const rpcPromptPendingRef = useRef(false);
   const notifiedPromptRunIdRef = useRef(-1);
   const bashRunningRef = useRef(false);
+  /** The session read under way when a `!` result was held for the run's end (`PendingBash`). */
+  const deferredBashReadSeqRef = useRef(0);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
   const initialScrollDoneRef = useRef(Boolean(opts.deferInitialScroll));
@@ -811,6 +808,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const flight = (async (): Promise<unknown> => {
     let messagesLoaded = false;
     const readSeq = ++sessionReadSeqRef.current;
+    // pi writes a `!` result held during a run before the run settles: a read
+    // started once the run is over has it, and the card that showed it goes.
+    const afterRun = !agentRunningRef.current;
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
@@ -924,6 +924,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
 
       messagesLoaded = true;
+      if (afterRun && readSeq > deferredBashReadSeqRef.current) setPendingBash((pending) => (pending?.result ? null : pending));
       if (showLoading) setLoading(false);
       if (!includeState) return null;
 
@@ -2261,7 +2262,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       if (agentRunningRef.current && result) {
         // pi writes it once the run ends; the card shows the output until then.
-        deferred = { command, excludeFromContext, result, seen: countBashEntries(messagesRef.current, command, result.output) };
+        deferred = { command, excludeFromContext, result };
+        // Only a read started after this one may take the card away.
+        deferredBashReadSeqRef.current = sessionReadSeqRef.current;
       } else {
         await loadSession(sid);
         promoteNewSession(1, inputText);
@@ -2278,11 +2281,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
 
-  // The run's end wrote the deferred result: the transcript shows it now.
-  useEffect(() => {
-    if (!pendingBash?.result || agentRunning) return;
-    if (countBashEntries(messages, pendingBash.command, pendingBash.result.output) > (pendingBash.seen ?? 0)) setPendingBash(null);
-  }, [agentRunning, messages, pendingBash]);
 
   /** Recall's and Stop's queued texts, and the images of prompts parked behind a compaction, back in the composer. */
   const restoreRecalledPrompts = useCallback((recalled: RecalledPrompts | null | undefined) => {
@@ -2294,7 +2292,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
-    if (bashRunningRef.current) {
+    // Beside a run, Stop stops the run first, as Esc does in pi's TUI; the command next.
+    if (bashRunningRef.current && !agentRunningRef.current) {
       try {
         await sendAgentCommand(sid, { type: "abort_bash" });
       } catch (e) {
