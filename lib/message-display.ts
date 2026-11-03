@@ -100,6 +100,21 @@ export function getAssistantErrorMessage(
 }
 
 /**
+ * A reply cut off by Stop, as pi's TUI marks it under the partial text: its
+ * own message when an extension aborted it with one, else "" for the stock
+ * "Operation aborted". A reply with tool calls is null: their cards say so.
+ */
+export function getAssistantAbortMessage(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): string | null {
+  if (options.isStreaming || message.stopReason !== "aborted") return null;
+  if ((message.content ?? []).some((block) => block.type === "toolCall")) return null;
+  const custom = message.errorMessage?.trim();
+  return custom && custom !== "Request was aborted" ? custom : "";
+}
+
+/**
  * A turn that ended on `stopReason: "length"` spent its whole output budget
  * (often on reasoning alone) and produced no final answer; without a notice it
  * looks like a hung session. The copy lives in i18n (`chat.truncatedByOutputLimit`).
