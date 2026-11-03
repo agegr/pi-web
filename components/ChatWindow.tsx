@@ -29,6 +29,7 @@ import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
+import { useShowProviderNames } from "@/hooks/useShowProviderNames";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { DebugClientSession } from "@/lib/debug-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
@@ -947,6 +948,16 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
+  const showProviderNames = useShowProviderNames();
+  // Provider ids are stable across sessions; the display names of the current
+  // scope plus the loaded "all" list cover every message this folder shows.
+  const providerNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const model of modelList) names[model.provider] = model.providerName;
+    for (const model of allModelList ?? []) names[model.provider] = model.providerName;
+    return names;
+  }, [modelList, allModelList]);
+
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -1153,6 +1164,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     message={msg}
                     toolResults={toolResultsMap}
                     modelNames={modelNames}
+                    providerNames={providerNames}
+                    showProviderNames={showProviderNames}
                     cwd={messageCwd}
                     onOpenFile={onOpenFile}
                     onOpenSubagent={onOpenSubagent}
@@ -1333,7 +1346,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               );
             })()}
             {isStreaming && hasStreamingContent && (
-              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
+              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} providerNames={providerNames} showProviderNames={showProviderNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
             )}
 
             {(agentRunning || isCompacting) && !hasStreamingContent && (agentPhase || isCompacting) && (
@@ -1537,12 +1550,14 @@ function SideChatDivider() {
   );
 }
 
-const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent }: {
+const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, providerNames, showProviderNames, cwd, onOpenFile, onOpenSubagent }: {
   store: StreamingStore;
   /** Runs after each chunk is in the DOM. */
   onCommit: () => void;
   toolResults: Map<string, ToolResultMessage>;
   modelNames: Record<string, string>;
+  providerNames: Record<string, string>;
+  showProviderNames: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
@@ -1550,7 +1565,7 @@ const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResul
   const message = useStreamingSelector(store, selectStreamingMessage);
   useLayoutEffect(onCommit, [message, onCommit]);
   if (!message) return null;
-  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />;
+  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} providerNames={providerNames} showProviderNames={showProviderNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />;
 });
 
 // A one-line notice is exactly as tall as its entrance animation pins it, and

@@ -17,6 +17,7 @@ const {
   ThinkingBlock,
   formatToolDuration,
   getModelDisplayName,
+  getModelLabel,
   getTokenEstimateText,
   getToolCallInputText,
   replaceUserMessageText,
@@ -36,10 +37,11 @@ function renderMessage(message, props = {}) {
   );
 }
 
-test("updates a reused message when its written files change", () => {
+test("updates a reused message when its written files or provider-name preference change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
+  assert.equal(MessageView.compare(props, { ...props, showProviderNames: true }), false);
 });
 
 test("on a narrow phone a message's actions drop their labels and keep their titles", () => {
@@ -61,6 +63,28 @@ test("matches response model aliases and otherwise includes the provider", () =>
   assert.equal(getModelDisplayName("gateway", "anthropic/claude-sonnet-5", names), "Sonnet 5");
   assert.equal(getModelDisplayName("CUSTOM-API", "glm-5.3", names), "GLM 5.3");
   assert.equal(getModelDisplayName("gateway", "unknown-model", names), "gateway/unknown-model");
+});
+
+test("optionally prefixes the model label with the provider's display name", () => {
+  const names = { "deepseek:deepseek-v4.1-flash": "DeepSeek V4.1 Flash" };
+  const providers = { deepseek: "DeepSeek" };
+
+  assert.equal(getModelLabel("deepseek", "deepseek-v4.1-flash", names, providers, false), "DeepSeek V4.1 Flash");
+  assert.equal(getModelLabel("deepseek", "deepseek-v4.1-flash", names, providers, true), "DeepSeek · DeepSeek V4.1 Flash");
+  assert.equal(getModelLabel("unknown", "m", names, providers, true), "unknown · unknown/m");
+});
+
+test("renders the provider name before the model name when the preference is on", () => {
+  const props = {
+    modelNames: { "deepseek:deepseek-v4.1-flash": "DeepSeek V4.1 Flash" },
+    providerNames: { deepseek: "DeepSeek" },
+    showProviderNames: true,
+  };
+  const html = renderMessage({ role: "assistant", provider: "deepseek", model: "deepseek-v4.1-flash", content: [{ type: "text", text: "Done." }] }, props);
+  assert.match(html, /DeepSeek · DeepSeek V4\.1 Flash/);
+
+  const without = renderMessage({ role: "assistant", provider: "deepseek", model: "deepseek-v4.1-flash", content: [{ type: "text", text: "Done." }] }, { ...props, showProviderNames: false });
+  assert.doesNotMatch(without, /DeepSeek · DeepSeek V4\.1 Flash/);
 });
 
 test("previews the first thinking line and reveals the full text with the saved default", () => {

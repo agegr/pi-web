@@ -60,6 +60,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.enterSendModeEnter": "Enter",
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
     "settings.quoteSelection": "选中文字时显示操作浮窗",
+    "settings.showProviderNames": "显示提供商名称",
     "settings.sidebar": "侧边栏",
     "settings.filesPlacement": "文件浏览器",
     "settings.filesPlacementBelow": "会话下方",

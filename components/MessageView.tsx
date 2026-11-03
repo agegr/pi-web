@@ -196,6 +196,10 @@ interface Props {
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
+  /** Provider id → display name, for the optional provider prefix. */
+  providerNames?: Record<string, string>;
+  /** Prefix each model label with its provider's display name (Settings › Chat). */
+  showProviderNames?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
@@ -240,6 +244,22 @@ export function getModelDisplayName(
     ?? configured.find((model) => normalizedResponse.endsWith(`/${model.id}`))?.name
     ?? Object.entries(modelNames ?? {}).find(([key]) => key.toLowerCase() === normalizedResponse)?.[1]
     ?? `${provider}/${responseModel}`;
+}
+
+/** The message label, with the provider's display name in front when the preference is on. */
+export function getModelLabel(
+  provider: string,
+  responseModel: string,
+  modelNames?: Record<string, string>,
+  providerNames?: Record<string, string>,
+  showProviderName = false,
+): string {
+  const modelName = getModelDisplayName(provider, responseModel, modelNames);
+  if (!showProviderName) return modelName;
+  const providerName = providerNames?.[provider]
+    ?? Object.entries(providerNames ?? {}).find(([id]) => id.toLowerCase() === provider.toLowerCase())?.[1]
+    ?? provider;
+  return `${providerName} · ${modelName}`;
 }
 
 function formatTime(ts?: number): string | null {
@@ -288,12 +308,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, providerNames, showProviderNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} providerNames={providerNames} showProviderNames={showProviderNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -314,6 +334,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.isStreaming === next.isStreaming
     && haveSameRelevantToolResults(prev.message, prev.toolResults, next.toolResults)
     && prev.modelNames === next.modelNames
+    && prev.providerNames === next.providerNames
+    && prev.showProviderNames === next.showProviderNames
     && prev.cwd === next.cwd
     && prev.onOpenFile === next.onOpenFile
     && prev.onOpenSubagent === next.onOpenSubagent
@@ -649,6 +671,8 @@ function AssistantMessageView({
   isStreaming,
   toolResults,
   modelNames,
+  providerNames,
+  showProviderNames,
   cwd,
   onOpenFile,
   onOpenSubagent,
@@ -667,6 +691,10 @@ function AssistantMessageView({
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
+  /** Provider id → display name, for the optional provider prefix. */
+  providerNames?: Record<string, string>;
+  /** Prefix each model label with its provider's display name (Settings › Chat). */
+  showProviderNames?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
@@ -841,7 +869,7 @@ function AssistantMessageView({
         }}
       >
         {message.provider && (
-          <span>{getModelDisplayName(message.provider, message.model, modelNames)}</span>
+          <span>{getModelLabel(message.provider, message.model, modelNames, providerNames, showProviderNames)}</span>
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);

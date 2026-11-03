@@ -60,6 +60,7 @@ export const enLocale: LocalePlugin = {
     "settings.enterSendModeEnter": "Enter",
     "settings.enterSendModeCtrlEnter": "Ctrl/Cmd+Enter",
     "settings.quoteSelection": "Show actions for selected text",
+    "settings.showProviderNames": "Show provider names",
     "settings.sidebar": "Sidebar",
     "settings.filesPlacement": "File browser",
     "settings.filesPlacementBelow": "Below sessions",
