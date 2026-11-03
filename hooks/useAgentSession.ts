@@ -355,6 +355,8 @@ function readCompactResult(result: unknown, reason: string): CompactResultInfo |
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  setText: (text: string) => void;
+  pasteText: (text: string) => void;
   insertIfEmpty: (content: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
@@ -1495,7 +1497,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (request.title) document.title = stripAnsi(request.title);
         break;
       case "set_editor_text":
-        opts.chatInputRef?.current?.insertText(stripAnsi(request.text));
+        // pi's editor setText(): the draft is replaced (an empty text clears it).
+        opts.chatInputRef?.current?.setText(stripAnsi(request.text));
         break;
       case "custom":
         setExtensionCustomUis((queue) => request.closed
@@ -2044,6 +2047,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
         }
+        break;
+      case "editor_paste":
+        if (typeof event.text === "string") opts.chatInputRef?.current?.pasteText(stripAnsi(event.text));
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);

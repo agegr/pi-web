@@ -113,6 +113,10 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  /** An extension's `setEditorText()`: the draft becomes `text`, as pi's editor `setText()` does (undoable). */
+  setText: (text: string) => void;
+  /** An extension's `pasteToEditor()`: `text` at the caret as typed, like a paste. */
+  pasteText: (text: string) => void;
   /** Insert at the caret as a paragraph of its own: a blockquote must start a line. */
   insertQuote: (text: string) => void;
   insertIfEmpty: (text: string) => void;
@@ -771,6 +775,27 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   attachedImagesRef.current = attachedImages;
 
   useImperativeHandle(ref, () => ({
+    setText(text: string) {
+      const ta = textareaRef.current;
+      if (!ta) {
+        valueRef.current = text;
+        setValue(text);
+        return;
+      }
+      replaceTextareaRange(ta, 0, ta.value.length, text);
+      setAtQuery(null);
+      requestAnimationFrame(() => autoGrowTextarea(ta));
+    },
+    pasteText(text: string) {
+      const ta = textareaRef.current;
+      if (!ta) {
+        setValue((v) => v + text);
+        return;
+      }
+      replaceTextareaRange(ta, ta.selectionStart ?? ta.value.length, ta.selectionEnd ?? ta.value.length, text);
+      setAtQuery(null);
+      requestAnimationFrame(() => autoGrowTextarea(ta));
+    },
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
