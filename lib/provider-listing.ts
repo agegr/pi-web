@@ -17,9 +17,13 @@ export type ProviderCredentialType = "api_key" | "oauth";
 /** Auth status sources that mean "this key comes from models.json". */
 const CUSTOM_PROVIDER_SOURCES = new Set(["models_json_key", "models_json_command"]);
 
-/** Friendlier names for OAuth entries whose provider name is not self-explanatory. */
+/**
+ * Friendlier names for OAuth entries whose provider name is not self-explanatory.
+ * pi names openai-codex "OpenAI Codex (legacy)": Sign in with ChatGPT on the
+ * `openai` provider supersedes it, and both sign in with a ChatGPT account.
+ */
 const OAUTH_DISPLAY_NAMES: Record<string, string> = {
-  "openai-codex": "ChatGPT Plus/Pro",
+  "openai-codex": "ChatGPT Plus/Pro (legacy)",
   "github-copilot": "GitHub Copilot",
 };
 
