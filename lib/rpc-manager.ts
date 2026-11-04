@@ -6,6 +6,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { isDeepStrictEqual } from "util";
 import { validateAgentImages } from "./image-attachments";
+import { EXTENSION_REPORTED_CODE } from "./agent-client";
 import { cwdMissingError } from "./missing-cwd";
 import { invalidateModelsCache } from "./models-cache";
 import { invalidateModelRuntimeWithExtensions } from "./model-runtime";
@@ -1701,6 +1702,9 @@ export class AgentSessionWrapper {
             command: bashCommand,
             excludeFromContext,
             cwd: this.inner.sessionManager.getCwd(),
+          }).catch((error: unknown) => {
+            // The runner's extension_error is the notice, as pi's TUI shows it once.
+            throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code: EXTENSION_REPORTED_CODE });
           });
           let result;
           if (hooked?.result) {
