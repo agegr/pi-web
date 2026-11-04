@@ -53,11 +53,11 @@ function primitiveText(value: unknown): string | null {
  * list of only those (`web_search`'s `queries[]`, `fetch_content`'s `urls[]`,
  * an argv-style `command`), its items joined.
  */
-function firstRankText(value: unknown): string | null {
+function firstRankText(value: unknown, separator = ", "): string | null {
   if (!Array.isArray(value)) return primitiveText(value);
   if (value.length === 0 || !value.every((item) => item === null || typeof item !== "object")) return null;
   const items = value.map(primitiveText).filter((text): text is string => text !== null);
-  return items.length > 0 ? items.join(", ") : null;
+  return items.length > 0 ? items.join(separator) : null;
 }
 
 /** A nested value's first readable text: an object's first value that reads, a list's items' texts joined. */
@@ -89,7 +89,8 @@ export function toolInputPreview(input: unknown, resultPatchPath: string | null 
   const record = input as Record<string, unknown>;
   const clip = (text: string) => text.slice(0, PREVIEW_MAX);
   for (const key of ["command", "path", "file_path"]) {
-    const text = firstRankText(record[key]);
+    // An argv-style command reads as the command line it is.
+    const text = firstRankText(record[key], key === "command" ? " " : ", ");
     if (text !== null) return clip(text);
   }
   if (resultPatchPath) return clip(resultPatchPath);
