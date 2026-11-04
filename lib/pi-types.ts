@@ -83,7 +83,11 @@ interface ExtensionRunnerLike {
     description?: string;
     sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;
-  emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
+  emit?(event:
+    | { type: "session_shutdown"; reason: "quit" }
+    | { type: "session_before_fork"; entryId: string; position: "before" | "at" }
+  ): Promise<unknown>;
+  hasHandlers?(eventType: string): boolean;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
 }
 

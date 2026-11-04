@@ -1155,9 +1155,7 @@ export class AgentSessionWrapper {
           if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
           }
-          if (this.extensionUiAbortController.signal.aborted) {
-            this.extensionUiAbortController = new AbortController();
-          }
+          this.renewExtensionUiStop();
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
           let preflightAccepted = false;
@@ -1392,12 +1390,22 @@ export class AgentSessionWrapper {
           throw new Error("Cannot fork while a shell command is running");
         }
         this.refuseForkOfSideChat();
+        const entryId = command.entryId as string;
+        // pi's fork asks `session_before_fork` handlers first: one may cancel it, or
+        // ask (a dialog in the page) whether to restore the code to that point. Not
+        // under the copy's lock below: a dialog waits on the user, and Stop or a steer
+        // for a running source must still go through meanwhile.
+        if (this.inner.sessionManager.getEntry(entryId) && await this.forkCancelledByExtension(entryId, "before")) {
+          return { cancelled: true };
+        }
+        if (this.inner.isBashRunning) {
+          throw new Error("Cannot fork while a shell command is running");
+        }
         // Forking copies finished entries from disk into a new file and never
         // touches this AgentSession, so a running source keeps its run. Only an
         // idle source is shut down, because the browser moves to the child.
         const keepSource = this.isSessionRunningForReplacement();
         return this.withSessionReplacement("fork", async () => {
-          const entryId = command.entryId as string;
           const sessionManager = this.inner.sessionManager;
           const currentSessionFile = this.inner.sessionFile;
 
@@ -1482,6 +1490,14 @@ export class AgentSessionWrapper {
         if (!sessionManager.isPersisted() || !leafId || !branchHasAssistant) return { cancelled: true };
         if (!currentSessionFile || !existsSync(currentSessionFile)) return { cancelled: true };
 
+        // pi's /clone asks the fork's handlers too, at the leaf (`position: "at"`), and
+        // likewise outside the copy's lock. `byExtension` tells the composer this refusal
+        // from the one above, which it reports as an empty or unsaved session.
+        if (await this.forkCancelledByExtension(leafId, "at")) return { cancelled: true, byExtension: true };
+        if (this.isSessionRunningForReplacement()) {
+          throw new Error("Cannot clone while the session is running");
+        }
+
         return this.withSessionReplacement("clone", async () => {
           const sessionDir = sessionManager.getSessionDir();
           const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
@@ -1500,6 +1516,11 @@ export class AgentSessionWrapper {
         if (this.inner.isBashRunning) {
           throw new Error("Cannot navigate while a shell command is running");
         }
+        // pi's navigateTree() asks `session_before_tree` handlers first: an earlier Stop
+        // must not close their dialog before it shows. A Stop while it waits still lets the
+        // move through (pi moves inside navigateTree() right after the hook); the page shows
+        // Stop then only when a prompt was sent while the dialog waited.
+        this.renewExtensionUiStop();
         return this.navigateTreeKeepingToolSelection(command.targetId as string, {});
       }
 
@@ -1517,6 +1538,8 @@ export class AgentSessionWrapper {
       }
 
       case "compact": {
+        // `session_before_compact` handlers may ask too: an earlier Stop must not close their dialog.
+        this.renewExtensionUiStop();
         try {
           return await this.withFinalIdleReset(() =>
             this.inner.compact(command.customInstructions as string | undefined)
@@ -1636,9 +1659,7 @@ export class AgentSessionWrapper {
         if (this.isSessionRunningForReplacement()) {
           throw new Error("Wait for the current response to finish before reloading.");
         }
-        if (this.extensionUiAbortController.signal.aborted) {
-          this.extensionUiAbortController = new AbortController();
-        }
+        this.renewExtensionUiStop();
         const activeToolNames = this.inner.getActiveToolNames();
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
@@ -2421,6 +2442,40 @@ export class AgentSessionWrapper {
         invalidateModelRuntimeWithExtensions();
       },
     };
+  }
+
+  /**
+   * The Stop signal extension dialogs answer to, renewed when an earlier Stop left it aborted
+   * (Stop rejects every dialog shown under it). A `session_before_*` hook needs it renewed too:
+   * pi's runner logs a handler that throws and goes on as if it had not answered, so a guard's
+   * "Fork anyway?" would never show and the fork would go through.
+   */
+  private renewExtensionUiStop(): AbortSignal {
+    if (this.extensionUiAbortController.signal.aborted) {
+      this.extensionUiAbortController = new AbortController();
+    }
+    return this.extensionUiAbortController.signal;
+  }
+
+  /**
+   * As AgentSessionRuntime.emitBeforeFork(): only when a handler listens, and true on `{ cancel: true }`.
+   * A Stop while it runs counts as a cancel: it closes the handler's dialog, which pi's TUI answers
+   * with `undefined` and a guard reads as no.
+   */
+  private async forkCancelledByExtension(entryId: string, position: "before" | "at"): Promise<boolean> {
+    const stopSignal = this.renewExtensionUiStop();
+    // Bound first, as pi forks only a bound session: before that a handler sees no UI
+    // (`ctx.hasUI` false) and takes its non-interactive branch. A binding that failed
+    // leaves no handler to ask; the copy goes on.
+    try {
+      await this.waitForExtensionsBound();
+    } catch {
+      return false;
+    }
+    const runner = this.inner.extensionRunner;
+    if (!runner.emit || !runner.hasHandlers?.("session_before_fork")) return false;
+    const result = await runner.emit({ type: "session_before_fork", entryId, position });
+    return (result as { cancel?: unknown } | undefined)?.cancel === true || stopSignal.aborted;
   }
 
   private syncProjectTrust(): void {

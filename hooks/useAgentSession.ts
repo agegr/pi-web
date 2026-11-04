@@ -2725,10 +2725,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentRunningRef.current || bashRunningRef.current) {
             return complete({ handled: true, error: "Cannot clone while the session is running" });
           }
-          const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
+          const result = await sendAgentCommand<{ cancelled?: boolean; byExtension?: boolean; newSessionId?: string }>(sid, {
             type: "clone",
             leafId: activeLeafId,
           });
+          // A `session_before_fork` handler said no: as pi's /clone, nothing more is said
+          // (the handler tells why, if it wants to).
+          if (result?.cancelled && result.byExtension) return { handled: true };
           if (result?.cancelled || !result?.newSessionId) {
             return complete({ handled: true, error: "Cannot clone an empty or unsaved session" });
           }
