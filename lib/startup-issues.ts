@@ -59,9 +59,14 @@ export function limitStartupNotices(issues: readonly StartupIssue[]): StartupIss
   return shown;
 }
 
+// pi-web's own `extension_error`s (a custom panel's input, a widget factory) carry a key, not a path.
+const PI_WEB_ERROR_KEY = /^(?:custom-ui|extension-widget):/;
+
 /** pi's TUI wording of an `extension_error` (`showExtensionError()`): it names the extension. */
 export function extensionErrorMessage(extensionPath: unknown, error: string): string {
-  return typeof extensionPath === "string" && extensionPath ? `Extension "${extensionPath}" error: ${error}` : error;
+  return typeof extensionPath === "string" && extensionPath && !PI_WEB_ERROR_KEY.test(extensionPath)
+    ? `Extension "${extensionPath}" error: ${error}`
+    : error;
 }
 
 /**
