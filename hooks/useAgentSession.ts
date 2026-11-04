@@ -1762,12 +1762,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const idleMessageReadWanted = useCallback((sid: string) => (
     sessionHookMountedRef.current && sessionIdRef.current === sid && !agentRunningRef.current
   ), []);
+  // The leaf an append moved the view to. activeLeafId stays the last full
+  // read's, as the tree the navigator finds it in does; /clone copies this one
+  // while the view still ends with that append and no read moved the leaf.
+  const appendedLeafRef = useRef<{ base: string | null; lastEntryId: string; leafId: string } | null>(null);
+  // A `!` command's record a tail read found before the command's own read.
+  const idleReadAfterBashRef = useRef<string | null>(null);
   const readIdleMessages = useCallback(async (sid: string) => {
     // `tail` counts user and assistant entries: 1 reads from the newest of them to the leaf.
     const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: "1" });
     const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { context } = await res.json() as { context: SessionData["context"] };
+    const { context, leafId } = await res.json() as { context: SessionData["context"]; leafId?: string | null };
     // A run started meanwhile shows its own messages, and its end reads them all.
     if (!idleMessageReadWanted(sid)) return;
     // The window as it is now: a read that landed meanwhile started after the
@@ -1782,11 +1788,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     if (added.entryIds.length === 0) return;
+    // A `!` command's record ahead of the command's own read would show beside its
+    // pending card: that read shows it, and this one comes again after the command.
+    if (bashRunningRef.current && added.messages.some((message) => message.role === "bashExecution")) {
+      idleReadAfterBashRef.current = sid;
+      return;
+    }
     // The refs move with the state: a read landing before the render appends after these.
     entryIdsRef.current = [...entryIdsRef.current, ...added.entryIds];
     messagesRef.current = [...messagesRef.current, ...added.messages];
     setEntryIds((prev) => (prev.at(-1) === anchor ? [...prev, ...added.entryIds] : prev));
     setMessages((prev) => (prev.at(-1) === anchorMessage ? [...prev, ...added.messages] : prev));
+    if (leafId) appendedLeafRef.current = { base: activeLeafIdRef.current, lastEntryId: added.entryIds.at(-1)!, leafId };
+    // The cached view covers them too, or the unmount drops it (snapshotCoversLoadedEntries()).
+    // Its revision stays the old one, so coming back still reads the session.
+    const snapshot = getSessionViewSnapshot(sid);
+    if (snapshot) setSessionViewSnapshot({ ...snapshot, loadedEntryIds: [...snapshot.loadedEntryIds, ...added.entryIds] });
   }, [idleMessageReadWanted, loadSession]);
   const readIdleMessagesRef = useRef(readIdleMessages);
   readIdleMessagesRef.current = readIdleMessages;
@@ -2307,6 +2324,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       bashRunningRef.current = false;
       setPendingBash(null);
       setBashRunning(false);
+      const idleRead = idleReadAfterBashRef.current;
+      idleReadAfterBashRef.current = null;
+      if (idleRead) idleMessageReadsRef.current?.(idleRead);
     }
   }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
@@ -2781,9 +2801,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentRunningRef.current || bashRunningRef.current) {
             return complete({ handled: true, error: "Cannot clone while the session is running" });
           }
+          const appended = appendedLeafRef.current;
           const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
             type: "clone",
-            leafId: activeLeafId,
+            leafId: appended?.base === activeLeafId && appended.lastEntryId === entryIdsRef.current.at(-1)
+              ? appended.leafId
+              : activeLeafId,
           });
           if (result?.cancelled || !result?.newSessionId) {
             return complete({ handled: true, error: "Cannot clone an empty or unsaved session" });

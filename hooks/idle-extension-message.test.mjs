@@ -10,7 +10,7 @@ const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", imp
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
 const { renderHook } = await import(pathToFileURL(shimPath).href);
 const { useAgentSession } = await jiti.import("./useAgentSession.ts");
-const { deleteSessionViewSnapshot } = await jiti.import("@/lib/session-view-cache");
+const { deleteSessionViewSnapshot, getSessionViewSnapshot } = await jiti.import("@/lib/session-view-cache");
 
 globalThis.document ??= Object.assign(new EventTarget(), { visibilityState: "visible" });
 globalThis.window ??= new EventTarget();
@@ -28,13 +28,18 @@ async function setup({ hold = [] } = {}) {
   const sources = [];
   // The branch as the live wrapper holds it; a full read answers its newest two
   // entries, a page the two before `before`, a tail read from the newest user or
-  // assistant entry on. `hold` keeps a kind of read from answering.
+  // assistant entry on. The leaf is the last entry unless `leafId` says another
+  // (an entry no message shows). `hold` keeps a kind of read, or a `!` command
+  // ("bash"), from answering.
   const server = {
     entries: [["e1", user("one")], ["e2", assistant("two")], ["e3", user("three")], ["e4", assistant("four")]],
+    leafId: null,
     hold: new Set(hold),
     held: [],
-    reads: { full: 0, page: 0, tail: 0 },
+    reads: { full: 0, page: 0, tail: 0, bash: 0 },
+    commands: [],
   };
+  const leaf = () => server.leafId ?? server.entries.at(-1)[0];
   const context = (slice, hasMore) => ({
     messages: slice.map(([, message]) => message),
     entryIds: slice.map(([id]) => id),
@@ -70,7 +75,7 @@ async function setup({ hold = [] } = {}) {
       return answer("full", () => {
         const start = Math.max(0, server.entries.length - 2);
         const ids = server.entries.map(([id]) => id).join(",");
-        return { sessionId: "A", filePath: "/A.jsonl", leafId: server.entries.at(-1)[0], tree: [], treeFormat: "summary", snapshotRevision: `r:${ids}`, context: context(server.entries.slice(start), start > 0) };
+        return { sessionId: "A", filePath: "/A.jsonl", leafId: leaf(), tree: [], treeFormat: "summary", snapshotRevision: `r:${ids}:${leaf()}`, context: context(server.entries.slice(start), start > 0) };
       });
     }
     if (url.pathname === "/api/sessions/A/context") {
@@ -85,11 +90,16 @@ async function setup({ hold = [] } = {}) {
       return answer("tail", () => {
         let start = server.entries.length - 1;
         while (start > 0 && !["user", "assistant"].includes(server.entries[start][1].role)) start--;
-        return { context: context(server.entries.slice(start), start > 0) };
+        return { context: context(server.entries.slice(start), start > 0), leafId: leaf() };
       });
     }
     if (url.pathname === "/api/sessions/A/state") return json({ running: false, state: { isStreaming: false, isPromptRunning: false } });
-    if (url.pathname === "/api/agent/A" && init.body) return json({ success: true, data: null });
+    if (url.pathname === "/api/agent/A" && init.body) {
+      const command = JSON.parse(init.body);
+      server.commands.push(command);
+      if (command.type === "bash") return answer("bash", () => ({ success: true, data: null }));
+      return json({ success: true, data: null });
+    }
     return json({ running: false, state: { isStreaming: false, isPromptRunning: false } });
   };
   const hook = renderHook(useAgentSession, { session: { id: "A", cwd: "/project", path: "/A.jsonl", name: "A" }, newSessionCwd: null, newSessionDraftKey: null, t: (key) => key });
@@ -242,6 +252,74 @@ test("a read that does not reach back to the window takes the full read", async 
     await env.post("c1", custom("Build finished"));
     assert.equal(env.server.reads.full, fullReads + 1);
     assert.deepEqual(env.texts(), ["reply", "Build finished"]);
+  } finally {
+    env.teardown();
+  }
+});
+
+test("the cached view survives a session switch after an idle message", async () => {
+  const env = await setup();
+  let again;
+  try {
+    await env.post("c1", custom("Build finished"));
+    env.hook.unmount();
+    assert.deepEqual(getSessionViewSnapshot("A")?.entryIds, ["e3", "e4", "c1"], "the unmount kept the view");
+    // Coming back shows it before the session read answers.
+    env.server.hold.add("full");
+    again = renderHook(useAgentSession, { session: { id: "A", cwd: "/project", path: "/A.jsonl", name: "A" }, newSessionCwd: null, newSessionDraftKey: null, t: (key) => key });
+    await settle();
+    again.flush();
+    assert.equal(again.result.loading, false);
+    assert.deepEqual(again.result.entryIds, ["e3", "e4", "c1"]);
+  } finally {
+    again?.unmount();
+    mock.timers.reset();
+    deleteSessionViewSnapshot("A");
+  }
+});
+
+test("/clone after an idle message copies the branch the view shows", async () => {
+  const env = await setup();
+  const clone = async () => {
+    await env.hook.result.handleBuiltinSlashCommand("/clone");
+    await env.flush();
+    return env.server.commands.filter((command) => command.type === "clone").at(-1)?.leafId;
+  };
+  try {
+    await env.post("c1", custom("Build finished"));
+    assert.equal(env.hook.result.activeLeafId, "e4", "the navigator's leaf stays the full read's, as its tree does");
+    assert.equal(await clone(), "c1");
+    // A full read moves the leaf past the window's last entry: its leaf wins.
+    env.server.leafId = "x1";
+    await env.hook.result.handleNavigate("x1");
+    await env.flush();
+    assert.equal(env.hook.result.activeLeafId, "x1");
+    assert.deepEqual(env.hook.result.entryIds, ["e4", "c1"]);
+    assert.equal(await clone(), "x1");
+  } finally {
+    env.teardown();
+  }
+});
+
+test("a `!` command's record a tail read finds first waits for the command's read", async () => {
+  const env = await setup();
+  try {
+    env.server.hold.add("bash");
+    const running = env.hook.result.handleSend("!make");
+    await env.flush();
+    assert.equal(env.server.held.length, 1);
+    assert.ok(env.hook.result.pendingBash, "the command's card shows");
+    // pi records the command; a watcher reacting to what it wrote posts before its reply lands.
+    env.server.entries.push(["b1", { role: "bashExecution", command: "make", output: "ok", exitCode: 0, timestamp: 1 }]);
+    await env.post("c1", custom("Build finished"));
+    assert.equal(env.server.reads.tail, 1);
+    assert.deepEqual(env.hook.result.entryIds, ["e3", "e4"], "no second card beside the pending one");
+    await env.release("bash");
+    await running;
+    await env.flush();
+    assert.equal(env.hook.result.pendingBash, null);
+    assert.deepEqual(env.hook.result.entryIds, ["b1", "c1"], "the command's read shows both once");
+    assert.equal(env.server.reads.tail, 2, "and the read came again after it");
   } finally {
     env.teardown();
   }

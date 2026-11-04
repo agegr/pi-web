@@ -40,7 +40,7 @@ pi's packages up to 1.2.0 depend on each other with `^` ranges (1.3.0 pins them 
 app/api/
   sessions/route.ts                GET list all sessions
   sessions/[id]/route.ts           GET/PATCH/DELETE a session
-  sessions/[id]/context/route.ts   GET ?leafId=&tail=&before= a page of a leaf's context (tail defaults to 50; before pages upward)
+  sessions/[id]/context/route.ts   GET ?leafId=&tail=&before= a page of a leaf's context (tail defaults to 50; before pages upward; leafId defaults to pi's leaf, named in the reply)
   sessions/[id]/export/route.ts    GET exported HTML
   sessions/[id]/fork/route.ts      POST copy the session's current branch into a new session, or { side: true } a side chat (never starts an AgentSession)
   sessions/delete/route.ts         POST { ids } delete sessions and their subagents (a project's Delete all sessions); running ones kept
