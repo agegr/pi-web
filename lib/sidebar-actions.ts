@@ -16,6 +16,7 @@ import { projectNameOf, type SidebarFamilyStatus, type SidebarProject, type Side
 import type { SessionUiStateRequest } from "./session-ui-state-shared";
 
 export type SessionMenuActionId =
+  | "export-html"
   | "open-new-tab"
   | "pin"
   | "unpin"
@@ -42,6 +43,7 @@ export function sessionMenuEntries(
   status: SidebarFamilyStatus,
 ): SessionMenuEntry[] {
   if (status.transient) return [];
+  const exportHtml: SessionMenuEntry = { kind: "action", id: "export-html", shortcut: "E" };
   const openNewTab: SessionMenuEntry = { kind: "action", id: "open-new-tab", shortcut: "T" };
   if (context === "archive") {
     return [
@@ -49,6 +51,7 @@ export function sessionMenuEntries(
       { kind: "action", id: "pin", shortcut: "P" },
       { kind: "action", id: "rename", shortcut: "R" },
       { kind: "action", id: "fork", shortcut: "F" },
+      exportHtml,
       openNewTab,
       { kind: "separator" },
       { kind: "action", id: "delete", shortcut: "D" },
@@ -63,6 +66,7 @@ export function sessionMenuEntries(
     status.running
       ? { kind: "action", id: "archive", shortcut: "A", disabledReason: "running" }
       : { kind: "action", id: "archive", shortcut: "A" },
+    exportHtml,
     openNewTab,
     { kind: "separator" },
     { kind: "action", id: "delete", shortcut: "D" },

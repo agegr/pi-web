@@ -6,6 +6,7 @@ import { basename, dirname, join } from "path";
 import { promisify } from "util";
 import { fileURLToPath, pathToFileURL } from "url";
 import { NextResponse } from "next/server";
+import { labelSessionExport } from "@/lib/session-export-html";
 import { resolveSessionPath } from "@/lib/session-reader";
 
 const execFileAsync = promisify(execFile);
@@ -125,7 +126,7 @@ export async function GET(
     try {
       await exportSession(filePath, outputPath);
 
-      const html = readFileSync(outputPath, "utf8");
+      const html = labelSessionExport(readFileSync(outputPath, "utf8"), new URL(req.url).searchParams.get("locale"));
       return new Response(html, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",

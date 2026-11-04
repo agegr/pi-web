@@ -20,6 +20,11 @@ export function newSessionDeepLink(cwd: string): string {
   return `?cwd=${encodeURIComponent(cwd)}`;
 }
 
+/** Download the SDK's HTML export for the clicked session in the UI language. */
+export function sessionExportUrl(sessionId: string, locale: string): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/export?locale=${encodeURIComponent(locale)}`;
+}
+
 export interface ActivationEvent {
   button: number;
   ctrlKey: boolean;
