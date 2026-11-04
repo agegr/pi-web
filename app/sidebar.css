@@ -51,6 +51,58 @@
   box-sizing: border-box;
 }
 
+/* Activity view: the same scroll and selection vocabulary, with a second
+   line for the latest bounded text from the session catalogue. */
+.session-activity-header {
+  padding: 0 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.session-activity-row {
+  right: var(--session-tree-inset-right);
+  left: var(--session-tree-inset-left);
+  border-radius: 7px;
+}
+
+.session-activity-row:hover { background: var(--bg-hover); }
+.session-activity-row.is-selected { background: var(--bg-selected); }
+
+.session-activity-row.is-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+
+.session-activity-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  height: 100%;
+  padding: 5px 8px 5px 12px;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.session-activity-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.session-activity-line { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; }
+.session-activity-title { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.session-activity-project { flex: 0 1 auto; max-width: 32%; overflow: hidden; color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.session-activity-time, .session-activity-read { flex: none; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.session-activity-preview { display: -webkit-box; width: 100%; overflow: hidden; color: var(--text-dim); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.session-activity.is-mobile .session-activity-title { font-size: 13px; }
+.session-activity.is-mobile .session-activity-preview { font-size: 12px; }
+
 /* Safari before 18.2 has no scrollbar-gutter: an always-present scrollbar
    keeps the same room. Its track is transparent, and a subtle thumb shows only
    while the list is active and overflows. */
@@ -1089,6 +1141,19 @@ a.session-tree-main {
   width: var(--top-bar-height);
   padding: 0;
 }
+
+.sidebar-activity-toggle { position: relative; }
+.sidebar-activity-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #0891b2;
+  box-shadow: 0 0 0 1.5px var(--bg-panel);
+}
+.sidebar-activity-toggle.is-active .sidebar-activity-badge { box-shadow: 0 0 0 1.5px var(--bg-selected); }
 
 .sidebar-new-button:disabled {
   color: var(--text-dim);

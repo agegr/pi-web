@@ -18,6 +18,7 @@ import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { sessionMessagePreview } from "./session-preview";
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -28,6 +29,7 @@ export interface ScannedSessionInfo {
 	modified: Date;
 	messageCount: number;
 	firstMessage: string;
+	lastMessagePreview?: string;
 	parentSessionPath?: string;
 	/** True when only header/stat metadata was available for this listing. */
 	detailsPending?: boolean;
@@ -73,7 +75,7 @@ function isRecord(value: unknown): value is RawEntry {
 
 // Bump on any change to what foldEntry() counts: a resumed scan adds to totals
 // counted under the rules its prefix was scanned with.
-const INDEX_FORMAT_VERSION = 1;
+const INDEX_FORMAT_VERSION = 2;
 /** A trailing throttle: a run's rescans rewrite the index once per window. */
 const INDEX_PERSIST_DELAY_MS = 5_000;
 const RESUME_SAMPLE_BYTES = 512;
@@ -81,6 +83,7 @@ const NEWLINE = Buffer.from("\n");
 
 declare global {
 	var __piWebScanIndex: Map<string, IndexEntry> | undefined;
+	var __piWebScanIndexVersion: number | undefined;
 	var __piWebScanIndexLoaded: boolean | undefined;
 	var __piWebScanIndexSave: PendingIndexSave | undefined;
 }
@@ -219,6 +222,7 @@ interface ScanTotals {
 	name?: string;
 	messageCount: number;
 	firstMessage: string;
+	lastMessagePreview?: string;
 	lastActivityTime?: number;
 }
 
@@ -252,8 +256,12 @@ function foldEntry(totals: ScanTotals, entry: RawEntry): void {
 		totals.lastActivityTime = Math.max(totals.lastActivityTime ?? 0, activityTime);
 	}
 
-	if (totals.firstMessage) return;
 	const message = entry.message as RawEntry | undefined;
+	if (message) {
+		const preview = sessionMessagePreview(message);
+		if (preview) totals.lastMessagePreview = preview;
+	}
+	if (totals.firstMessage) return;
 	if (
 		!message ||
 		typeof message.role !== "string" ||
@@ -400,6 +408,7 @@ async function scanSessionFile(
 			totals.name = info.name;
 			totals.messageCount = info.messageCount;
 			totals.firstMessage = resume.hasFirstMessage ? info.firstMessage : "";
+			totals.lastMessagePreview = info.lastMessagePreview;
 			totals.lastActivityTime = resume.lastActivityTime;
 		}
 
@@ -447,6 +456,7 @@ async function scanSessionFile(
 				modified,
 				messageCount: totals.messageCount,
 				firstMessage: totals.firstMessage || "(no messages)",
+				...(totals.lastMessagePreview ? { lastMessagePreview: totals.lastMessagePreview } : {}),
 			},
 			// An inode of 0 (no stable one on this filesystem) never resumes.
 			resume: head && headerEnd > 0 && !restCounted && stats.ino > 0
@@ -512,6 +522,15 @@ async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
 }
 
 function getIndex(): Map<string, IndexEntry> {
+	// A dev hot reload keeps globalThis, including an index from the previous
+	// scanner format and its pending write. Neither can seed the new totals.
+	if (globalThis.__piWebScanIndexVersion !== INDEX_FORMAT_VERSION) {
+		clearTimeout(globalThis.__piWebScanIndexSave?.timer);
+		globalThis.__piWebScanIndexSave = undefined;
+		globalThis.__piWebScanIndex = undefined;
+		globalThis.__piWebScanIndexLoaded = undefined;
+		globalThis.__piWebScanIndexVersion = INDEX_FORMAT_VERSION;
+	}
 	if (!globalThis.__piWebScanIndex) globalThis.__piWebScanIndex = new Map();
 	return globalThis.__piWebScanIndex;
 }
@@ -543,6 +562,7 @@ function readResumePoint(value: unknown): ResumePoint | undefined {
 }
 
 function loadPersistedIndex(): void {
+	const index = getIndex();
 	if (globalThis.__piWebScanIndexLoaded) return;
 	globalThis.__piWebScanIndexLoaded = true;
 	const path = indexFilePath();
@@ -550,7 +570,6 @@ function loadPersistedIndex(): void {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
 		if (!isRecord(parsed) || parsed.version !== INDEX_FORMAT_VERSION || !isRecord(parsed.entries)) return;
-		const index = getIndex();
 		for (const [pathKey, entry] of Object.entries(parsed.entries)) {
 			if (!isRecord(entry) || !isRecord(entry.fp) || !isRecord(entry.info)) continue;
 			const { fp, info } = entry;
@@ -561,6 +580,7 @@ function loadPersistedIndex(): void {
 				typeof info.id !== "string" ||
 				typeof info.cwd !== "string" ||
 				typeof info.firstMessage !== "string" ||
+				(info.lastMessagePreview !== undefined && typeof info.lastMessagePreview !== "string") ||
 				(info.name !== undefined && typeof info.name !== "string") ||
 				(info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") ||
 				typeof info.messageCount !== "number" || !Number.isSafeInteger(info.messageCount) || info.messageCount < 0 ||
@@ -578,6 +598,7 @@ function loadPersistedIndex(): void {
 					name: info.name,
 					parentSessionPath: info.parentSessionPath,
 					firstMessage: info.firstMessage,
+					...(typeof info.lastMessagePreview === "string" ? { lastMessagePreview: info.lastMessagePreview } : {}),
 					messageCount: info.messageCount,
 					created,
 					modified,
@@ -734,6 +755,7 @@ export function flushSessionScanIndexForTests(): void {
 export function resetSessionScanIndexForTests(): void {
 	clearTimeout(globalThis.__piWebScanIndexSave?.timer);
 	globalThis.__piWebScanIndex = undefined;
+	globalThis.__piWebScanIndexVersion = undefined;
 	globalThis.__piWebScanIndexLoaded = undefined;
 	globalThis.__piWebScanIndexSave = undefined;
 	globalThis.__piSessionMembership = undefined;
