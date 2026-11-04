@@ -35,6 +35,25 @@ function callbackBody(name) {
   return between(`const ${name} = `, "\n  const ");
 }
 
+test("HTML export downloads the clicked family, never the selected session", () => {
+  const calls = [];
+  const link = { click() { calls.push(this.href); }, remove() {} };
+  const body = callbackBody("exportFamilyHtml");
+  const sandbox = {
+    selectedSessionId: "different-selected-session",
+    locale: "zh-CN",
+    sessionExportUrl: (id, locale) => `/api/sessions/${encodeURIComponent(id)}/export?locale=${locale}`,
+    document: { createElement: () => link, body: { appendChild() {} } },
+  };
+  const js = ts.transpile(body + "\nexportFamilyHtml(family);", { target: ts.ScriptTarget.ES2022 });
+  vm.runInNewContext(js, { ...sandbox, family: { root: { id: "clicked /?#" } } });
+  assert.deepEqual(calls, ["/api/sessions/clicked%20%2F%3F%23/export?locale=zh-CN"]);
+  assert.equal(link.download, "");
+  vm.runInNewContext(js, { ...sandbox, family: { root: { id: "unsaved", transient: true } } });
+  assert.equal(calls.length, 1);
+  assert.match(callbackBody("runSessionAction"), /case "export-html": exportFamilyHtml\(family\)/);
+});
+
 function session(id, { project = "/work/alpha", modified = BASE, ...rest } = {}) {
   const time = new Date(modified).toISOString();
   return {

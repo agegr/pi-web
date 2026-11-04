@@ -34,6 +34,10 @@ function SidebarIcon({ size = 13, className, label, strokeWidth = 2, children }:
   );
 }
 
+export function DownloadIcon(props: SidebarIconProps) {
+  return <SidebarIcon {...props}><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></SidebarIcon>;
+}
+
 export function PlusIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><path d="M12 5v14M5 12h14" /></SidebarIcon>;
 }

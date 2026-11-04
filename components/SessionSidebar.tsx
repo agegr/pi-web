@@ -4,7 +4,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback,
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, type SessionFamily, isHiddenRelation } from "@/lib/session-family";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
-import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
+import { newSessionDeepLink, sessionDeepLink, sessionExportUrl } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import {
@@ -117,6 +117,7 @@ import {
   SearchIcon,
   TerminalIcon,
   TrashIcon,
+  DownloadIcon,
   UploadIcon,
 } from "./SidebarIcons";
 
@@ -335,6 +336,7 @@ const SESSIONS_SECTION_MIN_HEIGHT = 120;
 const SIDEBAR_HEADER_HEIGHT = 36;
 
 const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
+  "export-html": "sidebar.exportSessionHtml",
   "open-new-tab": "sidebar.openInNewTab",
   pin: "sidebar.pin",
   unpin: "sidebar.unpin",
@@ -349,6 +351,7 @@ const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
 
 function sessionActionIcon(id: SessionMenuActionId): ReactNode {
   switch (id) {
+    case "export-html": return <DownloadIcon />;
     case "open-new-tab": return <OpenInNewTabIcon />;
     case "pin": return <PinIcon />;
     case "unpin": return <PinOffIcon />;
@@ -511,7 +514,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
 }
 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, hiddenFinishedSessionIds, onRunningSessionIdsChange, onSessionsChange }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   // Tracked in a ref only: the version is compared against the polled value to
@@ -2040,9 +2043,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     window.open(sessionDeepLink(family.root.id), "_blank", "noopener,noreferrer");
   }, []);
 
+  const exportFamilyHtml = (family: SessionFamily) => {
+    if (family.root.transient) return;
+    const link = document.createElement("a");
+    link.href = sessionExportUrl(family.root.id, locale);
+    link.download = "";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const runSessionAction = (id: SessionMenuActionId, row: SessionRow, shiftKey: boolean) => {
     const { family } = row;
     switch (id) {
+      case "export-html": exportFamilyHtml(family); break;
       case "open-new-tab": openFamilyInNewTab(family); break;
       case "pin": setFamilyPinned(family, true); break;
       case "unpin": setFamilyPinned(family, false); break;
