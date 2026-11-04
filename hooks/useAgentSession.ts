@@ -2078,6 +2078,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
     // A `!` command may run beside a run, as in pi's TUI; one at a time.
     if (bashRunningRef.current || (agentRunningRef.current && !isBashCommand)) {
+      // pi's TUI says why a second command waits.
+      if (bashRunningRef.current && isBashCommand) addNotice({ type: "warning", message: translate("chat.bashAlreadyRunning") });
       restoreSubmission(message, images, composerDraftKey);
       return;
     }
@@ -2243,7 +2245,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit, translate]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (bashRunningRef.current) return;
@@ -2286,6 +2288,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
+
+  // A `!` result held for the run's end (`PendingBash.result`): pi wrote it before the run
+  // settled, so a read started now has it and the card goes (`afterRun`). A fresh read:
+  // prompt_done and finishPromptWithoutStream() read before they settle, and any read
+  // would join the one agent_end started while the run went on.
+  const heldBashResult = pendingBash?.result;
+  useEffect(() => {
+    if (agentRunning || !heldBashResult) return;
+    const sid = sessionIdRef.current;
+    if (sid) void loadSession(sid, false, false, { force: true });
+  }, [agentRunning, heldBashResult, loadSession]);
 
 
   /** Recall's and Stop's queued texts, and the images of prompts parked behind a compaction, back in the composer. */

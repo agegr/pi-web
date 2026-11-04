@@ -6,6 +6,9 @@ import { createJiti } from "jiti";
 // A `!` command typed in the composer (`executeBash()`): its `user_bash`
 // handlers may ask through a dialog, which reaches the page only through the
 // session's event stream, and a handler that throws is one notice, the runner's.
+// Beside a run, a result pi holds until the run ends shows in its own card,
+// which goes with a session read started after the run's end; a second command
+// waits, with pi's TUI notice.
 const shimPath = fileURLToPath(new URL("./__fixtures__/react-hook-shim.mjs", import.meta.url));
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true, alias: { react: shimPath } });
 const { renderHook } = await import(pathToFileURL(shimPath).href);
@@ -23,7 +26,9 @@ async function setup({ fresh }) {
   const sid = fresh ? "s1" : "A";
   const log = [];
   const sources = [];
-  const server = { bash: Promise.withResolvers() };
+  // Session reads answer at once, or wait for release() while `holdReads` is set
+  // (a forced read never waits: it stands for the read the run's end starts).
+  const server = { bash: Promise.withResolvers(), holdReads: false, held: [] };
   globalThis.EventSource = class {
     readyState = 0;
     onmessage = null;
@@ -40,6 +45,13 @@ async function setup({ fresh }) {
     if (url.startsWith("/api/models")) return json({ models: {}, modelList: [] });
     if (url === "/api/agent/new") return json({ sessionId: sid });
     if (url.startsWith(`/api/sessions/${sid}?`)) {
+      const forced = url.includes("force=1");
+      log.push(forced ? "read:force" : "read");
+      if (server.holdReads && !forced) {
+        const release = Promise.withResolvers();
+        server.held.push(release.resolve);
+        await release.promise;
+      }
       return json({ sessionId: sid, filePath: `/${sid}.jsonl`, leafId: null, tree: [], treeFormat: "summary", snapshotRevision: "r", context: { messages: [], entryIds: [], oldestEntryId: null, hasMore: false } });
     }
     if (url === `/api/sessions/${sid}/state`) return json({ running: false });
@@ -74,7 +86,12 @@ async function setup({ fresh }) {
     for (const key of ["A", "s1", "new:draft"]) clearDraft(key);
     for (const key of ["A", "s1"]) deleteSessionViewSnapshot(key);
   };
-  return { hook, sid, log, server, connect, emit, notices, teardown };
+  const release = async () => {
+    for (const resolve of server.held.splice(0)) resolve();
+    await settle();
+    hook.flush();
+  };
+  return { hook, sid, log, server, connect, emit, release, notices, teardown };
 }
 
 async function withSetup(options, body) {
@@ -118,3 +135,46 @@ for (const fresh of [true, false]) {
     });
   });
 }
+
+test("a ! result held for the run's end leaves with a read started after the run, not one joined from agent_end", async () => {
+  await withSetup({ fresh: false }, async (env) => {
+    await env.connect();
+    await env.hook.result.handleSend("first");
+    await env.emit({ type: "agent_start" });
+    const sending = env.hook.result.handleSend("!echo MARK");
+    await settle();
+    env.server.bash.resolve(json({ success: true, data: { output: "MARK\n", exitCode: 0 } }));
+    await sending;
+    await settle();
+    env.hook.flush();
+    assert.equal(env.hook.result.pendingBash?.result?.output, "MARK\n", "the card shows the result until the run ends");
+
+    // agent_end's read is slow; prompt_done would join it.
+    env.server.holdReads = true;
+    await env.emit({ type: "agent_end" });
+    await env.emit({ type: "agent_settled" });
+    await env.emit({ type: "prompt_done" });
+    await settle();
+    env.hook.flush();
+    assert.equal(env.hook.result.agentRunning, false);
+    assert.equal(env.hook.result.pendingBash, null, "the run's end reads afresh, and the card goes");
+    assert.equal(env.log.at(-1), "read:force");
+    await env.release();
+    assert.equal(env.hook.result.pendingBash, null);
+  });
+});
+
+test("a second ! command while one runs comes back with pi's notice", async () => {
+  await withSetup({ fresh: false }, async (env) => {
+    await env.connect();
+    const first = env.hook.result.handleSend("!sleep 5");
+    await settle();
+    await env.hook.result.handleSend("!ls");
+    env.hook.flush();
+    assert.deepEqual(env.notices(), [["warning", "chat.bashAlreadyRunning"]]);
+    assert.equal(getDraft(env.sid)?.value, "!ls");
+    assert.deepEqual(env.log.filter((entry) => entry === "bash"), ["bash"]);
+    env.server.bash.resolve(json({ success: true, data: { output: "", exitCode: 0 } }));
+    await first;
+  });
+});
