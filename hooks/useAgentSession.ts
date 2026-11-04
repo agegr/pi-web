@@ -2047,6 +2047,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "auto_compaction_end":
       case "compaction_end":
         setIsCompacting(false);
+        // pi sends summarization_retry_finished first; a stream down for that
+        // retry missed it, and its banner would stay above an idle composer.
+        setRetryInfo(null);
         if (event.errorMessage) {
           setCompactError(event.errorMessage as string);
           setCompactResult(null);
