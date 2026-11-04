@@ -100,18 +100,16 @@ export function getAssistantErrorMessage(
 }
 
 /**
- * A reply cut off by Stop, as pi's TUI marks it under the partial text: its
- * own message when an extension aborted it with one, else "" for the stock
- * "Operation aborted". A reply with tool calls is null: their cards say so.
+ * A reply cut off by Stop, which pi's TUI marks "Operation aborted" as it ends.
+ * Its `errorMessage` is whatever the provider's client threw ("Request aborted",
+ * "This operation was aborted", …), so the chat says its own line instead. A
+ * tool call it streamed never ran: pi runs no tools after an abort.
  */
-export function getAssistantAbortMessage(
+export function isAssistantAborted(
   message: AssistantMessage,
   options: DisplayOptions = {},
-): string | null {
-  if (options.isStreaming || message.stopReason !== "aborted") return null;
-  if ((message.content ?? []).some((block) => block.type === "toolCall")) return null;
-  const custom = message.errorMessage?.trim();
-  return custom && custom !== "Request was aborted" ? custom : "";
+): boolean {
+  return !options.isStreaming && message.stopReason === "aborted";
 }
 
 /**

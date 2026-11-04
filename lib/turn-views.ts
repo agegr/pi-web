@@ -1,5 +1,5 @@
 import type { AssistantContentBlock, AssistantMessage } from "./types";
-import { getAssistantAbortMessage, getAssistantErrorMessage, isAssistantTruncated, splitFinalAssistantBlocks } from "./message-display";
+import { getAssistantErrorMessage, isAssistantAborted, isAssistantTruncated, splitFinalAssistantBlocks } from "./message-display";
 import type { WrittenFile } from "./turn-written-files";
 
 /** What the chat shows of a turn's final assistant message, apart. */
@@ -44,7 +44,7 @@ export function getFinalAnswerViews(
   const answer = answerBlocks.length > 0
     || getAssistantErrorMessage(message)
     || isAssistantTruncated(message)
-    || getAssistantAbortMessage(message) !== null
+    || isAssistantAborted(message)
     ? withAssistantBlocks(message, answerBlocks)
     : null;
   const processEnd = message.content.indexOf(answerBlocks[0]);
