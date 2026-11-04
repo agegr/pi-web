@@ -535,6 +535,37 @@ test("renders partial assistant content before the provider error", () => {
   assert.match(html, /Error: Connection closed/);
 });
 
+test("a stopped reply says Stopped, never the abort error its provider's client threw", () => {
+  for (const errorMessage of ["Request aborted", "This operation was aborted", "OpenAI Responses stream ended before a terminal response event"]) {
+    const html = renderMessage({
+      role: "assistant",
+      provider: "openai",
+      model: "gpt-test",
+      content: [{ type: "text", text: "Partial response" }],
+      stopReason: "aborted",
+      errorMessage,
+    });
+    assert.match(html, /Partial response/);
+    assert.match(html, />Stopped</);
+    assert.ok(!html.includes(errorMessage), errorMessage);
+  }
+
+  // Stopped while it streamed a tool call's arguments: the call never ran, so
+  // its card has no result, and the line under it says why.
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [
+      { type: "text", text: "Writing the file." },
+      { type: "toolCall", toolCallId: "call-stopped-write", toolName: "write", input: { path: "a.txt" } },
+    ],
+    stopReason: "aborted",
+    errorMessage: "This operation was aborted",
+  }, { toolResults: new Map() });
+  assert.ok(html.indexOf(">Stopped<") > html.indexOf("a.txt"));
+});
+
 test("marks persisted assistant messages with their source entry", () => {
   const html = renderMessage({
     role: "assistant",
