@@ -72,7 +72,7 @@ import {
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
-import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
+import type { AgentEndInfo, NewSessionChoices, PageSlashCommand } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
@@ -1507,6 +1507,37 @@ export function AppShell() {
   ) : null;
   const showChat = selectedSession !== null || effectiveNewSessionCwd !== null;
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
+
+  // pi's TUI commands typed in the main composer: each does what its key or button does here.
+  const handlePageCommand = useCallback((command: PageSlashCommand): string | null => {
+    switch (command) {
+      case "new":
+        // Ctrl+Alt+N's new session: the project in use.
+        if (!activeCwd) return "chat.commandNeedsProject";
+        handleNewSession(`cmd-${Date.now()}`, activeCwd);
+        return null;
+      case "tree":
+        if (!sessionHasBranches) return "chat.commandNoBranches";
+        if (isMobile) setSidebarOpen(false);
+        setMobileToolbarMoreOpen(false);
+        setActiveTopPanel("branches");
+        return null;
+      case "resume":
+        if (isMobile) {
+          setActiveTopPanel(null);
+          setMobileToolbarMoreOpen(false);
+        } else {
+          desktopSidebarOpenRef.current = true;
+        }
+        setSidebarOpen(true);
+        sidebarControlRef.current?.openSessionSearch();
+        return null;
+      case "settings":
+        setSettingsOpenAtHome(true);
+        setSettingsSection(getLastSettingsSection(projectTrustCwd));
+        return null;
+    }
+  }, [activeCwd, handleNewSession, isMobile, projectTrustCwd, sessionHasBranches]);
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
@@ -2842,6 +2873,7 @@ export function AppShell() {
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onOpenSettings={openSettingsSection}
+              onPageCommand={handlePageCommand}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
               onFilesUploaded={handleExplorerRefresh}

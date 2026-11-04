@@ -11,9 +11,9 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, findThinkingLevel, getUpwardMenuMaxHeight, offeredThinkingLevels, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
-const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
+const { ModelSelector, findExactModelOption } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
 // as a second copy, and ChatInput would never see the drafts set here (#1211).
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store");
@@ -712,6 +712,7 @@ test("locks built-in command submission until it settles", async () => {
     canClearBuiltinCommandInput,
     clearInput() {},
     onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
+    runPickerCommandRef: { current: () => false },
     setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
     valueRef: { current: "/reload" },
   });
@@ -736,6 +737,98 @@ test("keeps only read-only built-ins available while a run is active", () => {
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/auto-compact"), false);
   assert.equal(canRunBuiltinSlashCommandWhileStreaming("/reload"), false);
+});
+
+test("pi's TUI commands that only open something stay available while a run is active", () => {
+  for (const command of ["/new", "/model", "/model gpt-5", "/thinking high", "/tree", "/resume", "/export", "/settings", "/login", "/logout", "/scoped-models"]) {
+    assert.equal(canRunBuiltinSlashCommandWhileStreaming(command), true, command);
+  }
+});
+
+test("/model switches only on a reference pi would resolve exactly", () => {
+  const options = [
+    { provider: "anthropic", modelId: "claude-opus-4-5", name: "Opus" },
+    { provider: "openrouter", modelId: "claude-opus-4-5", name: "Opus (OR)" },
+    { provider: "openai", modelId: "gpt-5", name: "GPT-5" },
+  ];
+  assert.equal(findExactModelOption("openai/gpt-5", options)?.provider, "openai");
+  assert.equal(findExactModelOption("GPT-5", options)?.modelId, "gpt-5");
+  assert.equal(findExactModelOption("OpenRouter/Claude-Opus-4-5", options)?.provider, "openrouter");
+  // The same id on two providers is ambiguous: the picker opens filtered instead.
+  assert.equal(findExactModelOption("claude-opus-4-5", options), undefined);
+  assert.equal(findExactModelOption("gpt", options), undefined);
+  assert.equal(findExactModelOption("", options), undefined);
+});
+
+test("/thinking sets only a level the model offers", () => {
+  assert.equal(findThinkingLevel("HIGH", ["off", "low", "high"]), "high");
+  assert.equal(findThinkingLevel("xhigh", ["off", "low", "high"]), null);
+  assert.equal(findThinkingLevel("medium", null), "medium");
+  assert.equal(findThinkingLevel("auto", ["off"]), "auto");
+  assert.equal(findThinkingLevel("loud", null), null);
+});
+
+test("/thinking with a level the model does not offer opens nothing and says what is offered, as pi does", () => {
+  assert.deepEqual(offeredThinkingLevels(["off", "low", "high"]), ["auto", "off", "low", "high"]);
+  const sourceText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const source = ts.createSourceFile("ChatInput.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findAssignment(node) {
+    if (ts.isBinaryExpression(node) && node.left.getText(source) === "runPickerCommandRef.current") return node.right;
+    return ts.forEachChild(node, findAssignment);
+  }
+  const calls = { errors: [], levels: [], menu: [], picker: [], controls: [] };
+  const script = new Script(ts.transpileModule(`(${findAssignment(source).getText(source)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText);
+  const load = (scope) => script.runInNewContext({
+    availableThinkingLevels: ["off", "low", "high"],
+    controlsMenuOpen: false,
+    findExactModelOption,
+    findThinkingLevel,
+    offeredThinkingLevels,
+    isMobile: false,
+    modelOptions: [],
+    modelSelectorRef: { current: { open: (filter) => { calls.picker.push(filter); return true; } } },
+    modelSwitching: false,
+    onCommandError: (message) => calls.errors.push(message),
+    onModelChange() {},
+    onThinkingLevelChange: (level) => calls.levels.push(level),
+    setControlsMenuOpen: (open) => calls.controls.push(open),
+    setThinkingDropdownOpen: (open) => calls.menu.push(open),
+    t: (key, params) => `${key} ${JSON.stringify(params)}`,
+    textareaRef: { current: null },
+    thinkingOpenedControlsRef: { current: false },
+    ...scope,
+  });
+  const run = load();
+
+  // Refused: the text stays in the composer to be corrected.
+  assert.equal(run("/thinking  xhigh "), "keep");
+  assert.deepEqual(calls.errors, [`chat.thinkingUnknownLevel ${JSON.stringify({ level: "xhigh", levels: "auto, off, low, high" })}`]);
+  assert.deepEqual(calls.menu, []);
+  assert.deepEqual(calls.levels, []);
+  assert.equal(run("/thinking HIGH"), true);
+  assert.deepEqual(calls.levels, ["high"]);
+  assert.equal(run("/thinking"), true);
+  assert.deepEqual(calls.menu, [true]);
+  assert.equal(calls.errors.length, 1);
+
+  // On a phone the menu opens inside More: Esc closes the More strip it opened, not one already open.
+  const opened = { current: false };
+  assert.equal(load({ isMobile: true, thinkingOpenedControlsRef: opened })("/thinking"), true);
+  assert.deepEqual(calls.controls, [true]);
+  assert.equal(opened.current, true);
+  assert.equal(load({ isMobile: true, controlsMenuOpen: true, thinkingOpenedControlsRef: opened })("/thinking"), true);
+  assert.equal(opened.current, false);
+  opened.current = true;
+  assert.equal(load({ thinkingOpenedControlsRef: opened })("/thinking"), true);
+  assert.equal(opened.current, false);
+});
+
+test("pi's notice for an unknown thinking level, word for word", async () => {
+  const { enLocale } = await jiti.import("@/lib/i18n/messages/en");
+  // interactive-mode.js handleThinkingCommand(): `Unknown thinking level "${searchTerm}". Available levels: ${availableLevels.join(", ")}.`
+  assert.equal(enLocale.messages["chat.thinkingUnknownLevel"], 'Unknown thinking level "{level}". Available levels: {levels}.');
 });
 
 test("a bare /mcp reaches the built-in handler while a run is active", () => {

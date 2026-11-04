@@ -56,8 +56,11 @@ Coverage:
   unavailable directory shows the validation error instead of another session.
 - The model picker, with a synthetic catalog: on a phone, a simulated keyboard
   (visual viewport shrink, pan, a late height with no event) keeps the same
-  filter focused and the list in the visible viewport. Native phone keyboards
-  still need real-device verification.
+  filter focused and the list in the visible viewport. In a short list the
+  composer's `/model <text>` shows the filter field, which stays once cleared,
+  and Esc closes a bare `/model`'s picker and `/thinking`'s reasoning menu, with
+  the focus in the composer (desktop) or on the page (phone, More closing
+  too). Native phone keyboards still need real-device verification.
 - Settings › Models drags a custom provider's models within it (never into
   another provider) and moves them with Alt+↑/↓, keeps the moved row focused,
   keeps the selected model open and its row mounted while it is edited, sorts

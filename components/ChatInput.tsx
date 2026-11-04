@@ -25,6 +25,7 @@ import {
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { quoteSeparator } from "@/lib/quoted-selection";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
+import { listenForPanelEscape } from "@/lib/stacked-dialog";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
@@ -35,7 +36,7 @@ import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { SelectorRow } from "./SelectorRow";
-import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { ModelSelector, findExactModelOption, type ModelSelectorHandle, type ModelSelectorOption } from "./ModelSelector";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -101,6 +102,10 @@ interface Props {
   slashCommandsLoading?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
+  /** The page answers `/new`, `/tree` and `/resume` (the main chat, not a tab's): offered in the palette. */
+  pageCommands?: boolean;
+  /** A command the composer answers itself refused: `/thinking` with a level the model does not offer. */
+  onCommandError?: (message: string) => void;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
@@ -304,6 +309,8 @@ type BuiltinSlashCommand = {
   description: string;
   source: "builtin";
   availableWhileStreaming?: boolean;
+  /** Answered by the page (`pageCommands`): a new session, the branch panel, the session search. */
+  page?: boolean;
 };
 
 type SlashCommandPaletteItem = SlashCommandInfo | BuiltinSlashCommand;
@@ -322,7 +329,67 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   // case is a side question during a long parent run, so it must be offered
   // mid-stream. The fork is file-level, never touching the running agent.
   { name: "side", description: "chat.commandSide", source: "builtin", availableWhileStreaming: true },
+  // pi's TUI commands, each opening what does the same here; they would
+  // otherwise reach the model as text. None touches the run.
+  { name: "new", description: "chat.commandNew", source: "builtin", availableWhileStreaming: true, page: true },
+  { name: "model", description: "chat.commandModel", source: "builtin", availableWhileStreaming: true },
+  { name: "thinking", description: "chat.commandThinking", source: "builtin", availableWhileStreaming: true },
+  { name: "tree", description: "chat.commandTree", source: "builtin", availableWhileStreaming: true, page: true },
+  { name: "resume", description: "chat.commandResume", source: "builtin", availableWhileStreaming: true, page: true },
+  { name: "export", description: "chat.commandExport", source: "builtin", availableWhileStreaming: true },
+  { name: "settings", description: "chat.commandSettings", source: "builtin", availableWhileStreaming: true },
+  { name: "login", description: "chat.commandLogin", source: "builtin", availableWhileStreaming: true },
+  { name: "logout", description: "chat.commandLogout", source: "builtin", availableWhileStreaming: true },
+  { name: "scoped-models", description: "chat.commandScopedModels", source: "builtin", availableWhileStreaming: true },
 ];
+
+/** The levels the reasoning menu offers: "auto" (the default) and the model's, or every level while they are unknown. */
+export function offeredThinkingLevels(available: readonly string[] | null | undefined): typeof THINKING_LEVELS[number][] {
+  return THINKING_LEVELS.filter((level) => level === "auto" || !available || available.includes(level));
+}
+
+/**
+ * The reasoning level a `/thinking <level>` names among those offered, as pi's
+ * `handleThinkingCommand()` matches it (case-insensitive); null when none is.
+ */
+export function findThinkingLevel(text: string, available: readonly string[] | null | undefined): typeof THINKING_LEVELS[number] | null {
+  const wanted = text.trim().toLowerCase();
+  return offeredThinkingLevels(available).find((level) => level === wanted) ?? null;
+}
+
+/** What decides which built-ins this composer answers: the rules its Enter follows. */
+export interface BuiltinSlashContext {
+  isStreaming: boolean;
+  /** The main chat: the page answers `/new`, `/tree` and `/resume`. */
+  pageCommands: boolean;
+  /** `/model` and `/thinking` open the composer's own picker and menu, when it has them. */
+  modelPicker: boolean;
+  thinkingMenu: boolean;
+}
+
+function answersBuiltinSlashCommand(command: BuiltinSlashCommand, context: BuiltinSlashContext): boolean {
+  if (context.isStreaming && !command.availableWhileStreaming) return false;
+  if (command.page && !context.pageCommands) return false;
+  if (command.name === "model") return context.modelPicker;
+  if (command.name === "thinking") return context.thinkingMenu;
+  return true;
+}
+
+/**
+ * The palette's commands before its query: the built-ins this composer answers,
+ * then the session's. An extension command named as one of those built-ins is
+ * left out: choosing it would run the built-in. pi's autocomplete
+ * (`interactive-mode.js`) also hides the `model:1` and `model:2` of two
+ * extensions registering `/model`, by their registered name; they stay listed
+ * here, since typing one runs that extension. Where the built-in does not
+ * answer (a page command in a tab, `/compact` while a run streams), the
+ * extension's runs and is listed.
+ */
+export function slashPaletteCommands(slashCommands: SlashCommandInfo[] | null | undefined, context: BuiltinSlashContext): SlashCommandPaletteItem[] {
+  const builtins = BUILTIN_SLASH_COMMANDS.filter((command) => answersBuiltinSlashCommand(command, context));
+  const shadowed = new Set(builtins.map((command) => command.name));
+  return [...builtins, ...(slashCommands ?? []).filter((command) => command.source !== "extension" || !shadowed.has(command.name))];
+}
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
   const match = message.trim().match(/^\/([^\s]+)(?:\s|$)/);
@@ -699,6 +766,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
+  pageCommands = false,
+  onCommandError,
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
   draftKey,
@@ -717,6 +786,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  // A phone's `/thinking` opens the More strip to reach the reasoning menu:
+  // Esc closes the strip with the menu. Each way of opening the menu sets it.
+  const thinkingOpenedControlsRef = useRef(false);
+  const closeThinkingMenu = useCallback(() => {
+    setThinkingDropdownOpen(false);
+    if (thinkingOpenedControlsRef.current) setControlsMenuOpen(false);
+    thinkingOpenedControlsRef.current = false;
+  }, []);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -749,6 +826,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const modelSelectorRef = useRef<ModelSelectorHandle>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1107,7 +1185,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
-    if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
+    if (attachedImages.length || !msg.startsWith("/")) return false;
+    const picked = runPickerCommandRef.current(msg);
+    if (picked) {
+      if (picked !== "keep") clearInput();
+      return true;
+    }
+    if (!onBuiltinCommand) return false;
     if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
@@ -1139,10 +1223,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
-    const builtinCommands = isStreaming
-      ? BUILTIN_SLASH_COMMANDS.filter((command) => command.availableWhileStreaming)
-      : BUILTIN_SLASH_COMMANDS;
-    const commands = [...builtinCommands, ...(slashCommands ?? [])];
+    const commands = slashPaletteCommands(slashCommands, {
+      isStreaming,
+      pageCommands,
+      modelPicker: Boolean(onModelChange),
+      thinkingMenu: Boolean(onThinkingLevelChange),
+    });
     return filterSlashCommands(commands, slashQuery, t);
   })();
 
@@ -1361,7 +1447,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       }
     };
     if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
-      void runBuiltinCommand(msg);
+      // One the chat cannot answer (a page command in a tab, `/new foo`) is queued as before.
+      void runBuiltinCommand(msg).then((handled) => {
+        if (!handled) queue();
+      }, () => queue());
       return;
     }
     if (!attachedImages.length && onBuiltinCommand && isBareMcpCommand(msg)) {
@@ -1541,7 +1630,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         return;
       }
 
-      // Esc stops the agent when no slash/@/history menu or IME composition is active.
+      // `/model` and `/thinking` open their picker with the focus left here (the
+      // picker's filter takes it only in a long list): Esc closes it, as Esc
+      // closes pi's selector, before it would stop the run. With the focus
+      // elsewhere, their own `document` listeners close them.
+      if (e.key === "Escape" && !isComposing) {
+        const closedModelPicker = modelSelectorRef.current?.close() ?? false;
+        if (closedModelPicker || thinkingDropdownOpen) {
+          e.preventDefault();
+          if (thinkingDropdownOpen) closeThinkingMenu();
+          return;
+        }
+      }
+
+      // Esc stops the agent when no slash/@/history menu, picker or IME composition is active.
       if (e.key === "Escape" && !isComposing && isStreaming && onAbort) {
         e.preventDefault();
         onAbort();
@@ -1557,7 +1659,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, thinkingDropdownOpen, closeThinkingMenu]
   );
 
   const handleInput = useCallback(() => {
@@ -1720,6 +1822,54 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     }));
   })();
 
+  // `/model` and `/thinking` open the composer's own pickers, as pi's TUI opens
+  // its selectors; an exact model or a level offered is chosen at once. A ref:
+  // runBuiltinCommand is built before the options are. "keep" leaves the text
+  // in the composer: a model switch is still pending, or the level is refused.
+  const runPickerCommandRef = useRef<(msg: string) => boolean | "keep">(() => false);
+  runPickerCommandRef.current = (msg: string) => {
+    const match = msg.match(/^\/(model|thinking)(?:\s+([\s\S]*))?$/);
+    if (!match) return false;
+    const [, command, rawArgs = ""] = match;
+    const args = rawArgs.trim();
+    if (command === "model" ? !onModelChange : !onThinkingLevelChange) return false;
+    const exactModel = command === "model" && args ? findExactModelOption(args, modelOptions) : undefined;
+    const level = command === "thinking" && args ? findThinkingLevel(args, availableThinkingLevels) : null;
+    if (command === "model" && modelSwitching) return "keep";
+    if (exactModel) {
+      if (exactModel.provider !== model?.provider || exactModel.modelId !== model?.modelId || isAutoModelSelection) {
+        onModelChange?.(exactModel.provider, exactModel.modelId);
+      }
+      return true;
+    }
+    if (level) {
+      onThinkingLevelChange?.(level);
+      return true;
+    }
+    if (command === "thinking" && args) {
+      // pi's handleThinkingCommand(): a level not offered opens nothing.
+      onCommandError?.(t("chat.thinkingUnknownLevel", { level: args, levels: offeredThinkingLevels(availableThinkingLevels).join(", ") }));
+      return "keep";
+    }
+    // A phone's keyboard hides the controls row (globals.css): close it, then
+    // open the picker once the row is back.
+    if (isMobile) textareaRef.current?.blur();
+    if (command === "thinking") {
+      // On a phone the reasoning button lives in the More strip.
+      thinkingOpenedControlsRef.current = isMobile && !controlsMenuOpen;
+      if (isMobile) setControlsMenuOpen(true);
+      setThinkingDropdownOpen(true);
+      return true;
+    }
+    let frames = 0;
+    const openPicker = () => {
+      if (modelSelectorRef.current?.open(args) || ++frames > 60) return;
+      requestAnimationFrame(openPicker);
+    };
+    openPicker();
+    return true;
+  };
+
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
     : 0;
@@ -1754,6 +1904,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // Esc closes the reasoning menu wherever the focus is: a phone's `/thinking`
+  // blurs the composer, and a click leaves it on the button, so the key reaches
+  // only `document`, and unhandled there it would stop the run.
+  useEffect(() => {
+    if (!thinkingDropdownOpen) return;
+    return listenForPanelEscape(document, closeThinkingMenu);
+  }, [thinkingDropdownOpen, closeThinkingMenu]);
 
   useEffect(() => {
     if (!isStreaming) return;
@@ -2551,6 +2709,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {/* Model selector - visible always, busy while a switch is pending; a switch during a run applies from its next request */}
             {(modelOptions.length > 0 || model || modelError) && onModelChange && (
               <ModelSelector
+                handleRef={modelSelectorRef}
                 options={modelOptions}
                 value={model}
                 onChange={onModelChange}
@@ -2644,7 +2803,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => setThinkingDropdownOpen((v) => !v)}
+                  onClick={() => {
+                    thinkingOpenedControlsRef.current = false;
+                    setThinkingDropdownOpen((v) => !v);
+                  }}
                   title={isStreaming
                     ? t("chat.currentReasoning", { level: thinkingDisplayLabel })
                     : t("chat.changeReasoning", { level: thinkingDisplayLabel })}
@@ -2686,11 +2848,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 180,
                   }}>
-                    {THINKING_LEVELS.filter((lvl) => {
-                      if (!availableThinkingLevels) return true;
-                      if (lvl === "auto") return true;
-                      return availableThinkingLevels.includes(lvl);
-                    }).map((lvl) => {
+                    {offeredThinkingLevels(availableThinkingLevels).map((lvl) => {
                       const isActive = lvl === "auto"
                         ? isAutoThinkingSelection
                         : !isAutoThinkingSelection && resolvedThinkingLevel === lvl;

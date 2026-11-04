@@ -17,6 +17,7 @@ import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { AgentCommandError, agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
+import { downloadSessionExport } from "@/lib/session-export-client";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
 import {
   deleteSessionViewSnapshot,
@@ -49,7 +50,7 @@ import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
-import type { SettingsSection } from "@/lib/settings-navigation";
+import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
 import { withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import {
   enqueueExtensionUiRequest,
@@ -194,7 +195,10 @@ export interface SlashCommandInfo {
 
 export type BuiltinSlashCommandResult =
   | { handled: false }
-  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" | "openSideChat" };
+  | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" | "openSideChat" | "page" | "export" };
+
+/** pi TUI commands the page answers with a panel of its own: a new session, the branch panel, the session search, Settings. */
+export type PageSlashCommand = "new" | "tree" | "resume" | "settings";
 
 /** How a run ended, for the completion sound and notifications. */
 export interface AgentEndInfo {
@@ -234,6 +238,8 @@ export interface UseAgentSessionOptions {
   onSessionStatsPanelOpen?: () => void;
   /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings › MCP. */
   onOpenSettings?: (section: SettingsSection) => void;
+  /** Answers a page command; returns the translation key of why it cannot, or null. Without it they are sent as before. */
+  onPageCommand?: (command: PageSlashCommand) => string | null;
   setToolPreset?: (preset: ToolPreset) => void;
   deferInitialScroll?: boolean;
   /** A fresh composer's model and reasoning picks to start with: the composer it replaces had them. */
@@ -418,7 +424,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
-    onOpenSettings, onDebugSnapshotReaderChange,
+    onOpenSettings, onPageCommand, onDebugSnapshotReaderChange,
   } = opts;
 
   const isNew = session === null && newSessionCwd !== null;
@@ -2617,7 +2623,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
-    const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
       if (result.error) {
@@ -2629,6 +2634,45 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return result;
     };
 
+    // These open something and need no session: a fresh composer must not start one.
+    // pi's TUI takes them only as typed (`/login` and `/export` take an argument);
+    // with any other text they are a prompt there too.
+    switch (commandName) {
+      case "new":
+      case "tree":
+      case "resume": {
+        if (args || !onPageCommand) return { handled: false };
+        const refusal = onPageCommand(commandName);
+        return complete(refusal ? { handled: true, error: translate(refusal) } : { handled: true, action: "page" });
+      }
+      case "settings":
+        if (args) return { handled: false };
+        // The page opens it as its gear does; a tab's chat at the last section.
+        if (onPageCommand) onPageCommand("settings");
+        else if (onOpenSettings) onOpenSettings(getLastSettingsSection(opts.session?.cwd ?? newSessionCwd ?? null));
+        else return { handled: false };
+        return complete({ handled: true, action: "openSettings" });
+      case "login":
+      case "logout":
+      case "scoped-models":
+        // pi's TUI signs in and scopes models in its own selectors; here both are Settings › Models.
+        if ((commandName !== "login" && args) || !onOpenSettings) return { handled: false };
+        onOpenSettings("models");
+        return complete({ handled: true, action: "openSettings" });
+      case "export": {
+        const exportId = sessionIdRef.current;
+        if (!exportId) return complete({ handled: true, error: translate("chat.exportNoSession") });
+        // Detached, as /compact: the composer, Stop included, stays disabled
+        // until a command resolves, and a large session's export takes seconds
+        // to arrive. The download is the answer; only a failure says anything.
+        void downloadSessionExport(exportId).catch((e: unknown) => {
+          addNotice({ type: "error", message: translate("chat.exportFailed", { error: e instanceof Error ? e.message : String(e) }) });
+        });
+        return complete({ handled: true, action: "export" });
+      }
+    }
+
+    const sid = sessionIdRef.current ?? await ensureNewSession();
     try {
       switch (commandName) {
         case "compact": {
@@ -2748,7 +2792,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, sessionStats, slashCommandsForMcp, startSideChat]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, newSessionCwd, promoteNewSession, onOpenSettings, onPageCommand, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, opts.session?.cwd, sessionStats, slashCommandsForMcp, startSideChat, translate]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in

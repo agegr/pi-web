@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type Ref } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { listenForPanelEscape } from "@/lib/stacked-dialog";
 import { SelectorRow } from "./SelectorRow";
 
 export interface ModelSelectorOption {
@@ -11,6 +12,34 @@ export interface ModelSelectorOption {
   providerName?: string;
   modelId: string;
   name: string;
+}
+
+/** Opens the picker from elsewhere: the composer's `/model` with no exact match. */
+export interface ModelSelectorHandle {
+  /** False while the trigger is not laid out (a phone keyboard hides its row) or locked. */
+  open: (filter?: string) => boolean;
+  /** Closes an open picker; false when it was not open. The composer's Esc, where focus stays after `/model`. */
+  close: () => boolean;
+}
+
+/**
+ * The option a `/model <reference>` names, as pi's `findExactModelReferenceMatch()`
+ * reads it without fuzzy matching: `provider/id` on that provider, else an id
+ * (case-insensitive) that only one provider has. Anything else opens the
+ * picker filtered by the text, as pi's `/model` does.
+ */
+export function findExactModelOption(reference: string, options: ModelSelectorOption[]): ModelSelectorOption | undefined {
+  const text = reference.trim().toLowerCase();
+  if (!text) return undefined;
+  const slash = text.indexOf("/");
+  if (slash > 0) {
+    const provider = text.slice(0, slash);
+    const id = text.slice(slash + 1);
+    const named = options.find((option) => option.provider.toLowerCase() === provider && option.modelId.toLowerCase() === id);
+    if (named) return named;
+  }
+  const raw = options.filter((option) => option.modelId.toLowerCase() === text);
+  return raw.length > 0 && new Set(raw.map((option) => option.provider)).size === 1 ? raw[0] : undefined;
 }
 
 export interface ModelSelectorGroup {
@@ -42,6 +71,7 @@ interface ModelSelectorProps {
   allOptions?: ModelSelectorOption[] | null;
   /** Set only while `enabledModels` narrows `options`: shows pi's `/model` "scoped | all" row and loads `allOptions`. */
   onShowAll?: () => void;
+  handleRef?: Ref<ModelSelectorHandle>;
 }
 
 const MODEL_FILTER_THRESHOLD = 8;
@@ -96,6 +126,7 @@ export function ModelSelector({
   onSetDefault,
   allOptions,
   onShowAll,
+  handleRef,
 }: ModelSelectorProps) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -106,12 +137,15 @@ export function ModelSelector({
   const [filter, setFilter] = useState("");
   // pi's /model starts on the scope; Tab on the filter or a tap switches.
   const [showAll, setShowAll] = useState(false);
+  // Opened by `/model <text>`: its filter field shows even in a short list, and
+  // stays while that text is cleared. Each way of opening sets it.
+  const [filterGiven, setFilterGiven] = useState(false);
   const locked = disabled || busy;
   const listed = showAll ? allOptions : options;
   // Options arrive in pi's /model order (orderSelectorModels()); never re-sort
   // them, or a models.json provider loses the order its file gives (#783).
   const filteredOptions = filterModelOptions(listed ?? [], filter);
-  const showFilter = Boolean(onShowAll) || options.length > MODEL_FILTER_THRESHOLD;
+  const showFilter = Boolean(onShowAll) || options.length > MODEL_FILTER_THRESHOLD || filterGiven;
   const isListed = (list: ModelSelectorOption[] | null | undefined, ref: { provider: string; modelId: string }) => (
     list?.find((option) => option.modelId === ref.modelId && option.provider === ref.provider)
   );
@@ -120,6 +154,26 @@ export function ModelSelector({
     setShowAll(!showAll);
   };
   const modelsByProvider = groupModelOptions(filteredOptions);
+
+  useImperativeHandle(handleRef, () => ({
+    open(initialFilter = "") {
+      if (locked) return false;
+      const rect = rootRef.current?.querySelector("button")?.getBoundingClientRect();
+      if (!rect?.height) return false;
+      setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
+      setShowAll(false);
+      setFilter(initialFilter);
+      setFilterGiven(initialFilter !== "");
+      setOpen(true);
+      return true;
+    },
+    close() {
+      if (!open) return false;
+      setOpen(false);
+      setFilter("");
+      return true;
+    },
+  }), [locked, open]);
 
   const currentName = selectedLabel ?? (value
     ? (isListed(options, value) ?? isListed(allOptions, value))?.name ?? value.modelId
@@ -138,6 +192,17 @@ export function ModelSelector({
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
+
+  // Esc closes the picker wherever the focus is, not only inside it (the root's
+  // onKeyDown): a phone's `/model` blurs the composer first, so its Esc reaches
+  // only `document`, and unhandled there it would stop the run.
+  useEffect(() => {
+    if (!open) return;
+    return listenForPanelEscape(document, () => {
+      setOpen(false);
+      setFilter("");
+    });
+  }, [open]);
 
   // While the picker is open, a phone keyboard shrinks the app height
   // (useViewportHeight writes the root's style, sometimes with no viewport
@@ -249,8 +314,12 @@ export function ModelSelector({
           const rect = event.currentTarget.getBoundingClientRect();
           setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
           setOpen((current) => {
-            if (current) setFilter("");
-            else setShowAll(false);
+            if (current) {
+              setFilter("");
+            } else {
+              setShowAll(false);
+              setFilterGiven(false);
+            }
             return !current;
           });
         }}
