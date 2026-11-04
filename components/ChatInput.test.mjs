@@ -776,11 +776,13 @@ test("/thinking with a level the model does not offer opens nothing and says wha
     if (ts.isBinaryExpression(node) && node.left.getText(source) === "runPickerCommandRef.current") return node.right;
     return ts.forEachChild(node, findAssignment);
   }
-  const calls = { errors: [], levels: [], menu: [], picker: [] };
-  const run = new Script(ts.transpileModule(`(${findAssignment(source).getText(source)})`, {
+  const calls = { errors: [], levels: [], menu: [], picker: [], controls: [] };
+  const script = new Script(ts.transpileModule(`(${findAssignment(source).getText(source)})`, {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
-  }).outputText).runInNewContext({
+  }).outputText);
+  const load = (scope) => script.runInNewContext({
     availableThinkingLevels: ["off", "low", "high"],
+    controlsMenuOpen: false,
     findExactModelOption,
     findThinkingLevel,
     offeredThinkingLevels,
@@ -791,11 +793,14 @@ test("/thinking with a level the model does not offer opens nothing and says wha
     onCommandError: (message) => calls.errors.push(message),
     onModelChange() {},
     onThinkingLevelChange: (level) => calls.levels.push(level),
-    setControlsMenuOpen() {},
+    setControlsMenuOpen: (open) => calls.controls.push(open),
     setThinkingDropdownOpen: (open) => calls.menu.push(open),
     t: (key, params) => `${key} ${JSON.stringify(params)}`,
     textareaRef: { current: null },
+    thinkingOpenedControlsRef: { current: false },
+    ...scope,
   });
+  const run = load();
 
   // Refused: the text stays in the composer to be corrected.
   assert.equal(run("/thinking  xhigh "), "keep");
@@ -807,6 +812,17 @@ test("/thinking with a level the model does not offer opens nothing and says wha
   assert.equal(run("/thinking"), true);
   assert.deepEqual(calls.menu, [true]);
   assert.equal(calls.errors.length, 1);
+
+  // On a phone the menu opens inside More: Esc closes the More strip it opened, not one already open.
+  const opened = { current: false };
+  assert.equal(load({ isMobile: true, thinkingOpenedControlsRef: opened })("/thinking"), true);
+  assert.deepEqual(calls.controls, [true]);
+  assert.equal(opened.current, true);
+  assert.equal(load({ isMobile: true, controlsMenuOpen: true, thinkingOpenedControlsRef: opened })("/thinking"), true);
+  assert.equal(opened.current, false);
+  opened.current = true;
+  assert.equal(load({ thinkingOpenedControlsRef: opened })("/thinking"), true);
+  assert.equal(opened.current, false);
 });
 
 test("pi's notice for an unknown thinking level, word for word", async () => {

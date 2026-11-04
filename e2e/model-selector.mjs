@@ -60,8 +60,10 @@ export async function checkModelSelector(page, { base, project, artifacts }) {
     console.log(`PASS: ${page.viewportSize().width}px model picker filter stays visible${mobile ? " above the keyboard" : ""}`);
 
     // The composer's `/model` in a list too short for a filter field: `/model <text>`
-    // shows the field with the text, and it stays while the text is cleared; a bare
-    // `/model` leaves the focus in the composer, whose Esc closes the picker.
+    // shows the field with the text, and it stays while the text is cleared. A bare
+    // `/model` leaves the focus in the composer, or on the page at 640px or narrower
+    // (blurred for a phone keyboard): Esc closes the picker either way, as it closes
+    // the reasoning menu `/thinking` opens (inside More there, which closes with it).
     await page.unroute(modelRoute);
     await page.route(modelRoute, (route) => route.fulfill({ json: body(models.slice(0, 3)) }));
     await page.goto(`${base}/?cwd=${encodeURIComponent(project)}`, { waitUntil: "domcontentloaded" });
@@ -78,16 +80,25 @@ export async function checkModelSelector(page, { base, project, artifacts }) {
     assert.equal(await page.getByRole("listbox").getByRole("option").count(), 3);
     await filter.press("Escape");
     await page.getByRole("listbox").waitFor({ state: "detached" });
-    if (!mobile) {
-      await composer.fill("/model");
-      await composer.press("Enter");
-      await page.getByRole("listbox").waitFor();
-      assert.equal(await filter.count(), 0);
-      assert.equal(await composer.evaluate((field) => document.activeElement === field), true);
-      await composer.press("Escape");
-      await page.getByRole("listbox").waitFor({ state: "detached" });
-    }
-    console.log(`PASS: ${page.viewportSize().width}px /model opens a short list's picker filtered${mobile ? "" : ", Esc in the composer closes it"}`);
+    const focused = () => page.evaluate(() => document.activeElement?.tagName);
+    await composer.fill("/model");
+    await composer.press(send);
+    await page.getByRole("listbox").waitFor();
+    assert.equal(await filter.count(), 0);
+    assert.equal(await focused(), mobile ? "BODY" : "TEXTAREA");
+    await page.keyboard.press("Escape");
+    await page.getByRole("listbox").waitFor({ state: "detached" });
+    const reasoningMenu = page.getByText("Use pi default", { exact: true });
+    const more = page.locator('.chat-input-shell button[aria-label="More controls"]');
+    await composer.fill("/thinking");
+    await composer.press(send);
+    await reasoningMenu.waitFor();
+    assert.equal(await focused(), mobile ? "BODY" : "TEXTAREA");
+    if (mobile) assert.equal(await more.getAttribute("aria-expanded"), "true");
+    await page.keyboard.press("Escape");
+    await reasoningMenu.waitFor({ state: "detached" });
+    if (mobile) assert.equal(await more.getAttribute("aria-expanded"), "false");
+    console.log(`PASS: ${page.viewportSize().width}px /model opens a short list's picker filtered, Esc closes a bare /model's picker and /thinking's menu`);
 
     // An active enabledModels scope: pi's /model "scoped | all" row, the full list fetched on demand,
     // no default star outside the scope.

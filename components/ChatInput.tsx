@@ -25,6 +25,7 @@ import {
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { quoteSeparator } from "@/lib/quoted-selection";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
+import { listenForPanelEscape } from "@/lib/stacked-dialog";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
 import { DismissButton } from "./DismissButton";
@@ -377,9 +378,12 @@ function answersBuiltinSlashCommand(command: BuiltinSlashCommand, context: Built
 /**
  * The palette's commands before its query: the built-ins this composer answers,
  * then the session's. An extension command named as one of those built-ins is
- * left out, as pi's autocomplete leaves it out (`interactive-mode.js`): choosing
- * it would run the built-in. Where the built-in does not answer (a page command
- * in a tab, `/compact` while a run streams), the extension's runs and is listed.
+ * left out: choosing it would run the built-in. pi's autocomplete
+ * (`interactive-mode.js`) also hides the `model:1` and `model:2` of two
+ * extensions registering `/model`, by their registered name; they stay listed
+ * here, since typing one runs that extension. Where the built-in does not
+ * answer (a page command in a tab, `/compact` while a run streams), the
+ * extension's runs and is listed.
  */
 export function slashPaletteCommands(slashCommands: SlashCommandInfo[] | null | undefined, context: BuiltinSlashContext): SlashCommandPaletteItem[] {
   const builtins = BUILTIN_SLASH_COMMANDS.filter((command) => answersBuiltinSlashCommand(command, context));
@@ -782,6 +786,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  // A phone's `/thinking` opens the More strip to reach the reasoning menu:
+  // Esc closes the strip with the menu. Each way of opening the menu sets it.
+  const thinkingOpenedControlsRef = useRef(false);
+  const closeThinkingMenu = useCallback(() => {
+    setThinkingDropdownOpen(false);
+    if (thinkingOpenedControlsRef.current) setControlsMenuOpen(false);
+    thinkingOpenedControlsRef.current = false;
+  }, []);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
@@ -1620,12 +1632,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
       // `/model` and `/thinking` open their picker with the focus left here (the
       // picker's filter takes it only in a long list): Esc closes it, as Esc
-      // closes pi's selector, before it would stop the run.
+      // closes pi's selector, before it would stop the run. With the focus
+      // elsewhere, their own `document` listeners close them.
       if (e.key === "Escape" && !isComposing) {
         const closedModelPicker = modelSelectorRef.current?.close() ?? false;
         if (closedModelPicker || thinkingDropdownOpen) {
           e.preventDefault();
-          setThinkingDropdownOpen(false);
+          if (thinkingDropdownOpen) closeThinkingMenu();
           return;
         }
       }
@@ -1646,7 +1659,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, thinkingDropdownOpen]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, thinkingDropdownOpen, closeThinkingMenu]
   );
 
   const handleInput = useCallback(() => {
@@ -1843,6 +1856,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (isMobile) textareaRef.current?.blur();
     if (command === "thinking") {
       // On a phone the reasoning button lives in the More strip.
+      thinkingOpenedControlsRef.current = isMobile && !controlsMenuOpen;
       if (isMobile) setControlsMenuOpen(true);
       setThinkingDropdownOpen(true);
       return true;
@@ -1890,6 +1904,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // Esc closes the reasoning menu wherever the focus is: a phone's `/thinking`
+  // blurs the composer, and a click leaves it on the button, so the key reaches
+  // only `document`, and unhandled there it would stop the run.
+  useEffect(() => {
+    if (!thinkingDropdownOpen) return;
+    return listenForPanelEscape(document, closeThinkingMenu);
+  }, [thinkingDropdownOpen, closeThinkingMenu]);
 
   useEffect(() => {
     if (!isStreaming) return;
@@ -2781,7 +2803,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
-                  onClick={() => setThinkingDropdownOpen((v) => !v)}
+                  onClick={() => {
+                    thinkingOpenedControlsRef.current = false;
+                    setThinkingDropdownOpen((v) => !v);
+                  }}
                   title={isStreaming
                     ? t("chat.currentReasoning", { level: thinkingDisplayLabel })
                     : t("chat.changeReasoning", { level: thinkingDisplayLabel })}

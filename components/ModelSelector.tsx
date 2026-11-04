@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type Ref } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { listenForPanelEscape } from "@/lib/stacked-dialog";
 import { SelectorRow } from "./SelectorRow";
 
 export interface ModelSelectorOption {
@@ -191,6 +192,17 @@ export function ModelSelector({
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
+
+  // Esc closes the picker wherever the focus is, not only inside it (the root's
+  // onKeyDown): a phone's `/model` blurs the composer first, so its Esc reaches
+  // only `document`, and unhandled there it would stop the run.
+  useEffect(() => {
+    if (!open) return;
+    return listenForPanelEscape(document, () => {
+      setOpen(false);
+      setFilter("");
+    });
+  }, [open]);
 
   // While the picker is open, a phone keyboard shrinks the app height
   // (useViewportHeight writes the root's style, sometimes with no viewport
