@@ -20,7 +20,7 @@ import { checkModelContext } from "./model-context.mjs";
 import { checkModelSelector } from "./model-selector.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
-import { checkSessionActivity } from "./session-activity.mjs";
+import { checkSessionActivity, checkSessionActivityCrossProject } from "./session-activity.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -546,6 +546,7 @@ try {
   await checkProjectNavigation({ browser, base, artifacts, fixture: projectNavigation, otherSessionId: BRANCH, api, post });
   // The activity checks use their own contexts and run after project navigation.
   await checkSessionActivity({ browser, base, artifacts, api, currentId: CODE_BACKGROUND, runningId: RICH, manualId: BRANCH });
+  await checkSessionActivityCrossProject({ browser, base, artifacts, api, currentId: CODE_BACKGROUND, currentFile: previewFile, other: projectNavigation });
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

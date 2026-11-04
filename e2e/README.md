@@ -38,6 +38,7 @@ Coverage:
 - On a desktop the sidebar shows the files below the sessions; Settings ›
   General › File browser brings back the Sessions | Files tabs and returns,
   without remounting the file tree (its file search keeps its query).
+- The activity view (`session-activity.mjs`, desktop and mobile) covers completed and unread notifications across tabs, then switches between projects and verifies the chat, URL, selected row, and file tree in both directions.
 - Unknown sessions and paths outside the fixture project are rejected.
 - Sidebar sessions open in browser tabs (`session-navigation.mjs`, desktop
   Chromium, one context so tabs share storage): a plain click and Enter

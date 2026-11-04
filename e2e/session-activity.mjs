@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { showSidebarSessions } from "./sidebar.mjs";
+import { showSidebarFiles, showSidebarSessions } from "./sidebar.mjs";
 
 /** Activity view with real session fixtures and simulated background-run polling. */
 export async function checkSessionActivity({ browser, base, artifacts, api, currentId, runningId, manualId }) {
@@ -133,6 +133,77 @@ export async function checkSessionActivity({ browser, base, artifacts, api, curr
       throw error;
     } finally {
       await context.unrouteAll({ behavior: "wait" });
+      await context.close();
+    }
+  }
+}
+
+/** A pick in Activity changes the chat and file browser to that session's project. */
+export async function checkSessionActivityCrossProject({ browser, base, artifacts, api, currentId, currentFile, other }) {
+  const { sessions } = await api("/api/sessions");
+  const current = sessions.find((session) => session.id === currentId);
+  const target = sessions.find((session) => session.id === other.id);
+  assert.ok(current?.projectKey && target?.projectKey, "both sessions have project identities");
+  assert.notEqual(current.projectKey, target.projectKey, "the fixtures belong to different projects");
+  assert.equal(target.cwd, other.worktree, "the target session uses the linked worktree");
+
+  for (const mobile of [false, true]) {
+    const context = await browser.newContext({
+      viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 800 },
+      locale: "en-US", colorScheme: mobile ? "dark" : "light", hasTouch: mobile, isMobile: mobile,
+    });
+    await context.tracing.start({ screenshots: true, snapshots: true });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error" && /hydration|server rendered html/i.test(message.text())) errors.push(message.text());
+    });
+    page.setDefaultTimeout(30_000);
+    page.setDefaultNavigationTimeout(120_000);
+    const row = (id) => page.locator(`[data-activity-row-key=${JSON.stringify(`activity-session:${id}`)}]`);
+    const file = (path) => page.locator("#session-sidebar-files-body").getByTitle(path.replace(/\\/g, "/"), { exact: true });
+    const openDrawer = async () => {
+      await page.locator("#session-sidebar:not(.sidebar-mobile-pending)").waitFor({ state: "attached" });
+      const show = page.getByRole("button", { name: "Show sidebar", exact: true });
+      const hide = page.getByRole("button", { name: "Hide sidebar", exact: true });
+      await show.or(hide).first().waitFor({ state: "visible" });
+      if (await show.isVisible()) await show.click();
+      await page.waitForFunction(() => document.querySelector("#session-sidebar")?.classList.contains("sidebar-open"));
+    };
+    try {
+      await page.goto(`${base}/?session=${currentId}`, { waitUntil: "domcontentloaded" });
+      await page.locator('[data-entry-id="user"]').filter({ hasText: "E2E code background" }).first().waitFor({ state: "visible" });
+      await openDrawer();
+      await showSidebarSessions(page);
+      await page.locator(".sidebar-activity-toggle").waitFor({ state: "visible", timeout: 10_000 });
+      await page.locator(".sidebar-activity-toggle").click();
+      await row(other.id).locator("a").click();
+      await page.waitForURL((url) => url.searchParams.get("session") === other.id);
+      await page.locator('[data-entry-id="project-answer"][data-message-role="assistant"]').filter({ hasText: "E2E linked-worktree answer" }).waitFor({ state: "visible" });
+      await openDrawer();
+      await showSidebarSessions(page);
+      await row(other.id).locator('a[aria-current="true"]').waitFor({ state: "visible" });
+      await showSidebarFiles(page);
+      await file(other.note).waitFor({ state: "visible" });
+      assert.equal(await file(currentFile).count(), 0, "the old project's file is no longer shown");
+
+      await showSidebarSessions(page);
+      await row(currentId).locator("a").click();
+      await page.waitForURL((url) => url.searchParams.get("session") === currentId);
+      await page.locator('[data-entry-id="user"]').filter({ hasText: "E2E code background" }).first().waitFor({ state: "visible" });
+      await openDrawer();
+      await showSidebarFiles(page);
+      await file(currentFile).waitFor({ state: "visible" });
+      assert.equal(await file(other.note).count(), 0, "the other project's file is no longer shown");
+      assert.deepEqual(errors, []);
+      await context.tracing.stop();
+      console.log(`PASS: ${mobile ? "mobile" : "desktop"} activity picks switch the chat and files between projects`);
+    } catch (error) {
+      await page.screenshot({ path: join(artifacts, `session-activity-project-${mobile ? "mobile" : "desktop"}-failure.png`) }).catch(() => {});
+      await context.tracing.stop({ path: join(artifacts, `session-activity-project-${mobile ? "mobile" : "desktop"}-trace.zip`) }).catch(() => {});
+      throw error;
+    } finally {
       await context.close();
     }
   }
