@@ -44,19 +44,30 @@ export interface NoticeLinkPart {
 // own (`…/wiki/Foo_(bar)`), as GFM autolinks do; trailing sentence punctuation
 // is trimmed below ("Open http://localhost:3000.").
 const URL_RE = /https?:\/\/(?:\[[0-9A-Fa-f:.]+\])?[^\s<>"'`\]}。，、；：！？）」』】]*/g;
-const TRAILING_PUNCTUATION_RE = /[.,;:!?]$/;
+const TRAILING_PUNCTUATION_RE = /^[.,;:!?]$/;
 
 function trimUrl(candidate: string): string {
-  let url = candidate;
-  for (;;) {
-    if (TRAILING_PUNCTUATION_RE.test(url)) {
-      url = url.slice(0, -1);
-    } else if (url.endsWith(")") && url.split("(").length < url.split(")").length) {
-      url = url.slice(0, -1);
+  // Counted once and kept in step while trimming: re-counting the whole URL for
+  // each `)` was quadratic on a long run of them.
+  let open = 0;
+  let close = 0;
+  for (const char of candidate) {
+    if (char === "(") open += 1;
+    else if (char === ")") close += 1;
+  }
+  let end = candidate.length;
+  while (end > 0) {
+    const last = candidate[end - 1];
+    if (TRAILING_PUNCTUATION_RE.test(last)) {
+      end -= 1;
+    } else if (last === ")" && close > open) {
+      end -= 1;
+      close -= 1;
     } else {
-      return url;
+      break;
     }
   }
+  return candidate.slice(0, end);
 }
 
 /**
