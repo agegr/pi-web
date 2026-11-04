@@ -1355,7 +1355,6 @@ export class AgentSessionWrapper {
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
-          extensionLoadErrors: this.getExtensionLoadErrors(),
         };
       }
 
@@ -1856,22 +1855,6 @@ export class AgentSessionWrapper {
     const pending = this.pendingUiResponses.get(response.id);
     if (!pending) return;
     pending.resolve(response);
-  }
-
-  /**
-   * Extensions that failed to load (a syntax error, a missing dependency, a throw in
-   * the factory). pi's TUI lists them under "[Extension issues]" at startup; without
-   * them here a plugin that never loaded looked installed and silently did nothing.
-   */
-  private getExtensionLoadErrors(): Array<{ path: string; error: string }> {
-    try {
-      const errors = this.inner.resourceLoader.getExtensions?.().errors ?? [];
-      return errors
-        .filter((entry) => entry && typeof entry.path === "string" && typeof entry.error === "string")
-        .map((entry) => ({ path: entry.path, error: entry.error }));
-    } catch {
-      return [];
-    }
   }
 
   private getExtensionStatuses(): Array<{ key: string; text: string }> {

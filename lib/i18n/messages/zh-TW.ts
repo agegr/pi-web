@@ -889,7 +889,6 @@ export const zhTWLocale: LocalePlugin = {
     "chat.dropFoldersUnsupported": "不支援拖入資料夾，請拖入其中的檔案：{names}",
     "chat.dropFailed": "上傳失敗：{message}",
     "chat.sendUnconfirmed": "無法確認訊息是否已送出。原文已移回輸入框，重新送出前請先檢查對話。",
-    "chat.extensionLoadFailed": "擴充功能載入失敗：{path}\n{error}",
     "chat.sendNotReceived": "訊息沒有送達伺服器，原文已移回輸入框。",
     "chat.tokensSaved": "已節省 {saved}",
     "chatMinimap.earlierTurns": "更早的 {count} 輪尚未載入，點擊載入",
