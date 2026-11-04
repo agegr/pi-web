@@ -20,6 +20,7 @@ import { AgentSessionPanel } from "./AgentSessionPanel";
 import { DebugPanel, DebugPanelBoundary } from "./DebugPanel";
 import { SessionChatPanel } from "./SessionChatPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { WindowTitle } from "./WindowTitle";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { appendSideTab, restoreSideTabs, sideTabsKey } from "./side-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -1585,17 +1586,6 @@ export function AppShell() {
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
-  useEffect(() => {
-    const syncWindowTitle = () => {
-      if (document.title !== windowTitle) document.title = windowTitle;
-    };
-
-    syncWindowTitle();
-    const observer = new MutationObserver(syncWindowTitle);
-    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
-  }, [windowTitle]);
-
   const sidebarContent = (
     <>
       <SessionSidebar
@@ -2289,6 +2279,8 @@ export function AppShell() {
 
   return (
     <>
+    {/* An extension's `ctx.ui.setTitle()` for the session in view replaces windowTitle. */}
+    <WindowTitle sessionId={selectedSessionId ?? null} fallback={windowTitle} />
     <style>{`
       @keyframes session-info-pop {
         0% {
