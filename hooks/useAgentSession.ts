@@ -204,6 +204,10 @@ export type BuiltinSlashCommandResult =
 export interface PendingBash {
   command: string;
   excludeFromContext: boolean;
+  /** When it started, the card's identity (its expanded state is per card). */
+  startedAt: number;
+  /** What the command printed so far, the tail of the wrapper's `bash_output` snapshots; the result replaces it. */
+  liveOutput?: string;
   result?: { output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string };
 }
 
@@ -2062,6 +2066,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (sessionIdRef.current) loadSession(sessionIdRef.current);
         }
         break;
+      case "bash_output": {
+        // The wrapper's snapshot of a running `!` command's output tail.
+        const output = event.output;
+        if (!bashRunningRef.current || typeof output !== "string") break;
+        // A slow stream may still carry the previous command's last snapshot.
+        setPendingBash((pending) => (
+          pending && !pending.result && pending.command === event.command ? { ...pending, liveOutput: output } : pending
+        ));
+        break;
+      }
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
@@ -2251,14 +2265,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
-    setPendingBash({ command, excludeFromContext });
+    const startedAt = Date.now();
+    setPendingBash({ command, excludeFromContext, startedAt });
     setBashRunning(true);
     let deferred: PendingBash | null = null;
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
       // A `user_bash` handler's dialog (ctx.ui.confirm…) reaches the page only
-      // through the stream, which a fresh composer has not opened yet.
+      // through the stream, which a fresh composer has not opened yet. The
+      // output streams through it too; without one it comes at the end.
       await ensureEventsConnected(sid).catch(() => {});
       const result = await sendAgentCommand<PendingBash["result"]>(sid, {
         type: "bash",
@@ -2267,7 +2283,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       if (agentRunningRef.current && result) {
         // pi writes it once the run ends; the card shows the output until then.
-        deferred = { command, excludeFromContext, result };
+        deferred = { command, excludeFromContext, startedAt, result };
         // Only a read started after this one may take the card away.
         deferredBashReadSeqRef.current = sessionReadSeqRef.current;
       } else {

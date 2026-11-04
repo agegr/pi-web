@@ -153,3 +153,14 @@ export function collapsesProcessDetails(answer: AssistantMessage | null): boolea
     block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
   ));
 }
+
+/**
+ * How many of a running `!` command's last lines show under its card, and how many rows
+ * once wrapped: pi's TUI previews `PREVIEW_LINES` (20) and cuts them to as many visual lines.
+ */
+export const LIVE_OUTPUT_PREVIEW_LINES = 20;
+
+/** A running `!` command's last lines (`LIVE_OUTPUT_PREVIEW_LINES`); the page caps their rows. */
+export function liveOutputPreview(output: string): string {
+  return output.replace(/\n+$/, "").split("\n").slice(-LIVE_OUTPUT_PREVIEW_LINES).join("\n");
+}
