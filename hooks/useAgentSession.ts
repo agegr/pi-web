@@ -32,6 +32,8 @@ import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { formatSessionSummary } from "@/lib/session-stats-format";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
+import { createIdleMessageReads, entriesAfter } from "@/lib/idle-message-read";
+import { isHiddenCustomMessage } from "@/lib/message-display";
 import {
   AgentEventConnection,
   canReleaseHiddenEventStream,
@@ -943,7 +945,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
     })();
-    if (!options?.force) loadFlightsRef.current.set(flightKey, flight);
+    loadFlightsRef.current.set(flightKey, flight);
     flight.finally(() => {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
@@ -1752,32 +1754,49 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning]);
 
   /**
-   * The read for a message an extension posted while idle. A read already under way
-   * was answered before that message was written (reads share one flight), so one
-   * more follows it; messages arriving meanwhile share that one.
+   * A message an extension posted while idle: the branch's newest entries (a
+   * tail read) appended after the loaded window, so the pages the reader loaded
+   * above stay. A read that does not reach back to the window's last entry, or a
+   * window holding messages no entry backs, takes the full read.
    */
-  const idleMessageReadRef = useRef({ running: false, again: false });
-  const readAfterIdleMessage = useCallback((sid: string) => {
-    const read = idleMessageReadRef.current;
-    if (read.running) {
-      read.again = true;
+  const idleMessageReadWanted = useCallback((sid: string) => (
+    sessionHookMountedRef.current && sessionIdRef.current === sid && !agentRunningRef.current
+  ), []);
+  const readIdleMessages = useCallback(async (sid: string) => {
+    // `tail` counts user and assistant entries: 1 reads from the newest of them to the leaf.
+    const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: "1" });
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { context } = await res.json() as { context: SessionData["context"] };
+    // A run started meanwhile shows its own messages, and its end reads them all.
+    if (!idleMessageReadWanted(sid)) return;
+    // The window as it is now: a read that landed meanwhile started after the
+    // message, so nothing follows its last entry then.
+    const anchor = entryIdsRef.current.at(-1);
+    const anchorMessage = messagesRef.current.at(-1);
+    const added = anchor !== undefined && messagesRef.current.length === entryIdsRef.current.length
+      ? entriesAfter(anchor, { messages: context.messages, entryIds: context.entryIds ?? [] })
+      : null;
+    if (!added) {
+      await loadSession(sid);
       return;
     }
-    read.running = true;
-    // Joining a flight that started before this message would miss it.
-    read.again = loadFlightsRef.current.has(sid);
-    void (async () => {
-      try {
-        do {
-          if (read.again && loadFlightsRef.current.has(sid)) await loadFlightsRef.current.get(sid)?.catch(() => {});
-          read.again = false;
-          await loadSession(sid);
-        } while (read.again && sessionIdRef.current === sid);
-      } finally {
-        read.running = false;
-      }
-    })();
-  }, [loadSession]);
+    if (added.entryIds.length === 0) return;
+    // The refs move with the state: a read landing before the render appends after these.
+    entryIdsRef.current = [...entryIdsRef.current, ...added.entryIds];
+    messagesRef.current = [...messagesRef.current, ...added.messages];
+    setEntryIds((prev) => (prev.at(-1) === anchor ? [...prev, ...added.entryIds] : prev));
+    setMessages((prev) => (prev.at(-1) === anchorMessage ? [...prev, ...added.messages] : prev));
+  }, [idleMessageReadWanted, loadSession]);
+  const readIdleMessagesRef = useRef(readIdleMessages);
+  readIdleMessagesRef.current = readIdleMessages;
+  const idleMessageReadsRef = useRef<((sid: string) => void) | null>(null);
+  idleMessageReadsRef.current ??= createIdleMessageReads({
+    pendingReads: (sid) => [loadFlightsRef.current.get(sid), loadFlightsRef.current.get(`force:${sid}`)],
+    read: (sid) => readIdleMessagesRef.current(sid),
+    wanted: idleMessageReadWanted,
+    onError: (error) => console.error("Failed to read a message sent while idle:", error),
+  });
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
@@ -1938,11 +1957,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // appending it again would duplicate it.
         if (!agentRunningRef.current) {
           // An extension's sendMessage({ display: true }) while idle (a timer, a
-          // watcher): pi writes it before this event, so the file read shows it,
-          // as pi's TUI prints it at once.
-          const idle = event.message as { role?: string; display?: boolean } | undefined;
-          if (idle?.role === "custom" && idle.display === true && !bashRunningRef.current && sessionIdRef.current) {
-            readAfterIdleMessage(sessionIdRef.current);
+          // watcher): pi appends it to the session before this event, so a session
+          // read (the live wrapper's SessionManager) shows it, as pi's TUI prints it at once.
+          const idle = event.message as { role?: AgentMessage["role"]; display?: boolean } | undefined;
+          if (idle?.role === "custom" && !isHiddenCustomMessage(idle) && sessionIdRef.current) {
+            idleMessageReadsRef.current?.(sessionIdRef.current);
           }
           break;
         }
@@ -2089,7 +2108,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [readAfterIdleMessage, addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
