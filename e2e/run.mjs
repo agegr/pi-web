@@ -21,6 +21,7 @@ import { checkModelSelector } from "./model-selector.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
+import { checkDirectoryPicker, createDirectoryPickerFixtures } from "./directory-picker.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -153,6 +154,7 @@ try {
   ]);
 
   const projectNavigation = createProjectNavigationFixtures({ agentDir, sessionDir, timestamp });
+  const directoryPicker = createDirectoryPickerFixtures(agentDir);
 
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
@@ -513,6 +515,8 @@ try {
       await checkFilesPlacement(page);
       console.log("PASS: files below the sessions by default, tabs from Settings and back");
       await checkModelDiscovery(page);
+      await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
+      await checkDirectoryPicker({ page, fixture: directoryPicker });
     }
     await checkModelContext(page);
     await checkModelOrder(page);

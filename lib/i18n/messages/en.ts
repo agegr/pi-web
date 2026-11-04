@@ -518,6 +518,8 @@ export const enLocale: LocalePlugin = {
     "directoryPicker.go": "Go",
     "directoryPicker.loadingDirectories": "Loading directories…",
     "directoryPicker.noSubdirectories": "No subdirectories",
+    "directoryPicker.unresolvedPath": "Cannot open {path}",
+    "directoryPicker.staleListHint": "the list still shows {path}",
     "directoryPicker.openBeforeSelecting": "Open this path before selecting it",
     "directoryPicker.selectCurrentDirectory": "Select current directory",
     "directoryPicker.selectThisFolder": "Select this folder",
