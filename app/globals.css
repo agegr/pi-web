@@ -2504,22 +2504,6 @@ pre, code {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.directory-picker-path.is-unresolved {
-  border-color: #dc2626 !important;
-}
-
-.directory-picker-hint {
-  padding: 6px 8px 8px;
-  color: #dc2626;
-  font-size: 11px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-
-.directory-picker-list.is-stale .directory-picker-entry {
-  opacity: 0.6;
-}
-
 @media (max-width: 640px) {
   .file-viewer-meta {
     display: none;

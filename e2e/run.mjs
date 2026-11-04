@@ -515,8 +515,6 @@ try {
       await checkFilesPlacement(page);
       console.log("PASS: files below the sessions by default, tabs from Settings and back");
       await checkModelDiscovery(page);
-      await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
-      await checkDirectoryPicker({ page, fixture: directoryPicker });
     }
     await checkModelContext(page);
     await checkModelOrder(page);
@@ -547,6 +545,7 @@ try {
     },
   });
   await checkProjectNavigation({ browser, base, artifacts, fixture: projectNavigation, otherSessionId: BRANCH, api, post });
+  await checkDirectoryPicker({ browser, base, fixture: directoryPicker });
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
