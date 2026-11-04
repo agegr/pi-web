@@ -365,6 +365,81 @@ html.dark {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* The ANSI palette extension output is drawn in (components/AnsiText.tsx): the
+   terminal's light and dark palettes (lib/terminal-theme.ts), by the app's scheme.
+   Extension UI gets pi's theme for a terminal that reports no colors, which
+   paints with these 16 (lib/extension-ui-theme.ts). */
+:root {
+  --ansi-black: #24292f;
+  --ansi-red: #cf222e;
+  --ansi-green: #116329;
+  --ansi-yellow: #7d4e00;
+  --ansi-blue: #0969da;
+  --ansi-magenta: #8250df;
+  --ansi-cyan: #1b7c83;
+  --ansi-white: #6e7781;
+  --ansi-bright-black: #57606a;
+  --ansi-bright-red: #a40e26;
+  --ansi-bright-green: #1a7f37;
+  --ansi-bright-yellow: #633c01;
+  --ansi-bright-blue: #218bff;
+  --ansi-bright-magenta: #a475f9;
+  --ansi-bright-cyan: #3192aa;
+  --ansi-bright-white: #8c959f;
+}
+
+html.dark {
+  --ansi-black: #1d222b;
+  --ansi-red: #f87171;
+  --ansi-green: #4ade80;
+  --ansi-yellow: #facc15;
+  --ansi-blue: #60a5fa;
+  --ansi-magenta: #c084fc;
+  --ansi-cyan: #22d3ee;
+  --ansi-white: #e5e7eb;
+  --ansi-bright-black: #6b7280;
+  --ansi-bright-red: #fca5a5;
+  --ansi-bright-green: #86efac;
+  --ansi-bright-yellow: #fde047;
+  --ansi-bright-blue: #93c5fd;
+  --ansi-bright-magenta: #d8b4fe;
+  --ansi-bright-cyan: #67e8f9;
+  --ansi-bright-white: #ffffff;
+}
+
+.ansi-black-fg { color: var(--ansi-black); }
+.ansi-red-fg { color: var(--ansi-red); }
+.ansi-green-fg { color: var(--ansi-green); }
+.ansi-yellow-fg { color: var(--ansi-yellow); }
+.ansi-blue-fg { color: var(--ansi-blue); }
+.ansi-magenta-fg { color: var(--ansi-magenta); }
+.ansi-cyan-fg { color: var(--ansi-cyan); }
+.ansi-white-fg { color: var(--ansi-white); }
+.ansi-bright-black-fg { color: var(--ansi-bright-black); }
+.ansi-bright-red-fg { color: var(--ansi-bright-red); }
+.ansi-bright-green-fg { color: var(--ansi-bright-green); }
+.ansi-bright-yellow-fg { color: var(--ansi-bright-yellow); }
+.ansi-bright-blue-fg { color: var(--ansi-bright-blue); }
+.ansi-bright-magenta-fg { color: var(--ansi-bright-magenta); }
+.ansi-bright-cyan-fg { color: var(--ansi-bright-cyan); }
+.ansi-bright-white-fg { color: var(--ansi-bright-white); }
+.ansi-black-bg { background-color: var(--ansi-black); }
+.ansi-red-bg { background-color: var(--ansi-red); }
+.ansi-green-bg { background-color: var(--ansi-green); }
+.ansi-yellow-bg { background-color: var(--ansi-yellow); }
+.ansi-blue-bg { background-color: var(--ansi-blue); }
+.ansi-magenta-bg { background-color: var(--ansi-magenta); }
+.ansi-cyan-bg { background-color: var(--ansi-cyan); }
+.ansi-white-bg { background-color: var(--ansi-white); }
+.ansi-bright-black-bg { background-color: var(--ansi-bright-black); }
+.ansi-bright-red-bg { background-color: var(--ansi-bright-red); }
+.ansi-bright-green-bg { background-color: var(--ansi-bright-green); }
+.ansi-bright-yellow-bg { background-color: var(--ansi-bright-yellow); }
+.ansi-bright-blue-bg { background-color: var(--ansi-bright-blue); }
+.ansi-bright-magenta-bg { background-color: var(--ansi-bright-magenta); }
+.ansi-bright-cyan-bg { background-color: var(--ansi-bright-cyan); }
+.ansi-bright-white-bg { background-color: var(--ansi-bright-white); }
+
 /* Scroll-edge fades: a scroller with more content past an edge fades its last
    pixels there, so a cut row or column reads as "more this way". A
    scroll-driven animation sizes each side's fade from the scroll position:

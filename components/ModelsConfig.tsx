@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useId, useRef } from "react";
+import { useState, useEffect, useCallback, useId, useRef, type ButtonHTMLAttributes, type DragEvent } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
@@ -15,13 +15,17 @@ import {
 import {
   hasModelCostDraftValue,
   modelCostToDraft,
+  modelDropIndex,
   modelSidebarLabel,
+  moveModelEntry,
   parseCompleteModelCost,
+  providerSidebarLabel,
   providerMatchesSearch,
   savedModelIds,
   serializeHeaderRows,
   setCompatBool,
   setCompatFlag,
+  sortModelEntries,
   trackAddedModels,
   collectModelRenames,
   deleteProviderEntry,
@@ -30,6 +34,7 @@ import {
   type HeaderRow,
   type ModelCostDraft,
   type ModelCostKey,
+  type ModelOrderChange,
 } from "./models-config-helpers";
 import {
   ConfigButton,
@@ -113,6 +118,7 @@ interface ModelEntry {
 }
 
 interface ProviderEntry {
+  name?: string;
   baseUrl?: string;
   api?: string;
   apiKey?: string;
@@ -1925,6 +1931,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const [selection, setSelection] = useState<Selection | null>(readRememberedSelection);
   const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
+  /** Runtime display names of every provider, including ones with no chat models. */
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
   /** Set once the provider lists have answered; until then an overrides-only entry may be a managed provider's. */
   const [authListed, setAuthListed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1937,6 +1945,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
    * from an unrelated edit without guessing.
    */
   const savedModelIdsRef = useRef<Map<string, (string | null)[]>>(new Map());
+  /** Sidebar row keys by model object: a moved row stays mounted, and keeps focus. */
+  const modelKeysRef = useRef(new WeakMap<ModelEntry, string>());
+  const modelKeySequenceRef = useRef(0);
+  /** The model row being dragged, and the row its drop line is on. */
+  const draggedModelRef = useRef<{ providerName: string; index: number } | null>(null);
+  const [modelDrop, setModelDrop] = useState<{ providerName: string; index: number; after: boolean } | null>(null);
   /**
    * The provider name field while it differs from the provider's id. Save
    * applies it like every other visible edit; Rename applies it right away.
@@ -1946,9 +1960,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const refreshAuthProviders = useCallback(() => {
     fetch("/api/auth/providers")
       .then((r) => r.json())
-      .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[] }) => {
+      .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[]; providerNames?: Record<string, string> }) => {
         if (Array.isArray(d.oauthProviders)) setOauthProviders(d.oauthProviders);
         if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
+        setProviderNames(d.providerNames ?? {});
       })
       .catch(() => {})
       .finally(() => setAuthListed(true));
@@ -2099,10 +2114,81 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
+      // The edited model keeps its row key, so its sidebar row is not remounted on every keystroke.
+      const key = modelKeysRef.current.get(models[index]);
+      if (key) modelKeysRef.current.set(m, key);
       models[index] = m;
       return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
   }, []);
+
+  const applyModelOrder = useCallback((change: ModelOrderChange<ModelsJson> | null) => {
+    if (!change) return;
+    setConfig(change.config);
+    setSavedOk(false);
+    setSaveError(null);
+    setSelection((current) => current?.type === "model" && current.providerName === change.providerName
+      ? { ...current, index: change.order.indexOf(current.index) }
+      : current);
+  }, []);
+
+  const moveModel = useCallback((providerName: string, from: number, to: number) => {
+    if (saving || loadError) return;
+    applyModelOrder(moveModelEntry(config, savedModelIdsRef.current, providerName, from, to));
+  }, [applyModelOrder, config, loadError, saving]);
+
+  /**
+   * Native drag and drop of a model row within its provider, as the right
+   * panel's tabs do: desktop only (iOS never starts it from a touch), with the
+   * browser's own edge scrolling.
+   */
+  const modelDragProps = (providerName: string, index: number, modelId: string): ButtonHTMLAttributes<HTMLButtonElement> => {
+    const target = (event: DragEvent<HTMLButtonElement>) => {
+      const dragged = draggedModelRef.current;
+      if (dragged?.providerName !== providerName) return null;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const after = event.clientY >= rect.top + rect.height / 2;
+      return { from: dragged.index, to: modelDropIndex(dragged.index, index, after), after };
+    };
+    const endDrag = () => {
+      draggedModelRef.current = null;
+      setModelDrop(null);
+    };
+    return {
+      draggable: !saving && !loadError,
+      onDragStart: (event) => {
+        draggedModelRef.current = { providerName, index };
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", modelId);
+      },
+      onDragOver: (event) => {
+        const drop = target(event);
+        if (!drop) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        // No line where the drop would leave the order as it is.
+        const next = drop.to === drop.from ? null : { providerName, index, after: drop.after };
+        setModelDrop((prev) => prev?.providerName === next?.providerName && prev?.index === next?.index && prev?.after === next?.after ? prev : next);
+      },
+      onDragLeave: (event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setModelDrop((prev) => prev?.providerName === providerName && prev.index === index ? null : prev);
+      },
+      onDrop: (event) => {
+        const drop = target(event);
+        if (!drop) return;
+        event.preventDefault();
+        moveModel(providerName, drop.from, drop.to);
+        endDrag();
+      },
+      onDragEnd: endDrag,
+    };
+  };
+
+  const sortModels = useCallback((providerName: string) => {
+    if (saving || loadError) return;
+    applyModelOrder(sortModelEntries(config, savedModelIdsRef.current, providerName));
+  }, [applyModelOrder, config, loadError, saving]);
 
   const removeModel = useCallback((providerName: string, index: number) => {
     savedModelIdsRef.current.get(providerName)?.splice(index, 1);
@@ -2300,7 +2386,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                         <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                       </svg>
                       <ConfigSidebarText className="is-grow">
-                        {pName}
+                        {providerSidebarLabel(
+                          pName,
+                          pData,
+                          providerNames[pName]
+                            ?? enabledModels.view?.providers.find((provider) => provider.id === pName)?.name,
+                        )}
                       </ConfigSidebarText>
                       {scopeBadge(pName)}
                     </ConfigSidebarItem>
@@ -2308,15 +2399,31 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                     {/* Model rows */}
                     {models.map((m, i) => {
                       const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
+                      let modelKey = modelKeysRef.current.get(m);
+                      if (!modelKey) {
+                        modelKey = `model-${++modelKeySequenceRef.current}`;
+                        modelKeysRef.current.set(m, modelKey);
+                      }
+                      const drop = modelDrop?.providerName === pName && modelDrop.index === i ? modelDrop : null;
                       return (
                         <ConfigSidebarItem
-                          key={i}
+                          key={modelKey}
                           active={isModelSelected}
                           className="models-sidebar-indented-item"
+                          style={drop ? { boxShadow: `inset 0 ${drop.after ? "-2px" : "2px"} 0 var(--accent)` } : undefined}
+                          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                           onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
+                          onKeyDown={(event) => {
+                            if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                            const direction = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : null;
+                            if (direction === null) return;
+                            event.preventDefault();
+                            moveModel(pName, i, i + direction);
+                          }}
+                          {...modelDragProps(pName, i, m.id)}
                         >
                           <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
-                             {modelSidebarLabel(m) || t("i18n.newModel")}
+                            {modelSidebarLabel(m) || t("i18n.newModel")}
                           </ConfigSidebarText>
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
@@ -2325,13 +2432,25 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                       );
                     })}
 
-                    {/* Add model button */}
-                    <ConfigSidebarItem
-                      className="models-sidebar-indented-item models-sidebar-add-item"
-                      onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                    >
-                       <ConfigSidebarText>+ {t("i18n.model")}</ConfigSidebarText>
-                    </ConfigSidebarItem>
+                    {/* Add model button, and A–Z */}
+                    <div className="models-sidebar-model-footer">
+                      <ConfigSidebarItem
+                        className="models-sidebar-indented-item models-sidebar-add-item"
+                        onClick={(e) => { e.stopPropagation(); addModel(pName); }}
+                      >
+                        <ConfigSidebarText>+ {t("i18n.model")}</ConfigSidebarText>
+                      </ConfigSidebarItem>
+                      <button
+                        type="button"
+                        className="models-sidebar-sort-button"
+                        aria-label={t("models.sortByName")}
+                        title={t("models.sortByName")}
+                        disabled={saving || loadError !== null || models.length < 2}
+                        onClick={() => sortModels(pName)}
+                      >
+                        A–Z
+                      </button>
+                    </div>
                   </div>
                 );
               })}

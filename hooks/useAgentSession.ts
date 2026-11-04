@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
+import { stripAnsi } from "@/lib/ansi";
 import type {
   AgentMessage,
   BlockingExtensionUiRequest,
@@ -394,7 +395,7 @@ type UnconfirmedSend = {
 };
 /** `clear_queue` and `abort`: queued texts, plus the images of prompts parked behind a compaction. */
 type RecalledPrompts = { steering?: string[]; followUp?: string[]; images?: Array<{ data: string; mimeType: string }> };
-type ModelEntry = { id: string; name: string; provider: string };
+type ModelEntry = { id: string; name: string; provider: string; providerName: string };
 type ModelsResponse = {
   models: Record<string, string>;
   modelList?: ModelEntry[];
@@ -1469,7 +1470,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "notify": {
         addNotice({
           id: request.id,
-          message: request.message,
+          message: stripAnsi(request.message),
           type: request.notifyType ?? "info",
         });
         break;
@@ -1491,10 +1492,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ));
         break;
       case "setTitle":
-        if (request.title) document.title = request.title;
+        if (request.title) document.title = stripAnsi(request.title);
         break;
       case "set_editor_text":
-        opts.chatInputRef?.current?.insertText(request.text);
+        opts.chatInputRef?.current?.insertText(stripAnsi(request.text));
         break;
       case "custom":
         setExtensionCustomUis((queue) => request.closed
@@ -2363,13 +2364,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     modelSwitchPendingRef.current = true;
     setCurrentModelOverride(target);
     setModelSwitching(true);
+    // A switch during a run applies from the run's next model request, as the
+    // reasoning level does. Reading the file then would swap the run's messages
+    // under the stream, so take the model and level from the live state; the
+    // run's end reads the file.
+    const midRun = agentRunningRef.current || bashRunningRef.current;
+    const syncLiveState = async () => {
+      const res = await fetch(agentStatusUrl(sid)).catch(() => null);
+      const d = res?.ok ? await res.json().catch(() => null) as { state?: AgentStateResponse } | null : null;
+      if (d?.state && sessionHookMountedRef.current && sessionIdRef.current === sid) syncLiveModel(d.state);
+    };
     try {
       const selected = await sendAgentCommand<{ provider: string; id: string }>(sid, { type: "set_model", provider, modelId });
       setLiveModel({ provider: selected.provider, modelId: selected.id });
-      // Pi persists model_change synchronously. Reload the canonical session so
-      // the model, thinking level, and active leaf all advance together.
       modelSwitchPendingRef.current = false;
-      await loadSession(sid);
+      if (midRun) {
+        setCurrentModelOverride(null);
+        await syncLiveState();
+      } else {
+        // Pi persists model_change synchronously. Reload the canonical session so
+        // the model, thinking level, and active leaf all advance together.
+        await loadSession(sid);
+      }
     } catch (e) {
       console.error("Failed to set model:", e);
       modelSwitchPendingRef.current = false;
@@ -2379,13 +2395,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         message: `Failed to switch model: ${e instanceof Error ? e.message : String(e)}`,
       });
       // A failed response can still follow a server-side write (for example, a
-      // dropped connection), so let the session file settle the displayed model.
-      await loadSession(sid, false, true);
+      // dropped connection), so let the server settle the displayed model.
+      if (midRun) await syncLiveState();
+      else await loadSession(sid, false, true);
     } finally {
       modelSwitchPendingRef.current = false;
       setModelSwitching(false);
     }
-  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel, syncLiveModel]);
 
   /**
    * Manual compaction (the Compact button and `/compact`). Never awaited by a

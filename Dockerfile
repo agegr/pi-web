@@ -3,15 +3,10 @@ FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
-# node-pty is a native module; these are only needed if npm has to compile it.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY package.json package-lock.json ./
-# npm ci runs the root postinstall hook, which invokes this script.
-COPY bin/prepare-terminal.js ./bin/prepare-terminal.js
-RUN npm ci
+# No dependency runs install scripts. node-pty loads its prebuilt linux-x64 and linux-arm64
+# binaries without them, and the root postinstall only fixes macOS binaries.
+RUN npm ci --ignore-scripts
 
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1

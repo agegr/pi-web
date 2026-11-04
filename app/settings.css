@@ -224,6 +224,48 @@
   padding-left: 26px;
 }
 
+.models-sidebar-model-footer {
+  display: flex;
+  align-items: center;
+}
+
+.models-sidebar-model-footer > .config-sidebar-item {
+  flex: 1;
+  width: auto;
+  padding-right: 4px;
+}
+
+.models-sidebar-sort-button {
+  flex-shrink: 0;
+  width: 36px;
+  height: 30px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.models-sidebar-sort-button:not(:disabled):hover,
+.models-sidebar-sort-button:not(:disabled):focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.models-sidebar-sort-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.models-sidebar-sort-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
 .models-sidebar-add-item {
   color: var(--text-dim);
 }
@@ -2145,6 +2187,12 @@
     height: 44px;
     min-height: 44px;
     font-size: 14px;
+  }
+
+  .config-split-view[data-pane] .models-sidebar-sort-button {
+    width: 40px;
+    height: 44px;
+    font-size: 12px;
   }
 
   .config-split-view[data-pane] .config-sidebar-group-label {

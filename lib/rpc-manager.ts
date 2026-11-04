@@ -34,6 +34,7 @@ import type {
   SessionMessageEntry,
   SubagentSessionStatus,
 } from "./types";
+import { extensionUiTheme } from "./extension-ui-theme";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import {
   createSubagentExtension,
@@ -276,32 +277,6 @@ const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "m
 // The SDK's DEFAULT_THINKING_LEVEL (dist/core/defaults.js), which it does not export.
 const SDK_DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
-// Extensions require a complete Theme, while the web UI applies its own styling.
-class PlainTextTheme extends Theme {
-  constructor() {
-    super(
-      { muted: "", text: "", thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
-      { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
-      "truecolor",
-    );
-  }
-
-  override fg(...[, text]: Parameters<Theme["fg"]>): string { return text; }
-  override bg(...[, text]: Parameters<Theme["bg"]>): string { return text; }
-  override bold(text: string): string { return text; }
-  override italic(text: string): string { return text; }
-  override underline(text: string): string { return text; }
-  override inverse(text: string): string { return text; }
-  override strikethrough(text: string): string { return text; }
-  override getFgAnsi(): string { return ""; }
-  override getBgAnsi(): string { return ""; }
-  override getThinkingBorderColor(): (text: string) => string {
-    return (text) => text;
-  }
-  override getBashModeBorderColor(): (text: string) => string { return (text) => text; }
-}
-
-const PLAIN_TEXT_THEME = new PlainTextTheme();
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 
 // Tools that belong to the session, not to a branch of it: the ones that reach other tools,
@@ -2050,7 +2025,7 @@ export class AgentSessionWrapper {
 
     let component: unknown;
     try {
-      component = factory(tui, PLAIN_TEXT_THEME);
+      component = factory(tui, extensionUiTheme());
     } catch (error) {
       this.failExtensionWidget(key, generation, error, hadPrevious);
       return;
@@ -2191,7 +2166,7 @@ export class AgentSessionWrapper {
       stopSignal.addEventListener("abort", onStop, { once: true });
 
       Promise.resolve()
-        .then(() => completed ? undefined : factory(tui, PLAIN_TEXT_THEME, CUSTOM_UI_KEYBINDINGS, done))
+        .then(() => completed ? undefined : factory(tui, extensionUiTheme(), CUSTOM_UI_KEYBINDINGS, done))
         .then((component) => {
           if (completed) {
             try {
@@ -2397,7 +2372,7 @@ export class AgentSessionWrapper {
       addAutocompleteProvider: () => {},
       setEditorComponent: () => {},
       getEditorComponent: () => undefined,
-      get theme() { return PLAIN_TEXT_THEME; },
+      get theme() { return extensionUiTheme(); },
       getAllThemes: () => [],
       getTheme: () => undefined,
       setTheme: () => ({ success: false, error: "Theme switching is not supported in Pi Web extension UI yet" }),

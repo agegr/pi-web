@@ -12,7 +12,7 @@ import {
 import { orderSelectorModels, resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
-import { rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
+import { providerDisplayNames, rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { inferRemovedWorktree } from "@/lib/worktree";
 import { cwdMissingBody } from "@/lib/missing-cwd";
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
   const nameMap = new Map<string, string>();
-  let modelList: { id: string; name: string; provider: string }[] = [];
+  let modelList: { id: string; name: string; provider: string; providerName: string }[] = [];
   let defaultModel: { provider: string; modelId: string } | null = null;
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
@@ -38,6 +38,7 @@ async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
   const modelError = services.modelRuntime.getError();
   const settings: SettingsManager = services.settingsManager;
   await rememberProviderModels(services.modelRuntime);
+  const providerNames = providerDisplayNames(services.modelRuntime);
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
   const scope = await resolveVisibleModels(
@@ -49,6 +50,9 @@ async function loadModels(cwd: string, scopeAll = false): Promise<ModelsData> {
     id: m.id,
     name: m.name,
     provider: m.provider,
+    // The selector groups by provider id, but labels the group with its display
+    // name; models.json providers get theirs from `name` too.
+    providerName: providerNames.get(m.provider) ?? m.provider,
     input: m.input,
   }));
   for (const m of visible) {

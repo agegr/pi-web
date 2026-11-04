@@ -58,8 +58,15 @@ Coverage:
   (visual viewport shrink, pan, a late height with no event) keeps the same
   filter focused and the list in the visible viewport. Native phone keyboards
   still need real-device verification.
+- Settings › Models drags a custom provider's models within it (never into
+  another provider) and moves them with Alt+↑/↓, keeps the moved row focused,
+  keeps the selected model open and its row mounted while it is edited, sorts
+  shown names once with A–Z, appends later additions, and saves only the changed array order
+  while preserving rename tracking (`model-order.mjs`, desktop and phone widths,
+  mocked config routes).
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
+- The production assistant header keeps its height and numeric columns when streaming metrics appear, update and disappear. Static component renders cover digit boundaries with proportional and monospace fonts, without a live model. Run this check alone with `node e2e/streaming-metrics.mjs` (1280, 390 and 320px).
 
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under

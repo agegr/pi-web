@@ -21,9 +21,13 @@ export function sideChatNameFrom(message: string): string | null {
   return text.startsWith("/") || text.startsWith("!") ? null : sideChatNameFromText(text);
 }
 
-/** What to call a side chat: its own name, or the caller's words for one that has none yet. */
-export function sideChatTitle(session: Pick<SessionInfo, "name">, untitled: string): string {
-  return session.name && session.name !== SIDE_SESSION_NAME ? session.name : untitled;
+/** An unnamed side chat has the same number in the tab and the Agents family. */
+export function sideChatTitle(session: Pick<SessionInfo, "id" | "name">, untitled: string, family: readonly SessionInfo[]): string {
+  if (session.name && session.name !== SIDE_SESSION_NAME) return session.name;
+  const sides = family.filter((item) => item.relation?.kind === "side")
+    .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+  const index = sides.findIndex((item) => item.id === session.id);
+  return index < 0 ? untitled : `${untitled} ${index + 1}`;
 }
 
 /** Relation kinds that hide a session as a family member instead of a sidebar row. */
