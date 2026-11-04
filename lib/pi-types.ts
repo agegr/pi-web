@@ -89,8 +89,6 @@ interface ExtensionRunnerLike {
   }>;
   emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
-  /** Commands two extensions both register, as pi's TUI lists them under `[Extension issues]`. */
-  getCommandDiagnostics?(): Array<{ type: string; message: string; path?: string }>;
 }
 
 type DialogOptionsLike = {

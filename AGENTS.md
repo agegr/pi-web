@@ -108,7 +108,7 @@ lib/
   page-stream-registry.ts   open terminal and file-watch streams with their page (`?holder=`) and client, for the Debug panel's connected pages
   page-debug.ts             client: the page's id (`?holder=` of its streams), EventSources, visibility history, protocol and running-poll record (Debug panel)
   file-watch-registry.ts    open ?type=watch streams, counted on globalThis for the Debug panel
-  startup-issues.ts         what pi's TUI prints as a session starts (extension load errors, its warnings, command conflicts, an unrestored model), as notices
+  startup-issues.ts         client-safe: what pi's TUI prints as a session starts (extension load errors and conflicts, warnings, session_start errors), as notices; the page shows each id once
   rpc-manager.ts            AgentSessionWrapper, registry, startRpcSession
   side-chat-client.ts       client: ask the fork route for a side chat, refusals as translated notices
   session-reader.ts         SessionManager wrappers, path cache, buildSessionContext adapter
