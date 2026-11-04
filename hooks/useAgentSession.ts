@@ -2424,7 +2424,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ...(customInstructions ? { customInstructions } : {}),
       });
       setCompactResult(readCompactResult(result, "manual"));
-      if (await loadSession(sid, true)) promoteNewSession();
+      // Keep the composer mounted: a loading screen would discard its focus
+      // and selection while the user is writing the next prompt.
+      if (await loadSession(sid)) promoteNewSession();
       return true;
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));

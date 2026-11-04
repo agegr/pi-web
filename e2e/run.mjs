@@ -12,6 +12,7 @@ import { chromium } from "playwright";
 import { checkFilePanel, checkLargeHtmlStorage, filePanelFixture, largeStorageFixture } from "./file-panel.mjs";
 import { checkExtensionDialogSizing, checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
 import { checkChatAppearance } from "./chat-appearance.mjs";
+import { checkComposerFocus } from "./composer-focus.mjs";
 import { checkCodeBackground } from "./code-background.mjs";
 import { checkStreamingMetrics } from "./streaming-metrics.mjs";
 import { checkModelDiscovery } from "./model-discovery.mjs";
@@ -490,6 +491,7 @@ try {
     await checkLargeHtmlStorage(page, largeStorageFile);
     await checkExtensionDialogs(page, artifacts, viewport.width);
     await checkExtensionDialogSizing(page, viewport.width);
+    await checkComposerFocus(page, { base, sessionId: RICH });
     if (viewport.width > 600) {
       await page.goto(`${base}/?session=${RICH}`, { waitUntil: "domcontentloaded" });
       await page.locator(".markdown-code-block pre").waitFor();
