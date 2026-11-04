@@ -6,7 +6,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { filterSlashCommands } = await jiti.import("./ChatInput.tsx");
+const { filterSlashCommands, slashPaletteCommands } = await jiti.import("./ChatInput.tsx");
 
 const t = (key) => key;
 const names = (commands) => commands.map((command) => command.name);
@@ -44,4 +44,30 @@ test("an empty query lists everything by source, then name", () => {
     "skill:copy-text",
     "skill:deep-copy",
   ]);
+});
+
+test("an extension command named as a built-in that answers here is left out, as pi's autocomplete does", () => {
+  const session = [
+    { name: "model", description: "Extension model", source: "extension" },
+    { name: "compact", description: "Extension compact", source: "extension" },
+    { name: "new", description: "Extension new", source: "extension" },
+    { name: "model:2", description: "A second extension's /model", source: "extension" },
+    { name: "export", description: "A prompt template", source: "prompt" },
+  ];
+  const main = { isStreaming: false, pageCommands: true, modelPicker: true, thinkingMenu: true };
+  const extensionNames = (context) => names(slashPaletteCommands(session, context).filter((command) => command.source !== "builtin"));
+  const builtinNames = (context) => names(slashPaletteCommands(session, context).filter((command) => command.source === "builtin"));
+
+  // The main chat, idle: the built-ins run, so only the renamed command and the prompt stay.
+  assert.deepEqual(extensionNames(main), ["model:2", "export"]);
+  // While a run streams /compact is sent to pi, where the extension's runs.
+  assert.deepEqual(extensionNames({ ...main, isStreaming: true }), ["compact", "model:2", "export"]);
+  assert.equal(builtinNames({ ...main, isStreaming: true }).includes("compact"), false);
+  // A tab's chat has no page commands: its /new is the extension's.
+  assert.deepEqual(extensionNames({ ...main, pageCommands: false }), ["new", "model:2", "export"]);
+  assert.equal(builtinNames({ ...main, pageCommands: false }).includes("new"), false);
+  // Without the composer's picker, /model is not the built-in either.
+  assert.deepEqual(extensionNames({ ...main, modelPicker: false }), ["model", "model:2", "export"]);
+  assert.equal(builtinNames({ ...main, modelPicker: false }).includes("model"), false);
+  assert.equal(builtinNames({ ...main, thinkingMenu: false }).includes("thinking"), false);
 });

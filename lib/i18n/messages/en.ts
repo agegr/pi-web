@@ -883,6 +883,7 @@ export const enLocale: LocalePlugin = {
     "chat.commandNew": "Start a new session in this project",
     "chat.commandModel": "Select a model, or switch to one: /model provider/id",
     "chat.commandThinking": "Select a reasoning level, or set one: /thinking high",
+    "chat.thinkingUnknownLevel": "Unknown thinking level \"{level}\". Available levels: {levels}.",
     "chat.commandTree": "Show this session's branches",
     "chat.commandResume": "Search sessions to open another",
     "chat.commandExport": "Download this session as HTML",

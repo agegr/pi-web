@@ -2662,12 +2662,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "export": {
         const exportId = sessionIdRef.current;
         if (!exportId) return complete({ handled: true, error: translate("chat.exportNoSession") });
-        try {
-          await downloadSessionExport(exportId);
-          return complete({ handled: true, action: "export" });
-        } catch (e) {
-          return complete({ handled: true, error: translate("chat.exportFailed", { error: e instanceof Error ? e.message : String(e) }) });
-        }
+        // Detached, as /compact: the composer, Stop included, stays disabled
+        // until a command resolves, and a large session's export takes seconds
+        // to arrive. The download is the answer; only a failure says anything.
+        void downloadSessionExport(exportId).catch((e: unknown) => {
+          addNotice({ type: "error", message: translate("chat.exportFailed", { error: e instanceof Error ? e.message : String(e) }) });
+        });
+        return complete({ handled: true, action: "export" });
       }
     }
 

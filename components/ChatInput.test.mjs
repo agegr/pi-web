@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, findThinkingLevel, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, RUN_END_CLICK_GUARD_MS, autoGrowTextarea, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, cycleListIndex, filterModelOptions, findThinkingLevel, getUpwardMenuMaxHeight, offeredThinkingLevels, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, readImageFile, replaceTextareaRange, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { ModelSelector, findExactModelOption } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
@@ -766,6 +766,53 @@ test("/thinking sets only a level the model offers", () => {
   assert.equal(findThinkingLevel("medium", null), "medium");
   assert.equal(findThinkingLevel("auto", ["off"]), "auto");
   assert.equal(findThinkingLevel("loud", null), null);
+});
+
+test("/thinking with a level the model does not offer opens nothing and says what is offered, as pi does", () => {
+  assert.deepEqual(offeredThinkingLevels(["off", "low", "high"]), ["auto", "off", "low", "high"]);
+  const sourceText = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  const source = ts.createSourceFile("ChatInput.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findAssignment(node) {
+    if (ts.isBinaryExpression(node) && node.left.getText(source) === "runPickerCommandRef.current") return node.right;
+    return ts.forEachChild(node, findAssignment);
+  }
+  const calls = { errors: [], levels: [], menu: [], picker: [] };
+  const run = new Script(ts.transpileModule(`(${findAssignment(source).getText(source)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 },
+  }).outputText).runInNewContext({
+    availableThinkingLevels: ["off", "low", "high"],
+    findExactModelOption,
+    findThinkingLevel,
+    offeredThinkingLevels,
+    isMobile: false,
+    modelOptions: [],
+    modelSelectorRef: { current: { open: (filter) => { calls.picker.push(filter); return true; } } },
+    modelSwitching: false,
+    onCommandError: (message) => calls.errors.push(message),
+    onModelChange() {},
+    onThinkingLevelChange: (level) => calls.levels.push(level),
+    setControlsMenuOpen() {},
+    setThinkingDropdownOpen: (open) => calls.menu.push(open),
+    t: (key, params) => `${key} ${JSON.stringify(params)}`,
+    textareaRef: { current: null },
+  });
+
+  // Refused: the text stays in the composer to be corrected.
+  assert.equal(run("/thinking  xhigh "), "keep");
+  assert.deepEqual(calls.errors, [`chat.thinkingUnknownLevel ${JSON.stringify({ level: "xhigh", levels: "auto, off, low, high" })}`]);
+  assert.deepEqual(calls.menu, []);
+  assert.deepEqual(calls.levels, []);
+  assert.equal(run("/thinking HIGH"), true);
+  assert.deepEqual(calls.levels, ["high"]);
+  assert.equal(run("/thinking"), true);
+  assert.deepEqual(calls.menu, [true]);
+  assert.equal(calls.errors.length, 1);
+});
+
+test("pi's notice for an unknown thinking level, word for word", async () => {
+  const { enLocale } = await jiti.import("@/lib/i18n/messages/en");
+  // interactive-mode.js handleThinkingCommand(): `Unknown thinking level "${searchTerm}". Available levels: ${availableLevels.join(", ")}.`
+  assert.equal(enLocale.messages["chat.thinkingUnknownLevel"], 'Unknown thinking level "{level}". Available levels: {levels}.');
 });
 
 test("a bare /mcp reaches the built-in handler while a run is active", () => {

@@ -103,6 +103,8 @@ interface Props {
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   /** The page answers `/new`, `/tree` and `/resume` (the main chat, not a tab's): offered in the palette. */
   pageCommands?: boolean;
+  /** A command the composer answers itself refused: `/thinking` with a level the model does not offer. */
+  onCommandError?: (message: string) => void;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
   onAudioUnlock?: () => void;
@@ -340,15 +342,49 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "scoped-models", description: "chat.commandScopedModels", source: "builtin", availableWhileStreaming: true },
 ];
 
+/** The levels the reasoning menu offers: "auto" (the default) and the model's, or every level while they are unknown. */
+export function offeredThinkingLevels(available: readonly string[] | null | undefined): typeof THINKING_LEVELS[number][] {
+  return THINKING_LEVELS.filter((level) => level === "auto" || !available || available.includes(level));
+}
+
 /**
  * The reasoning level a `/thinking <level>` names among those offered, as pi's
- * `handleThinkingCommand()` matches it (case-insensitive); null opens the menu.
+ * `handleThinkingCommand()` matches it (case-insensitive); null when none is.
  */
 export function findThinkingLevel(text: string, available: readonly string[] | null | undefined): typeof THINKING_LEVELS[number] | null {
   const wanted = text.trim().toLowerCase();
-  const level = THINKING_LEVELS.find((candidate) => candidate === wanted);
-  if (!level) return null;
-  return level === "auto" || !available || available.includes(level) ? level : null;
+  return offeredThinkingLevels(available).find((level) => level === wanted) ?? null;
+}
+
+/** What decides which built-ins this composer answers: the rules its Enter follows. */
+export interface BuiltinSlashContext {
+  isStreaming: boolean;
+  /** The main chat: the page answers `/new`, `/tree` and `/resume`. */
+  pageCommands: boolean;
+  /** `/model` and `/thinking` open the composer's own picker and menu, when it has them. */
+  modelPicker: boolean;
+  thinkingMenu: boolean;
+}
+
+function answersBuiltinSlashCommand(command: BuiltinSlashCommand, context: BuiltinSlashContext): boolean {
+  if (context.isStreaming && !command.availableWhileStreaming) return false;
+  if (command.page && !context.pageCommands) return false;
+  if (command.name === "model") return context.modelPicker;
+  if (command.name === "thinking") return context.thinkingMenu;
+  return true;
+}
+
+/**
+ * The palette's commands before its query: the built-ins this composer answers,
+ * then the session's. An extension command named as one of those built-ins is
+ * left out, as pi's autocomplete leaves it out (`interactive-mode.js`): choosing
+ * it would run the built-in. Where the built-in does not answer (a page command
+ * in a tab, `/compact` while a run streams), the extension's runs and is listed.
+ */
+export function slashPaletteCommands(slashCommands: SlashCommandInfo[] | null | undefined, context: BuiltinSlashContext): SlashCommandPaletteItem[] {
+  const builtins = BUILTIN_SLASH_COMMANDS.filter((command) => answersBuiltinSlashCommand(command, context));
+  const shadowed = new Set(builtins.map((command) => command.name));
+  return [...builtins, ...(slashCommands ?? []).filter((command) => command.source !== "extension" || !shadowed.has(command.name))];
 }
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
@@ -727,6 +763,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   pageCommands = false,
+  onCommandError,
   soundEnabled, onSoundToggle, onAudioUnlock,
   onPromptWithStreamingBehavior,
   draftKey,
@@ -1174,10 +1211,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
-    const builtinCommands = BUILTIN_SLASH_COMMANDS.filter((command) => (
-      (!isStreaming || command.availableWhileStreaming) && (pageCommands || !command.page)
-    ));
-    const commands = [...builtinCommands, ...(slashCommands ?? [])];
+    const commands = slashPaletteCommands(slashCommands, {
+      isStreaming,
+      pageCommands,
+      modelPicker: Boolean(onModelChange),
+      thinkingMenu: Boolean(onThinkingLevelChange),
+    });
     return filterSlashCommands(commands, slashQuery, t);
   })();
 
@@ -1579,7 +1618,19 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         return;
       }
 
-      // Esc stops the agent when no slash/@/history menu or IME composition is active.
+      // `/model` and `/thinking` open their picker with the focus left here (the
+      // picker's filter takes it only in a long list): Esc closes it, as Esc
+      // closes pi's selector, before it would stop the run.
+      if (e.key === "Escape" && !isComposing) {
+        const closedModelPicker = modelSelectorRef.current?.close() ?? false;
+        if (closedModelPicker || thinkingDropdownOpen) {
+          e.preventDefault();
+          setThinkingDropdownOpen(false);
+          return;
+        }
+      }
+
+      // Esc stops the agent when no slash/@/history menu, picker or IME composition is active.
       if (e.key === "Escape" && !isComposing && isStreaming && onAbort) {
         e.preventDefault();
         onAbort();
@@ -1595,7 +1646,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, thinkingDropdownOpen]
   );
 
   const handleInput = useCallback(() => {
@@ -1761,7 +1812,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   // `/model` and `/thinking` open the composer's own pickers, as pi's TUI opens
   // its selectors; an exact model or a level offered is chosen at once. A ref:
   // runBuiltinCommand is built before the options are. "keep" leaves the text
-  // in the composer: a model switch is still pending.
+  // in the composer: a model switch is still pending, or the level is refused.
   const runPickerCommandRef = useRef<(msg: string) => boolean | "keep">(() => false);
   runPickerCommandRef.current = (msg: string) => {
     const match = msg.match(/^\/(model|thinking)(?:\s+([\s\S]*))?$/);
@@ -1781,6 +1832,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (level) {
       onThinkingLevelChange?.(level);
       return true;
+    }
+    if (command === "thinking" && args) {
+      // pi's handleThinkingCommand(): a level not offered opens nothing.
+      onCommandError?.(t("chat.thinkingUnknownLevel", { level: args, levels: offeredThinkingLevels(availableThinkingLevels).join(", ") }));
+      return "keep";
     }
     // A phone's keyboard hides the controls row (globals.css): close it, then
     // open the picker once the row is back.
@@ -2767,11 +2823,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
                     overflow: "hidden", minWidth: 180,
                   }}>
-                    {THINKING_LEVELS.filter((lvl) => {
-                      if (!availableThinkingLevels) return true;
-                      if (lvl === "auto") return true;
-                      return availableThinkingLevels.includes(lvl);
-                    }).map((lvl) => {
+                    {offeredThinkingLevels(availableThinkingLevels).map((lvl) => {
                       const isActive = lvl === "auto"
                         ? isAutoThinkingSelection
                         : !isAutoThinkingSelection && resolvedThinkingLevel === lvl;

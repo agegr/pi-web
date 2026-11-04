@@ -941,6 +941,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, []);
   useLayoutEffect(updatePromptAnchor, [isStreaming, hasStreamingContent, updatePromptAnchor]);
 
+  const showCommandError = useCallback((message: string) => addNotice({ type: "error", message }), [addNotice]);
+
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
@@ -996,6 +998,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onLoadSlashCommands={loadSlashCommands}
       onBuiltinCommand={handleBuiltinSlashCommand}
       pageCommands={Boolean(onPageCommand)}
+      onCommandError={showCommandError}
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}

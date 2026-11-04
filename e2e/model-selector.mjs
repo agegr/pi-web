@@ -59,6 +59,36 @@ export async function checkModelSelector(page, { base, project, artifacts }) {
     await page.getByRole("listbox").waitFor({ state: "detached" });
     console.log(`PASS: ${page.viewportSize().width}px model picker filter stays visible${mobile ? " above the keyboard" : ""}`);
 
+    // The composer's `/model` in a list too short for a filter field: `/model <text>`
+    // shows the field with the text, and it stays while the text is cleared; a bare
+    // `/model` leaves the focus in the composer, whose Esc closes the picker.
+    await page.unroute(modelRoute);
+    await page.route(modelRoute, (route) => route.fulfill({ json: body(models.slice(0, 3)) }));
+    await page.goto(`${base}/?cwd=${encodeURIComponent(project)}`, { waitUntil: "domcontentloaded" });
+    await trigger.filter({ hasText: "Model 0" }).waitFor();
+    const composer = page.locator("textarea.chat-input-textarea").first();
+    const send = mobile ? "Control+Enter" : "Enter";
+    await composer.fill("/model model 2");
+    await composer.press(send);
+    await filter.waitFor();
+    assert.equal(await filter.inputValue(), "model 2");
+    assert.equal(await page.getByRole("listbox").getByRole("option").count(), 1);
+    await filter.fill("");
+    assert.equal(await filter.count(), 1, "the field stays once its text is cleared");
+    assert.equal(await page.getByRole("listbox").getByRole("option").count(), 3);
+    await filter.press("Escape");
+    await page.getByRole("listbox").waitFor({ state: "detached" });
+    if (!mobile) {
+      await composer.fill("/model");
+      await composer.press("Enter");
+      await page.getByRole("listbox").waitFor();
+      assert.equal(await filter.count(), 0);
+      assert.equal(await composer.evaluate((field) => document.activeElement === field), true);
+      await composer.press("Escape");
+      await page.getByRole("listbox").waitFor({ state: "detached" });
+    }
+    console.log(`PASS: ${page.viewportSize().width}px /model opens a short list's picker filtered${mobile ? "" : ", Esc in the composer closes it"}`);
+
     // An active enabledModels scope: pi's /model "scoped | all" row, the full list fetched on demand,
     // no default star outside the scope.
     await page.unroute(modelRoute);

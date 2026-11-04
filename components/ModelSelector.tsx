@@ -17,6 +17,8 @@ export interface ModelSelectorOption {
 export interface ModelSelectorHandle {
   /** False while the trigger is not laid out (a phone keyboard hides its row) or locked. */
   open: (filter?: string) => boolean;
+  /** Closes an open picker; false when it was not open. The composer's Esc, where focus stays after `/model`. */
+  close: () => boolean;
 }
 
 /**
@@ -134,13 +136,15 @@ export function ModelSelector({
   const [filter, setFilter] = useState("");
   // pi's /model starts on the scope; Tab on the filter or a tap switches.
   const [showAll, setShowAll] = useState(false);
+  // Opened by `/model <text>`: its filter field shows even in a short list, and
+  // stays while that text is cleared. Each way of opening sets it.
+  const [filterGiven, setFilterGiven] = useState(false);
   const locked = disabled || busy;
   const listed = showAll ? allOptions : options;
   // Options arrive in pi's /model order (orderSelectorModels()); never re-sort
   // them, or a models.json provider loses the order its file gives (#783).
   const filteredOptions = filterModelOptions(listed ?? [], filter);
-  // A filter given by `/model <text>` shows its field even in a short list.
-  const showFilter = Boolean(onShowAll) || options.length > MODEL_FILTER_THRESHOLD || filter !== "";
+  const showFilter = Boolean(onShowAll) || options.length > MODEL_FILTER_THRESHOLD || filterGiven;
   const isListed = (list: ModelSelectorOption[] | null | undefined, ref: { provider: string; modelId: string }) => (
     list?.find((option) => option.modelId === ref.modelId && option.provider === ref.provider)
   );
@@ -158,10 +162,17 @@ export function ModelSelector({
       setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
       setShowAll(false);
       setFilter(initialFilter);
+      setFilterGiven(initialFilter !== "");
       setOpen(true);
       return true;
     },
-  }), [locked]);
+    close() {
+      if (!open) return false;
+      setOpen(false);
+      setFilter("");
+      return true;
+    },
+  }), [locked, open]);
 
   const currentName = selectedLabel ?? (value
     ? (isListed(options, value) ?? isListed(allOptions, value))?.name ?? value.modelId
@@ -291,8 +302,12 @@ export function ModelSelector({
           const rect = event.currentTarget.getBoundingClientRect();
           setAnchorRect({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, width: rect.width });
           setOpen((current) => {
-            if (current) setFilter("");
-            else setShowAll(false);
+            if (current) {
+              setFilter("");
+            } else {
+              setShowAll(false);
+              setFilterGiven(false);
+            }
             return !current;
           });
         }}
