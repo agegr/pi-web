@@ -38,10 +38,26 @@ export interface NoticeLinkPart {
   text: string;
 }
 
-// An http(s) URL up to whitespace or a closing bracket or quote; trailing
-// sentence punctuation is trimmed below ("Open http://localhost:3000.").
-const URL_RE = /https?:\/\/[^\s<>"'`)\]}]+/g;
-const TRAILING_PUNCTUATION_RE = /[.,;:!?]+$/;
+// An http(s) URL up to whitespace, a quote, a closing bracket or full-width
+// punctuation ("打开 http://localhost:3000。"), with an IPv6 host in brackets
+// (`http://[::1]:3000`). A `)` is kept only while it closes a `(` of the URL's
+// own (`…/wiki/Foo_(bar)`), as GFM autolinks do; trailing sentence punctuation
+// is trimmed below ("Open http://localhost:3000.").
+const URL_RE = /https?:\/\/(?:\[[0-9A-Fa-f:.]+\])?[^\s<>"'`\]}。，、；：！？）」』】]*/g;
+const TRAILING_PUNCTUATION_RE = /[.,;:!?]$/;
+
+function trimUrl(candidate: string): string {
+  let url = candidate;
+  for (;;) {
+    if (TRAILING_PUNCTUATION_RE.test(url)) {
+      url = url.slice(0, -1);
+    } else if (url.endsWith(")") && url.split("(").length < url.split(")").length) {
+      url = url.slice(0, -1);
+    } else {
+      return url;
+    }
+  }
+}
 
 /**
  * Splits prose into text and the http(s) URLs in it, so a notice such as
@@ -53,7 +69,7 @@ export function splitNoticeLinks(text: string): NoticeLinkPart[] {
   const parts: NoticeLinkPart[] = [];
   let last = 0;
   for (const match of text.matchAll(URL_RE)) {
-    const url = match[0].replace(TRAILING_PUNCTUATION_RE, "");
+    const url = trimUrl(match[0]);
     if (!/^https?:\/\/[^/]/.test(url)) continue;
     const start = match.index ?? 0;
     if (start > last) parts.push({ kind: "text", text: text.slice(last, start) });
