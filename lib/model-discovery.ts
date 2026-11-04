@@ -1,14 +1,24 @@
 const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 type EffortLevel = typeof EFFORT_LEVELS[number];
 
+/** models.json cost rates, in dollars per million tokens. */
+export interface DiscoveredModelCost {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface DiscoveredModel {
   id: string;
   name?: string;
   // Capabilities the upstream list publishes, as models.json fields (#856).
   reasoning?: true;
   thinkingLevelMap?: Partial<Record<EffortLevel, string | null>>;
+  input?: string[];
   contextWindow?: number;
   maxTokens?: number;
+  cost?: DiscoveredModelCost;
 }
 
 // Only fields whose meaning does not vary between gateways. `max_tokens` is
@@ -19,7 +29,36 @@ const CONTEXT_WINDOW_FIELDS = [
 ];
 const MAX_TOKENS_FIELDS = ["max_output_tokens", "maxOutputTokens", "max_completion_tokens", "outputTokenLimit"];
 const REASONING_FIELDS = ["supports_reasoning", "supportsReasoning", "reasoning", "thinking"];
-const EFFORT_LIST_FIELDS = ["supported_efforts", "supportedEfforts"];
+// Every spelling of the effort list; the first one that is an array wins.
+const EFFORT_LIST_FIELDS = ["supported_efforts", "supportedEfforts", "reasoning_levels"];
+
+const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+type CostKey = typeof COST_KEYS[number];
+// A `pricing` block quotes either per million tokens (models.dev's spelling) or
+// per token (vLLM, LiteLLM and most OpenAI-compatible gateways). The field name
+// says which, so an unknown name is dropped instead of scaled on a guess:
+// guessing wrong multiplies a real price by a million.
+const COST_FIELDS: Record<CostKey, { perMillion: readonly string[]; perToken: readonly string[] }> = {
+  input: {
+    perMillion: ["input", "input_cost_per_million_tokens"],
+    perToken: ["prompt", "prompt_per_token"],
+  },
+  output: {
+    perMillion: ["output", "output_cost_per_million_tokens"],
+    perToken: ["completion", "completion_per_token"],
+  },
+  cacheRead: {
+    perMillion: ["cache_read", "cacheRead"],
+    perToken: ["input_cache_read", "prompt_cache_read"],
+  },
+  cacheWrite: {
+    perMillion: ["cache_write", "cacheWrite"],
+    perToken: ["input_cache_write", "input_cache_creation"],
+  },
+};
+
+// pi's models.json accepts `text` and `image`; a gateway may advertise more.
+const INPUT_MODALITIES = new Set(["text", "image"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,12 +77,68 @@ function firstPositiveInteger(value: Record<string, unknown>, fields: readonly s
   return undefined;
 }
 
+function firstNonNegativeNumber(value: Record<string, unknown>, fields: readonly string[]): number | undefined {
+  for (const field of fields) {
+    const raw = value[field];
+    const number = typeof raw === "string" && raw.trim() ? Number(raw) : raw;
+    if (typeof number === "number" && Number.isFinite(number) && number >= 0) return number;
+  }
+  return undefined;
+}
+
+/** Dollars per million from a per-token price, without 0.00000015 * 1e6's float noise. */
+function perMillionFromTokenPrice(value: number): number {
+  return Number((value * 1_000_000).toPrecision(12));
+}
+
+/**
+ * `modalities.input` (models.dev and pi's own metadata) or a bare `input` array
+ * names what the model takes. Only the modalities pi knows survive; a list
+ * naming none of them says nothing, and `["image"]` is kept as advertised —
+ * guessing `text` back in would override what the gateway said.
+ */
+function inputFromValue(value: Record<string, unknown>): string[] | undefined {
+  const modalities = value.modalities;
+  const list = isRecord(modalities) && Array.isArray(modalities.input)
+    ? modalities.input
+    : Array.isArray(value.input) ? value.input : undefined;
+  if (!list) return undefined;
+  const input = Array.from(new Set(list
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim().toLocaleLowerCase())
+    .filter((entry) => INPUT_MODALITIES.has(entry))));
+  return input.length ? input : undefined;
+}
+
+/**
+ * Reads an advertised `pricing` block into models.json `cost` rates. A block
+ * without both an input and an output price is dropped whole: pi bills from
+ * whichever rates exist, and half a price would read as a real one.
+ */
+function costFromValue(value: Record<string, unknown>): DiscoveredModelCost | undefined {
+  const pricing = value.pricing;
+  if (!isRecord(pricing)) return undefined;
+  const cost: DiscoveredModelCost = {};
+  for (const key of COST_KEYS) {
+    const perMillion = firstNonNegativeNumber(pricing, COST_FIELDS[key].perMillion);
+    if (perMillion !== undefined) {
+      cost[key] = perMillion;
+      continue;
+    }
+    const perToken = firstNonNegativeNumber(pricing, COST_FIELDS[key].perToken);
+    if (perToken !== undefined) cost[key] = perMillionFromTokenPrice(perToken);
+  }
+  if (cost.input === undefined || cost.output === undefined) return undefined;
+  return cost;
+}
+
 /**
  * An advertised effort list names pi's own levels, which pi sends as the
  * effort when thinkingLevelMap has no entry. Every level it leaves out is
  * marked unsupported (null), and `xhigh` / `max` need an entry to be offered at
- * all. `off` stays unmapped: the list does not say whether thinking can be
- * turned off. A list naming none of pi's levels maps nothing.
+ * all. `off` stays unmapped even when the list names `none`: the list names an
+ * effort string, not whether pi should treat that string as disabled thinking.
+ * A list naming none of pi's levels maps nothing.
  */
 function thinkingLevelMapFromEfforts(value: Record<string, unknown>): DiscoveredModel["thinkingLevelMap"] {
   const list = EFFORT_LIST_FIELDS.map((field) => value[field]).find(Array.isArray);
@@ -61,13 +156,17 @@ function thinkingLevelMapFromEfforts(value: Record<string, unknown>): Discovered
 function capabilitiesFromValue(value: Record<string, unknown>): Omit<DiscoveredModel, "id" | "name"> {
   const reasoning = REASONING_FIELDS.some((field) => value[field] === true);
   const thinkingLevelMap = reasoning ? thinkingLevelMapFromEfforts(value) : undefined;
+  const input = inputFromValue(value);
   const contextWindow = firstPositiveInteger(value, CONTEXT_WINDOW_FIELDS);
   const maxTokens = firstPositiveInteger(value, MAX_TOKENS_FIELDS);
+  const cost = costFromValue(value);
   return {
     ...(reasoning ? { reasoning: true } : {}),
     ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+    ...(input ? { input } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
+    ...(cost ? { cost } : {}),
   };
 }
 
