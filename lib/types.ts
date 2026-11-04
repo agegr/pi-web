@@ -393,6 +393,9 @@ export interface SessionInfo {
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;
+  /** The session's last assistant reply ended on an error (`stopReason: "error"`):
+   *  the sidebar's Failed filter reads it. Unknown until a full listing scans it. */
+  lastReplyFailed?: boolean;
 }
 
 export interface SessionContext {

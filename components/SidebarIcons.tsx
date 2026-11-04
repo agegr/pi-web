@@ -188,6 +188,10 @@ export function TerminalIcon(props: SidebarIconProps) {
   );
 }
 
+export function FilterIcon(props: SidebarIconProps) {
+  return <SidebarIcon {...props}><path d="M3 5h18l-7 8v6l-4-2v-4z" /></SidebarIcon>;
+}
+
 export function SearchIcon(props: SidebarIconProps) {
   return (
     <SidebarIcon {...props}>

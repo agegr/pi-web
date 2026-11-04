@@ -31,6 +31,8 @@ export interface ScannedSessionInfo {
 	parentSessionPath?: string;
 	/** True when only header/stat metadata was available for this listing. */
 	detailsPending?: boolean;
+	/** The last assistant reply's stop reason in file order: "error" marks a failed run. */
+	lastReplyStopReason?: string;
 }
 
 interface Fingerprint {
@@ -57,6 +59,7 @@ interface ResumePoint {
 	/** False while no user message had text: the row shows "(no messages)". */
 	hasFirstMessage: boolean;
 	lastActivityTime?: number;
+	lastReplyStopReason?: string;
 }
 
 interface IndexEntry {
@@ -73,7 +76,7 @@ function isRecord(value: unknown): value is RawEntry {
 
 // Bump on any change to what foldEntry() counts: a resumed scan adds to totals
 // counted under the rules its prefix was scanned with.
-const INDEX_FORMAT_VERSION = 1;
+const INDEX_FORMAT_VERSION = 2;
 /** A trailing throttle: a run's rescans rewrite the index once per window. */
 const INDEX_PERSIST_DELAY_MS = 5_000;
 const RESUME_SAMPLE_BYTES = 512;
@@ -220,6 +223,7 @@ interface ScanTotals {
 	messageCount: number;
 	firstMessage: string;
 	lastActivityTime?: number;
+	lastReplyStopReason?: string;
 }
 
 function readHeader(entry: RawEntry, head: Buffer | undefined): SessionHeader {
@@ -252,8 +256,13 @@ function foldEntry(totals: ScanTotals, entry: RawEntry): void {
 		totals.lastActivityTime = Math.max(totals.lastActivityTime ?? 0, activityTime);
 	}
 
-	if (totals.firstMessage) return;
 	const message = entry.message as RawEntry | undefined;
+	if (message && message.role === "assistant") {
+		// Last wins, so a retry's answer clears the failed attempt before it.
+		totals.lastReplyStopReason = typeof message.stopReason === "string" ? message.stopReason : "";
+	}
+
+	if (totals.firstMessage) return;
 	if (
 		!message ||
 		typeof message.role !== "string" ||
@@ -401,6 +410,7 @@ async function scanSessionFile(
 			totals.messageCount = info.messageCount;
 			totals.firstMessage = resume.hasFirstMessage ? info.firstMessage : "";
 			totals.lastActivityTime = resume.lastActivityTime;
+			totals.lastReplyStopReason = resume.lastReplyStopReason;
 		}
 
 		let restCounted = false;
@@ -447,6 +457,7 @@ async function scanSessionFile(
 				modified,
 				messageCount: totals.messageCount,
 				firstMessage: totals.firstMessage || "(no messages)",
+				...(totals.lastReplyStopReason !== undefined ? { lastReplyStopReason: totals.lastReplyStopReason } : {}),
 			},
 			// An inode of 0 (no stable one on this filesystem) never resumes.
 			resume: head && headerEnd > 0 && !restCounted && stats.ino > 0
@@ -457,6 +468,7 @@ async function scanSessionFile(
 					check: sampleCheck(head, scan.sample),
 					hasFirstMessage: totals.firstMessage !== "",
 					...(totals.lastActivityTime !== undefined ? { lastActivityTime: totals.lastActivityTime } : {}),
+					...(totals.lastReplyStopReason !== undefined ? { lastReplyStopReason: totals.lastReplyStopReason } : {}),
 				}
 				: undefined,
 		};
@@ -523,14 +535,15 @@ function indexFilePath(agentDir = getAgentDir()): string {
 /** A persisted resume point, or undefined when it is missing or malformed (the entry stays). */
 function readResumePoint(value: unknown): ResumePoint | undefined {
 	if (!isRecord(value)) return undefined;
-	const { ino, offset, headerEnd, check, hasFirstMessage, lastActivityTime } = value;
+	const { ino, offset, headerEnd, check, hasFirstMessage, lastActivityTime, lastReplyStopReason } = value;
 	if (
 		typeof ino !== "number" || !Number.isFinite(ino) || ino <= 0 ||
 		typeof headerEnd !== "number" || !Number.isSafeInteger(headerEnd) || headerEnd <= 0 ||
 		typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < headerEnd ||
 		typeof check !== "string" ||
 		typeof hasFirstMessage !== "boolean" ||
-		(lastActivityTime !== undefined && (typeof lastActivityTime !== "number" || !Number.isFinite(lastActivityTime)))
+		(lastActivityTime !== undefined && (typeof lastActivityTime !== "number" || !Number.isFinite(lastActivityTime))) ||
+		(lastReplyStopReason !== undefined && typeof lastReplyStopReason !== "string")
 	) return undefined;
 	return {
 		ino,
@@ -539,6 +552,7 @@ function readResumePoint(value: unknown): ResumePoint | undefined {
 		check,
 		hasFirstMessage,
 		...(lastActivityTime !== undefined ? { lastActivityTime } : {}),
+		...(lastReplyStopReason !== undefined ? { lastReplyStopReason } : {}),
 	};
 }
 
@@ -563,6 +577,7 @@ function loadPersistedIndex(): void {
 				typeof info.firstMessage !== "string" ||
 				(info.name !== undefined && typeof info.name !== "string") ||
 				(info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") ||
+				(info.lastReplyStopReason !== undefined && typeof info.lastReplyStopReason !== "string") ||
 				typeof info.messageCount !== "number" || !Number.isSafeInteger(info.messageCount) || info.messageCount < 0 ||
 				typeof info.created !== "string" || typeof info.modified !== "string"
 			) continue;
@@ -581,6 +596,7 @@ function loadPersistedIndex(): void {
 					messageCount: info.messageCount,
 					created,
 					modified,
+					...(typeof info.lastReplyStopReason === "string" ? { lastReplyStopReason: info.lastReplyStopReason } : {}),
 				},
 				// Entries from before resume points get one full scan when they change.
 				resume: readResumePoint(entry.resume),

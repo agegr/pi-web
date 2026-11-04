@@ -268,6 +268,7 @@ function mapScannedSession(
           : {}),
     transient: false,
     ...(detailsPending ? { detailsPending: true } : {}),
+    ...(scanned.lastReplyStopReason === "error" ? { lastReplyFailed: true } : {}),
   };
 }
 

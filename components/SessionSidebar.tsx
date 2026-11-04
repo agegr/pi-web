@@ -77,6 +77,15 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { countFaviconUnread, syncFaviconBadge } from "@/lib/favicon-badge";
+import {
+  isSessionFilterActive,
+  NO_SESSION_FILTER,
+  SESSION_STATUS_FILTERS,
+  SESSION_TIME_FILTERS,
+  type SessionFilter,
+  type SessionStatusFilter,
+  type SessionTimeFilter,
+} from "@/lib/session-filter";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
 import { noteRunningPoll } from "@/lib/page-debug";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
@@ -103,6 +112,7 @@ import {
   DotIcon,
   DotOutlineIcon,
   EyeIcon,
+  FilterIcon,
   FolderIcon,
   MessageIcon,
   MoreIcon,
@@ -303,7 +313,8 @@ type SidebarMenuState =
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
   | { kind: "archive-group"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
-  | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope };
+  | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope }
+  | { kind: "filter"; anchor: SidebarMenuAnchor; opener: HTMLElement };
 
 /** The archive bar's deletes: every archived session, or those archived over 30 days ago. */
 type ArchiveDeleteScope = "all" | "old";
@@ -620,6 +631,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
   const [confirmDeleteRootId, setConfirmDeleteRootId] = useState<string | null>(null);
   const [menu, setMenu] = useState<SidebarMenuState | null>(null);
+  // The session list's filter: this page's alone, so a reload shows everything
+  // again rather than hiding sessions someone forgot they filtered.
+  const [sessionFilter, setSessionFilter] = useState<SessionFilter>(NO_SESSION_FILTER);
+  const sessionFilterActive = isSessionFilterActive(sessionFilter);
   // A row the main tree should scroll to (a fork's new row); see
   // SessionTreeReveal. Held until the tree says it is done with it.
   const [treeReveal, setTreeReveal] = useState<SessionTreeReveal | null>(null);
@@ -1482,7 +1497,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     groupExpansion: shownGroupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+    filter: sessionFilter,
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, sessionFilter]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -2620,6 +2636,45 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onCancel: () => askArchiveDelete(undefined),
   });
 
+  const statusFilterLabel = (status: SessionStatusFilter) => (
+    status === "running"
+      ? t("sidebar.filterStatusRunning")
+      : status === "failed" ? t("sidebar.filterStatusFailed") : t("sidebar.filterStatusAll")
+  );
+  const timeFilterLabel = (time: SessionTimeFilter) => (
+    time === "today"
+      ? t("sidebar.filterToday")
+      : time === "week" ? t("sidebar.filterWeek")
+        : time === "month" ? t("sidebar.filterMonth") : t("sidebar.filterTimeAll")
+  );
+  // One list of choices, both groups open in one menu: the filter is the pair,
+  // so choosing a status must not close the menu before the time is picked.
+  const filterMenuItems = (): SidebarMenuItem[] => [
+    { type: "header", id: "filter-status", label: t("sidebar.filterStatus") },
+    ...SESSION_STATUS_FILTERS.map((status): SidebarMenuItem => ({
+      type: "item",
+      id: `filter-status:${status}`,
+      label: statusFilterLabel(status),
+      checked: sessionFilter.status === status,
+      onSelect: ({ keepOpen }) => {
+        keepOpen();
+        setSessionFilter((current) => ({ ...current, status }));
+      },
+    })),
+    { type: "separator", id: "filter-separator" },
+    { type: "header", id: "filter-time", label: t("sidebar.filterTime") },
+    ...SESSION_TIME_FILTERS.map((time): SidebarMenuItem => ({
+      type: "item",
+      id: `filter-time:${time}`,
+      label: timeFilterLabel(time),
+      checked: sessionFilter.time === time,
+      onSelect: ({ keepOpen }) => {
+        keepOpen();
+        setSessionFilter((current) => ({ ...current, time }));
+      },
+    })),
+  ];
+
   let menuTitle: string | undefined;
   let menuLabel = "";
   // Room for "Archive sessions older than 7 days · N".
@@ -2651,6 +2706,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     menuItems = archiveMenuItems();
     if (menu.askDelete) menuBody = archiveDeleteBody(menu.askDelete, null);
     menuWidth = 280;
+  } else if (menu?.kind === "filter") {
+    menuTitle = t("sidebar.filterSessions");
+    menuLabel = t("sidebar.filterSessions");
+    menuItems = filterMenuItems();
+    menuWidth = 232;
   }
 
   // The tree row (and the button in it) that the open menu belongs to.
@@ -2905,6 +2965,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </button>
           </div>
         )}
+        {sessionsShown && (
+          <button
+            type="button"
+            className={`sidebar-filter-toggle${sessionFilterActive ? " is-active" : ""}`}
+            aria-haspopup="menu"
+            aria-expanded={menu?.kind === "filter"}
+            aria-label={t("sidebar.filterSessions")}
+            title={sessionFilterActive ? t("sidebar.filterActiveTitle") : t("sidebar.filterSessions")}
+            onClick={(event) => {
+              const button = event.currentTarget;
+              setMenu((current) => (current?.kind === "filter"
+                ? null
+                : { kind: "filter", anchor: buttonAnchor(button, "start"), opener: button }));
+            }}
+          >
+            <FilterIcon size={14} />
+          </button>
+        )}
         <span className="sidebar-header-spacer" />
         <button
           type="button"
@@ -2976,6 +3054,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             />
           </div>
         )}
+        {sessionFilterActive && !archiveView && (
+          <div className="sidebar-filter-bar">
+            <FilterIcon size={12} />
+            <span className="sidebar-filter-summary">
+              {[
+                sessionFilter.status === "all" ? null : statusFilterLabel(sessionFilter.status),
+                sessionFilter.time === "all" ? null : timeFilterLabel(sessionFilter.time),
+              ].filter(Boolean).join(" · ")}
+            </span>
+            {model.filteredOut > 0 && (
+              <span className="sidebar-filter-count">{t("sidebar.filterHidden", { count: model.filteredOut })}</span>
+            )}
+            <button
+              type="button"
+              className="sidebar-filter-clear"
+              onClick={() => setSessionFilter(NO_SESSION_FILTER)}
+            >
+              {t("sidebar.filterClear")}
+            </button>
+          </div>
+        )}
         <SessionSearch
           open={sessionSearchOpen}
           query={sessionSearchQuery}
@@ -2992,7 +3091,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <SessionTree
                 {...treeProps}
                 rows={model.rows}
-                emptyLabel={t("sidebar.noSessions")}
+                emptyLabel={sessionFilterActive ? t("sidebar.filterNoMatches") : t("sidebar.noSessions")}
                 reveal={treeReveal}
                 onRevealHandled={handleRevealHandled}
               />

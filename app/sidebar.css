@@ -1012,6 +1012,89 @@ a.session-tree-main {
   color: var(--text);
 }
 
+.sidebar-filter-toggle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 0;
+  border-top: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sidebar-filter-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar-filter-toggle[aria-expanded="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.sidebar-filter-toggle.is-active {
+  border-top-color: var(--accent);
+  color: var(--accent);
+}
+
+/* What the filter hides, one line above the list it narrows. */
+.sidebar-filter-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.sidebar-filter-bar > svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.sidebar-filter-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.sidebar-filter-count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+
+.sidebar-filter-clear {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sidebar-filter-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .sidebar-filter-bar {
+    min-height: 32px;
+  }
+}
+
 .sidebar-tab.is-selected,
 .sidebar-search-toggle.is-active {
   border-top-color: var(--accent);

@@ -18,6 +18,12 @@
  */
 
 import { listSessionFamilies, type SessionFamily } from "./session-family";
+import {
+  familyMatchesSessionFilter,
+  isSessionFilterActive,
+  NO_SESSION_FILTER,
+  type SessionFilter,
+} from "./session-filter";
 import { storedProjectName, type ProjectMovePosition, type SessionUiFamilyState, type SessionUiState } from "./session-ui-state-shared";
 import type { SessionInfo } from "./types";
 import { workspaceKeyOf } from "./workspace-memory";
@@ -74,6 +80,10 @@ export interface SessionTreeInput {
   runningIds: ReadonlySet<string>;
   /** Members parked on an extension's blocking dialog, a subset of runningIds (/api/agent/running). */
   awaitingIds?: ReadonlySet<string>;
+  /** Hides families the filter rejects; the selected one always shows. */
+  filter?: SessionFilter;
+  /** Now, ms: the filter's time windows measure from here (tests pin it). */
+  now?: number;
   unreadIds: ReadonlySet<string>;
   selectedSessionId: string | null;
   /** projectFor(selectedCwd); shown as a group even without sessions. */
@@ -94,6 +104,8 @@ export interface SessionTreeModel {
   projects: SidebarProject[];
   /** Archived families across all projects. */
   archivedCount: number;
+  /** Live families the filter hid (pinned ones included). */
+  filteredOut: number;
   /**
    * Shown projects without a place in `projectOrder`, per band, top to
    * bottom: a move saves its band's ones first, so it lands where it was seen.
@@ -420,8 +432,12 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   const { uiState, runningIds, currentProject } = input;
   const families = listSessionFamilies(input.sessions);
   const resolver = createProjectResolver(uiState, currentProject);
+  const filter = input.filter ?? NO_SESSION_FILTER;
+  const filterActive = isSessionFilterActive(filter);
+  const filterContext = { now: input.now ?? Date.now(), runningIds };
 
   let archivedCount = 0;
+  let filteredOut = 0;
   const pinnedFamilies: SessionFamily[] = [];
   // Insertion order follows family activity (newest first).
   const projectFamilies = new Map<string, SessionFamily[]>();
@@ -435,6 +451,12 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
       continue;
     }
     resolver.noteFamily(family);
+    if (filterActive
+      && !familyMatchesSessionFilter(family, filter, filterContext)
+      && !isMember(family, input.selectedSessionId)) {
+      filteredOut++;
+      continue;
+    }
     const key = familyProjectKey(family);
     const activity = timeOf(family.latestModified);
     projectActivity.set(key, Math.max(projectActivity.get(key) ?? -Infinity, activity));
@@ -520,7 +542,12 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
     .filter((project) => !rank.has(project.key) && recordable(project))
     .map((project) => project.key);
 
-  for (const [index, project] of orderedProjects.entries()) {
+  // Filtering leaves a group with nothing to show out entirely: its header and
+  // the current project's empty note would only read as "this project is gone".
+  const shownProjects = filterActive
+    ? orderedProjects.filter((project) => (projectFamilies.get(project.key)?.length ?? 0) > 0)
+    : orderedProjects;
+  for (const [index, project] of shownProjects.entries()) {
     // A gap between two groups, open or folded (#1338): headers right on the
     // rows above them read as one list.
     if (index > 0) rows.push({ kind: "spacer", key: `group-spacer:${project.key}` });
@@ -543,11 +570,11 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
 
   // One spacer parts the groups from the footer, as one parts the pinned
   // section from them.
-  if (orderedProjects.length > 0) rows.push({ kind: "spacer", key: "footer-spacer" });
+  if (shownProjects.length > 0) rows.push({ kind: "spacer", key: "footer-spacer" });
   rows.push({ kind: "footer-open", key: "footer-open" });
   if (archivedCount > 0) rows.push({ kind: "footer-archived", key: "footer-archived", count: archivedCount });
 
-  return { rows, projects: orderedProjects, archivedCount, unorderedKeysByBand, projectKeysToRecord };
+  return { rows, projects: orderedProjects, archivedCount, filteredOut, unorderedKeysByBand, projectKeysToRecord };
 }
 
 /**
