@@ -1128,7 +1128,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
-    if (isStreaming) return;
+    // A `!` command runs beside the run, as in pi's TUI; anything else queues.
+    if (isStreaming && !(msg.startsWith("!") && !attachedImages.length)) return;
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
   }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
@@ -1344,6 +1345,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
+    if (msg.startsWith("!") && !attachedImages.length) {
+      // A shell command is never steered into the run as text.
+      void handleSend();
+      return;
+    }
     onAudioUnlock?.();
     const images = attachedImages.length ? attachedImages : undefined;
     const queue = () => {
@@ -1373,7 +1379,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       return;
     }
     queue();
-  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand, handleSend]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -2393,7 +2399,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
           />
 
-          {isStreaming ? (
+          {isStreaming && !bashMode ? (
             <div style={{ display: "flex", alignItems: "stretch", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {onSideChat && (
                 <button

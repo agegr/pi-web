@@ -344,6 +344,8 @@ export class AgentSessionWrapper {
   private extensionWidgetGenerations = new Map<string, number>();
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
+  /** Prompts that reached send() and wait on the extensions or their admission, not counted yet. */
+  private arrivingPromptCount = 0;
   // Prompts waiting for the running compaction to finish (ParkedPrompt above).
   private parkedDuringCompaction: ParkedPrompt[] = [];
   private activeMutatingCommands = 0;
@@ -372,6 +374,8 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
+  /** Stop's forced shutdown waits out a `!` command too (`abort_bash`); a run's Stop, only the run. */
+  private forceShutdownCoversShell = false;
   /** A `!` command waiting on its `user_bash` handlers, before pi counts it as running. */
   private userBashPending = false;
   // The armed idle timer is the forced cleanup Stop scheduled.
@@ -992,13 +996,26 @@ export class AgentSessionWrapper {
     return release;
   }
 
+  /**
+   * Stop's forced shutdown is for what it stopped: the run (a pending prompt, streaming,
+   * compacting), with `abort_bash` the `!` command too. Once that is idle, a healthy command
+   * beside it keeps the normal idle timer, which leases move.
+   */
+  private releaseForcedShutdownOnceStopped(): void {
+    const stoppedWorkRunning = this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting
+      || (this.forceShutdownCoversShell && this.shellRunning);
+    if (this._alive && stoppedWorkRunning) return;
+    this.forceShutdownOnIdle = false;
+    this.forceShutdownCoversShell = false;
+  }
+
   private resetIdleTimer(): void {
     if (!this._alive) {
       if (this.idleTimer) clearTimeout(this.idleTimer);
       this.idleDeadlineAt = null;
       return;
     }
-    if (!this.isRunning()) this.forceShutdownOnIdle = false;
+    this.releaseForcedShutdownOnceStopped();
     // A stuck user reloads, reopens the session or presses Stop again, and
     // each of those commands lands here. Moving the forced deadline for them
     // would keep a run that Stop cannot unwind alive indefinitely.
@@ -1126,6 +1143,15 @@ export class AgentSessionWrapper {
 
     const tracksMutation = !allowedDuringReplacement;
     if (tracksMutation) this.activeMutatingCommands += 1;
+    // A prompt counts from its arrival: a `!` sent right after it must not start
+    // while it waits on the extensions or its admission, and then refuse it.
+    let arrivingPrompt = type === "prompt";
+    if (arrivingPrompt) this.arrivingPromptCount += 1;
+    const promptCounted = () => {
+      if (!arrivingPrompt) return;
+      arrivingPrompt = false;
+      this.arrivingPromptCount -= 1;
+    };
 
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
@@ -1155,7 +1181,9 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
-          if (this.shellRunning) {
+          // A steer or follow-up joins the run beside a `!` command, as pi's TUI
+          // queues it; only a prompt that would start a run waits for the command.
+          if (this.shellRunning && !(command.streamingBehavior && this.inner.isStreaming)) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           if (this.sideChat) this.nameSideChat(command.message);
@@ -1201,6 +1229,7 @@ export class AgentSessionWrapper {
           };
 
           this.pendingPromptCount += 1;
+          promptCounted();
           // A prompt that may start a run first connects the session's MCP servers and
           // waits for the ones still connecting. The SDK runs before_agent_start before a
           // run has an abort signal, so Stop is honoured here: it ends the wait, and the
@@ -1324,7 +1353,7 @@ export class AgentSessionWrapper {
           await this.withFinalIdleReset(() => this.inner.abort());
           return recalled.steering.length || recalled.followUp.length ? recalled : null;
         } finally {
-          if (!this.isRunning()) this.forceShutdownOnIdle = false;
+          this.releaseForcedShutdownOnceStopped();
         }
       }
 
@@ -1686,7 +1715,11 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
-        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.shellRunning) {
+        // Beside a run it may go, as in pi's TUI: pi holds its result until the run
+        // ends (recordBashResult), so a tool call never loses its result's place.
+        // A prompt on its way to a run (arrived, admitted, not streaming yet), or a
+        // compaction, still refuses it.
+        if ((this.pendingPromptCount + this.arrivingPromptCount > 0 && !this.inner.isStreaming) || this.inner.isCompacting || this.shellRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
         const bashCommand = command.command as string;
@@ -1725,6 +1758,8 @@ export class AgentSessionWrapper {
           return result;
         } finally {
           this.userBashPending = false;
+          // A run that ended while the command went on reports its end now (isRunning() held it).
+          this.notifyAgentRunCompleteIfIdle();
           this.resetIdleTimer();
           invalidateSessionListCache();
         }
@@ -1732,6 +1767,7 @@ export class AgentSessionWrapper {
 
       case "abort_bash": {
         this.forceShutdownOnIdle = true;
+        this.forceShutdownCoversShell = true;
         this.resetIdleTimer();
         this.inner.abortBash();
         return null;
@@ -1741,6 +1777,7 @@ export class AgentSessionWrapper {
           throw new Error(`Unsupported command: ${type}`);
       }
     } finally {
+      promptCounted();
       if (tracksMutation) this.activeMutatingCommands = Math.max(0, this.activeMutatingCommands - 1);
     }
   }

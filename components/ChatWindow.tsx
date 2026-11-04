@@ -1354,6 +1354,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   role: "bashExecution",
                   command: pendingBash.command,
                   output: "",
+                  ...pendingBash.result,
                   excludeFromContext: pendingBash.excludeFromContext,
                 } as BashExecutionMessage}
                 sessionId={session?.id ?? sessionIdRef.current ?? undefined}

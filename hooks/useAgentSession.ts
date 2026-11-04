@@ -196,6 +196,17 @@ export type BuiltinSlashCommandResult =
   | { handled: false }
   | { handled: true; message?: string; error?: string; action?: "openSessionStats" | "openSettings" | "compact" | "openSideChat" };
 
+/**
+ * A `!` command on its way into the transcript: running, or finished during a run, whose
+ * result pi holds until the run ends (`recordBashResult`) and writes before `agent_settled`.
+ * The first session read after the run's end has it, and the card goes then.
+ */
+export interface PendingBash {
+  command: string;
+  excludeFromContext: boolean;
+  result?: { output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string };
+}
+
 /** How a run ended, for the completion sound and notifications. */
 export interface AgentEndInfo {
   /** The run was stopped (Esc, Stop, another client's abort), not finished: nothing to announce. */
@@ -441,7 +452,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const dispatch = streamingStore.dispatch;
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
-  const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
+  const [pendingBash, setPendingBash] = useState<PendingBash | null>(null);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -535,6 +546,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const rpcPromptPendingRef = useRef(false);
   const notifiedPromptRunIdRef = useRef(-1);
   const bashRunningRef = useRef(false);
+  /** The session read under way when a `!` result was held for the run's end (`PendingBash`). */
+  const deferredBashReadSeqRef = useRef(0);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
   const initialScrollDoneRef = useRef(Boolean(opts.deferInitialScroll));
@@ -795,6 +808,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const flight = (async (): Promise<unknown> => {
     let messagesLoaded = false;
     const readSeq = ++sessionReadSeqRef.current;
+    // pi writes a `!` result held during a run before the run settles: a read
+    // started once the run is over has it, and the card that showed it goes.
+    const afterRun = !agentRunningRef.current;
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
@@ -908,6 +924,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
 
       messagesLoaded = true;
+      if (afterRun && readSeq > deferredBashReadSeqRef.current) setPendingBash((pending) => (pending?.result ? null : pending));
       if (showLoading) setLoading(false);
       if (!includeState) return null;
 
@@ -2058,7 +2075,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
-    if (agentRunningRef.current || bashRunningRef.current) {
+    const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
+    // A `!` command may run beside a run, as in pi's TUI; one at a time.
+    if (bashRunningRef.current || (agentRunningRef.current && !isBashCommand)) {
+      // pi's TUI says why a second command waits.
+      if (bashRunningRef.current && isBashCommand) addNotice({ type: "warning", message: translate("chat.bashAlreadyRunning") });
       restoreSubmission(message, images, composerDraftKey);
       return;
     }
@@ -2075,7 +2096,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
-    const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
     if (isBashCommand) {
       const isExcluded = trimmedMessage.startsWith("!!");
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
@@ -2225,27 +2245,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit, translate]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
-    if (agentRunningRef.current || bashRunningRef.current) return;
+    if (bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
     setPendingBash({ command, excludeFromContext });
     setBashRunning(true);
+    let deferred: PendingBash | null = null;
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
       // A `user_bash` handler's dialog (ctx.ui.confirm…) reaches the page only
       // through the stream, which a fresh composer has not opened yet.
       await ensureEventsConnected(sid).catch(() => {});
-      await sendAgentCommand(sid, {
+      const result = await sendAgentCommand<PendingBash["result"]>(sid, {
         type: "bash",
         command,
         excludeFromContext,
       });
-      await loadSession(sid);
-      promoteNewSession(1, inputText);
+      if (agentRunningRef.current && result) {
+        // pi writes it once the run ends; the card shows the output until then.
+        deferred = { command, excludeFromContext, result };
+        // Only a read started after this one may take the card away.
+        deferredBashReadSeqRef.current = sessionReadSeqRef.current;
+      } else {
+        await loadSession(sid);
+        promoteNewSession(1, inputText);
+      }
     } catch (e) {
       console.error("Failed to execute shell command:", e);
       // A handler's error showed already, as the runner's extension_error.
@@ -2255,11 +2283,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       restoreSubmission(inputText, undefined, composerDraftKey);
     } finally {
       bashRunningRef.current = false;
-      setPendingBash(null);
+      setPendingBash(deferred);
       setBashRunning(false);
     }
   }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
+
+  // A `!` result held for the run's end (`PendingBash.result`): pi wrote it before the run
+  // settled, so a read started now has it and the card goes (`afterRun`). A fresh read:
+  // prompt_done and finishPromptWithoutStream() read before they settle, and any read
+  // would join the one agent_end started while the run went on.
+  const heldBashResult = pendingBash?.result;
+  useEffect(() => {
+    if (agentRunning || !heldBashResult) return;
+    const sid = sessionIdRef.current;
+    if (sid) void loadSession(sid, false, false, { force: true });
+  }, [agentRunning, heldBashResult, loadSession]);
+
 
   /** Recall's and Stop's queued texts, and the images of prompts parked behind a compaction, back in the composer. */
   const restoreRecalledPrompts = useCallback((recalled: RecalledPrompts | null | undefined) => {
@@ -2271,7 +2311,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
-    if (bashRunningRef.current) {
+    // Beside a run, Stop stops the run first, as Esc does in pi's TUI; the command next.
+    if (bashRunningRef.current && !agentRunningRef.current) {
       try {
         await sendAgentCommand(sid, { type: "abort_bash" });
       } catch (e) {
