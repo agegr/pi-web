@@ -48,19 +48,29 @@ function primitiveText(value: unknown): string | null {
   return null;
 }
 
-/** A nested value's first readable text: an object's first primitive, an array's items joined. */
+/**
+ * A value that reads as itself: a non-empty string, a number or boolean, or a
+ * list of only those (`web_search`'s `queries[]`, `fetch_content`'s `urls[]`,
+ * an argv-style `command`), its items joined.
+ */
+function firstRankText(value: unknown): string | null {
+  if (!Array.isArray(value)) return primitiveText(value);
+  if (value.length === 0 || !value.every((item) => item === null || typeof item !== "object")) return null;
+  const items = value.map(primitiveText).filter((text): text is string => text !== null);
+  return items.length > 0 ? items.join(", ") : null;
+}
+
+/** A nested value's first readable text: an object's first value that reads, a list's items' texts joined. */
 function nestedText(value: unknown): string | null {
   if (Array.isArray(value)) {
     const items = value
-      .map((item) => primitiveText(item) ?? (item && typeof item === "object" && !Array.isArray(item)
-        ? Object.values(item).map(primitiveText).find((text) => text !== null) ?? null
-        : null))
+      .map((item) => primitiveText(item) ?? nestedText(item))
       .filter((text): text is string => text !== null);
     return items.length > 0 ? items.join(", ") : null;
   }
   if (value && typeof value === "object") {
     for (const inner of Object.values(value)) {
-      const text = primitiveText(inner) ?? nestedText(inner);
+      const text = firstRankText(inner) ?? nestedText(inner);
       if (text !== null) return text;
     }
   }
@@ -69,26 +79,27 @@ function nestedText(value: unknown): string | null {
 
 /**
  * The one line a collapsed tool card shows after the tool's name: the path,
- * command or query when the call has one, else its first readable argument.
- * An argument that is a list or an object (an `ask_user_question` call's
- * `questions[]`) is read for its text instead of printing `[object Object]`.
+ * command or query when the call has one, else its first argument that reads
+ * as itself (a string, number, boolean or list of those), else the text inside
+ * its first object argument (an `ask_user_question` call's `questions[]`)
+ * instead of `[object Object]`.
  */
 export function toolInputPreview(input: unknown, resultPatchPath: string | null = null): string {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "";
   const record = input as Record<string, unknown>;
   const clip = (text: string) => text.slice(0, PREVIEW_MAX);
   for (const key of ["command", "path", "file_path"]) {
-    const text = primitiveText(record[key]);
+    const text = firstRankText(record[key]);
     if (text !== null) return clip(text);
   }
   if (resultPatchPath) return clip(resultPatchPath);
   for (const key of ["pattern", "query"]) {
-    const text = primitiveText(record[key]);
+    const text = firstRankText(record[key]);
     if (text !== null) return clip(text);
   }
   const values = Object.values(record);
   for (const value of values) {
-    const text = primitiveText(value);
+    const text = firstRankText(value);
     if (text !== null) return clip(text);
   }
   for (const value of values) {
