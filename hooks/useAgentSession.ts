@@ -149,6 +149,7 @@ function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 export type NoticeType = "info" | "success" | "warning" | "error";
+export type SessionEndNotice = { message: string; type: "warning" | "error" };
 
 export type NoticeItem = {
   id: string;
@@ -214,6 +215,8 @@ export interface UseAgentSessionOptions {
   newSessionDraftKey: string | null;
   /** A run ended; `aborted` when it was stopped rather than finished (pi's `agent_settled.aborted`). */
   onAgentEnd?: (end: AgentEndInfo) => void;
+  /** An extension explicitly ended this session's runtime. Its file may remain. */
+  onSessionEnded?: (sessionId: string, notices: SessionEndNotice[]) => void;
   /** A top-level tool call finished; the files it touched may have changed. */
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -416,7 +419,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
+    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onSessionEnded, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings, onDebugSnapshotReaderChange,
   } = opts;
@@ -525,6 +528,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isCompactingRef = useRef(false);
   const extensionUiCountRef = useRef(0);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const endedSessionRef = useRef<string | null>(null);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   // False while the session carries no tool selection of its own, so its loadout
   // follows settings.json defaultTools and the picker must say so rather than
@@ -605,6 +609,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // before each (re)connect, the debug reader to show it.
   const wantsEventStream = useCallback((sid: string) => (
     sessionHookMountedRef.current
+    && endedSessionRef.current !== sid
     && sessionIdRef.current === sid
     && (
       agentRunningRef.current
@@ -787,6 +792,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
+    if (endedSessionRef.current === sid) return null;
     // Single-flight: concurrent reads for the same session (mount + SSE settle +
     // reconcile) share one request unless the caller forces a fresh read.
     const flightKey = options?.force ? `force:${sid}` : sid;
@@ -800,6 +806,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
       if (options?.force) params.set("force", "1");
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (endedSessionRef.current === sid) return null;
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -1221,6 +1228,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // not come within SESSION_LEASE_TIMEOUT_MS, or no network, is "unanswered";
   // an error reply is null.
   const requestLease = useCallback((sid: string): Promise<SessionLeaseOutcome> => {
+    if (endedSessionRef.current === sid) return Promise.resolve(null);
     const pending = leaseRequestRef.current;
     if (pending?.sid === sid) return pending.promise;
     const controller = new AbortController();
@@ -1752,7 +1760,39 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    if (endedSessionRef.current) return;
     switch (event.type) {
+      case "session_ended": {
+        const sid = sessionIdRef.current;
+        if (!sid || event.sessionId !== sid) return;
+        endedSessionRef.current = sid;
+        sessionIdRef.current = null;
+        promptRunIdRef.current += 1;
+        bashRecoveryIdRef.current += 1;
+        unconfirmedSendRef.current = null;
+        rpcPromptPendingRef.current = false;
+        sdkAgentActiveRef.current = false;
+        bashRunningRef.current = false;
+        cancelEventStreamGrace();
+        eventConnectionRef.current?.close();
+        deleteSessionViewSnapshot(sid);
+        settleUiStage();
+        setBashRunning(false);
+        setIsCompacting(false);
+        setQueuedMessages({ steering: [], followUp: [] });
+        setExtensionDialogs([]);
+        setExtensionCustomUis([]);
+        setExtensionStatuses([]);
+        setExtensionWidgets([]);
+        const notices = Array.isArray(event.notices)
+          ? event.notices.filter((notice): notice is SessionEndNotice => Boolean(
+            notice && typeof notice.message === "string"
+            && (notice.type === "warning" || notice.type === "error"),
+          ))
+          : [];
+        onSessionEnded?.(sid, notices);
+        return;
+      }
       case "connected": {
         dispatch({ type: "end" });
         if (Array.isArray(event.pendingExtensionUiIds)) {
@@ -2052,10 +2092,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onSessionEnded, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+    if (endedSessionRef.current) return;
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
@@ -2157,6 +2198,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (endedSessionRef.current === sid) return;
         if (queuedAck?.queued) dropOptimisticUserMessage();
         promoteNewSession(1, message);
       } else if (session) {
@@ -2168,6 +2210,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
+        if (endedSessionRef.current === session.id) return;
         if (queuedAck?.queued) dropOptimisticUserMessage();
       } else {
         throw new Error("No active session for the prompt");
@@ -2177,6 +2220,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
     } catch (e) {
+      if (endedSessionRef.current) return;
       console.error("Failed to send message:", e);
       const definitivelyRejected = !promptRequestStarted || isPromptRejectedError(e);
       // A transport/proxy failure after dispatch is ambiguous: the server may
@@ -2992,6 +3036,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // under way on the server: a run or command, a `!` command, a compaction. The
   // mount and a hidden page's return show it the same way.
   const applyLoadedAgentState = useCallback((sid: string, loadedAgentState: unknown) => {
+    if (endedSessionRef.current === sid) return;
     const agentState = loadedAgentState as { running: boolean; state?: AgentStateResponse } | null;
     if (agentState?.running) {
       loadTools(sid);
@@ -3027,7 +3072,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // dialogs, so their completion and attention notifications reach the page as
   // if it had never let go. Nothing is resent.
   reattachEventStreamRef.current = (sid: string, reason: "visible" | "activity") => {
-    if (!eventStreamReleasedRef.current) return;
+    if (!eventStreamReleasedRef.current || endedSessionRef.current === sid) return;
     eventStreamReleasedRef.current = false;
     reattachDebugRef.current = { count: reattachDebugRef.current.count + 1, lastAt: Date.now(), lastReason: reason };
     setEventStreamReattachCount((count) => count + 1);

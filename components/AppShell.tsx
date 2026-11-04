@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
+import { DismissButton } from "./DismissButton";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
@@ -72,7 +73,7 @@ import {
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
-import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
+import type { AgentEndInfo, NewSessionChoices, SessionEndNotice } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
@@ -111,6 +112,8 @@ export function AppShell() {
   // Restore fonts even when Settings and the chat composer have not been opened.
   useFontPreferences();
   const { locale, t: translate } = useI18n();
+  // Cleanup errors must outlive the ChatWindow that the shutdown disposes.
+  const [sessionEndNotices, setSessionEndNotices] = useState<SessionEndNotice[]>([]);
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
@@ -1254,6 +1257,8 @@ export function AppShell() {
     if (initialLinkedSessionId) skipWorkspaceRestoreRef.current = true;
   }, [initialLinkedSessionId]);
 
+  // Explicit extension shutdown uses the same guarded composer fallback as deletion;
+  // the refreshed catalogue decides whether the session file still exists.
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
     setRefreshKey((k) => k + 1);
@@ -1416,6 +1421,12 @@ export function AppShell() {
       return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
   }, [fileTabs, terminalTabs, agentTabs]);
+
+  const handleSessionEnded = useCallback((sessionId: string, notices: SessionEndNotice[]) => {
+    if (notices.length) setSessionEndNotices((current) => [...current, ...notices].slice(-20));
+    handleSessionDeleted(sessionId);
+    handleCloseFileTab(`agent:${sessionId}`);
+  }, [handleSessionDeleted, handleCloseFileTab]);
 
   // The Agents switcher's Delete on a side chat: its tab goes with it, and the
   // main chat showing it goes back to the parent, as the Main agent row does
@@ -2810,6 +2821,13 @@ export function AppShell() {
         {isMobile && renderProjectTrustWarning(true)}
         </div>
 
+        {sessionEndNotices.map((notice, index) => (
+          <div key={index} role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", color: "var(--text)", background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
+            <span style={{ flex: 1, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{notice.message}</span>
+            <DismissButton title={translate("sidebar.dismiss")} onClick={() => setSessionEndNotices((current) => current.filter((_, itemIndex) => itemIndex !== index))} />
+          </div>
+        ))}
+
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
@@ -2827,6 +2845,7 @@ export function AppShell() {
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
               onAgentEnd={handleAgentEnd}
+              onSessionEnded={handleSessionEnded}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}
@@ -3029,6 +3048,7 @@ export function AppShell() {
             <SessionChatPanel
               key={activeAgentTab.sessionId}
               sessionId={activeAgentTab.sessionId}
+              onSessionEnded={handleSessionEnded}
               running={runningSessionIds.has(activeAgentTab.sessionId)}
               initialPrompt={sideChatPrompts[activeAgentTab.sessionId]}
               onInitialPromptConsumed={() => setSideChatPrompts((prev) => {
