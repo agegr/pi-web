@@ -59,6 +59,23 @@ function canonicalOrigin(value: string): string | null {
   }
 }
 
+/**
+ * Origins the operator allows to call the API from another page
+ * (`PI_WEB_ALLOWED_ORIGINS`, comma-separated, e.g. `https://tools.example.com`).
+ *
+ * A browser always sends `Origin` on a cross-origin request, so the checks below
+ * reject an embedded Pi Web that is embedded in another app. An allow-listed
+ * origin is not a CSRF hole: entries are operator configured, exact-match
+ * (scheme, host and port) and compared canonically.
+ */
+function configuredOriginsFromEnvironment(): string[] {
+  return (process.env.PI_WEB_ALLOWED_ORIGINS?.split(",") ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => canonicalOrigin(value))
+    .filter((value): value is string => value !== null);
+}
+
 function getRequestOrigin(request: Request): string | null {
   const requestUrl = new URL(request.url);
   const host = request.headers.get("host");
@@ -149,8 +166,30 @@ function isProxyRewrittenSameOrigin(request: Request, origin: string): boolean {
   return originAuthority !== null && originAuthority === normalizeAuthority(host);
 }
 
+/**
+ * The request's `Origin` when the operator allow-listed it, otherwise null.
+ *
+ * The proxy answers a CORS preflight with this value and lets the real request
+ * through, so a page on an allowed origin can read the response. Echoing the
+ * origin (never `*`) keeps the answer specific to that one page.
+ */
+export function allowedCorsOrigin(
+  request: Request,
+  origins = configuredOriginsFromEnvironment(),
+): string | null {
+  const origin = request.headers.get("origin");
+  if (!origin) return null;
+  const canonical = canonicalOrigin(origin);
+  if (canonical === null) return null;
+  return origins.some((candidate) => canonicalOrigin(candidate) === canonical) ? canonical : null;
+}
+
 /** Reject browser cross-site API requests while preserving non-browser clients. */
-export function isApiRequestOriginAllowed(request: Request): boolean {
+export function isApiRequestOriginAllowed(
+  request: Request,
+  origins = configuredOriginsFromEnvironment(),
+): boolean {
+  if (allowedCorsOrigin(request, origins) !== null) return true;
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
   if (fetchSite === "cross-site") return false;
@@ -169,10 +208,12 @@ export function shouldCheckApiRequestOrigin(request: Request): boolean {
 export function isApiRequestAllowed(
   request: Request,
   configuredHostnames = configuredHostnamesFromEnvironment(),
+  allowedOrigins = configuredOriginsFromEnvironment(),
 ): boolean {
   if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
   if (isUserInitiatedDocumentNavigation(request)) return true;
-  return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
+  return !shouldCheckApiRequestOrigin(request)
+    || isApiRequestOriginAllowed(request, allowedOrigins);
 }
 
 export function hasJsonContentType(request: Request): boolean {

@@ -64,6 +64,7 @@ Environment:
   PI_WEB_APP_NAME            PWA manifest name (trimmed; default Pi Web)
   PI_WEB_PASSWORD            Enable browser password login and API Basic Auth
   PI_WEB_ALLOWED_HOSTS       Extra exact proxy/custom hostnames, comma-separated
+  PI_WEB_ALLOWED_ORIGINS     Extra exact origins allowed to call the API cross-origin
   PI_WEB_SKIP_VERSION_CHECK  Set to 1 to disable Pi Web update checks
   PI_WEB_IDLE_TIMEOUT_MS     Session idle timeout in ms (0 disables; default 600000)
   PI_WEB_SHUTDOWN_DEADLINE_MS  Shutdown wait for extensions in ms (default 5000)

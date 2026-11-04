@@ -61,6 +61,7 @@ For port and hostname, command-line options override the corresponding environme
 | `PI_WEB_APP_NAME` | PWA manifest `name` and `short_name`; surrounding whitespace is trimmed, empty values use the default | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
+| `PI_WEB_ALLOWED_ORIGINS` | Exact origins (`scheme://host[:port]`) allowed to call the API from another page, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable browser password login; API clients may use Basic Auth with username `pi` | Authentication disabled |
 | `PI_WEB_IDLE_TIMEOUT_MS` | Session idle timeout in milliseconds, up to `2147483647`; `0` disables idle shutdown; invalid or out-of-range values use the default | `600000` (10 min) |
 | `PI_WEB_SHUTDOWN_DEADLINE_MS` | How long extensions get to handle `session_shutdown` before a closing session is disposed anyway, in milliseconds up to `2147483647`; `0`, invalid or out-of-range values use the default | `5000` (5 s) |
@@ -82,6 +83,8 @@ Binding to a non-loopback address exposes an agent that can execute high-privile
 ```bash
 PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
 ```
+
+`PI_WEB_ALLOWED_ORIGINS` lets a page on another origin call the API — for example an internal console that embeds Pi Web, or a bookmarklet-style client. List the exact origins, comma-separated (`https://tools.example.com,https://tools.example.com:8443`); entries are compared after URL parsing, so a trailing slash or a differently cased host still matches, while a different scheme or port does not. An allow-listed origin still authenticates like any other API client — with `PI_WEB_PASSWORD` and `Authorization: Basic` — because Pi Web's session cookie is same-site only, and the browser never sends it on a cross-origin request. Every other cross-origin caller is rejected with `403` exactly as before.
 
 Password authentication does not encrypt the connection. Do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
 

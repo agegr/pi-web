@@ -80,6 +80,25 @@ const nextConfig: NextConfig = {
   ],
   async headers() {
     return [
+      // An embedded page (`PI_WEB_ALLOWED_ORIGINS`) reads these responses from
+      // another origin. The wildcard origin is safe here because a cross-site
+      // request only reaches a route when `proxy.ts` allow-listed its Origin;
+      // every other one is answered 403 before it can read anything. Credentials
+      // are never granted, so the session cookie stays out of these requests.
+      {
+        source: "/api/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET,POST,PATCH,DELETE,OPTIONS" },
+          {
+            key: "Access-Control-Allow-Headers",
+            value: "authorization,content-type,accept,last-event-id,x-requested-with",
+          },
+          // Chrome's Local Network Access preflight asks for this one explicitly.
+          { key: "Access-Control-Allow-Private-Network", value: "true" },
+          { key: "Access-Control-Max-Age", value: "600" },
+        ],
+      },
       {
         source: "/",
         headers: [

@@ -66,6 +66,7 @@ The Compose file explicitly sets the following:
 | `PI_CODING_AGENT_DIR` | `/home/node/.pi/agent` | Explicitly points Pi and Pi Web at the persistent agent mount; normally this defaults to `$HOME/.pi/agent`. |
 | `PI_WEB_PASSWORD` | Required by the Compose interpolation | Enables browser password login. Use a strong secret. |
 | `PI_WEB_ALLOWED_HOSTS` | Optional, empty by default | Comma-separated, exact proxy/custom hostnames. Set this when a reverse proxy forwards a hostname not otherwise accepted by Pi Web. |
+| `PI_WEB_ALLOWED_ORIGINS` | Optional, empty by default | Comma-separated, exact origins (`scheme://host[:port]`) allowed to call the API from another page. Cross-origin callers still authenticate with `Authorization: Basic` when `PI_WEB_PASSWORD` is set. |
 | `PI_WEB_SKIP_VERSION_CHECK` | `1` | Disables the Pi Web update check in this deployment. |
 
 There are no model API keys required to start the web server. Configure provider credentials in the Models panel or persist an existing Pi agent directory. Provider API requests still require network access unless using a local provider.
