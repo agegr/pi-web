@@ -206,7 +206,7 @@ export interface PendingBash {
   excludeFromContext: boolean;
   /** When it started, the card's identity (its expanded state is per card). */
   startedAt: number;
-  /** What the command printed so far (`bash_execution_update`), its tail; the result replaces it. */
+  /** What the command printed so far, the tail of the wrapper's `bash_output` snapshots; the result replaces it. */
   liveOutput?: string;
   result?: { output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string };
 }
