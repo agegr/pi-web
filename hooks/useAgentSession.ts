@@ -24,7 +24,7 @@ import {
   setSessionViewSnapshot,
   snapshotCoversLoadedEntries,
 } from "@/lib/session-view-cache";
-import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -2281,7 +2281,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [restoreRecalledPrompts]);
 
-  const handleFork = useCallback(async (entryId: string) => {
+  /** `draft` is what the new session's composer starts with: the forked message, as pi's /fork leaves it in the editor. */
+  const handleFork = useCallback(async (entryId: string, draft?: ChatDraft) => {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -2293,6 +2294,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       const { cancelled, newSessionId } = result ?? {};
       if (!cancelled && newSessionId) {
+        if (draft) setDraft(newSessionId, draft);
         onSessionForked?.(newSessionId);
       }
     } catch (e) {
