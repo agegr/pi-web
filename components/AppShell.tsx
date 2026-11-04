@@ -30,6 +30,8 @@ import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
+import { tabRunPhaseAfterEnd, type TabRunPhase } from "@/lib/tab-status";
+import { useTabRunIndicator } from "@/hooks/useTabRunIndicator";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
@@ -188,6 +190,14 @@ export function AppShell() {
       if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous;
       return ids;
     });
+  }, []);
+  // The tab's run marker: the chat in view reports its run as it starts and
+  // settles (the sidebar's poll lags 2.5 s behind and stops while the tab is
+  // hidden), and the polled ids cover a run another tab started.
+  const [chatRunning, setChatRunning] = useState(false);
+  const [runPhase, setRunPhase] = useState<TabRunPhase>("idle");
+  const handleChatRunStateChange = useCallback((running: boolean) => {
+    setChatRunning(running);
   }, []);
   const agentsBadge = activeSessionFamily ? getAgentsBadge(activeSessionFamily.subagents, runningSessionIds) : null;
   const agentsButtonLabel = agentsBadge?.running
@@ -1124,7 +1134,14 @@ export function AppShell() {
     }
   }, [handleSelectSession, locale]);
 
+  // A different chat owes a fresh marker: its own run reports from here.
+  useEffect(() => {
+    setChatRunning(false);
+    setRunPhase("idle");
+  }, [selectedSession?.id]);
+
   const handleAgentEnd = useCallback((end: AgentEndInfo) => {
+    setRunPhase(tabRunPhaseAfterEnd(end));
     // The sidebar's reload merges the selected session's new row into it
     // (handleSessionsChange), so no list fetch of its own here.
     setRefreshKey((k) => k + 1);
@@ -1584,17 +1601,12 @@ export function AppShell() {
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
-
-  useEffect(() => {
-    const syncWindowTitle = () => {
-      if (document.title !== windowTitle) document.title = windowTitle;
-    };
-
-    syncWindowTitle();
-    const observer = new MutationObserver(syncWindowTitle);
-    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
-  }, [windowTitle]);
+  const tabRunPhase: TabRunPhase = chatRunning || (selectedSession !== null && runningSessionIds.has(selectedSession.id))
+    ? "running"
+    : runPhase;
+  // Owns document.title: the spinner, the outcome glyph, and re-asserting both
+  // against anything else that writes the title.
+  useTabRunIndicator(windowTitle, tabRunPhase);
 
   const sidebarContent = (
     <>
@@ -2827,6 +2839,7 @@ export function AppShell() {
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
               onAgentEnd={handleAgentEnd}
+              onRunStateChange={handleChatRunStateChange}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}
               onSessionCreated={handleSessionCreated}

@@ -205,6 +205,8 @@ export interface AgentEndInfo {
    * the task is not done yet, so nothing to announce either (#1434).
    */
   subagentsActive?: boolean;
+  /** The run's final reply ended on an error (`stopReason: "error"`), not on an answer. */
+  failed?: boolean;
 }
 
 export interface UseAgentSessionOptions {
@@ -537,6 +539,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
+  // The last complete reply's stop reason, read when the run settles: an error
+  // there is the only place a failed run says so (lib/message-display.ts shows it).
+  const lastStopReasonRef = useRef<string | null>(null);
   const initialScrollDoneRef = useRef(Boolean(opts.deferInitialScroll));
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
@@ -1505,6 +1510,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, onAttentionNeeded, opts.chatInputRef]);
 
+  const runOutcomeFailed = useCallback(() => lastStopReasonRef.current === "error", []);
+
   const settleUiStage = useCallback(() => {
     const wasRunning = agentRunningRef.current;
     agentRunningRef.current = false;
@@ -1519,9 +1526,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const notifyPromptStage = useCallback((runId: number, aborted = false, subagentsActive = false) => {
     if (notifiedPromptRunIdRef.current === runId) return false;
     notifiedPromptRunIdRef.current = runId;
-    onAgentEnd?.({ aborted, ...(subagentsActive ? { subagentsActive } : {}) });
+    onAgentEnd?.({ aborted, failed: aborted ? false : runOutcomeFailed(), ...(subagentsActive ? { subagentsActive } : {}) });
     return true;
-  }, [onAgentEnd]);
+  }, [onAgentEnd, runOutcomeFailed]);
 
   const scheduleEventStreamClose = useCallback((sid: string) => {
     if (sessionPropIdRef.current === sid) {
@@ -1781,6 +1788,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         cancelEventStreamGrace();
         sdkAgentActiveRef.current = true;
         agentRunningRef.current = true;
+        lastStopReasonRef.current = null;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
         // A retry's wait is over once its run starts, as pi's TUI shows it: the
@@ -1831,7 +1839,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           scheduleEventStreamClose(sid);
         }
         if (wasRunning) {
-          onAgentEnd?.({ aborted: event.aborted === true, ...(event.subagentsActive === true ? { subagentsActive: true } : {}) });
+          onAgentEnd?.({ aborted: event.aborted === true, failed: event.aborted === true ? false : runOutcomeFailed(), ...(event.subagentsActive === true ? { subagentsActive: true } : {}) });
         }
         break;
       }
@@ -1936,6 +1944,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const notices = Array.isArray(event.transcriptNotices) ? event.transcriptNotices as TranscriptNotice[] : undefined;
           setMessages((prev) => [...prev, withTranscriptNotices(normalizeToolCalls(completed), notices)]);
           if (completed.role === "assistant") {
+            lastStopReasonRef.current = completed.stopReason ?? null;
             const sid = sessionIdRef.current;
             if (sid) void refreshContextUsage(sid);
           }
@@ -2052,7 +2061,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, runOutcomeFailed, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {

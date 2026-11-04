@@ -21,6 +21,7 @@ function setup() {
   const banner = { current: null };
   const context = createContext({
     agentRunningRef: { current: true }, sdkAgentActiveRef: { current: true }, sessionIdRef: { current: null },
+    lastStopReasonRef: { current: "error" },
     setRetryInfo: (value) => { banner.current = value; },
     cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {}, dispatch() {}, markPromptLanded() {},
   });

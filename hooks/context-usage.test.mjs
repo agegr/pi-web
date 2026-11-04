@@ -111,14 +111,18 @@ test("only completed assistant messages trigger an immediate usage read", () => 
   const script = new Script(ts.transpileModule(`(() => { switch(event.type) { ${messageEnd.getText(source)} } })()`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
   for (const role of ["assistant", "toolResult", "user", "system"]) {
     const reads = [];
+    const lastStopReasonRef = { current: null };
     script.runInNewContext({
-      event: { type: "message_end", message: { role, content: [] } },
+      event: { type: "message_end", message: { role, content: [], stopReason: "error" } },
       agentRunningRef: { current: true }, sessionIdRef: { current: "a" }, optimisticUserMessageKeyRef: { current: null },
+      lastStopReasonRef,
       isSystemMessageEvent: (event) => event.message.role === "system",
       normalizeToolCalls: (message) => message, userMessageKey: () => "user", setMessages() {}, dispatch() {}, setAgentPhase() {},
       refreshContextUsage: (sid) => reads.push(sid),
     });
     assert.deepEqual(reads, role === "assistant" ? ["a"] : []);
+    // The tab's run marker reads this after the run settles: only a reply says how it ended.
+    assert.equal(lastStopReasonRef.current, role === "assistant" ? "error" : null, role);
   }
 });
 

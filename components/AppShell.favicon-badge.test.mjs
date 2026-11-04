@@ -7,6 +7,7 @@ import { createJiti } from "jiti";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const { isHiddenRelation } = await createJiti(import.meta.url).import("../lib/session-family.ts");
+const { tabRunPhaseAfterEnd } = await createJiti(import.meta.url).import("../lib/tab-status.ts");
 
 function callbackBody(name, endAnchor) {
   const start = source.indexOf(`const ${name} = useCallback`);
@@ -27,6 +28,10 @@ function runHandleAgentEnd({ end, selectedSession, attention }) {
     shouldShowBrowserNotification: () => attention,
     deliverSessionNotification: (notice) => notifications.push(notice),
     translate: (key) => key,
+    tabRunPhaseAfterEnd,
+    setRunPhase: (phase) => {
+      context.runPhase = phase;
+    },
     hiddenFinishedSessionIds: new Set(),
     setHiddenFinishedSessionIds: (updater) => {
       context.hiddenFinishedSessionIds = updater(context.hiddenFinishedSessionIds);
@@ -37,7 +42,7 @@ function runHandleAgentEnd({ end, selectedSession, attention }) {
     context,
   );
   context.handleAgentEnd(end);
-  return { notifications, hiddenFinishedSessionIds: context.hiddenFinishedSessionIds };
+  return { notifications, hiddenFinishedSessionIds: context.hiddenFinishedSessionIds, runPhase: context.runPhase };
 }
 
 test("a selected session that finishes while the tab is hidden badges the favicon (#1484)", () => {
@@ -73,4 +78,17 @@ test("opening the tab drops the hidden finishes (#1484)", () => {
   assert.match(source, /document\.addEventListener\("visibilitychange", clearIfSeen\);/);
   assert.match(source, /window\.addEventListener\("focus", clearIfSeen\);/);
   assert.match(source, /setHiddenFinishedSessionIds\(\(prev\) => \(prev\.size === 0 \? prev : new Set\(\)\)\);/);
+});
+
+test("the tab marker follows the run's outcome, an abort and live subagents (#1541)", () => {
+  const selectedSession = { id: "open", name: "open" };
+  const phases = [
+    ["done", { aborted: false }, "done"],
+    ["failed", { aborted: false, failed: true }, "failed"],
+    ["aborted", { aborted: true }, "idle"],
+    ["subagents active", { aborted: false, subagentsActive: true }, "running"],
+  ];
+  for (const [label, end, expected] of phases) {
+    assert.equal(runHandleAgentEnd({ end, selectedSession, attention: false }).runPhase, expected, label);
+  }
 });

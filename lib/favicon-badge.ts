@@ -2,6 +2,9 @@
 // persistent badge in the tab strip after the completion sound fades, so a
 // background tab shows it needs attention without being opened. Colors match
 // the sidebar's status dots (app/sidebar.css: awaiting amber, unread blue).
+// The selected chat's run outcome is the second mark: a green or red dot in the
+// opposite corner, since a title cannot be coloured (lib/tab-status.ts).
+import { TAB_RUN_COLORS, type TabRunStatus } from "@/lib/tab-status";
 
 export interface FaviconBadgeCounts {
   awaiting: number;
@@ -41,6 +44,11 @@ export function faviconBadgeKey(badge: FaviconBadge | null): string {
   return badge ? `${badge.kind}:${badge.count}` : "none";
 }
 
+/** Count badge and run dot are drawn together: one key, one redraw. */
+export function faviconSyncKey(badge: FaviconBadge | null, status: TabRunStatus | null): string {
+  return `${faviconBadgeKey(badge)}|${status ?? "none"}`;
+}
+
 /**
  * The unread count the badge shows: the sidebar's unread markers plus the
  * sessions that finished while the tab was hidden. Those are usually the
@@ -57,6 +65,8 @@ export function countFaviconUnread(unreadSessionIds: Set<string>, hiddenFinished
 }
 
 let lastSyncedKey: string | null = null;
+let syncedCounts: FaviconBadgeCounts = { awaiting: 0, unread: 0 };
+let syncedRunStatus: TabRunStatus | null = null;
 let baseIconPromise: Promise<HTMLImageElement | null> | null = null;
 const defaultIconHrefs = new Map<HTMLLinkElement, string>();
 
@@ -76,7 +86,7 @@ function loadBaseIcon(): Promise<HTMLImageElement | null> {
   return baseIconPromise;
 }
 
-async function drawBadgedIcon(badge: FaviconBadge, key: string): Promise<void> {
+async function drawIcon(badge: FaviconBadge | null, status: TabRunStatus | null, key: string): Promise<void> {
   const base = await loadBaseIcon();
   if (!base || lastSyncedKey !== key) return;
   const size = 192;
@@ -87,42 +97,69 @@ async function drawBadgedIcon(badge: FaviconBadge, key: string): Promise<void> {
   if (!context) return;
   context.clearRect(0, 0, size, size);
   context.drawImage(base, 0, 0, size, size);
-  // Badge circle in the top-right corner, chunky enough to read at 16px.
-  const hasCount = badge.count > 1;
-  const radius = hasCount ? 56 : 42;
-  const centerX = size - radius - 10;
-  const centerY = radius + 10;
-  context.beginPath();
-  context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  context.fillStyle = FAVICON_BADGE_COLORS[badge.kind];
-  context.fill();
-  context.lineWidth = 10;
-  context.strokeStyle = "#ffffff";
-  context.stroke();
-  if (hasCount) {
-    context.fillStyle = "#ffffff";
-    context.font = `bold ${badge.count > 9 ? 56 : 68}px system-ui, sans-serif`;
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(String(badge.count), centerX, centerY + 4);
+  if (badge) {
+    // Badge circle in the top-right corner, chunky enough to read at 16px.
+    const hasCount = badge.count > 1;
+    const radius = hasCount ? 56 : 42;
+    const centerX = size - radius - 10;
+    const centerY = radius + 10;
+    context.beginPath();
+    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    context.fillStyle = FAVICON_BADGE_COLORS[badge.kind];
+    context.fill();
+    context.lineWidth = 10;
+    context.strokeStyle = "#ffffff";
+    context.stroke();
+    if (hasCount) {
+      context.fillStyle = "#ffffff";
+      context.font = `bold ${badge.count > 9 ? 56 : 68}px system-ui, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(String(badge.count), centerX, centerY + 4);
+    }
+  }
+  if (status) {
+    // The finished run's dot sits in the opposite corner, so a count badge and
+    // an outcome never cover each other.
+    const radius = 40;
+    const centerX = size - radius - 12;
+    const centerY = size - radius - 12;
+    context.beginPath();
+    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    context.fillStyle = TAB_RUN_COLORS[status];
+    context.fill();
+    context.lineWidth = 9;
+    context.strokeStyle = "#ffffff";
+    context.stroke();
   }
   if (lastSyncedKey !== key) return;
   const url = canvas.toDataURL("image/png");
   for (const link of getIconLinks()) link.href = url;
 }
 
-export function syncFaviconBadge(counts: FaviconBadgeCounts): void {
+function applyFavicon(): void {
   if (typeof document === "undefined") return;
-  const badge = getFaviconBadge(counts);
-  const key = faviconBadgeKey(badge);
+  const badge = getFaviconBadge(syncedCounts);
+  const key = faviconSyncKey(badge, syncedRunStatus);
   if (key === lastSyncedKey) return;
   lastSyncedKey = key;
-  if (!badge) {
+  if (!badge && !syncedRunStatus) {
     for (const [link, href] of defaultIconHrefs) link.href = href;
     return;
   }
   for (const link of getIconLinks()) {
     if (!defaultIconHrefs.has(link)) defaultIconHrefs.set(link, link.href);
   }
-  void drawBadgedIcon(badge, key);
+  void drawIcon(badge, syncedRunStatus, key);
+}
+
+export function syncFaviconBadge(counts: FaviconBadgeCounts): void {
+  syncedCounts = counts;
+  applyFavicon();
+}
+
+export function syncFaviconRunStatus(status: TabRunStatus | null): void {
+  if (syncedRunStatus === status) return;
+  syncedRunStatus = status;
+  applyFavicon();
 }
