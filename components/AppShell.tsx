@@ -20,6 +20,7 @@ import { AgentSessionPanel } from "./AgentSessionPanel";
 import { DebugPanel, DebugPanelBoundary } from "./DebugPanel";
 import { SessionChatPanel } from "./SessionChatPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { WindowTitle } from "./WindowTitle";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { appendSideTab, restoreSideTabs, sideTabsKey } from "./side-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -73,7 +74,6 @@ import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
-import { useExtensionWindowTitle } from "@/lib/extension-window-title";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
@@ -1584,20 +1584,7 @@ export function AppShell() {
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  // An extension's `ctx.ui.setTitle()` for the session in view.
-  const extensionWindowTitle = useExtensionWindowTitle(selectedSessionId ?? null);
-  const windowTitle = extensionWindowTitle ?? (activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web");
-
-  useEffect(() => {
-    const syncWindowTitle = () => {
-      if (document.title !== windowTitle) document.title = windowTitle;
-    };
-
-    syncWindowTitle();
-    const observer = new MutationObserver(syncWindowTitle);
-    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
-  }, [windowTitle]);
+  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
 
   const sidebarContent = (
     <>
@@ -2292,6 +2279,8 @@ export function AppShell() {
 
   return (
     <>
+    {/* An extension's `ctx.ui.setTitle()` for the session in view replaces windowTitle. */}
+    <WindowTitle sessionId={selectedSessionId ?? null} fallback={windowTitle} />
     <style>{`
       @keyframes session-info-pop {
         0% {

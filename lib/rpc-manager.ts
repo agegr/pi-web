@@ -1645,6 +1645,7 @@ export class AgentSessionWrapper {
         const activeToolNames = this.inner.getActiveToolNames();
         await this.waitForExtensionsBound();
         this.extensionStatuses.clear();
+        this.resetExtensionTitle();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload();
@@ -1914,6 +1915,22 @@ export class AgentSessionWrapper {
       ...this.activeExtensionWidgets.keys(),
     ]);
     for (const key of keys) this.clearExtensionWidget(key, emitClear);
+  }
+
+  /**
+   * A reload drops the extension's title, as pi's TUI resetExtensionUI() puts its
+   * own back: an empty `setTitle` tells the page to show its own, and an extension
+   * that sets one again at `session_start` follows it.
+   */
+  private resetExtensionTitle(): void {
+    if (this.extensionTitle === undefined) return;
+    this.extensionTitle = undefined;
+    this.emit({
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "setTitle",
+      title: "",
+    } as ExtensionUiRequest as AgentEvent);
   }
 
   private resetExtensionWidgetsForReload(): void {
@@ -2414,6 +2431,7 @@ export class AgentSessionWrapper {
           return;
         }
         this.extensionStatuses.clear();
+        this.resetExtensionTitle();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload({

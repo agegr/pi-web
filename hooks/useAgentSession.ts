@@ -1501,7 +1501,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ));
         break;
       case "setTitle":
-        // The page owns document.title (AppShell keeps it in sync), so it goes through there.
+        // The page owns document.title (components/WindowTitle.tsx), so it goes through there.
+        // An empty one (the wrapper's on reload) gives the page its own back.
         applyExtensionTitle(request.title || null);
         break;
       case "set_editor_text":
