@@ -790,6 +790,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       requestAnimationFrame(() => autoGrowTextarea(ta));
     },
     pasteText(text: string) {
+      // An empty paste inserts nothing, as in the TUI; over a selection it would delete it.
+      if (!text) return;
       const ta = textareaRef.current;
       if (!ta) {
         setValue((v) => v + text);
