@@ -64,6 +64,9 @@ Coverage:
   shown names once with A–Z, appends later additions, and saves only the changed array order
   while preserving rename tracking (`model-order.mjs`, desktop and phone widths,
   mocked config routes).
+- `/compact` leaves the composer focused and accepts the next draft while its
+  POST is pending, on desktop and phone widths. The compaction response is mocked;
+  no model is called (`composer-focus.mjs`).
 - A local extension checks dialog keyboard navigation, Esc cancellation,
   collapse/expand draft preservation, countdown display, and server-side expiry.
 - The production assistant header keeps its height and numeric columns when streaming metrics appear, update and disappear. Static component renders cover digit boundaries with proportional and monospace fonts, without a live model. Run this check alone with `node e2e/streaming-metrics.mjs` (1280, 390 and 320px).

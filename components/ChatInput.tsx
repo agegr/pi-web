@@ -735,6 +735,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [builtinCommandPending, setBuiltinCommandPending] = useState(false);
   const builtinCommandPendingRef = useRef(false);
+  const builtinCommandFocusRef = useRef<HTMLTextAreaElement | null>(null);
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
@@ -1106,9 +1107,28 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     };
   }, []);
 
+  useLayoutEffect(() => {
+    if (builtinCommandPending) {
+      const cancelRestore = (event: PointerEvent) => {
+        if (event.target !== builtinCommandFocusRef.current) builtinCommandFocusRef.current = null;
+      };
+      document.addEventListener("pointerdown", cancelRestore, true);
+      return () => document.removeEventListener("pointerdown", cancelRestore, true);
+    }
+    const textarea = builtinCommandFocusRef.current;
+    builtinCommandFocusRef.current = null;
+    // Disabling the fieldset blurs its editor. Wait for the enabling commit,
+    // and leave focus alone if the command or the user moved it elsewhere.
+    if (textarea?.isConnected && document.activeElement === document.body
+      && !document.querySelector('[aria-modal="true"]')) {
+      textarea.focus({ preventScroll: true });
+    }
+  }, [builtinCommandPending]);
+
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
     if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
     if (builtinCommandPendingRef.current) return true;
+    builtinCommandFocusRef.current = document.activeElement === textareaRef.current ? textareaRef.current : null;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
     try {
