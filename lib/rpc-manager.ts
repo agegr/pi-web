@@ -1517,9 +1517,9 @@ export class AgentSessionWrapper {
           throw new Error("Cannot navigate while a shell command is running");
         }
         // pi's navigateTree() asks `session_before_tree` handlers first: an earlier Stop
-        // must not close their dialog before it shows. A Stop while it waits cannot cancel
-        // the move, made inside navigateTree() right after; it refuses mid-run, so the page
-        // shows no Stop then.
+        // must not close their dialog before it shows. A Stop while it waits still lets the
+        // move through (pi moves inside navigateTree() right after the hook); the page shows
+        // Stop then only when a prompt was sent while the dialog waited.
         this.renewExtensionUiStop();
         return this.navigateTreeKeepingToolSelection(command.targetId as string, {});
       }
@@ -1538,6 +1538,8 @@ export class AgentSessionWrapper {
       }
 
       case "compact": {
+        // `session_before_compact` handlers may ask too: an earlier Stop must not close their dialog.
+        this.renewExtensionUiStop();
         try {
           return await this.withFinalIdleReset(() =>
             this.inner.compact(command.customInstructions as string | undefined)
