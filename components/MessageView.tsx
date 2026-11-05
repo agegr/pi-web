@@ -8,6 +8,7 @@ import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMessageActions } from "@/hooks/useMessageActions";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { formatTurnDuration } from "@/lib/turn-duration";
@@ -346,7 +347,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   isEditing?: boolean;
 }) {
   const { t } = useI18n();
-  const [hovered, setHovered] = useState(false);
+  const { shown: hovered, reveal } = useMessageActions();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -420,8 +421,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   return (
     <div
       style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      {...reveal}
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
@@ -720,7 +720,7 @@ function AssistantMessageView({
   const providerError = getAssistantErrorMessage(message, { isStreaming });
   const truncated = isAssistantTruncated(message, { isStreaming });
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
-  const [hovered, setHovered] = useState(false);
+  const { shown: hovered, reveal } = useMessageActions();
   const [copied, setCopied] = useState(false);
   const streamStartRef = useRef<StreamRateStart | null>(null);
   const rateKey = streamRateKey(message);
@@ -856,8 +856,7 @@ function AssistantMessageView({
       data-message-role="assistant"
       data-entry-id={entryId}
       style={{ marginBottom: 16 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      {...reveal}
     >
       <AssistantMessageHeader
         modelName={message.provider ? getModelDisplayName(message.provider, message.model, modelNames) : undefined}

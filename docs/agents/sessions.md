@@ -68,6 +68,11 @@ Both ends of the subtraction must be pi's times, and the browser's clock can dif
 ## A reply's usage line (`formatUsage()`, `components/MessageView.tsx`)
 The line under a response is pi's TUI footer for that one response: `↑1.2k ↓567 R8.9k W12 $0.0036`, zero counts left out, counts through `formatNoticeTokens()` (the footer's `formatTokens()`, pinned by `lib/transcript-notices.test.mjs`), then the turn's time after ` · `. The arrows and letters are the TUI's, so there is nothing to translate; no click-through details or output speed: the TUI has neither.
 
+## A message's actions follow the hover, or a tap (`hooks/useMessageActions.ts`)
+- With a mouse, the row under a message (Copy, Edit from here, New session) fades in on hover and out when the pointer leaves. A touch screen has no hover, and the one a browser imitates for a tap arrives too rarely: on a phone the actions mostly stayed hidden and took several taps.
+- Under `(hover: none)` the imitated mouse events are ignored and `click` decides: a tap on a message shows its actions, and a capturing `click` listener on the document hides them on a tap anywhere outside it, another message included. Only the message showing its actions holds that listener. A tap inside it (a link, a button, an expander) keeps them; toggling on a second tap would hide them whenever its content is used.
+- The math copy buttons follow the same split, with CSS (`@media (hover: hover)`).
+
 ## Compaction summary card (`CompactionMessageView`, `components/MessageView.tsx`)
 Collapsed by default, as pi's TUI `CompactionSummaryMessageComponent` (#1026): the header, "Conversation compacted" and pi's "Compacted from N tokens" (`details.tokensBefore`, set by the reader). The title is the toggle (a button with `aria-expanded`); the description, the summary Markdown and the file lists mount only when expanded. Session search indexes user and assistant `message` entries first (`lib/session-search.ts`), then falls back to the displayed catalogue title (`name`, including manual/auto-generated `session_info`, else `firstMessage`) only when no message matched. A message hit keeps its entry navigation even if the title also matches; a title hit has no entry to reveal. No hit lands inside a summary and the card needs no `reveal` like Process details.
 
