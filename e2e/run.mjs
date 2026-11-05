@@ -19,6 +19,7 @@ import { checkModelOrder } from "./model-order.mjs";
 import { checkModelContext } from "./model-context.mjs";
 import { checkModelSelector } from "./model-selector.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
+import { checkSidebarSelection } from "./sidebar-selection.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
 
@@ -79,6 +80,8 @@ try {
   const longEntries = Array.from({ length: 5000 }, (_, i) =>
     message(`e${i}`, i ? `e${i - 1}` : null, i % 2 ? "assistant" : "user", text(i)));
   longEntries.splice(1, 0, message("alternate", "e0", "user", "E2E alternate history branch"));
+  const selectionIds = ["e2e-select-a", "e2e-select-b", "e2e-select-c"];
+  for (const id of selectionIds) writeSession(id, [message("root", null, "user", id)]);
   writeSession(LONG, longEntries);
   writeSession(BRANCH, [
     message("root", null, "user", "Branch root"),
@@ -542,6 +545,7 @@ try {
       assert.ok(response.ok, `DELETE session ${id} -> ${response.status}`);
     },
   });
+  await checkSidebarSelection({ browser, base, api, post, ids: selectionIds });
   await checkProjectNavigation({ browser, base, artifacts, fixture: projectNavigation, otherSessionId: BRANCH, api, post });
 } catch (error) {
   console.error(error);

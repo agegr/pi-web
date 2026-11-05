@@ -134,6 +134,34 @@ export function familyIds(family: SessionFamily): string[] {
   return [family.root.id, ...family.subagents.map((session) => session.id)];
 }
 
+export type SessionSelectionScope = "main" | "archive";
+export type SessionSelectionExclusion = "missing" | "scope" | "transient" | "pending" | "active";
+
+/** Resolve root ids against the full catalogue, never the virtualized rows. */
+export function resolveSessionSelection(
+  ids: ReadonlySet<string>,
+  families: ReadonlyMap<string, SessionFamily>,
+  scope: SessionSelectionScope,
+  input: Pick<SessionTreeInput, "uiState" | "runningIds" | "awaitingIds"> & { subagentsActiveIds?: ReadonlySet<string> },
+): { families: SessionFamily[]; excluded: Map<string, SessionSelectionExclusion> } {
+  const eligible: SessionFamily[] = [];
+  const excluded = new Map<string, SessionSelectionExclusion>();
+  for (const id of ids) {
+    const family = families.get(id);
+    let reason: SessionSelectionExclusion | undefined;
+    if (!family) reason = "missing";
+    else if (family.root.transient) reason = "transient";
+    else if ([family.root, ...family.subagents].some((member) => member.detailsPending)) reason = "pending";
+    else if (anyMemberIn(family, input.runningIds)
+      || (input.awaitingIds && anyMemberIn(family, input.awaitingIds))
+      || (input.subagentsActiveIds && anyMemberIn(family, input.subagentsActiveIds))) reason = "active";
+    else if (isFamilyArchived(family, input.uiState, input.runningIds) !== (scope === "archive")) reason = "scope";
+    if (reason) excluded.set(id, reason);
+    else if (family) eligible.push(family);
+  }
+  return { families: eligible, excluded };
+}
+
 function anyMemberIn(family: SessionFamily, ids: ReadonlySet<string>): boolean {
   if (ids.size === 0) return false;
   return ids.has(family.root.id) || family.subagents.some((session) => ids.has(session.id));

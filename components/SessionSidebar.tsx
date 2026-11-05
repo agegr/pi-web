@@ -8,6 +8,8 @@ import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import {
+  resolveSessionSelection,
+  type SessionSelectionScope,
   adjacentProjectMove,
   archivedFamilyIds,
   buildArchiveRows,
@@ -300,6 +302,7 @@ type SessionRow = Extract<SidebarRow, { kind: "session" }>;
  * sessions", an archive header's "Delete all", the archive bar's two).
  */
 type SidebarMenuState =
+  | { kind: "selection"; ids: ReadonlySet<string>; scope: SessionSelectionScope; anchor: SidebarMenuAnchor; opener: HTMLElement }
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
   | { kind: "archive-group"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
@@ -598,6 +601,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   // The archive view's folded projects, per browser (lib/sidebar-prefs.ts).
   const [archiveCollapsed, setArchiveCollapsed] = useState<readonly string[]>([]);
+  const [selectionScope, setSelectionScope] = useState<SessionSelectionScope | null>(null);
+  const [selectedRootIds, setSelectedRootIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectionDeletePending, setSelectionDeletePending] = useState(false);
+  const selectionDeletePendingRef = useRef(false);
+  const selectionDoneRef = useRef<HTMLButtonElement>(null);
+  const clearSelection = useCallback(() => {
+    setSelectionScope(null);
+    setSelectedRootIds(new Set());
+    setMenu((current) => current?.kind === "selection" ? null : current);
+  }, []);
   const [archiveView, setArchiveViewState] = useState(false);
   // The fold and the archive view move (hooks/useSidebarMotion.ts): only
   // when the user folds or goes in or out, never on a restore, a drag, keys,
@@ -610,9 +623,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const archiveViewRef = useRef(archiveView);
   archiveViewRef.current = archiveView;
   const setArchiveView = useCallback((open: boolean) => {
-    if (open !== archiveViewRef.current) startArchiveMotion(open ? "in" : "out");
+    if (open !== archiveViewRef.current) {
+      clearSelection();
+      startArchiveMotion(open ? "in" : "out");
+    }
     setArchiveViewState(open);
-  }, [startArchiveMotion]);
+  }, [clearSelection, startArchiveMotion]);
   const filesFold = filesFoldState(filesCollapsed, filesFoldPhase);
   const archiveMotion = archiveViewState(archiveView, archivePhase);
   // Row states that must survive virtualization live here, not in the rows.
@@ -1363,11 +1379,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // adopts it up front: a session in another project closes the previous
   // project's file tabs instead of being mistaken for identity hydration.
   const startNewSessionIn = useCallback(({ cwd, projectKey, projectRoot, carryComposer }: NewSessionTarget) => {
+    clearSelection();
     // A worktree without sessions has no other source of identity yet.
     if (projectKey && projectRoot) setValidatedProject({ cwd, root: projectRoot, key: projectKey });
     setSelectedCwd(cwd);
     onNewSession?.(createTempSessionId(), cwd, projectKey, carryComposer ? { carryComposer: true } : undefined);
-  }, [onNewSession]);
+  }, [clearSelection, onNewSession]);
   // The handle below is made once: it calls the newest closure.
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
@@ -1402,6 +1419,51 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     () => new Map(sessionFamilies.map((family) => [family.root.id, family])),
     [sessionFamilies],
   );
+
+  const selectionInput = useMemo(() => ({
+    uiState, runningIds: runningSessionIds, awaitingIds: awaitingInputSessionIds,
+    subagentsActiveIds: subagentsActiveSessionIds,
+  }), [uiState, runningSessionIds, awaitingInputSessionIds, subagentsActiveSessionIds]);
+  const selectionEligibility = useMemo(() => resolveSessionSelection(
+    new Set(familyByRootId.keys()), familyByRootId, selectionScope ?? "main", selectionInput,
+  ), [familyByRootId, selectionScope, selectionInput]);
+  const selectedFamilies = useMemo(() => resolveSessionSelection(
+    selectedRootIds, familyByRootId, selectionScope ?? "main", selectionInput,
+  ).families, [selectedRootIds, familyByRootId, selectionScope, selectionInput]);
+  useEffect(() => {
+    // Prune from the full catalogue: folds and virtual windows must not matter.
+    setSelectedRootIds((current) => {
+      const ids = [...current].filter((id) => familyByRootId.has(id) && !selectionEligibility.excluded.has(id));
+      return ids.length === current.size ? current : new Set(ids);
+    });
+  }, [familyByRootId, selectionEligibility]);
+  useEffect(() => {
+    if (sessionSearchOpen || (!stacked && sidebarTab === "files")) clearSelection();
+  }, [sessionSearchOpen, sidebarTab, stacked, clearSelection]);
+  const toggleSelection = useCallback((id: string) => {
+    if (!selectionScope || selectionDeletePendingRef.current
+      || !familyByRootId.has(id) || selectionEligibility.excluded.has(id)) return;
+    setSelectedRootIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, [familyByRootId, selectionEligibility, selectionScope]);
+  const beginSelection = (row: SessionRow) => {
+    if (selectionDeletePendingRef.current) return;
+    const scope = row.context === "archive" ? "archive" : "main";
+    const eligible = resolveSessionSelection(new Set([row.family.root.id]), familyByRootId, scope, selectionInput).families;
+    setSessionSearchOpen(false);
+    setRenamingRootId(null);
+    setRenamingProjectKey(null);
+    setConfirmDeleteRootId(null);
+    setMenu(null);
+    setSelectionScope(scope);
+    setSelectedRootIds(new Set(eligible.map((family) => family.root.id)));
+    focusAfterCommit(() => sessionsPanelRef.current?.querySelector<HTMLElement>(
+      `[data-row-key="${CSS.escape(row.key)}"] input[type=checkbox]:enabled`,
+    ) ?? selectionDoneRef.current);
+  };
 
   // Every session id of an archived family (search tags them), and how many
   // families each project has in the archive.
@@ -1604,7 +1666,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const panel = sessionsPanelRef.current;
     for (const context of ["pinned", "group", "archive"]) {
       const key = CSS.escape(`session:${context}:${rootId}`);
-      const button = panel?.querySelector<HTMLElement>(`[data-row-key="${key}"] .session-tree-main`);
+      const button = panel?.querySelector<HTMLElement>(`[data-row-key="${key}"] input[type=checkbox]:enabled, [data-row-key="${key}"] a.session-tree-main, [data-row-key="${key}"] button.session-tree-main`);
       if (button && button.getClientRects().length > 0) return button;
     }
     return selectedTabButton();
@@ -1653,9 +1715,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // is, for the tabs layout and phones.
   const switchTab = useCallback((tab: SidebarTab) => {
     if (stacked) return;
+    if (tab === "files") clearSelection();
     setSidebarTab(tab);
     saveSidebarTab(tab);
-  }, [stacked]);
+  }, [clearSelection, stacked]);
 
   // Every fold and unfold goes through here (the toggle, revealFiles, the
   // file search, changes and upload keys, a file manager error), and moves;
@@ -2357,7 +2420,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     else filesPickerRef.current?.button("project")?.focus({ preventScroll: true });
   }, [filesShown, filesFocusRequest]);
 
-  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => sessionMenuEntries(row.context, row.status).map((entry, index) => {
+  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => [{
+    type: "item",
+    id: "select-sessions",
+    label: t("sidebar.selectSessions"),
+    disabled: selectionDeletePending,
+    onSelect: () => beginSelection(row),
+  }, ...sessionMenuEntries(row.context, row.status).map((entry, index): SidebarMenuItem => {
     if (entry.kind === "separator") return { type: "separator", id: `separator-${index}` };
     const label = t(SESSION_ACTION_LABEL_KEYS[entry.id]);
     return {
@@ -2371,7 +2440,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       disabledReason: entry.disabledReason === "running" ? t("sidebar.cannotArchiveRunning") : undefined,
       onSelect: ({ shiftKey }) => runSessionAction(entry.id, row, shiftKey),
     };
-  });
+  })];
 
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
@@ -2620,13 +2689,40 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onCancel: () => askArchiveDelete(undefined),
   });
 
+  const selectionDeleteIds = menu?.kind === "selection"
+    ? resolveSessionSelection(menu.ids, familyByRootId, menu.scope, selectionInput).families.map((family) => family.root.id)
+    : [];
+  const deleteSelected = () => {
+    if (selectionDeletePendingRef.current || menu?.kind !== "selection" || selectionDeleteIds.length === 0) return;
+    // Freeze at question-open; resolve again from today's catalogue at submission.
+    const ids = resolveSessionSelection(menu.ids, familyByRootId, menu.scope, selectionInput).families.map((family) => family.root.id);
+    if (ids.length === 0) return;
+    selectionDeletePendingRef.current = true;
+    setSelectionDeletePending(true);
+    setSelectedRootIds(new Set());
+    void deleteFamilyIds("selection", ids, () => selectionDoneRef.current ?? selectedTabButton()).finally(() => {
+      selectionDeletePendingRef.current = false;
+      setSelectionDeletePending(false);
+    });
+  };
+
   let menuTitle: string | undefined;
   let menuLabel = "";
   // Room for "Archive sessions older than 7 days · N".
   let menuWidth: number | undefined;
   let menuItems: SidebarMenuItem[] | undefined;
   let menuBody: ReactNode = null;
-  if (menu?.kind === "row" && menuRow) {
+  if (menu?.kind === "selection") {
+    menuTitle = t("sidebar.deleteSelectionHeading");
+    menuLabel = menuTitle;
+    menuBody = deleteQuestionBody({
+      heading: menuTitle,
+      notes: [t("sidebar.deleteSelectionMessage", { count: selectionDeleteIds.length })],
+      count: selectionDeleteIds.length,
+      onConfirm: deleteSelected,
+      onCancel: () => setMenu(null),
+    });
+  } else if (menu?.kind === "row" && menuRow) {
     menuTitle = sessionRowTitle(menuRow.family.root);
     menuLabel = t("sidebar.sessionActions");
     menuItems = sessionMenuItems(menuRow);
@@ -2670,6 +2766,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     renamingProjectKey,
     confirmDeleteRootId,
     activeMenuRowKey,
+    selecting: selectionScope !== null,
+    checkedRootIds: new Set(selectedFamilies.map((family) => family.root.id)),
+    selectionExclusions: selectionEligibility.excluded,
+    selectionPending: selectionDeletePending,
+    onToggleSelection: toggleSelection,
     onSelectFamily: handleSelectFamily,
     onToggleGroup: handleToggleGroup,
     onShowMore: handleShowMore,
@@ -2954,7 +3055,36 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         hidden={!stacked && sidebarTab !== "sessions"}
         className="sidebar-panel sidebar-sessions-panel"
         onScrollCapture={rememberScroll}
+        onKeyDown={(event) => {
+          if (!selectionScope || event.key !== "Escape" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (menu?.kind === "selection") setMenu(null);
+          else {
+            clearSelection();
+            focusAfterCommit(selectedTabButton);
+          }
+        }}
       >
+        {selectionScope && (
+          <div className="sidebar-selection-bar" role="group" aria-label={t("sidebar.selectSessions")}>
+            <span className="sidebar-selection-count" role="status">{t("sidebar.selectedCount", { count: selectedFamilies.length })}</span>
+            <button type="button" disabled={selectedFamilies.length === 0 || selectionDeletePending} onClick={() => {
+              const families = resolveSessionSelection(selectedRootIds, familyByRootId, selectionScope, selectionInput).families;
+              if (selectionScope === "archive") restoreFamilies(families); else archiveFamilies(families);
+              setSelectedRootIds(new Set());
+              focusAfterCommit(() => selectionDoneRef.current);
+            }}>{t(selectionScope === "archive" ? "sidebar.restore" : "sidebar.archive")}</button>
+            <button type="button" disabled={selectedFamilies.length === 0 || selectionDeletePending} onClick={(event) => {
+              setMenu({ kind: "selection", ids: new Set(selectedFamilies.map((family) => family.root.id)), scope: selectionScope,
+                anchor: buttonAnchor(event.currentTarget, "end"), opener: event.currentTarget });
+            }}>{t(selectionDeletePending ? "sidebar.deletingSessions" : "sidebar.delete")}</button>
+            <button ref={selectionDoneRef} type="button" onClick={() => {
+              clearSelection();
+              focusAfterCommit(selectedTabButton);
+            }}>{t("sidebar.selectionDone")}</button>
+          </div>
+        )}
         {sessionSearchOpen && (
           <div className="sidebar-search">
             <input
