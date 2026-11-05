@@ -109,6 +109,25 @@ function groupRow(extra = {}, projectExtra = {}) {
   return { kind: "group", key: `group:${groupProject.key}`, project: groupProject, expanded: true, running: 0, awaiting: 0, unread: 0, ...extra };
 }
 
+test("selection markup uses labelled native checkboxes for nonadjacent roots and hides navigation and row actions", () => {
+  const rows = [sessionRow(session("a")), sessionRow(session("b")), sessionRow(session("c"))];
+  const html = render({ rows, selecting: true, checkedRootIds: new Set(["a", "c"]) });
+  for (const id of ["a", "b", "c"]) {
+    const markup = rowMarkup(html, `session:group:${id}`);
+    assert.match(markup, /<label class="session-tree-main session-tree-select"/);
+    assert.match(markup, new RegExp(`<input type="checkbox" aria-label="Select first ${id}"${id === "b" ? "" : " checked=\"\""}`));
+    assert.doesNotMatch(markup, /<a |session-tree-actions/);
+  }
+  const disabled = render({ rows, selecting: true, selectionExclusions: new Map([["b", "active"], ["c", "pending"]]) });
+  assert.match(rowMarkup(disabled, "session:group:b"), /title="This session or a related session is active\."/);
+  assert.match(rowMarkup(disabled, "session:group:b"), /type="checkbox" disabled=""/);
+  assert.match(rowMarkup(disabled, "session:group:c"), /title="Session details are still loading\."/);
+  assert.match(render({ rows, selecting: true, selectionPending: true }), /type="checkbox" disabled=""/);
+  const done = render({ rows, selecting: false });
+  assert.doesNotMatch(done, /type="checkbox"/);
+  assert.match(done, /href="\?session=a"/);
+});
+
 const footer = [{ kind: "footer-open", key: "footer-open" }];
 
 test("the pinned header toggles the section and shows activity dots only while collapsed", () => {

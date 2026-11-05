@@ -27,6 +27,7 @@ import {
   type SidebarLayout,
   type SidebarProject,
   type SidebarRow,
+  type SessionSelectionExclusion,
 } from "@/lib/session-tree";
 import type { SessionInfo } from "@/lib/types";
 import { isPlainActivation, sessionDeepLink } from "@/lib/session-links";
@@ -104,6 +105,12 @@ export interface SessionTreeProps {
   confirmDeleteRootId: string | null;
   /** Row whose menu is open: kept mounted, its ⋯ shown pressed. A group row's key works too. */
   activeMenuRowKey: string | null;
+  /** Temporary batch selection, owned above the virtualized rows. */
+  selecting?: boolean;
+  checkedRootIds?: ReadonlySet<string>;
+  selectionExclusions?: ReadonlyMap<string, SessionSelectionExclusion>;
+  selectionPending?: boolean;
+  onToggleSelection?(rootId: string): void;
   onSelectFamily(family: SessionFamily): void;
   /** `all` (Alt+click): every group follows this one. */
   onToggleGroup(projectKey: string, all: boolean): void;
@@ -262,7 +269,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const offsets = useMemo(() => getRowOffsets(rows, layout), [rows, layout]);
   // A group header can be dragged to another place in its band (pinned
   // projects, or the others) when the band has another group.
-  const canMoveGroups = Boolean(props.onMoveGroup);
+  const canMoveGroups = Boolean(props.onMoveGroup) && !props.selecting;
   const groupsPerBand = useMemo(() => {
     const count = { pinned: 0, other: 0 };
     for (const row of rows) {
@@ -383,8 +390,8 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
     const row = rowElement(target.rowKey);
     // A saved session row's first control is its link, the others' a button.
     const button = row?.querySelector<HTMLElement>("[data-more-action=\"more\"]")
-      ?? row?.querySelector<HTMLElement>("a[href], button")
-      ?? rowElement(target.fallbackKey)?.querySelector<HTMLElement>("a[href], button");
+      ?? row?.querySelector<HTMLElement>("input[type=checkbox]:enabled, a[href], button")
+      ?? rowElement(target.fallbackKey)?.querySelector<HTMLElement>("input[type=checkbox]:enabled, a[href], button");
     if (button) {
       button.focus({ preventScroll: true });
       pendingFocusRef.current = null;
@@ -440,6 +447,10 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
                     renaming={row.family.root.id === renamingRootId}
                     confirming={row.family.root.id === confirmDeleteRootId}
                     menuOpen={menuOpen}
+                    selecting={props.selecting === true}
+                    checked={props.checkedRootIds?.has(row.family.root.id) === true}
+                    selectionExclusion={props.selectionExclusions?.get(row.family.root.id)}
+                    selectionPending={props.selectionPending === true}
                     handlers={handlersRef}
                   />
                 );
@@ -502,6 +513,10 @@ const SessionRowView = memo(function SessionRowView({
   renaming,
   confirming,
   menuOpen,
+  selecting,
+  checked,
+  selectionExclusion,
+  selectionPending,
   handlers,
 }: {
   row: SessionRow;
@@ -512,6 +527,10 @@ const SessionRowView = memo(function SessionRowView({
   renaming: boolean;
   confirming: boolean;
   menuOpen: boolean;
+  selecting: boolean;
+  checked: boolean;
+  selectionExclusion?: SessionSelectionExclusion;
+  selectionPending: boolean;
   handlers: Handlers;
 }) {
   const { locale, t } = useI18n();
@@ -526,6 +545,8 @@ const SessionRowView = memo(function SessionRowView({
     context === "archive" ? "is-archived" : "",
     menuOpen ? "is-menu-open" : "",
     confirming ? "is-confirming" : "",
+    selecting ? "is-selecting" : "",
+    checked ? "is-checked" : "",
     renaming ? "is-renaming" : "",
   ].filter(Boolean).join(" ");
 
@@ -638,10 +659,24 @@ const SessionRowView = memo(function SessionRowView({
       className={className}
       style={rowStyle(top, height)}
       data-row-key={row.key}
-      onClick={() => handlers.current.onSelectFamily(family)}
-      onContextMenu={(event) => handlers.current.onRowContextMenu(row, event)}
+      onClick={() => { if (!selecting) handlers.current.onSelectFamily(family); }}
+      onContextMenu={(event) => {
+        if (selecting) { event.preventDefault(); return; }
+        handlers.current.onRowContextMenu(row, event);
+      }}
     >
-      {status.transient ? (
+      {selecting ? (
+        <label className="session-tree-main session-tree-select" title={selectionExclusion ? t(`sidebar.selectionUnavailable.${selectionExclusion}`) : tooltip}>
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={selectionPending || selectionExclusion !== undefined}
+            aria-label={t("sidebar.selectSession", { title })}
+            onChange={() => handlers.current.onToggleSelection?.(root.id)}
+          />
+          {mainContent}
+        </label>
+      ) : status.transient ? (
         // No file yet: a link would open a session no other tab can load.
         <button type="button" className="session-tree-main" title={tooltip} aria-current={status.selected ? "true" : undefined}>
           {mainContent}
@@ -667,7 +702,7 @@ const SessionRowView = memo(function SessionRowView({
           {mainContent}
         </a>
       )}
-      {!status.transient && (
+      {!selecting && !status.transient && (
         <span className="session-tree-actions">
           {quickAction && (context === "archive" ? (
             <button
