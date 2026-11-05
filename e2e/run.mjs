@@ -21,6 +21,7 @@ import { checkModelSelector } from "./model-selector.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
+import { checkMessageActions } from "./message-actions.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -543,6 +544,11 @@ try {
     },
   });
   await checkProjectNavigation({ browser, base, artifacts, fixture: projectNavigation, otherSessionId: BRANCH, api, post });
+  await checkMessageActions({
+    browser,
+    base,
+    session: { id: BRANCH, question: "Branch root", questionEntry: "root", answer: "Active branch answer", answerEntry: "new" },
+  });
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
