@@ -1,16 +1,42 @@
 /**
- * The skills a turn loaded, read from the tool calls it made.
+ * The skills a turn loaded.
  *
- * pi hands the model the list of skills at the start of a run, so loading one is
- * an ordinary file access — `read` on `<dir>/skills/<name>/SKILL.md`, or a
- * command whose arguments name that file (`cat …/SKILL.md`). Nothing in the
- * session file says "this was a skill", so the name is recovered from the path
- * under one rule: the segment before `SKILL.md` is the name, and the one before
- * that has to be a skills folder (`skills`, `.agents`, `.claude`, `agent`). That
- * keeps an ordinary `docs/SKILL.md` from being counted as a skill.
+ * pi loads a skill by writing its `SKILL.md` into the transcript as a
+ * `<skill name="…" location="…">` block — the `/skill:<name>` command and an
+ * automatic load both do it (see `_expandSkillCommand` in pi's agent-session).
+ * The block arrives as a user message that starts the turn, so this is the
+ * main form read here.
  *
- * A skill shows one badge per turn however many times the run looks at it.
+ * A run may instead read the file as an ordinary tool call — `read` on
+ * `<dir>/skills/<name>/SKILL.md`, or a command whose arguments name it — which
+ * pi's own transcript renderer also calls a skill. Those are recovered from the
+ * path under one rule: the segment before `SKILL.md` is the name, and the one
+ * before that has to be a skills folder (`skills`, `.agents`, `.claude`,
+ * `agent`), so an ordinary `docs/SKILL.md` is not mistaken for one.
+ *
+ * A skill shows one badge per turn however many times the run loads it.
  */
+
+/**
+ * pi's skill block, as `_expandSkillCommand` writes it into the transcript. The
+ * `location` is required so the tag must be pi's own and not a mention of one
+ * in prose or in a quoted source line.
+ */
+const SKILL_BLOCK = /<skill\s+name="([^"]+)"\s+location="[^"]*"\s*>/g;
+
+/** The skills a message's text loaded by pi's own `<skill name="…">` block. */
+export function skillNamesInSkillBlocks(text: string): string[] {
+  if (!text.includes("<skill")) return [];
+  const names: string[] = [];
+  for (const match of text.matchAll(SKILL_BLOCK)) {
+    const name = match[1]?.trim();
+    // A skill folder name, not a placeholder or an ellipsis quoted in a source
+    // line: pi only ever writes a real `name` field here.
+    if (!name || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) continue;
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
 
 /** The folders pi discovers skills in; a skill sits one level below each. */
 const SKILL_ROOTS = new Set(["skills", ".agents", ".claude", "agent"]);
@@ -83,6 +109,25 @@ export function skillsFromToolCall(input: unknown): string[] {
     for (const name of skillNamesInText(text)) {
       if (!names.includes(name)) names.push(name);
     }
+  }
+  return names;
+}
+
+/**
+ * The skill names one content block of an assistant step names. A block still
+ * streaming keeps its arguments as `rawInput` text (see lib/normalize.ts), so
+ * the partly written JSON is searched too: the tag shows up as soon as the path
+ * names a skill, not when the call closes. `parsePartial` is injected so this
+ * module stays free of the SDK and testable on plain text.
+ */
+export function skillsFromToolBlock(
+  block: { input?: unknown; rawInput?: string },
+  parsePartial: (partialJson: string) => unknown,
+): string[] {
+  if (block.rawInput === undefined) return skillsFromToolCall(block.input);
+  const names = skillsFromToolCall(block.input);
+  for (const name of skillsFromToolCall(parsePartial(block.rawInput))) {
+    if (!names.includes(name)) names.push(name);
   }
   return names;
 }

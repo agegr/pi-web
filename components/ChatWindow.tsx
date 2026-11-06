@@ -15,7 +15,8 @@ import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
-import { skillsFromToolCall } from "@/lib/turn-skills";
+import { skillNamesInSkillBlocks, skillsFromToolBlock } from "@/lib/turn-skills";
+import { parseStreamingJson } from "@earendil-works/pi-ai/utils/json-parse";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -203,17 +204,46 @@ function getUserInputText(message: AgentMessage): string | null {
 }
 
 /**
- * The skills a turn loaded: from the tool calls its assistant steps made, since
- * loading one is a read of its `SKILL.md` (see lib/turn-skills.ts).
+ * The skills one assistant step loaded, from its tool calls. A tool call still
+ * streaming keeps its arguments in `rawInput` (see lib/normalize.ts), so its
+ * partly written JSON is parsed too: the tag appears as soon as the path names
+ * a skill, not when the call closes.
+ */
+function getStepSkills(message: AgentMessage): string[] {
+  if (message.role !== "assistant") return [];
+  const names: string[] = [];
+  for (const block of message.content) {
+    if (block.type !== "toolCall") continue;
+    for (const name of skillsFromToolBlock(block, parseStreamingJson)) {
+      if (!names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+/** The text of any message, whatever shape its content takes. */
+function getMessageText(message: AgentMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("\n");
+}
+
+/**
+ * The skills a turn loaded: pi's own `<skill name="…">` blocks, which arrive as
+ * the turn's opening user message, plus any `SKILL.md` its tool calls read (see
+ * lib/turn-skills.ts).
  */
 function getTurnSkills(messages: AgentMessage[], fromIdx: number, toIdx: number): string[] {
   const names: string[] = [];
+  const add = (found: readonly string[]) => {
+    for (const name of found) if (!names.includes(name)) names.push(name);
+  };
   for (let idx = Math.max(0, fromIdx); idx <= toIdx && idx < messages.length; idx++) {
-    const message = messages[idx];
-    if (message.role !== "assistant") continue;
-    for (const name of skillsFromToolCall(message.content.flatMap((block) => (block.type === "toolCall" ? [block.input] : [])))) {
-      if (!names.includes(name)) names.push(name);
-    }
+    add(skillNamesInSkillBlocks(getMessageText(messages[idx])));
+    add(getStepSkills(messages[idx]));
   }
   return names;
 }
@@ -247,6 +277,29 @@ function SkillTags({ names }: { names: readonly string[] }) {
         </span>
       ))}
     </span>
+  );
+}
+
+/** The skills of the step being streamed, from the arguments it is writing. */
+const pickStreamingStepSkills = (state: { streamingMessage: AssistantMessage | null }): string[] => (
+  state.streamingMessage ? getStepSkills(state.streamingMessage) : []
+);
+
+/**
+ * The running turn's tags, on a line of their own at the stream's tail: a long
+ * turn pushes anything at its top out of view, so a tag added there is never
+ * seen. The committed calls come in as `names`, and the step still writing its
+ * arguments subscribes here, so the rest of ChatWindow is not re-rendered per
+ * chunk. No skill loaded yet: no row at all.
+ */
+function LiveSkillRow({ names, store }: { names: readonly string[]; store: StreamingStore }) {
+  const live = useStreamingSelector(store, pickStreamingStepSkills);
+  const merged = live.length === 0 ? names : [...names, ...live.filter((name) => !names.includes(name))];
+  if (merged.length === 0) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, marginBottom: 6 }}>
+      <SkillTags names={merged} />
+    </div>
   );
 }
 
@@ -890,6 +943,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     setVisibleCount((current) => Math.max(current, messages.length * 2));
   }, [messages.length]);
 
+  // The skills this session's running turn has loaded so far, from the messages it
+  // already committed: the store adds the step still writing its arguments. Without
+  // the turn's anchor (a first page that starts mid-turn) the tail is all there is.
+  const liveTurnSkills = useMemo(() => {
+    let anchor = 0;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (isMessageGroupAnchor(messages[i])) { anchor = i; break; }
+    }
+    return messages.length === 0 ? [] : getTurnSkills(messages, anchor, messages.length - 1);
+  }, [messages]);
+
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
@@ -1268,6 +1332,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
+                  // The turn still running has no answer to fold into, so its steps
+                  // render flat. Its skills are not drawn here: they belong at the
+                  // bottom beside the step being written (see LiveSkillRow at the
+                  // stream's tail), the only part of a long turn being looked at.
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
                   }
@@ -1389,6 +1457,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 </>
               );
             })()}
+            {/* A running turn's skills, at the tail where the step being written
+                shows: a long turn pushes a row at its top out of view, so a tag
+                added there is never seen. `messages` supplies the calls already
+                committed, the store the one still streaming its arguments. */}
+            {sessionBusy && <LiveSkillRow names={liveTurnSkills} store={streamingStore} />}
             {isStreaming && hasStreamingContent && (
               <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
             )}
