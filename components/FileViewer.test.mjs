@@ -160,3 +160,45 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
   // without it puts the numbers off the line boxes they belong to.
   assert.equal(parseFloat(numberStyle.lineHeight), Number((codeStyle.fontSize * codeStyle.lineHeight).toFixed(1)));
 });
+
+test("copying a file never copies a loaded prefix of it", async () => {
+  // The copy button's rule, run in place: a whole file is on screen already, a
+  // partly loaded one is not, and its first chunks must not reach the clipboard.
+  const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const helper = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "resolveCopyText");
+  assert.ok(helper, "resolveCopyText is declared in the module");
+  const { outputText } = ts.transpileModule(
+    `async function resolveCopyText(data, readWholeFile) ${helper.body.getText(file)}\nreturn resolveCopyText;`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
+  );
+  const resolveCopyText = new Function(outputText)();
+
+  let reads = 0;
+  const wholeFile = () => {
+    reads += 1;
+    return Promise.resolve("whole file");
+  };
+
+  // Every chunk loaded: the text on screen IS the file, so no request goes out.
+  assert.equal(await resolveCopyText({ content: "whole file", truncated: false }, wholeFile), "whole file");
+  assert.equal(reads, 0);
+  // More on disk than on screen: the download route answers, never the prefix.
+  assert.equal(await resolveCopyText({ content: "prefix", truncated: true }, wholeFile), "whole file");
+  assert.equal(reads, 1);
+});
+
+test("only a text file offers the copy button, and it copies the whole file", () => {
+  // Binary files hold bytes the viewer cannot show and a deleted file has no
+  // content at all: both keep the download button alone.
+  assert.match(
+    source,
+    /\{!isDeletedDiff && !isBinary && data && \(\s*<CopyFileButton filePath=\{filePath\} sourceSessionId=\{sourceSessionId\} data=\{data\} \/>/,
+  );
+  // The whole file comes from the same download route the button beside it uses.
+  const button = source.slice(source.indexOf("function CopyFileButton"), source.indexOf("// The same rows the tool card's split diff parses"));
+  assert.match(button, /resolveCopyText\(data, \(\) => fetch\(getFileApiUrl\(filePath, "download", sourceSessionId\)\)/);
+  assert.match(button, /copyText\(text\)/);
+  // A refused clipboard is reported beside the button: the viewer's `error`
+  // would replace the file being read.
+  assert.doesNotMatch(button, /setError\(/);
+});

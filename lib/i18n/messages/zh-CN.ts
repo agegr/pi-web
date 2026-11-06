@@ -677,6 +677,8 @@ export const zhCNLocale: LocalePlugin = {
     "files.insertPath": "将路径插入聊天",
     "files.mention": "提及",
     "files.download": "下载文件",
+    "files.copyContent": "复制文件内容",
+    "files.copyFailed": "复制文件内容失败",
     "files.binary": "二进制",
     "files.binaryNoPreview": "二进制文件，无法预览。下载后打开。",
     "files.outsideLink": "链接到项目外部：{target}",
