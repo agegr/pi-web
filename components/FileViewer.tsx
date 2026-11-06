@@ -32,6 +32,7 @@ import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
+import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import {
   resolveInitialFileDisplayMode,
@@ -287,6 +288,112 @@ function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceS
         <line x1="12" y1="15" x2="12" y2="3" />
       </svg>
     </a>
+  );
+}
+
+/**
+ * WHAT a copy click hands to the clipboard: the text on screen, or the whole
+ * file when the viewer holds only its first chunk. `truncated` is the reader's
+ * own chunking (`type=read` answers 256 KB at a time), so copying `content`
+ * alone would cut a large file at whatever "Load more" the reader last clicked.
+ * Kept out of the component so the choice is testable without mounting it.
+ */
+async function resolveCopyText(data: FileData, readWholeFile: () => Promise<string>): Promise<string> {
+  if (!data.truncated) return data.content;
+  return readWholeFile();
+}
+
+// How long the copy button keeps saying how the last click went. A copy is a
+// tooltip and icon swap (the icon button has no room for a label); a failure is
+// a line of text beside it, so it stays long enough to be read.
+const COPY_COPIED_MS = 1_500;
+const COPY_FAILED_MS = 4_000;
+
+/**
+ * "Copy file content" beside the download button of the text viewer, never of a
+ * binary one (that has no text, only bytes). A failure is reported beside the
+ * button instead of through the viewer's `error`, which replaces the file being
+ * read with one line of red text.
+ */
+function CopyFileButton({ filePath, sourceSessionId, data }: { filePath: string; sourceSessionId?: string | null; data: FileData }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A clipboard write outlives the click that started it (the reader can open
+  // another file meanwhile), so every state update checks the button still exists.
+  const disposedRef = useRef(false);
+
+  useEffect(() => {
+    // React's development pass mounts, cleans up and mounts again: the flag has
+    // to come back down, or every later click would look like a gone button and
+    // leave it stuck in its copying state.
+    disposedRef.current = false;
+    return () => {
+      disposedRef.current = true;
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      if (failedTimerRef.current) clearTimeout(failedTimerRef.current);
+    };
+  }, []);
+
+  const copy = () => {
+    setCopying(true);
+    setFailed(false);
+    void resolveCopyText(data, () => fetch(getFileApiUrl(filePath, "download", sourceSessionId))
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.text();
+      }))
+      .then((text) => copyText(text))
+      .then(() => {
+        if (disposedRef.current) return;
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        setCopied(true);
+        copiedTimerRef.current = setTimeout(() => setCopied(false), COPY_COPIED_MS);
+      }, () => {
+        if (disposedRef.current) return;
+        if (failedTimerRef.current) clearTimeout(failedTimerRef.current);
+        setFailed(true);
+        failedTimerRef.current = setTimeout(() => setFailed(false), COPY_FAILED_MS);
+      })
+      .finally(() => {
+        if (!disposedRef.current) setCopying(false);
+      });
+  };
+
+  const label = copied ? t("i18n.copied") : t("files.copyContent");
+
+  return (
+    <>
+      {failed && (
+        <span role="alert" style={{ color: "#f87171", fontSize: 11, whiteSpace: "nowrap" }}>
+          {t("files.copyFailed")}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={copy}
+        disabled={copying}
+        aria-busy={copying}
+        title={label}
+        aria-label={label}
+        className="file-viewer-icon-button"
+        style={copied ? { color: "#4ade80" } : undefined}
+      >
+        {copied ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+        )}
+      </button>
+    </>
   );
 }
 
@@ -1798,6 +1905,9 @@ function TextFileViewer({
             )}
           </div>
 
+          {!isDeletedDiff && !isBinary && data && (
+            <CopyFileButton filePath={filePath} sourceSessionId={sourceSessionId} data={data} />
+          )}
           {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>
