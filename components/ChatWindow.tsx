@@ -15,6 +15,8 @@ import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
+import { skillNamesInSkillBlocks, skillsFromToolBlock } from "@/lib/turn-skills";
+import { parseStreamingJson } from "@earendil-works/pi-ai/utils/json-parse";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -201,7 +203,107 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+/**
+ * The skills one assistant step loaded, from its tool calls. A tool call still
+ * streaming keeps its arguments in `rawInput` (see lib/normalize.ts), so its
+ * partly written JSON is parsed too: the tag appears as soon as the path names
+ * a skill, not when the call closes.
+ */
+function getStepSkills(message: AgentMessage): string[] {
+  if (message.role !== "assistant") return [];
+  const names: string[] = [];
+  for (const block of message.content) {
+    if (block.type !== "toolCall") continue;
+    for (const name of skillsFromToolBlock(block, parseStreamingJson)) {
+      if (!names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+/** The text of any message, whatever shape its content takes. */
+function getMessageText(message: AgentMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("\n");
+}
+
+/**
+ * The skills a turn loaded: pi's own `<skill name="…">` blocks, which arrive as
+ * the turn's opening user message, plus any `SKILL.md` its tool calls read (see
+ * lib/turn-skills.ts).
+ */
+function getTurnSkills(messages: AgentMessage[], fromIdx: number, toIdx: number): string[] {
+  const names: string[] = [];
+  const add = (found: readonly string[]) => {
+    for (const name of found) if (!names.includes(name)) names.push(name);
+  };
+  for (let idx = Math.max(0, fromIdx); idx <= toIdx && idx < messages.length; idx++) {
+    add(skillNamesInSkillBlocks(getMessageText(messages[idx])));
+    add(getStepSkills(messages[idx]));
+  }
+  return names;
+}
+
+/**
+ * The skill names a turn loaded, as tags beside its counts.
+ */
+function SkillTags({ names }: { names: readonly string[] }) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, minWidth: 0, overflow: "hidden" }}>
+      {names.map((name) => (
+        <span
+          key={name}
+          data-skill-tag={name}
+          style={{
+            padding: "0 6px",
+            borderRadius: 999,
+            border: "1px solid color-mix(in srgb, var(--accent) 45%, transparent)",
+            background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            color: "var(--accent)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            lineHeight: "17px",
+            maxWidth: 180,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {name}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** The skills of the step being streamed, from the arguments it is writing. */
+const pickStreamingStepSkills = (state: { streamingMessage: AssistantMessage | null }): string[] => (
+  state.streamingMessage ? getStepSkills(state.streamingMessage) : []
+);
+
+/**
+ * The running turn's tags, on a line of their own at the stream's tail: a long
+ * turn pushes anything at its top out of view, so a tag added there is never
+ * seen. The committed calls come in as `names`, and the step still writing its
+ * arguments subscribes here, so the rest of ChatWindow is not re-rendered per
+ * chunk. No skill loaded yet: no row at all.
+ */
+function LiveSkillRow({ names, store }: { names: readonly string[]; store: StreamingStore }) {
+  const live = useStreamingSelector(store, pickStreamingStepSkills);
+  const merged = live.length === 0 ? names : [...names, ...live.filter((name) => !names.includes(name))];
+  if (merged.length === 0) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, marginBottom: 6 }}>
+      <SkillTags names={merged} />
+    </div>
+  );
+}
+
+function ProcessDetailsGroup({ messageCount, toolCallCount, skills, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; skills?: readonly string[]; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   useLayoutEffect(() => {
     if (reveal) setExpanded(true);
@@ -215,36 +317,41 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <button
-        type="button"
-        aria-expanded={expanded || reveal}
-        aria-label={[t("chat.processDetails"), ...parts, ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "auto",
-          maxWidth: "100%",
-          minHeight: 24,
-          padding: "2px 0",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="4 2.5 7.5 6 4 9.5" />
-        </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
-          {cacheMissText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${cacheMissText}`}</span>}
-        </span>
-      </button>
+      {/* The tags sit beside the toggle, not inside it: a button may only hold
+          phrasing content, and clicking a skill tag should not fold the turn. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <button
+          type="button"
+          aria-expanded={expanded || reveal}
+          aria-label={[t("chat.processDetails"), ...parts, ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: "auto",
+            maxWidth: "100%",
+            minHeight: 24,
+            padding: "2px 0",
+            border: "none",
+            background: "transparent",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 12,
+            textAlign: "left",
+          }}
+          title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+            <polyline points="4 2.5 7.5 6 4 9.5" />
+          </svg>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {parts.join(" · ")}
+            {cacheMissText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${cacheMissText}`}</span>}
+          </span>
+        </button>
+        {skills && skills.length > 0 && <SkillTags names={skills} />}
+      </div>
       {(expanded || reveal) && (
         <div style={{ marginTop: 8 }}>
           {children}
@@ -836,6 +943,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     setVisibleCount((current) => Math.max(current, messages.length * 2));
   }, [messages.length]);
 
+  // The skills this session's running turn has loaded so far, from the messages it
+  // already committed: the store adds the step still writing its arguments. Without
+  // the turn's anchor (a first page that starts mid-turn) the tail is all there is.
+  const liveTurnSkills = useMemo(() => {
+    let anchor = 0;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (isMessageGroupAnchor(messages[i])) { anchor = i; break; }
+    }
+    return messages.length === 0 ? [] : getTurnSkills(messages, anchor, messages.length - 1);
+  }, [messages]);
+
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
@@ -1214,6 +1332,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
+                  // The turn still running has no answer to fold into, so its steps
+                  // render flat. Its skills are not drawn here: they belong at the
+                  // bottom beside the step being written (see LiveSkillRow at the
+                  // stream's tail), the only part of a long turn being looked at.
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
                   }
@@ -1227,6 +1349,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // send shows at once: it carries the browser's clock, not pi's, until the reload after
                 // the run brings the session file's entry (the only kind with an entry id).
                 const turnDurationMs = hasAnchor && entryIds[userIdx] ? getTurnDurationMs(messages, userIdx, endIdx) : undefined;
+                // A turn's skills are the ones its tool calls loaded (a read of a skill's
+                // SKILL.md), from the answer's step onward: one tag per distinct name.
+                const turnSkills = getTurnSkills(messages, groupStartIdx, finalAssistantIdx);
 
                 const finalViews = getFinalAnswerViews(finalAnswerViewCache, messages[finalAssistantIdx] as AssistantMessage);
                 const finalAnswerMessage = finalViews.answer;
@@ -1286,7 +1411,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                           would otherwise stay open once its answer shows up, e.g. when
                           switching between an answered and an unanswered leaf of the same
                           turn. Manual toggles survive every other re-render. */}
-                      <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
+                      <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} skills={turnSkills} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
                     </div>,
@@ -1332,6 +1457,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 </>
               );
             })()}
+            {/* A running turn's skills, at the tail where the step being written
+                shows: a long turn pushes a row at its top out of view, so a tag
+                added there is never seen. `messages` supplies the calls already
+                committed, the store the one still streaming its arguments. */}
+            {sessionBusy && <LiveSkillRow names={liveTurnSkills} store={streamingStore} />}
             {isStreaming && hasStreamingContent && (
               <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
             )}
