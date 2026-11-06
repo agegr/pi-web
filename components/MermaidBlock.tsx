@@ -383,10 +383,12 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
   }, [isStreaming, highlighted, languagesReady]);
 
   const copy = () => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     copyText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   return (
