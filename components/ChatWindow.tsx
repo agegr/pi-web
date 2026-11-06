@@ -15,6 +15,7 @@ import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
+import { skillsFromToolCall } from "@/lib/turn-skills";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -201,7 +202,55 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+/**
+ * The skills a turn loaded: from the tool calls its assistant steps made, since
+ * loading one is a read of its `SKILL.md` (see lib/turn-skills.ts).
+ */
+function getTurnSkills(messages: AgentMessage[], fromIdx: number, toIdx: number): string[] {
+  const names: string[] = [];
+  for (let idx = Math.max(0, fromIdx); idx <= toIdx && idx < messages.length; idx++) {
+    const message = messages[idx];
+    if (message.role !== "assistant") continue;
+    for (const name of skillsFromToolCall(message.content.flatMap((block) => (block.type === "toolCall" ? [block.input] : [])))) {
+      if (!names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * The skill names a turn loaded, as tags beside its counts.
+ */
+function SkillTags({ names }: { names: readonly string[] }) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, minWidth: 0, overflow: "hidden" }}>
+      {names.map((name) => (
+        <span
+          key={name}
+          data-skill-tag={name}
+          style={{
+            padding: "0 6px",
+            borderRadius: 999,
+            border: "1px solid color-mix(in srgb, var(--accent) 45%, transparent)",
+            background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+            color: "var(--accent)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            lineHeight: "17px",
+            maxWidth: 180,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {name}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ProcessDetailsGroup({ messageCount, toolCallCount, skills, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; skills?: readonly string[]; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   useLayoutEffect(() => {
     if (reveal) setExpanded(true);
@@ -215,36 +264,41 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
 
   return (
     <div style={{ marginBottom: 14 }}>
-      <button
-        type="button"
-        aria-expanded={expanded || reveal}
-        aria-label={[t("chat.processDetails"), ...parts, ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "auto",
-          maxWidth: "100%",
-          minHeight: 24,
-          padding: "2px 0",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-        title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="4 2.5 7.5 6 4 9.5" />
-        </svg>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {parts.join(" · ")}
-          {cacheMissText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${cacheMissText}`}</span>}
-        </span>
-      </button>
+      {/* The tags sit beside the toggle, not inside it: a button may only hold
+          phrasing content, and clicking a skill tag should not fold the turn. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <button
+          type="button"
+          aria-expanded={expanded || reveal}
+          aria-label={[t("chat.processDetails"), ...parts, ...(cacheMissText ? [cacheMissText] : [])].join(" · ")}
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: "auto",
+            maxWidth: "100%",
+            minHeight: 24,
+            padding: "2px 0",
+            border: "none",
+            background: "transparent",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 12,
+            textAlign: "left",
+          }}
+          title={expanded ? t("chat.collapseProcess") : t("chat.expandProcess")}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+            <polyline points="4 2.5 7.5 6 4 9.5" />
+          </svg>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {parts.join(" · ")}
+            {cacheMissText && <span style={{ color: TRANSCRIPT_NOTICE_WARNING_COLOR }}>{` · ${cacheMissText}`}</span>}
+          </span>
+        </button>
+        {skills && skills.length > 0 && <SkillTags names={skills} />}
+      </div>
       {(expanded || reveal) && (
         <div style={{ marginTop: 8 }}>
           {children}
@@ -1227,6 +1281,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // send shows at once: it carries the browser's clock, not pi's, until the reload after
                 // the run brings the session file's entry (the only kind with an entry id).
                 const turnDurationMs = hasAnchor && entryIds[userIdx] ? getTurnDurationMs(messages, userIdx, endIdx) : undefined;
+                // A turn's skills are the ones its tool calls loaded (a read of a skill's
+                // SKILL.md), from the answer's step onward: one tag per distinct name.
+                const turnSkills = getTurnSkills(messages, groupStartIdx, finalAssistantIdx);
 
                 const finalViews = getFinalAnswerViews(finalAnswerViewCache, messages[finalAssistantIdx] as AssistantMessage);
                 const finalAnswerMessage = finalViews.answer;
@@ -1286,7 +1343,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                           would otherwise stay open once its answer shows up, e.g. when
                           switching between an answered and an unanswered leaf of the same
                           turn. Manual toggles survive every other re-render. */}
-                      <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
+                      <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} skills={turnSkills} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
                         {processViews}
                       </ProcessDetailsGroup>
                     </div>,
