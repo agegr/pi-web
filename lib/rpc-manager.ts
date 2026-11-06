@@ -910,6 +910,50 @@ export class AgentSessionWrapper {
     }
   }
 
+  /** Queued user messages as pi currently holds them (steering + follow-up).
+   *  Defensive: a session stub without the queue accessors reports an empty
+   *  queue instead of throwing from Stop. */
+  private snapshotQueuedMessages(): { steering: string[]; followUp: string[] } {
+    const read = (getter: unknown): string[] => {
+      if (typeof getter !== "function") return [];
+      try {
+        const value = (getter as () => unknown).call(this.inner);
+        return Array.isArray(value) ? [...(value as string[])] : [];
+      } catch {
+        return [];
+      }
+    };
+    return {
+      steering: read(this.inner.getSteeringMessages),
+      followUp: read(this.inner.getFollowUpMessages),
+    };
+  }
+
+  /**
+   * The queued user messages an abort DESTROYED — snapshot before the abort minus
+   * what pi still holds after it.
+   *
+   * pi only delivers steering at turn boundaries and drains the queue into the
+   * next request, so a Stop that lands mid-delivery loses those messages for
+   * good (reported live: six typed messages vanished, pendingMessageCount 6 → 0).
+   * Whatever survived the abort stays in pi and is delivered on the next turn, so
+   * it must NOT be handed back (that would double-send it); whatever did not
+   * survive is returned to the caller for the composer.
+   */
+  private messagesLostByAbort(before: { steering: string[]; followUp: string[] }): { steering: string[]; followUp: string[] } {
+    const after = this.snapshotQueuedMessages();
+    const surviving = (name: "steering" | "followUp"): string[] => {
+      const remaining = [...after[name]];
+      return before[name].filter((text) => {
+        const index = remaining.indexOf(text);
+        if (index === -1) return true;
+        remaining.splice(index, 1);
+        return false;
+      });
+    };
+    return { steering: surviving("steering"), followUp: surviving("followUp") };
+  }
+
   /** Apply a coding tool selection; `carry` defaults to the tools active now. */
   setActiveToolSelection(toolNames: string[], carry: readonly string[] = this.inner.getActiveToolNames()): void {
     this.inner.setActiveToolsByName(resolveActiveToolNames(this.inner, toolNames, carry));
@@ -1313,8 +1357,26 @@ export class AgentSessionWrapper {
         // queued messages to the editor.
         const recalled = this.recallParkedPrompts();
         try {
+          // Stop used to end the run and silently destroy the messages the user had
+          // already typed: pi delivers steering only at turn boundaries and drains the
+          // queue into the next request, so an abort between drain and delivery loses
+          // them (observed live: pendingMessageCount 6 → 0, queuedMessages.steering []).
+          // Snapshot before the abort and hand back whatever the abort removed, so the
+          // client can put it back in the composer instead of the user retyping it.
+          const queuedBeforeAbort = this.snapshotQueuedMessages();
           await this.withFinalIdleReset(() => this.inner.abort());
-          return recalled.steering.length || recalled.followUp.length ? recalled : null;
+          // What Stop recalled from behind a compaction and what the abort itself
+          // destroyed come back together, so one composer restore path handles the
+          // texts of both plus the parked prompts' images.
+          const lost = this.messagesLostByAbort(queuedBeforeAbort);
+          const surrendered: RecalledPrompts = {
+            steering: [...recalled.steering, ...lost.steering],
+            followUp: [...recalled.followUp, ...lost.followUp],
+            ...(recalled.images?.length ? { images: recalled.images } : {}),
+          };
+          return surrendered.steering.length || surrendered.followUp.length || surrendered.images?.length
+            ? surrendered
+            : null;
         } finally {
           if (!this.isRunning()) this.forceShutdownOnIdle = false;
         }
