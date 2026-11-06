@@ -26,7 +26,7 @@ export type FileTreeHiddenReason = "ignored" | "excluded" | "always";
 const HIDDEN_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
   ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
-  "target", "vendor", ".DS_Store",
+  "target", "vendor", ".DS_Store", "GoogleDrive",
 ]);
 
 const HIDDEN_SUFFIXES = [".pyc"];
