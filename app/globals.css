@@ -303,6 +303,19 @@ html[data-theme="codex"],
   --bg-subtle: rgba(252,252,252,0.04);
 }
 
+/* Codex uses the reference blue on primary controls and a lighter blue for text. */
+html[data-theme="codex"] :is(
+  .chat-send-button,
+  .config-button-primary,
+  .config-switch,
+  .settings-chat-range-option input,
+  .web-login-form button
+) {
+  --accent: #0169cc;
+  --accent-hover: #015bb3;
+  --accent-contrast: #fcfcfc;
+}
+
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
    home-screen apps even though the layout still starts at the screen's top.
    In standalone mode there is no browser toolbar to make vh unstable, and vh
