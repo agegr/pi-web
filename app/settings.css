@@ -1722,11 +1722,11 @@
   margin: 6px 0 0;
 }
 
-/* Fifteen columns: System spans the first row; then five light themes and five dark ones
-   (three columns each), and a row of three wide tiles (five columns each). */
+/* System spans the first row. The next two rows have five tiles each,
+   and the last row has four wider tiles. */
 .settings-theme-options {
   display: grid;
-  grid-template-columns: repeat(15, minmax(0, 1fr));
+  grid-template-columns: repeat(20, minmax(0, 1fr));
   grid-auto-rows: 40px;
   gap: 10px;
   max-width: 428px;
@@ -1736,7 +1736,7 @@
 .settings-theme-option {
   position: relative;
   display: flex;
-  grid-column: span 3;
+  grid-column: span 4;
   min-width: 0;
   border-radius: 9px;
   cursor: pointer;
