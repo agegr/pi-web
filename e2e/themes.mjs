@@ -8,7 +8,7 @@ import { DARK_THEMES, THEME_OPTIONS } from "../lib/theme.ts";
 const base = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
 const artifacts = fileURLToPath(new URL("../test-results/themes/", import.meta.url));
 const themes = THEME_OPTIONS.map(({ id }) => id);
-const labels = ["System", "Light", "Mist", "Lilac", "Sand", "Rose", "Dark", "Pine", "Dusk", "Ember", "Slate", "High contrast light", "High contrast dark", "Zenburn"];
+const labels = ["System", "Light", "Mist", "Lilac", "Sand", "Rose", "Dark", "Pine", "Dusk", "Ember", "Slate", "High contrast light", "High contrast dark", "Zenburn", "Codex"];
 await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch();
 
