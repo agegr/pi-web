@@ -51,6 +51,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.themeContrastLight": "高对比浅色",
     "settings.themeContrastDark": "高对比深色",
     "settings.themeZenburn": "Zenburn",
+    "settings.themeCodex": "Codex",
     "settings.themeSystem": "跟随系统",
     "settings.thinkingDisplay": "思考过程显示",
     "settings.thinkingDisplayDescription": "选择消息加载时模型思考块是否默认展开。",
