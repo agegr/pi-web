@@ -126,6 +126,16 @@ test("CodeBlock keeps a block comment's color on every line it spans", () => {
   assert.deepEqual(lineRows(html), ["1", "2", "3", "4"]);
 });
 
+test("a streaming fence shows all its text in 64-line pieces, only the last one live", () => {
+  const code = Array.from({ length: 150 }, (_, i) => `line ${i}`).join("\n");
+  const html = renderCode({ code, lang: "text", isStreaming: true });
+  const pieces = [...html.matchAll(/<span class="markdown-code-stream-chunk( is-frozen)?">([^<]*)<\/span>/g)];
+  assert.deepEqual(pieces.map((m) => !!m[1]), [true, true, false]);
+  // Pieces are blocks: the line break between them is the block boundary.
+  assert.equal(pieces.map((m) => m[2]).join("\n"), code);
+  assert.equal(pieces[0][2], code.split("\n").slice(0, 64).join("\n"));
+});
+
 test("CodeBlock owns the pre background without a competing shorthand", () => {
   for (const isStreaming of [false, true]) {
     const html = renderCode({ code: "const x = 1;", lang: "javascript", isStreaming });
