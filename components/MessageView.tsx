@@ -786,6 +786,8 @@ function AssistantMessageView({
     .join("\n");
 
   const stats = message.usage ? formatUsage(message.usage) : [];
+  // A stop leads the line it ended on: "Stopped · ↑1.2k ↓567 · 12s".
+  if (aborted) stats.unshift({ text: t("chat.operationAborted") }, ...(stats.length > 0 ? [{ text: "·" }] : []));
   if (turnDurationMs !== undefined) {
     if (stats.length > 0) stats.push({ text: "·" });
     const time = formatTurnDuration(turnDurationMs);
@@ -892,12 +894,6 @@ function AssistantMessageView({
           }}
         >
           Error: {providerError}
-        </div>
-      )}
-
-      {aborted && (
-        <div style={{ marginTop: blocks.length > 0 ? 8 : 0, color: "var(--text-dim)", fontSize: 12 }}>
-          {t("chat.operationAborted")}
         </div>
       )}
 

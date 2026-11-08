@@ -566,6 +566,20 @@ test("a stopped reply says Stopped, never the abort error its provider's client 
   assert.ok(html.indexOf(">Stopped<") > html.indexOf("a.txt"));
 });
 
+test("a stopped reply's mark leads its usage line instead of a line of its own", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "text", text: "Partial response" }],
+    stopReason: "aborted",
+    errorMessage: "This operation was aborted",
+    usage: { input: 1200, output: 34, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+  }, { turnDurationMs: 12_000 });
+  assert.match(html, /<span>Stopped<\/span> <span>·<\/span> <span><span[^>]*>↑<\/span>/);
+  assert.equal(html.split(">Stopped<").length, 2);
+});
+
 test("marks persisted assistant messages with their source entry", () => {
   const html = renderMessage({
     role: "assistant",
