@@ -15,7 +15,7 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
-import { AgentCommandError, agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { AgentCommandError, agentStatusUrl, EXTENSION_REPORTED_CODE, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
 import {
@@ -50,6 +50,7 @@ import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
 import { createShownNotices, extensionErrorMessage } from "@/lib/startup-issues";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
+import { copyText } from "@/lib/clipboard";
 import type { SettingsSection } from "@/lib/settings-navigation";
 import { withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import {
@@ -2241,6 +2242,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
+      // A `user_bash` handler's dialog (ctx.ui.confirm…) reaches the page only
+      // through the stream, which a fresh composer has not opened yet.
+      await ensureEventsConnected(sid).catch(() => {});
       await sendAgentCommand(sid, {
         type: "bash",
         command,
@@ -2250,14 +2254,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       promoteNewSession(1, inputText);
     } catch (e) {
       console.error("Failed to execute shell command:", e);
-      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      // A handler's error showed already, as the runner's extension_error.
+      if (!(e instanceof AgentCommandError && e.code === EXTENSION_REPORTED_CODE)) {
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      }
       restoreSubmission(inputText, undefined, composerDraftKey);
     } finally {
       bashRunningRef.current = false;
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, composerDraftKey, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
+  }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
 
   /** Recall's and Stop's queued texts, and the images of prompts parked behind a compaction, back in the composer. */
@@ -2721,7 +2728,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const data = await sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" });
           const textToCopy = data?.text ?? "";
           if (!textToCopy) return complete({ handled: true, error: "No assistant message to copy" });
-          await navigator.clipboard.writeText(textToCopy);
+          // copyText falls back to execCommand where navigator.clipboard is
+          // missing: a page served over plain HTTP from a LAN address.
+          await copyText(textToCopy);
           return complete({ handled: true, message: "Copied last assistant message" });
         }
 
