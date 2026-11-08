@@ -82,6 +82,10 @@ interface SkillLike {
 
 interface ResourceLoaderLike {
   getSkills(): { skills: SkillLike[] };
+  getExtensions?(): {
+    errors?: readonly { path: string; error: string }[];
+    warnings?: readonly { path: string; warning: string }[];
+  };
   getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
 }
 

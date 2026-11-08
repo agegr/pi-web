@@ -68,6 +68,7 @@ import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
+import { collectStartupIssues, extensionErrorMessage, limitStartupNotices, type StartupIssue } from "./startup-issues";
 import { collectLiveAssistantNotices, readShowCacheMissNotices, withSessionPrices } from "./transcript-notices-server";
 import {
   appendClearedSessionToolSelection,
@@ -178,7 +179,15 @@ type AgentSessionWrapperOptions = {
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
   chatOnlyExtensionModel?: { provider: string; id: string };
   sideChat?: boolean;
+  /**
+   * The notices of what went wrong as the session started (lib/startup-issues.ts), told to every
+   * stream it opens. Left out (a subagent, a side chat), the wrapper keeps none: its parent's page said them.
+   */
+  startupIssues?: readonly StartupIssue[];
 };
+
+/** Startup notices kept for later streams: the loader's (capped), the model, then session_start errors. */
+const STARTUP_NOTICE_LIMIT = 20;
 
 /**
  * Chat only loads no extensions, so a provider one registers is missing from its runtime (#804).
@@ -372,6 +381,9 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
+  // What went wrong as the session started, told to each stream under the same ids (the page
+  // shows each once); null on a subagent's or side chat's wrapper.
+  private readonly startupNotices: AgentEvent[] | null;
   /** A `!` command waiting on its `user_bash` handlers, before pi counts it as running. */
   private userBashPending = false;
   // The armed idle timer is the forced cleanup Stop scheduled.
@@ -407,6 +419,8 @@ export class AgentSessionWrapper {
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
     this.sideChat = options.sideChat === true;
+    this.startupNotices = options.startupIssues ? [] : null;
+    for (const issue of options.startupIssues ?? []) this.notifyIssue(issue);
   }
 
   get sessionId(): string {
@@ -970,6 +984,14 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
+    // A session_start handler that throws as the session starts is one of its startup issues, as
+    // pi's TUI shows it then: every stream the page opens hears it, not only one open at that moment.
+    if (event.type === "extension_error" && event.event === "session_start" && this.startupNotices && !this.extensionsBound) {
+      const message = extensionErrorMessage(event.extensionPath, String(event.error));
+      console.warn(`[pi-web] session ${this.sessionId}: ${message}`);
+      this.notifyIssue({ type: "error", message });
+      return;
+    }
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -1055,6 +1077,7 @@ export class AgentSessionWrapper {
     this.listeners.add(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
     for (const event of this.activeToolEvents.values()) listener(event);
+    for (const event of this.startupNotices ?? []) listener(event);
     return () => {
       this.listeners.delete(listener);
     };
@@ -1653,6 +1676,7 @@ export class AgentSessionWrapper {
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload();
+        this.reportReloadIssues();
         // pi rebuilds from the tools active before, then extensions adjust them as they start
         // again; carry that result so a tool one switched off during reload stays off.
         this.setActiveToolSelection(activeToolNames);
@@ -2446,10 +2470,45 @@ export class AgentSessionWrapper {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
           },
         });
+        this.reportReloadIssues();
         // As the `reload` command: the provider lists' runtime follows.
         invalidateModelRuntimeWithExtensions();
       },
     };
+  }
+
+  /** A startup issue found once the wrapper exists (the model it could not restore); none for a subagent or side chat. */
+  addStartupIssue(issue: StartupIssue): void {
+    if (this.startupNotices) this.notifyIssue(issue);
+  }
+
+  /** Tells the streams open now; a session's own wrapper keeps the notice for the ones opened later. */
+  private notifyIssue(issue: StartupIssue): void {
+    const notice = {
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "notify",
+      notifyType: issue.type,
+      message: issue.message,
+    } as ExtensionUiRequest as AgentEvent;
+    if (this.startupNotices && this.startupNotices.length < STARTUP_NOTICE_LIMIT) this.startupNotices.push(notice);
+    this.emit(notice);
+  }
+
+  /**
+   * pi's TUI lists `[Extension issues]` again after `/reload`: an edited extension that broke says
+   * so to every stream on the session, and they replace the startup notices later streams get.
+   */
+  private reportReloadIssues(): void {
+    let issues: StartupIssue[];
+    try {
+      issues = collectStartupIssues({ extensions: this.inner.resourceLoader?.getExtensions?.() });
+    } catch {
+      return; // The reload itself went through; its report is best effort.
+    }
+    for (const issue of issues) console.warn(`[pi-web] session ${this.sessionId} reload: ${issue.message}`);
+    if (this.startupNotices) this.startupNotices.length = 0;
+    for (const issue of limitStartupNotices(issues)) this.notifyIssue(issue);
   }
 
   private syncProjectTrust(): void {
@@ -3338,7 +3397,7 @@ export async function startRpcSession(
         ? findDeferredModel(services.modelRuntime, defaultProvider, defaultModelId)
         : undefined)
       : undefined;
-    const { session: inner } = await createAgentSessionFromServices({
+    const { session: inner, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
       ...(startupModel ? { model: startupModel } : {}),
@@ -3368,6 +3427,17 @@ export async function startRpcSession(
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const mcpHost = builtins?.mcpHost ?? subagentMcp?.mcpHost;
+    const startupIssues = collectStartupIssues({
+      diagnostics: services.diagnostics,
+      extensions: services.resourceLoader.getExtensions(),
+    });
+    for (const issue of startupIssues) console.warn(`[pi-web] session ${inner.sessionId}: ${issue.message}`);
+    // pi's "Could not restore model X. Using Y" holds unless the deferred switch below reaches X.
+    // Without any model (pi's placeholder) its text sends to /login, a TUI command, and the model
+    // picker already says "No models".
+    const builtOnModel = inner.model && services.modelRuntime.getModel(inner.model.provider, inner.model.id);
+    const restoreFallback = builtOnModel ? modelFallbackMessage : undefined;
+    let restoredDeferredModel = false;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
@@ -3383,6 +3453,8 @@ export async function startRpcSession(
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
       sideChat: isSideChat,
+      // A subagent's or side chat's tab would say again what its parent's page said.
+      ...(subagentResources || isSideChat ? {} : { startupIssues: limitStartupNotices(startupIssues) }),
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
@@ -3393,6 +3465,7 @@ export async function startRpcSession(
         try {
           await wrapper.waitUntilReady();
           await wrapper.send({ type: "set_model", provider: deferredModel.provider, modelId: deferredModel.id });
+          restoredDeferredModel = true;
           if (deferredThinkingLevel) await wrapper.send({ type: "set_thinking_level", level: deferredThinkingLevel });
         } catch (error) {
           console.error(`[pi-web] could not switch to ${deferredModel.provider}/${deferredModel.id}:`, error instanceof Error ? error.message : error);
@@ -3402,6 +3475,10 @@ export async function startRpcSession(
       void wrapper.waitUntilReady()
         .then(() => rememberProviderModels(inner.modelRuntime as ModelRuntime))
         .catch(() => undefined);
+    }
+    if (restoreFallback && !restoredDeferredModel) {
+      console.warn(`[pi-web] session ${realSessionId}: ${restoreFallback}`);
+      wrapper.addStartupIssue({ type: "warning", message: restoreFallback });
     }
 
     return { session: wrapper, realSessionId };
