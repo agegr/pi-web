@@ -9,7 +9,7 @@ import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
+import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantAborted, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { applyPatchPreviewToFiles, applyPatchResultHasFailures, extractApplyPatchPaths, getApplyPatchInputText, parseApplyPatchInput } from "@/lib/apply-patch";
@@ -718,6 +718,7 @@ function AssistantMessageView({
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
   const blocks = useMemo(() => blockItems.map(({ block }) => block), [blockItems]);
   const providerError = getAssistantErrorMessage(message, { isStreaming });
+  const aborted = isAssistantAborted(message, { isStreaming });
   const truncated = isAssistantTruncated(message, { isStreaming });
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
   const [hovered, setHovered] = useState(false);
@@ -849,7 +850,7 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
-  if (blocks.length === 0 && !isStreaming && !providerError && !truncated) return null;
+  if (blocks.length === 0 && !isStreaming && !providerError && !truncated && !aborted) return null;
 
   return (
     <div
@@ -891,6 +892,12 @@ function AssistantMessageView({
           }}
         >
           Error: {providerError}
+        </div>
+      )}
+
+      {aborted && (
+        <div style={{ marginTop: blocks.length > 0 ? 8 : 0, color: "var(--text-dim)", fontSize: 12 }}>
+          {t("chat.operationAborted")}
         </div>
       )}
 
