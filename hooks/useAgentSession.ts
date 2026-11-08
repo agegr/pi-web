@@ -49,6 +49,7 @@ import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
+import { copyText } from "@/lib/clipboard";
 import type { SettingsSection } from "@/lib/settings-navigation";
 import { withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import {
@@ -2716,7 +2717,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const data = await sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" });
           const textToCopy = data?.text ?? "";
           if (!textToCopy) return complete({ handled: true, error: "No assistant message to copy" });
-          await navigator.clipboard.writeText(textToCopy);
+          // copyText falls back to execCommand where navigator.clipboard is
+          // missing: a page served over plain HTTP from a LAN address.
+          await copyText(textToCopy);
           return complete({ handled: true, message: "Copied last assistant message" });
         }
 
