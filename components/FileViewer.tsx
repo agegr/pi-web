@@ -308,7 +308,64 @@ function diffLines(patch: string): Array<DiffLine | DiffGap> {
   return files.flatMap(unifiedDiffLines);
 }
 
-function DiffView({ patch, wrapLines }: { patch: string; wrapLines: boolean }) {
+// Renders one diff line's text through the same Prism pipeline the source view
+// uses. The red/green row background, gutter and +/- marker are drawn by the
+// row itself; this only colors the code tokens, with no <pre> wrapper so the
+// inline flow layout stays intact.
+function DiffLineCode({
+  text,
+  language,
+  prismReady,
+  isDark,
+}: {
+  text: string;
+  language: string;
+  prismReady: boolean;
+  isDark: boolean;
+}) {
+  if (!prismReady || language === "text" || !text) {
+    return <>{text || "\u00a0"}</>;
+  }
+  return (
+    <SyntaxHighlighter
+      language={language}
+      style={isDark ? fileViewerDarkTheme : vs}
+      showLineNumbers={false}
+      PreTag="span"
+      CodeTag="span"
+      customStyle={{
+        margin: 0,
+        padding: 0,
+        background: "transparent",
+        display: "inline",
+        fontSize: "inherit",
+        lineHeight: "inherit",
+      }}
+      codeTagProps={{
+        style: {
+          fontFamily: "var(--font-mono)",
+          fontWeight: "var(--font-mono-weight)",
+        },
+      }}
+    >
+      {text}
+    </SyntaxHighlighter>
+  );
+}
+
+function DiffView({
+  patch,
+  wrapLines,
+  language = "text",
+  prismReady = false,
+  isDark = false,
+}: {
+  patch: string;
+  wrapLines: boolean;
+  language?: string;
+  prismReady?: boolean;
+  isDark?: boolean;
+}) {
   const { t } = useI18n();
   const diff = diffLines(patch);
 
@@ -334,6 +391,10 @@ function DiffView({ patch, wrapLines }: { patch: string; wrapLines: boolean }) {
   const lineNumberStyle = visible.size <= SOURCE_HIGHLIGHT_MAX_LINES
     ? FILE_PINNED_LINE_NUMBER_STYLE
     : FILE_LINE_NUMBER_STYLE;
+  // Highlight code tokens on every visible line once Prism languages are loaded,
+  // but fall back to plain text for oversized diffs (same ceiling as the source
+  // view, where react-syntax-highlighter is replaced by a row renderer).
+  const highlight = language !== "text" && prismReady && visible.size <= SOURCE_HIGHLIGHT_MAX_LINES;
 
   // Collapsed lines and the lines the patch leaves out between hunks share one
   // marker; its count is unknown when a gap's is.
@@ -444,7 +505,16 @@ function DiffView({ patch, wrapLines }: { patch: string; wrapLines: boolean }) {
                   color: "var(--text)",
                 }}
               >
-                {line.text || "\u00a0"}
+                {highlight
+                  ? (
+                    <DiffLineCode
+                      text={line.text || ""}
+                      language={language}
+                      prismReady={prismReady}
+                      isDark={isDark}
+                    />
+                  )
+                  : (line.text || "\u00a0")}
               </span>
             </div>
           );
@@ -1843,7 +1913,13 @@ function TextFileViewer({
         style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: showLoadMore ? 48 : undefined }}
       >
         {effectiveDisplayMode === "diff" && hasGitDiff ? (
-          <DiffView patch={gitDiff.patch!} wrapLines={wrapLines} />
+          <DiffView
+            patch={gitDiff.patch!}
+            wrapLines={wrapLines}
+            language={language}
+            prismReady={prismReady}
+            isDark={isDark}
+          />
         ) : isHtml && effectiveDisplayMode === "preview" && data?.truncated && !htmlFull?.text ? (
           <div style={{ padding: 24, color: "var(--text-dim)", fontSize: 12 }}>
             {htmlFull?.error ?? t("i18n.loading")}

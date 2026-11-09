@@ -64,7 +64,7 @@ test("the diff view wraps when the viewer wraps, and the key reaches the diff", 
   // Unwrapped stays exactly as before: one line per row, sideways scroll. The
   // +/- marker column never shrinks either way.
   assert.match(diffView, /padding: "0 6px",[\s\S]{0,160}flexShrink: 0/);
-  assert.match(source, /<DiffView patch=\{gitDiff\.patch!\} wrapLines=\{wrapLines\} \/>/);
+  assert.match(source, /<DiffView[\s\S]{0,200}patch=\{gitDiff\.patch!\}[\s\S]{0,200}wrapLines=\{wrapLines\}[\s\S]{0,200}language=\{language\}[\s\S]{0,200}prismReady=\{prismReady\}[\s\S]{0,200}isDark=\{isDark\}[\s\S]{0,200}\/>/);
 
   // The wrap control is offered for the diff as well as the source, never for a
   // rendered preview (markdown, HTML, table), where there are no lines to wrap.
