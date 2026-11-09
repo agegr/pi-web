@@ -1,6 +1,6 @@
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   hasTrustRequiringProjectResources,
   ProjectTrustStore,
@@ -9,7 +9,8 @@ import {
 import type { FreshFolderTrustBreadth, ProjectTrustStatus } from "./api-types";
 import { serializeByKey } from "./key-serializer";
 import { isPathWithinRoots } from "./path-security";
-import { samePath } from "./paths";
+import { samePath, toNativePath } from "./paths";
+import { readRegularFileText } from "./regular-file";
 
 /** The folder as `trust.json` keys it: resolved, then its real path when it exists. */
 function trustKeyPath(cwd: string): string {
@@ -19,6 +20,49 @@ function trustKeyPath(cwd: string): string {
   } catch {
     return resolved;
   }
+}
+
+// Both are one path, written by git; neither is read past that.
+const GIT_POINTER_MAX_BYTES = 4096;
+
+/** A pointer file's text, or undefined for anything that is not one (a directory, a FIFO, too large). */
+function readGitPointer(path: string): string | undefined {
+  try {
+    return readRegularFileText(path, GIT_POINTER_MAX_BYTES)?.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The main checkout whose trust `cwd` shares, by git's own worktree layout: a
+ * `.git` file naming a private dir under `<root>/.git/worktrees`, whose
+ * `commondir` leads back to `<root>/.git`. Read without git, so the trust read
+ * stays synchronous on every prompt. A checkout, a submodule or a pointer that
+ * does not fit the layout is not a worktree.
+ */
+export function worktreeProjectRoot(cwd: string): string | undefined {
+  const pointer = cwd ? readGitPointer(join(cwd, ".git")) : undefined;
+  const gitDir = pointer ? /^gitdir:[ \t]*(.+?)[ \t]*$/m.exec(pointer)?.[1] : undefined;
+  if (!gitDir) return undefined;
+  const privateDir = resolve(cwd, toNativePath(gitDir));
+  const commonPointer = readGitPointer(join(privateDir, "commondir"));
+  if (!commonPointer) return undefined;
+  const commonDir = resolve(privateDir, toNativePath(commonPointer));
+  if (!samePath(dirname(privateDir), join(commonDir, "worktrees"))) return undefined;
+  return basename(commonDir) === ".git" ? dirname(commonDir) : commonDir;
+}
+
+/**
+ * The nearest decision for `cwd` — its own or an ancestor's, as the store
+ * resolves it — and, when it has none, its main checkout's, so a worktree is
+ * trusted exactly as the project it belongs to. A nearer key still wins.
+ */
+function nearestTrustEntry(cwd: string, store: ProjectTrustStore): ProjectTrustStoreEntry | null {
+  const entry = store.getEntry(cwd);
+  if (entry) return entry;
+  const root = worktreeProjectRoot(cwd);
+  return root ? store.getEntry(root) : null;
 }
 
 function describeDecision(
@@ -52,7 +96,7 @@ export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTru
   if (!requiresTrust) {
     if (!cwd) return { requiresTrust: false, trusted: true, decision: null, inherited: false };
     try {
-      const entry = trustStore.getEntry(cwd);
+      const entry = nearestTrustEntry(cwd, trustStore);
       return { requiresTrust: false, trusted: entry?.decision ?? true, ...describeDecision(cwd, entry) };
     } catch (error) {
       return {
@@ -65,7 +109,7 @@ export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTru
     }
   }
 
-  const entry = trustStore.getEntry(cwd);
+  const entry = nearestTrustEntry(cwd, trustStore);
   return {
     requiresTrust: true,
     trusted: entry?.decision === true,
@@ -103,7 +147,7 @@ export function mayReadProjectConfigNow(cwd: string, agentDir: string): boolean 
     // requires no trust, which this answers false whatever its decision. Twice
     // per prompt, that would lock and read trust.json for nothing.
     if (!cwd || !hasTrustRequiringProjectResources(cwd)) return false;
-    return new ProjectTrustStore(agentDir).get(cwd) === true;
+    return nearestTrustEntry(cwd, new ProjectTrustStore(agentDir))?.decision === true;
   } catch (error) {
     const trustPath = join(agentDir, "trust.json");
     const message = error instanceof Error ? error.message : String(error);
@@ -155,7 +199,7 @@ export function projectTrustReloadOptions(
 ): { resolveProjectTrust: () => Promise<boolean> } | undefined {
   if (!cwd || !hasTrustRequiringProjectResources(cwd)) return undefined;
   const trustStore = new ProjectTrustStore(agentDir);
-  return { resolveProjectTrust: async () => trustStore.get(cwd) === true };
+  return { resolveProjectTrust: async () => nearestTrustEntry(cwd, trustStore)?.decision === true };
 }
 
 // ---------------------------------------------------------------------------
