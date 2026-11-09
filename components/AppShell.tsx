@@ -31,6 +31,7 @@ import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
+import { requestFilePreviewRefresh } from "@/lib/file-preview-freshness";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
@@ -1293,6 +1294,9 @@ export function AppShell() {
     const modeHint = options?.modeHint;
     const page = options?.page;
     const tabId = `file:${filePath}`;
+    // A selected tab is not remounted by openFileTab. Ask its viewer to check
+    // for changes too, including when filesystem watch events were missed.
+    requestFilePreviewRefresh(filePath);
     setFileTabs((prev) => openFileTab(prev, {
       fileName,
       filePath,

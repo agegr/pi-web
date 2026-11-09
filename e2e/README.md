@@ -68,6 +68,15 @@ Coverage:
   collapse/expand draft preservation, countdown display, and server-side expiry.
 - The production assistant header keeps its height and numeric columns when streaming metrics appear, update and disappear. Static component renders cover digit boundaries with proportional and monospace fonts, without a live model. Run this check alone with `node e2e/streaming-metrics.mjs` (1280, 390 and 320px).
 
+Mutable file-preview recovery can also be checked independently with
+`node e2e/file-freshness.mjs` in an idle checkout. It starts its own isolated
+dev server and temporary agent directory (never an existing service). With HTTP
+caching enabled and without request routing, it tests missing-watch recovery by
+reopening/focusing same-path text and atomic image replacements, normal live
+watching, unchanged HTML form/scroll and audio position, unchanged PDF iframe
+identity/URL, no-store response headers and an outside-root refusal. Only file
+watch EventSources are suppressed in the missing-watch case.
+
 Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under
 `test-results/e2e/`; CI uploads that directory. Open a trace with

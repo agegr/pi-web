@@ -324,7 +324,7 @@ function getContentDisposition(filePath: string, asDownload = false): string {
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
   const headers: Record<string, string> = {
     "Content-Type": contentType,
-    "Cache-Control": "no-cache",
+    "Cache-Control": "private, no-store, max-age=0",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
     "X-Content-Type-Options": "nosniff",
@@ -531,7 +531,9 @@ export async function GET(
       }
       const chunk = readTextPreviewChunk(filePath, stat.size, offset);
       const language = getLanguage(filePath);
-      return NextResponse.json({ ...chunk, language, size: stat.size, mtime: stat.mtime.toISOString() });
+      return NextResponse.json({ ...chunk, language, size: stat.size, mtime: stat.mtime.toISOString() }, {
+        headers: { "Cache-Control": "private, no-store, max-age=0" },
+      });
     }
 
     if (type === "download") {
@@ -557,7 +559,7 @@ export async function GET(
         language: getLanguage(filePath),
         mime: imageMime || audioMime || videoMime || documentMime || "text/plain",
         previewKind: documentPreviewKind(filePath),
-      });
+      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
     }
 
     if (type === "preview") {
@@ -583,7 +585,7 @@ export async function GET(
       return new Response(html, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-cache",
+          "Cache-Control": "private, no-store, max-age=0",
           "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
           "Referrer-Policy": "no-referrer",
           "X-Content-Type-Options": "nosniff",
