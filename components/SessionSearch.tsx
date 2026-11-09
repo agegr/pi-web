@@ -4,7 +4,23 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import type { SessionInfo } from "@/lib/types";
-import type { SessionSearchResponse } from "@/lib/session-search";
+import type { SessionSearchResponse, SessionSearchResult } from "@/lib/session-search";
+
+// Server sends every term's range as offsets into the snippet it built, so an AND
+// query marks each word; a payload without ranges (older server) marks `match`.
+function SearchSnippet({ before, match, after, highlights }: Pick<SessionSearchResult, "before" | "match" | "after" | "highlights">) {
+  const text = before + match + after;
+  const ranges = highlights?.length ? highlights : [{ start: before.length, end: before.length + match.length }];
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) parts.push(text.slice(cursor, range.start));
+    parts.push(<mark key={range.start} className="rounded-sm bg-accent/20 text-text">{text.slice(range.start, range.end)}</mark>);
+    cursor = range.end;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
 
 export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, archivedSessionIds }: {
   open: boolean;
@@ -55,7 +71,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
       {response?.truncated && (
         <div role="status" className="px-3 pb-2 text-xs text-text-muted">{t("sidebar.sessionSearchPartial")}</div>
       )}
-      {response?.results.map(({ session, entryId, blockIndex, titleMatch, before, match, after }) => (
+      {response?.results.map(({ session, entryId, blockIndex, titleMatch, before, match, after, highlights }) => (
         <button
           key={session.id}
           type="button"
@@ -65,7 +81,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
         >
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate text-xs font-medium text-text">
-              {titleMatch ? <>{before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}</> : session.name || session.firstMessage}
+              {titleMatch ? <SearchSnippet before={before} match={match} after={after} highlights={highlights} /> : session.name || session.firstMessage}
             </span>
             {archivedSessionIds?.has(session.id) && (
               <span className="shrink-0 rounded-[4px] border border-border px-1 text-[10px] leading-[14px] text-text-dim">{t("sidebar.archived")}</span>
@@ -77,7 +93,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           </span>
           {!titleMatch && (
             <span className="mt-1 block text-xs leading-relaxed wrap-anywhere text-text-muted">
-              {before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}
+              <SearchSnippet before={before} match={match} after={after} highlights={highlights} />
             </span>
           )}
         </button>

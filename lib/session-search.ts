@@ -6,6 +6,8 @@ const MAX_FILES = 500;
 const MAX_RESULTS = 30;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_LINE_CHARS = 1024 * 1024;
+/** Bound on one result's snippet, including the widened window and the 80/80 margins. */
+const MAX_SNIPPET_CHARS = 200;
 const TIME_BUDGET_MS = 3000;
 
 export interface SessionSearchResult {
@@ -17,11 +19,104 @@ export interface SessionSearchResult {
   before: string;
   match: string;
   after: string;
+  /**
+   * Every term's highlight, as offsets into `before + match + after`, so an AND
+   * query marks each of its words instead of only the first one. Overlapping
+   * terms are merged; a term that only occurs outside the snippet window has no
+   * range. Absent means "just `match`", which is what older payloads implied.
+   */
+  highlights?: HighlightRange[];
+}
+
+/** One term's first hit; the snippet and its ranges are assembled from these. */
+type TermHit = Omit<SessionSearchResult, "session" | "titleMatch" | "highlights">;
+
+export interface HighlightRange {
+  start: number;
+  end: number;
+}
+
+// Slicing by UTF-16 index can cut a surrogate pair in half, which renders as a
+// replacement character; move the boundary out of the pair.
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function head(text: string, length: number): string {
+  if (text.length <= length) return text;
+  return text.slice(0, isLowSurrogate(text.charCodeAt(length)) ? length - 1 : length);
+}
+
+function tail(text: string, length: number): string {
+  const start = text.length - length;
+  if (start <= 0) return text;
+  return text.slice(isLowSurrogate(text.charCodeAt(start)) ? start - 1 : start);
+}
+
+// One range per term: the primary hit for the first term, its earliest occurrence
+// for the rest. Sorted and merged so overlapping terms paint a single mark.
+function highlightRanges(before: string, match: string, after: string, matchers: readonly RegExp[]): HighlightRange[] {
+  const text = before + match + after;
+  const ranges: HighlightRange[] = [{ start: before.length, end: before.length + match.length }];
+  for (const matcher of matchers.slice(1)) {
+    const hit = matcher.exec(text);
+    if (hit) ranges.push({ start: hit.index, end: hit.index + hit[0].length });
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  const merged: HighlightRange[] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
 }
 
 export interface SessionSearchResponse {
   results: SessionSearchResult[];
   truncated: boolean;
+}
+
+// Space separates terms and every term must match somewhere in the session
+// (session-level AND, any order); double quotes keep a phrase exact. Each term
+// stays literal, so `C++` and `foo(bar)` need no escaping from the user.
+// A quote only delimits a phrase at the start of a term or to close one, so a
+// quote inside a word (`foo"bar`) stays literal and stays searchable.
+function parseTerms(query: string): string[] {
+  const terms: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (const char of query) {
+    if (char === '"') {
+      if (quoted) {
+        if (current) terms.push(current);
+        current = "";
+        quoted = false;
+        continue;
+      }
+      if (!current) {
+        quoted = true;
+        continue;
+      }
+    }
+    if (!quoted && /\s/.test(char)) {
+      if (current) terms.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current) terms.push(current);
+  return terms;
+}
+
+// Raw JSONL keeps text as UTF-8 (only quotes, backslashes and control characters are
+// escaped), so a plain term can be spotted in the raw line and JSON.parse skipped for
+// every line that cannot contribute a still-missing term. Terms containing escaped
+// characters, or whitespace that the joined text obscures, keep the full path.
+function rawPrefilter(term: string): RegExp | null {
+  if (!/^[^\s"\\\u0000-\u001f]+$/.test(term)) return null;
+  return new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 }
 
 // ponytail: scan recent files without an index; add indexing if measured latency warrants it.
@@ -35,7 +130,14 @@ export async function searchSessionContents(
   if (!needle) return response;
   if (needle.length > 200) throw new RangeError("Search query exceeds 200 characters");
   // Escape every operator: this is literal search, with offsets in the original text.
-  const matcher = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  const terms = parseTerms(needle);
+  const matchers = terms.map((term) => new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+  // A query of only quotes, e.g. `""`, has no term to look for.
+  if (!matchers.length) return response;
+  const prefilters = terms.map(rawPrefilter);
+  // A term outside ASCII could in principle be stored as \uXXXX escapes; keep a
+  // guard so such a line is still parsed. pi writes UTF-8, so this rarely fires.
+  const escapedSafe = terms.map((term) => /[^\x00-\x7f]/.test(term));
   const deadline = Date.now() + TIME_BUDGET_MS;
   const timeout = AbortSignal.timeout(TIME_BUDGET_MS);
   const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout;
@@ -51,6 +153,9 @@ export async function searchSessionContents(
     const stream = createReadStream(session.path, { encoding: "utf8", end: MAX_FILE_BYTES - 1, signal });
     const lines = createInterface({ input: stream, crlfDelay: Infinity });
     let found = false;
+    // First hit per term; a session qualifies once every term has one.
+    // (map, not new Array(n): every() skips holes in a sparse array.)
+    const hits: Array<TermHit | undefined> = matchers.map(() => undefined);
     try {
       for await (const line of lines) {
         if (signal.aborted || Date.now() >= deadline) {
@@ -61,6 +166,17 @@ export async function searchSessionContents(
           response.truncated = true;
           continue;
         }
+        // Two cheap rejections before the expensive JSON.parse: only message entries
+        // are searched, and a line worth parsing must carry a term we still need.
+        if (!line.includes('"type":"message"')) continue;
+        let candidate = false;
+        for (let termIndex = 0; termIndex < matchers.length; termIndex++) {
+          if (hits[termIndex]) continue;
+          const prefilter = prefilters[termIndex];
+          if (!prefilter || prefilter.test(line)) { candidate = true; break; }
+          if (escapedSafe[termIndex] && line.includes("\\u")) { candidate = true; break; }
+        }
+        if (!candidate) continue;
         let entry;
         try { entry = JSON.parse(line); } catch { continue; }
         if (entry?.type !== "message" || !["user", "assistant"].includes(entry.message?.role)) continue;
@@ -68,26 +184,60 @@ export async function searchSessionContents(
         const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
         const textBlocks = blocks.flatMap((block, blockIndex) => block?.type === "text" && typeof block.text === "string" ? [{ text: block.text as string, blockIndex }] : []);
         const text = textBlocks.map((block) => block.text).join("\n");
-        const match = matcher.exec(text);
-        if (!match) continue;
-        const start = match.index;
-        const end = start + match[0].length;
-        let blockOffset = 0;
-        const matchedBlock = textBlocks.find((block) => {
-          const blockEnd = blockOffset + block.text.length;
-          blockOffset = blockEnd + 1;
-          return start <= blockEnd;
-        });
-        response.results.push({
-          session,
-          ...(typeof entry.id === "string" ? { entryId: entry.id } : {}),
-          blockIndex: matchedBlock!.blockIndex,
-          before: (start > 80 ? "..." : "") + text.slice(Math.max(0, start - 80), start).replace(/\s+/g, " ").trimStart(),
-          match: match[0].replace(/\s+/g, " "),
-          after: text.slice(end, end + 80).replace(/\s+/g, " ").trimEnd() + (end + 80 < text.length ? "..." : ""),
-        });
-        found = true;
-        break;
+        for (const [termIndex, matcher] of matchers.entries()) {
+          if (hits[termIndex]) continue;
+          const match = matcher.exec(text);
+          if (!match) continue;
+          const anchorStart = match.index;
+          const anchorEnd = anchorStart + match[0].length;
+          // Widen around the anchor to the other terms of this message, so a
+          // two-word query usually shows two marks instead of one. Bounded: a
+          // couple of far-apart hits must not turn the row into a paragraph.
+          let spanStart = anchorStart;
+          let spanEnd = anchorEnd;
+          for (const other of matchers) {
+            const hit = other.exec(text);
+            if (!hit) continue;
+            spanStart = Math.min(spanStart, hit.index);
+            spanEnd = Math.max(spanEnd, hit.index + hit[0].length);
+          }
+          // Prefer the historical 80/80 margins; tighten them only when a long term
+          // or a wide span would push the row past MAX_SNIPPET_CHARS ("..." costs six
+          // characters). A single term never widens, so it keeps the old window.
+          const span = spanEnd - spanStart;
+          const needsWiden = spanStart < anchorStart || spanEnd > anchorEnd;
+          const marginWithin = (contentLength: number) =>
+            Math.max(0, Math.min(80, Math.floor((MAX_SNIPPET_CHARS - contentLength - 6) / 2)));
+          const widenMargin = marginWithin(span);
+          const widened = needsWiden && widenMargin >= 20;
+          const margin = widened ? widenMargin : marginWithin(match[0].length);
+          const start = Math.max(0, (widened ? spanStart : anchorStart) - margin);
+          const end = Math.min(text.length, (widened ? spanEnd : anchorEnd) + margin);
+          let blockOffset = 0;
+          const matchedBlock = textBlocks.find((block) => {
+            const blockEnd = blockOffset + block.text.length;
+            blockOffset = blockEnd + 1;
+            return anchorStart <= blockEnd;
+          });
+          // Keep window boundaries out of surrogate pairs as well.
+          const safeStart = isLowSurrogate(text.charCodeAt(start)) ? start + 1 : start;
+          const safeEnd = end < text.length && isLowSurrogate(text.charCodeAt(end)) ? end - 1 : end;
+          const before = (safeStart > 0 ? "..." : "") + text.slice(safeStart, anchorStart).replace(/\s+/g, " ").trimStart();
+          const matchText = match[0].replace(/\s+/g, " ");
+          const after = text.slice(anchorEnd, safeEnd).replace(/\s+/g, " ").trimEnd() + (safeEnd < text.length ? "..." : "");
+          hits[termIndex] = {
+            ...(typeof entry.id === "string" ? { entryId: entry.id } : {}),
+            blockIndex: matchedBlock!.blockIndex,
+            before,
+            match: matchText,
+            after,
+          };
+        }
+        // Terms may sit on different lines of one session.
+        if (hits.every(Boolean)) {
+          found = true;
+          break;
+        }
       }
     } catch {
       // Missing/unreadable files and interrupted reads must not hide other results.
@@ -96,21 +246,53 @@ export async function searchSessionContents(
       lines.close();
       stream.destroy();
     }
+    if (found) {
+      // The row is anchored on the first term's earliest hit (for a single term
+      // that is exactly the previous behaviour), then grows an excerpt for every
+      // term that hit nowhere inside it — typically a word from another message.
+      const primary = hits[0]!;
+      const before = primary.before;
+      const matchText = primary.match;
+      let after = primary.after;
+      const snippet = () => before + matchText + after;
+      for (let index = 1; index < hits.length; index++) {
+        const hit = hits[index]!;
+        if (matchers[index].test(snippet())) continue;
+        const excerpt =
+          (hit.before.length > 30 ? "..." : "") + tail(hit.before, 30) + hit.match +
+          head(hit.after, 30) + (hit.after.length > 30 ? "..." : "");
+        // Drop the anchor's trailing ellipsis: the separator already marks the gap.
+        const base = after.endsWith("...") ? after.slice(0, -3) : after;
+        const joined = base + " … " + excerpt;
+        // continue, not break: a long term must not hide the shorter ones after it.
+        if (before.length + matchText.length + joined.length > MAX_SNIPPET_CHARS) continue;
+        after = joined;
+      }
+      // Ranges are recomputed over the assembled snippet so the appended excerpts
+      // are marked like the anchor.
+      response.results.push({ session, ...primary, before, match: matchText, after, highlights: highlightRanges(before, matchText, after, matchers) });
+    }
     if (!found && stream.bytesRead >= MAX_FILE_BYTES) response.truncated = true;
     // Preserve message navigation when both body and title match. The catalogue
     // already carries the displayed name (including session_info names), so a
     // title hit is a fallback only when the transcript has no match.
     if (!found && !signal.aborted && Date.now() < deadline) {
       const title = session.name || session.firstMessage || "";
-      const titleHit = matcher.exec(title);
+      // Every term has to be in the title; highlighting one of them alone would
+      // make the result look like a partial match.
+      const titleHit = matchers.every((matcher) => matcher.test(title)) ? matchers[0].exec(title) : null;
       if (titleHit) {
+        const before = title.slice(0, titleHit.index);
+        const matchText = titleHit[0];
+        const after = title.slice(titleHit.index + titleHit[0].length);
         response.results.push({
           session,
           blockIndex: 0,
           titleMatch: true,
-          before: title.slice(0, titleHit.index),
-          match: titleHit[0],
-          after: title.slice(titleHit.index + titleHit[0].length),
+          before,
+          match: matchText,
+          after,
+          highlights: highlightRanges(before, matchText, after, matchers),
         });
       }
     }
