@@ -6,8 +6,16 @@ const MAX_FILES = 500;
 const MAX_RESULTS = 30;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_LINE_CHARS = 1024 * 1024;
-/** Bound on one result's snippet, including the widened window and the 80/80 margins. */
+/** Bound on one result's snippet, including margins and any appended excerpts. */
 const MAX_SNIPPET_CHARS = 200;
+/** Past this many terms the per-message width expansion turns quadratic; search the whole query literally. */
+const MAX_TERMS = 8;
+/** Anchor margin of a multi-term query: it keeps room for terms found in other messages. */
+const MULTI_TERM_MARGIN = 40;
+/** Excerpt sizes tried in order, largest first, for a term outside the anchor's window. */
+const EXCERPT_SIZES = [30, 20, 12] as const;
+/** Room kept free for the " … (+N)" tail counting terms that no longer fit. */
+const OMITTED_MARK_RESERVE = 10;
 const TIME_BUDGET_MS = 3000;
 
 export interface SessionSearchResult {
@@ -112,10 +120,11 @@ function parseTerms(query: string): string[] {
 
 // Raw JSONL keeps text as UTF-8 (only quotes, backslashes and control characters are
 // escaped), so a plain term can be spotted in the raw line and JSON.parse skipped for
-// every line that cannot contribute a still-missing term. Terms containing escaped
+// every line that cannot contribute a still-missing term. A forward slash is included
+// because other tools' exporters escape it as `\/`. Terms containing escaped
 // characters, or whitespace that the joined text obscures, keep the full path.
 function rawPrefilter(term: string): RegExp | null {
-  if (!/^[^\s"\\\u0000-\u001f]+$/.test(term)) return null;
+  if (!/^[^\s"/\\\u0000-\u001f]+$/.test(term)) return null;
   return new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 }
 
@@ -130,10 +139,12 @@ export async function searchSessionContents(
   if (!needle) return response;
   if (needle.length > 200) throw new RangeError("Search query exceeds 200 characters");
   // Escape every operator: this is literal search, with offsets in the original text.
-  const terms = parseTerms(needle);
+  const parsed = parseTerms(needle);
+  // A query of only quotes, e.g. `""`, parses to no term at all and a pathological one
+  // can parse to dozens; both fall back to the whole string as a single literal term,
+  // which is exactly the search this change must never narrow.
+  const terms = parsed.length && parsed.length <= MAX_TERMS ? parsed : [needle];
   const matchers = terms.map((term) => new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
-  // A query of only quotes, e.g. `""`, has no term to look for.
-  if (!matchers.length) return response;
   const prefilters = terms.map(rawPrefilter);
   // A term outside ASCII could in principle be stored as \uXXXX escapes; keep a
   // guard so such a line is still parsed. pi writes UTF-8, so this rarely fires.
@@ -210,7 +221,10 @@ export async function searchSessionContents(
             Math.max(0, Math.min(80, Math.floor((MAX_SNIPPET_CHARS - contentLength - 6) / 2)));
           const widenMargin = marginWithin(span);
           const widened = needsWiden && widenMargin >= 20;
-          const margin = widened ? widenMargin : marginWithin(match[0].length);
+          const baseMargin = widened ? widenMargin : marginWithin(match[0].length);
+          // A multi-term query whose other terms sit in another message still has to
+          // fit their excerpts; a single term keeps the historical 80/80 window.
+          const margin = widened || matchers.length === 1 ? baseMargin : Math.min(baseMargin, MULTI_TERM_MARGIN);
           const start = Math.max(0, (widened ? spanStart : anchorStart) - margin);
           const end = Math.min(text.length, (widened ? spanEnd : anchorEnd) + margin);
           let blockOffset = 0;
@@ -255,18 +269,32 @@ export async function searchSessionContents(
       const matchText = primary.match;
       let after = primary.after;
       const snippet = () => before + matchText + after;
+      let omitted = 0;
       for (let index = 1; index < hits.length; index++) {
         const hit = hits[index]!;
         if (matchers[index].test(snippet())) continue;
-        const excerpt =
-          (hit.before.length > 30 ? "..." : "") + tail(hit.before, 30) + hit.match +
-          head(hit.after, 30) + (hit.after.length > 30 ? "..." : "");
-        // Drop the anchor's trailing ellipsis: the separator already marks the gap.
+        // Shrink the excerpt before dropping it: a silent drop makes a two-word query
+        // look like a one-word one and hides why the session matched at all.
+        let appended = false;
+        for (const size of EXCERPT_SIZES) {
+          // No leading ellipsis: the separator already marks the gap in front of it.
+          const excerpt =
+            tail(hit.before, size) + hit.match + head(hit.after, size) +
+            (hit.after.length > size ? "..." : "");
+          // Drop the anchor's trailing ellipsis: the separator already marks the gap.
+          const base = after.endsWith("...") ? after.slice(0, -3) : after;
+          const joined = base + " … " + excerpt;
+          if (before.length + matchText.length + joined.length > MAX_SNIPPET_CHARS - OMITTED_MARK_RESERVE) continue;
+          after = joined;
+          appended = true;
+          break;
+        }
+        if (!appended) omitted += 1;
+      }
+      // Count what no longer fits, so a row never pretends every term is visible.
+      if (omitted) {
         const base = after.endsWith("...") ? after.slice(0, -3) : after;
-        const joined = base + " … " + excerpt;
-        // continue, not break: a long term must not hide the shorter ones after it.
-        if (before.length + matchText.length + joined.length > MAX_SNIPPET_CHARS) continue;
-        after = joined;
+        after = base + ` … (+${omitted})`;
       }
       // Ranges are recomputed over the assembled snippet so the appended excerpts
       // are marked like the anchor.
