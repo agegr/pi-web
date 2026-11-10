@@ -16,6 +16,7 @@ import {
   familiesToArchive,
   familiesToDelete,
   familyIds,
+  filterProjectTreeRows,
   forgetKeptOpenGroups,
   forgetShownMoreOfFolded,
   isFamilyArchived,
@@ -547,6 +548,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const [projectFilterQuery, setProjectFilterQuery] = useState("");
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [showIgnoredFiles, setShowIgnoredFiles] = useState(false);
@@ -1483,6 +1485,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     moreShown,
     pinnedCollapsed,
   }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+  const normalizedProjectFilter = projectFilterQuery.trim().toLowerCase();
+  const matchingProjectKeys = useMemo(() => new Set(
+    model.projects
+      .filter((project) => !normalizedProjectFilter || `${project.name}\n${project.root}\n${project.customName ?? ""}`.toLowerCase().includes(normalizedProjectFilter))
+      .map((project) => project.key),
+  ), [model.projects, normalizedProjectFilter]);
+  const filteredProjectRows = useMemo(
+    () => normalizedProjectFilter ? filterProjectTreeRows(model.rows, matchingProjectKeys) : model.rows,
+    [model.rows, matchingProjectKeys, normalizedProjectFilter],
+  );
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -2955,6 +2967,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         className="sidebar-panel sidebar-sessions-panel"
         onScrollCapture={rememberScroll}
       >
+        <div className="sidebar-search">
+          <input
+            id="project-filter-input"
+            type="search"
+            value={projectFilterQuery}
+            maxLength={200}
+            aria-label={t("sidebar.filterProjects")}
+            placeholder={t("sidebar.filterProjects")}
+            onChange={(event) => setProjectFilterQuery(event.target.value)}
+            className="sidebar-search-input"
+          />
+        </div>
         {sessionSearchOpen && (
           <div className="sidebar-search">
             <input
@@ -2991,8 +3015,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden} inert={archiveMotion.mainInert}>
               <SessionTree
                 {...treeProps}
-                rows={model.rows}
-                emptyLabel={t("sidebar.noSessions")}
+                rows={filteredProjectRows}
+                emptyLabel={normalizedProjectFilter && matchingProjectKeys.size === 0 ? t("sidebar.noMatchingProjects") : t("sidebar.noSessions")}
                 reveal={treeReveal}
                 onRevealHandled={handleRevealHandled}
               />
