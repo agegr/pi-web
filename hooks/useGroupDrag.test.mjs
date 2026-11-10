@@ -217,7 +217,7 @@ test("a mouse drag starts after a few pixels, follows the pointer and drops next
   const view = tree.hook.result.view;
   assert.equal(view.phase, "dragging");
   assert.equal(view.projectKey, "/a");
-  assert.deepEqual(view.source, { key: "/a", pinned: false, top: 8, bottom: 36, gapAbove: 8, gapBelow: 4 });
+  assert.deepEqual(view.source, { key: "/a", pinned: false, top: 8, bottom: 36, gapAbove: 8, gapBelow: 8 });
   assert.equal(view.drop, null, "still over itself");
   assert.ok(element.captured.has(1), "the header holds the pointer");
   // The ghost is placed in the tree's box, its left edge 4px in from the
@@ -229,18 +229,19 @@ test("a mouse drag starts after a few pixels, follows the pointer and drops next
   assert.equal(tree.ghost.style.height, undefined);
 
   // Past the middle of /c (80..108): after it, the line in the middle of the
-  // tighter group gap, below the pointer: the ghost's bottom keeps the gap above the pointer.
+  // footer's spacer (page y 212), below the pointer: the ghost's bottom
+  // keeps the gap above the pointer.
   tree.move(tree.at(100));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 104 });
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 112 });
   assert.equal(tree.ghost.style.top, `${tree.at(100) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
-  // The line in the tighter spacer between /b and /c (70), just above the pointer
+  // The line in the spacer between /b and /c (76), just above the pointer
   // (78): the ghost goes above the new line, not the last one.
   tree.move(tree.at(78));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 70 });
-  assert.equal(tree.ghost.style.top, `${tree.at(70) - GHOST_LINE_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 76 });
+  assert.equal(tree.ghost.style.top, `${tree.at(76) - GHOST_LINE_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
   // The line below the pointer: back to the pointer.
   tree.move(tree.at(64));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 70 });
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 76 });
   assert.equal(tree.ghost.style.top, `${tree.at(64) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
   tree.release(tree.at(100));
   assert.deepEqual(tree.moves, [["/a", "/c", "after"]], "the drop is taken where the pointer is let go");
@@ -423,14 +424,14 @@ test("new rows without the dragged group cancel it; with it, the drop is taken a
   const start = tree.at(15);
   tree.press("/a", { y: start });
   tree.move(tree.at(120));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 104 });
-  // /d joins at the bottom; the pointer is still over /d's upper half,
-  // with the line centered in the tighter gap between /c and /d.
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 112 });
+  // /d joins at the bottom (116..144): the pointer is now over /d's upper
+  // half, the line in the spacer between /c and /d.
   const grown = model(["/a", "/b", "/c", "/d"]);
   tree.hook.rerender({ ...tree.props, rows: grown.rows, offsets: getRowOffsets(grown.rows, "desktop") });
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/d", position: "after", lineY: 136 });
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 112 });
   tree.move(tree.at(135));
-  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/d", position: "after", lineY: 136 });
+  assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/d", position: "after", lineY: 148 });
   const gone = model(["/b", "/c", "/d"]);
   tree.hook.rerender({ ...tree.props, rows: gone.rows, offsets: getRowOffsets(gone.rows, "desktop") });
   assert.equal(tree.hook.result.view, null, "archived in another window");

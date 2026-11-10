@@ -424,7 +424,7 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
           <div ref={innerRef} className="session-tree-inner" style={{ height: offsets[rows.length] }}>
             {visibleIndices.map((index) => {
               const row = rows[index];
-              if (row.kind === "spacer" || row.kind === "group-spacer") return null;
+              if (row.kind === "spacer") return null;
               const top = offsets[index];
               const height = offsets[index + 1] - top;
               const menuOpen = row.key === activeMenuRowKey;

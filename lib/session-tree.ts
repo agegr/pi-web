@@ -25,19 +25,19 @@ import { workspaceKeyOf } from "./workspace-memory";
 export type SidebarLayout = "desktop" | "mobile";
 export type SidebarRowKind =
   | "pinned-header" | "session" | "pinned-more" | "group" | "group-more" | "group-empty"
-  | "spacer" | "group-spacer" | "footer-open" | "footer-archived" | "archive-group";
+  | "spacer" | "footer-open" | "footer-archived" | "archive-group";
 
 /**
  * Per-kind row heights: one rhythm. Session rows, the section headers (a
  * project's, the pinned section's, the archive's projects), the empty
  * group's note and the footer are one height, 28px (44px on a phone, a
  * finger's minimum for the rows); only "show more" is a step shorter. A
- * spacer opens the list and parts sections; project-to-project gaps are
- * slightly tighter (4px desktop, 6px mobile) than the other 8px spacers.
+ * spacer opens the list and parts sections; project-to-project gaps use the
+ * same 8px height as the other spacers.
  */
 export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, number>> = {
-  desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "group-spacer": 4, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
-  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "group-spacer": 6, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
+  desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
+  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
 };
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
@@ -62,8 +62,7 @@ export type SidebarRow =
   | { kind: "group"; key: string; project: SidebarProject; expanded: boolean; running: number; awaiting: number; unread: number }
   | { kind: "group-more"; key: string; projectKey: string; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group-empty"; key: string; project: SidebarProject }
-  | { kind: "spacer"; key: "top-spacer" | "pinned-spacer" | "footer-spacer" }
-  | { kind: "group-spacer"; key: `group-spacer:${string}` }
+  | { kind: "spacer"; key: "top-spacer" | "pinned-spacer" | "footer-spacer" | `group-spacer:${string}` }
   | { kind: "footer-open"; key: "footer-open" }
   | { kind: "footer-archived"; key: "footer-archived"; count: number }
   | { kind: "archive-group"; key: string; project: SidebarProject; count: number; expanded: boolean };
@@ -74,7 +73,9 @@ export function filterProjectTreeRows(rows: readonly SidebarRow[], matchingProje
     if (row.kind === "group" || row.kind === "group-empty") return matchingProjectKeys.has(row.project.key);
     if (row.kind === "group-more") return matchingProjectKeys.has(row.projectKey);
     if (row.kind === "session" && row.context === "group") return matchingProjectKeys.has(row.project.key);
-    if (row.kind === "group-spacer") return matchingProjectKeys.has(row.key.slice("group-spacer:".length));
+    if (row.kind === "spacer" && row.key.startsWith("group-spacer:")) {
+      return matchingProjectKeys.has(row.key.slice("group-spacer:".length));
+    }
     if (row.kind === "spacer" && row.key === "footer-spacer") return matchingProjectKeys.size > 0;
     return true;
   });
@@ -536,7 +537,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   for (const [index, project] of orderedProjects.entries()) {
     // A gap between two groups, open or folded (#1338): headers right on the
     // rows above them read as one list.
-    if (index > 0) rows.push({ kind: "group-spacer", key: `group-spacer:${project.key}` });
+    if (index > 0) rows.push({ kind: "spacer", key: `group-spacer:${project.key}` });
     const groupFamilies = projectFamilies.get(project.key) ?? [];
     const expanded = isGroupExpanded(project, input.groupExpansion);
     const { running, awaiting, unread } = activityCounts(groupFamilies, input);
@@ -734,11 +735,11 @@ export function groupBlocks(rows: readonly SidebarRow[], offsets: readonly numbe
       continue;
     }
     let above = index;
-    while (above > 0 && (rows[above - 1].kind === "spacer" || rows[above - 1].kind === "group-spacer")) above--;
+    while (above > 0 && rows[above - 1].kind === "spacer") above--;
     let end = index + 1;
     while (end < rows.length && isGroupMemberRow(rows[end])) end++;
     let below = end;
-    while (below < rows.length && (rows[below].kind === "spacer" || rows[below].kind === "group-spacer")) below++;
+    while (below < rows.length && rows[below].kind === "spacer") below++;
     blocks.push({
       key: row.project.key,
       pinned: row.project.pinned,
