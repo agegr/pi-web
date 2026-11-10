@@ -31,6 +31,42 @@ function normalizeFilePathSlashes(filePath: string): string {
   return filePath;
 }
 
+/** Whether a path is written the way Windows writes one. */
+function isWindowsPath(filePath: string | undefined): boolean {
+  return !!filePath && (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith("\\\\"));
+}
+
+// Git Bash, MSYS2 and Cygwin spell a Windows drive as `/<letter>/…`, and WSL as
+// `/mnt/<letter>/…`; Cygwin's own prefix is `/cygdrive/<letter>/…`. A Windows
+// session's bash tool prints those forms verbatim, so a path quoted from a tool
+// call — a "Files changed" chip, a written-file card, a path in a reply — names
+// `D:/…` through it. Reading the leading segment as a real folder showed
+// `D:/d/work/…` on screen and made the file API answer 403.
+const SHELL_DRIVE_PATH = /^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?:\/(.*))?$/;
+
+/**
+ * Rewrite a shell-style drive path (`/d/work`, `/mnt/d/work`, `/cygdrive/d/work`)
+ * to the slash form `D:/work`, matching what pi does to the paths its bash tool
+ * reports (`normalizeWindowsShellPath`).
+ *
+ * `windowsShellPath()` in `lib/http-dispatcher.ts` is the server-side twin: same
+ * rule, native backslashes, and it also refuses a path holding one. That module
+ * loads `node:fs`, so this client-side copy is not an import of it.
+ *
+ * Decided by the caller's own path form — a Windows base directory or a
+ * `<letter>:/` href — never by `process.platform`, because this module also runs
+ * in the browser. Below a POSIX cwd a single-letter folder at the root is a real
+ * folder and keeps meaning that, so call this only after the windows-style
+ * question is answered.
+ */
+export function normalizeShellDrivePath(filePath: string): string {
+  if (!filePath.startsWith("/") || filePath.startsWith("//")) return filePath;
+  const match = filePath.match(SHELL_DRIVE_PATH);
+  if (!match) return filePath;
+  const [, drive, rest] = match;
+  return `${drive!.toUpperCase()}:/${rest ?? ""}`;
+}
+
 function stripLineSuffix(filePath: string): string {
   return filePath.replace(/:\d+(?::\d+)?$/, "");
 }
@@ -123,7 +159,9 @@ export function resolveLocalFileHref(
     candidate = normalizedHref;
     candidateKind = "absolute";
   } else if (normalizedHref.startsWith("/")) {
-    candidate = normalizedHref;
+    // A Windows session's shell prints a drive as `/d/…`; below a Windows base that
+    // is the drive, not a folder under the filesystem root.
+    candidate = isWindowsPath(baseDir) ? normalizeShellDrivePath(normalizedHref) : normalizedHref;
     candidateKind = "absolute";
   } else if (baseDir && looksLikeRelativeFileHref(normalizedHref)) {
     candidate = `${normalizeFilePathSlashes(baseDir).replace(/\/+$/, "")}/${normalizedHref}`;
@@ -160,19 +198,20 @@ export function parsePdfPageFragment(href: string | undefined): number | null {
 export function resolveLocalFilePath(filePath: string | undefined, baseDir?: string): string | null {
   if (!filePath) return null;
 
-  const windowsStyle = /^[a-zA-Z]:[\\/]/.test(filePath) ||
-    filePath.startsWith("\\\\") ||
-    (baseDir !== undefined && (/^[a-zA-Z]:[\\/]/.test(baseDir) || baseDir.startsWith("\\\\")));
+  const windowsStyle = isWindowsPath(filePath) || isWindowsPath(baseDir);
   const normalizeSlashes = (value: string) => windowsStyle ? value.replace(/\\/g, "/") : value;
   const normalizedPath = normalizeSlashes(filePath);
   const normalizedBase = baseDir ? normalizeSlashes(baseDir).replace(/\/+$/, "") : undefined;
 
   const isDriveAbsolute = /^[a-zA-Z]:\//.test(normalizedPath);
   const isUncAbsolute = normalizedPath.startsWith("//");
+  // A Windows shell prints a drive as `/d/…`; that is absolute, not a folder beside
+  // the cwd's drive. Joining it produced `D:/d/work/…`, which the file API refused.
+  const shellDrivePath = windowsStyle ? normalizeShellDrivePath(normalizedPath) : normalizedPath;
   let candidate: string;
 
-  if (isDriveAbsolute || isUncAbsolute) {
-    candidate = normalizedPath;
+  if (isDriveAbsolute || isUncAbsolute || shellDrivePath !== normalizedPath) {
+    candidate = shellDrivePath;
   } else if (normalizedPath.startsWith("/")) {
     const windowsRoot = normalizedBase?.match(/^([a-zA-Z]:)(?:\/|$)/)?.[1]
       ?? normalizedBase?.match(/^(\/\/[^/]+\/[^/]+)(?:\/|$)/)?.[1];
