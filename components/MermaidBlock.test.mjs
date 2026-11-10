@@ -71,14 +71,13 @@ function renderCode(props) {
 
 /** Each line's number, read off the row that pairs it with its text. */
 function lineRows(html) {
-  return [...html.matchAll(/<span class="markdown-code-line"><span class="linenumber react-syntax-highlighter-line-number"[^>]*>(\d+)<\/span><span class="(?:token )?markdown-code-line-text"/g)]
+  return [...html.matchAll(/<span class="markdown-code-line"><span class="markdown-code-line-number" data-line-number="(\d+)"[^>]*><\/span><span class="(?:token )?markdown-code-line-text"/g)]
     .map((match) => match[1]);
 }
 
-/** The code as the page shows it: the lines' text without their numbers. */
+/** The code as the page shows it: the lines' text without their generated numbers. */
 function shownCode(html) {
   return html.match(/<code\b[^>]*>([\s\S]*)<\/code>/)[1]
-    .replace(/<span class="linenumber[^>]*>\d+<\/span>/g, "")
     .replace(/<[^>]+>/g, "")
     .replaceAll("&quot;", "\"").replaceAll("&#x27;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
@@ -89,7 +88,8 @@ test("CodeBlock renders the same numbered lines without tokens until the Prism l
   const html = renderCode({ code: "const x = 1;\nlet y = 2;", lang: "javascript" });
 
   assert.doesNotMatch(html, /class="token/);
-  assert.equal(html.match(/react-syntax-highlighter-line-number/g)?.length, 2);
+  assert.deepEqual(lineRows(html), ["1", "2"]);
+  assert.doesNotMatch(html, />1<\/span>|>2<\/span>/);
   assert.match(html, /const x = 1;/);
   const fallback = renderCode({ code: wrapSample, lang: "javascript" });
   assert.deepEqual(lineRows(fallback), ["1", "2", "3", "4"]);
