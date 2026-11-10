@@ -452,6 +452,22 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  const response = await getFileResponse(request, params);
+  // Listings and JSON refusals expose mutable workspace state too. Preserve
+  // explicit policies on text/meta, streams and rendered previews.
+  if (
+    response.headers.get("Content-Type")?.split(";", 1)[0] === "application/json"
+    && !response.headers.has("Cache-Control")
+  ) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  }
+  return response;
+}
+
+async function getFileResponse(
+  request: NextRequest,
+  params: Promise<{ path: string[] }>
+) {
   try {
     const { path: segments } = await params;
     const filePath = filePathFromApiSegments(segments);
