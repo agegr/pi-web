@@ -99,13 +99,16 @@ function removeRunRecord(dir, pid) {
 
 // Any HTTP answer counts (a password-protected server answers 401). Only the
 // status matters, so the body is dropped: its connection is released now
-// instead of being left mid-response when the CLI exits (#1174).
-async function isServerAnswering(url, fetchImpl = fetch) {
+// instead of being left mid-response when the CLI exits (#1174). No answer
+// within the timeout counts too: a closed port refuses at once, so a server
+// took the request and is busy, as pi-web is while a request holds its event
+// loop (#1584). The record's pid was found alive and ours before this.
+async function isServerAnswering(url, fetchImpl = fetch, timeoutMs = 2_000) {
   let response;
   try {
-    response = await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(2_000) });
-  } catch {
-    return false;
+    response = await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    return error?.name === "TimeoutError";
   }
   await response.body?.cancel().catch(() => {});
   return true;
