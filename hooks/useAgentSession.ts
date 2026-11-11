@@ -24,7 +24,7 @@ import {
   setSessionViewSnapshot,
   snapshotCoversLoadedEntries,
 } from "@/lib/session-view-cache";
-import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -32,6 +32,8 @@ import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { formatSessionSummary } from "@/lib/session-stats-format";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
+import { createIdleMessageReads, entriesAfter } from "@/lib/idle-message-read";
+import { isHiddenCustomMessage } from "@/lib/message-display";
 import {
   AgentEventConnection,
   canReleaseHiddenEventStream,
@@ -48,7 +50,9 @@ import { runStatePhase } from "@/lib/chat-phase-label";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
 import { updateExtensionWidgets } from "@/lib/extension-widgets";
+import { createShownNotices, extensionErrorMessage } from "@/lib/startup-issues";
 import { bareMcpOpensSettings } from "@/lib/mcp-command";
+import { copyText } from "@/lib/clipboard";
 import type { SettingsSection } from "@/lib/settings-navigation";
 import { withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
 import {
@@ -304,6 +308,9 @@ const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
+// A session's startup issues come with every stream it opens (lib/rpc-manager.ts): this page
+// shows each once, through reconnects and returns to the session.
+const isFirstNoticeShowing = createShownNotices();
 function createNoticeId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -370,6 +377,8 @@ function readCompactResult(result: unknown, reason: string): CompactResultInfo |
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  setText: (text: string) => void;
+  pasteText: (text: string) => void;
   insertIfEmpty: (content: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
@@ -964,7 +973,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
     })();
-    if (!options?.force) loadFlightsRef.current.set(flightKey, flight);
+    loadFlightsRef.current.set(flightKey, flight);
     flight.finally(() => {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
@@ -1489,6 +1498,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => enqueueExtensionUiRequest(queue, request));
         break;
       case "notify": {
+        if (request.id && !isFirstNoticeShowing(request.id)) break;
         addNotice({
           id: request.id,
           message: stripAnsi(request.message),
@@ -1516,7 +1526,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (request.title) document.title = stripAnsi(request.title);
         break;
       case "set_editor_text":
-        opts.chatInputRef?.current?.insertText(stripAnsi(request.text));
+        // pi's editor setText(): the draft is replaced (an empty text clears it).
+        opts.chatInputRef?.current?.setText(stripAnsi(request.text));
         break;
       case "custom":
         setExtensionCustomUis((queue) => request.closed
@@ -1772,6 +1783,68 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  /**
+   * A message an extension posted while idle: the branch's newest entries (a
+   * tail read) appended after the loaded window, so the pages the reader loaded
+   * above stay. A read that does not reach back to the window's last entry, or a
+   * window holding messages no entry backs, takes the full read.
+   */
+  const idleMessageReadWanted = useCallback((sid: string) => (
+    sessionHookMountedRef.current && sessionIdRef.current === sid && !agentRunningRef.current
+  ), []);
+  // The leaf an append moved the view to. activeLeafId stays the last full
+  // read's, as the tree the navigator finds it in does; /clone copies this one
+  // while the view still ends with that append and no read moved the leaf.
+  const appendedLeafRef = useRef<{ base: string | null; lastEntryId: string; leafId: string } | null>(null);
+  // A `!` command's record a tail read found before the command's own read.
+  const idleReadAfterBashRef = useRef<string | null>(null);
+  const readIdleMessages = useCallback(async (sid: string) => {
+    // `tail` counts user and assistant entries: 1 reads from the newest of them to the leaf.
+    const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: "1" });
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { context, leafId } = await res.json() as { context: SessionData["context"]; leafId?: string | null };
+    // A run started meanwhile shows its own messages, and its end reads them all.
+    if (!idleMessageReadWanted(sid)) return;
+    // The window as it is now: a read that landed meanwhile started after the
+    // message, so nothing follows its last entry then.
+    const anchor = entryIdsRef.current.at(-1);
+    const anchorMessage = messagesRef.current.at(-1);
+    const added = anchor !== undefined && messagesRef.current.length === entryIdsRef.current.length
+      ? entriesAfter(anchor, { messages: context.messages, entryIds: context.entryIds ?? [] })
+      : null;
+    if (!added) {
+      await loadSession(sid);
+      return;
+    }
+    if (added.entryIds.length === 0) return;
+    // A `!` command's record ahead of the command's own read would show beside its
+    // pending card: that read shows it, and this one comes again after the command.
+    if (bashRunningRef.current && added.messages.some((message) => message.role === "bashExecution")) {
+      idleReadAfterBashRef.current = sid;
+      return;
+    }
+    // The refs move with the state: a read landing before the render appends after these.
+    entryIdsRef.current = [...entryIdsRef.current, ...added.entryIds];
+    messagesRef.current = [...messagesRef.current, ...added.messages];
+    setEntryIds((prev) => (prev.at(-1) === anchor ? [...prev, ...added.entryIds] : prev));
+    setMessages((prev) => (prev.at(-1) === anchorMessage ? [...prev, ...added.messages] : prev));
+    if (leafId) appendedLeafRef.current = { base: activeLeafIdRef.current, lastEntryId: added.entryIds.at(-1)!, leafId };
+    // The cached view covers them too, or the unmount drops it (snapshotCoversLoadedEntries()).
+    // Its revision stays the old one, so coming back still reads the session.
+    const snapshot = getSessionViewSnapshot(sid);
+    if (snapshot) setSessionViewSnapshot({ ...snapshot, loadedEntryIds: [...snapshot.loadedEntryIds, ...added.entryIds] });
+  }, [idleMessageReadWanted, loadSession]);
+  const readIdleMessagesRef = useRef(readIdleMessages);
+  readIdleMessagesRef.current = readIdleMessages;
+  const idleMessageReadsRef = useRef<((sid: string) => void) | null>(null);
+  idleMessageReadsRef.current ??= createIdleMessageReads({
+    pendingReads: (sid) => [loadFlightsRef.current.get(sid), loadFlightsRef.current.get(`force:${sid}`)],
+    read: (sid) => readIdleMessagesRef.current(sid),
+    wanted: idleMessageReadWanted,
+    onError: (error) => console.error("Failed to read a message sent while idle:", error),
+  });
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
@@ -1883,7 +1956,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "extension_error":
         addNotice({
           type: "error",
-          message: (event.error as string | undefined) ?? "Extension command failed",
+          message: extensionErrorMessage(event.extensionPath, (event.error as string | undefined) ?? "Extension command failed"),
         });
         break;
       case "message_start":
@@ -1929,7 +2002,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Same late-event guard: after reconcile finished this run,
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
-        if (!agentRunningRef.current) break;
+        if (!agentRunningRef.current) {
+          // An extension's sendMessage({ display: true }) while idle (a timer, a
+          // watcher): pi appends it to the session before this event, so a session
+          // read (the live wrapper's SessionManager) shows it, as pi's TUI prints it at once.
+          const idle = event.message as { role?: AgentMessage["role"]; display?: boolean } | undefined;
+          if (idle?.role === "custom" && !isHiddenCustomMessage(idle) && sessionIdRef.current) {
+            idleMessageReadsRef.current?.(sessionIdRef.current);
+          }
+          break;
+        }
         if (isSystemMessageEvent(event)) break;
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
@@ -2076,6 +2158,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ));
         break;
       }
+      case "editor_paste":
+        if (typeof event.text === "string") opts.chatInputRef?.current?.pasteText(stripAnsi(event.text));
+        break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
@@ -2083,7 +2168,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, opts.chatInputRef, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -2301,6 +2386,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       bashRunningRef.current = false;
       setPendingBash(deferred);
       setBashRunning(false);
+      const idleRead = idleReadAfterBashRef.current;
+      idleReadAfterBashRef.current = null;
+      if (idleRead) idleMessageReadsRef.current?.(idleRead);
     }
   }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
@@ -2344,7 +2432,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [restoreRecalledPrompts]);
 
-  const handleFork = useCallback(async (entryId: string) => {
+  /** `draft` is what the new session's composer starts with: the forked message, as pi's /fork leaves it in the editor. */
+  const handleFork = useCallback(async (entryId: string, draft?: ChatDraft) => {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -2356,6 +2445,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       const { cancelled, newSessionId } = result ?? {};
       if (!cancelled && newSessionId) {
+        if (draft) setDraft(newSessionId, draft);
         onSessionForked?.(newSessionId);
       }
     } catch (e) {
@@ -2779,7 +2869,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const data = await sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" });
           const textToCopy = data?.text ?? "";
           if (!textToCopy) return complete({ handled: true, error: "No assistant message to copy" });
-          await navigator.clipboard.writeText(textToCopy);
+          // copyText falls back to execCommand where navigator.clipboard is
+          // missing: a page served over plain HTTP from a LAN address.
+          await copyText(textToCopy);
           return complete({ handled: true, message: "Copied last assistant message" });
         }
 
@@ -2788,10 +2880,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentRunningRef.current || bashRunningRef.current) {
             return complete({ handled: true, error: "Cannot clone while the session is running" });
           }
-          const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
+          const appended = appendedLeafRef.current;
+          const result = await sendAgentCommand<{ cancelled?: boolean; byExtension?: boolean; newSessionId?: string }>(sid, {
             type: "clone",
-            leafId: activeLeafId,
+            leafId: appended?.base === activeLeafId && appended.lastEntryId === entryIdsRef.current.at(-1)
+              ? appended.leafId
+              : activeLeafId,
           });
+          // A `session_before_fork` handler said no: as pi's /clone, nothing more is said
+          // (the handler tells why, if it wants to).
+          if (result?.cancelled && result.byExtension) return { handled: true };
           if (result?.cancelled || !result?.newSessionId) {
             return complete({ handled: true, error: "Cannot clone an empty or unsaved session" });
           }

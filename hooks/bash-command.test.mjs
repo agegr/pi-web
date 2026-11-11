@@ -130,7 +130,7 @@ for (const fresh of [true, false]) {
       await sending;
       await settle();
       env.hook.flush();
-      assert.deepEqual(env.notices(), [["error", "hook exploded"]]);
+      assert.deepEqual(env.notices(), [["error", "Extension \"/ext/ub.js\" error: hook exploded"]]);
       assert.equal(getDraft(fresh ? "new:draft" : env.sid)?.value, "!throw a", "the command is back in the composer");
     });
   });
