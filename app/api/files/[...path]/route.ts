@@ -324,7 +324,7 @@ function getContentDisposition(filePath: string, asDownload = false): string {
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
   const headers: Record<string, string> = {
     "Content-Type": contentType,
-    "Cache-Control": "private, no-store, max-age=0",
+    "Cache-Control": "no-cache",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
     "X-Content-Type-Options": "nosniff",
@@ -452,22 +452,6 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const response = await getFileResponse(request, params);
-  // Listings and JSON refusals expose mutable workspace state too. Preserve
-  // explicit policies on text/meta, streams and rendered previews.
-  if (
-    response.headers.get("Content-Type")?.split(";", 1)[0] === "application/json"
-    && !response.headers.has("Cache-Control")
-  ) {
-    response.headers.set("Cache-Control", "private, no-store, max-age=0");
-  }
-  return response;
-}
-
-async function getFileResponse(
-  request: NextRequest,
-  params: Promise<{ path: string[] }>
-) {
   try {
     const { path: segments } = await params;
     const filePath = filePathFromApiSegments(segments);
@@ -547,9 +531,7 @@ async function getFileResponse(
       }
       const chunk = readTextPreviewChunk(filePath, stat.size, offset);
       const language = getLanguage(filePath);
-      return NextResponse.json({ ...chunk, language, size: stat.size, mtime: stat.mtime.toISOString() }, {
-        headers: { "Cache-Control": "private, no-store, max-age=0" },
-      });
+      return NextResponse.json({ ...chunk, language, size: stat.size, mtime: stat.mtime.toISOString() });
     }
 
     if (type === "download") {
@@ -575,7 +557,7 @@ async function getFileResponse(
         language: getLanguage(filePath),
         mime: imageMime || audioMime || videoMime || documentMime || "text/plain",
         previewKind: documentPreviewKind(filePath),
-      }, { headers: { "Cache-Control": "private, no-store, max-age=0" } });
+      });
     }
 
     if (type === "preview") {
@@ -601,7 +583,7 @@ async function getFileResponse(
       return new Response(html, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "private, no-store, max-age=0",
+          "Cache-Control": "no-cache",
           "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
           "Referrer-Policy": "no-referrer",
           "X-Content-Type-Options": "nosniff",

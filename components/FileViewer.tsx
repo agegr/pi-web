@@ -20,7 +20,6 @@ import {
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { fileVersion, fileVersionChanged } from "@/lib/file-version";
-import { fetchLiveFile as fetch, nextFilePreviewVersion, onFilePreviewRefresh } from "@/lib/file-preview-freshness";
 import { injectSandboxedHtmlPolyfill } from "@/lib/html-sandbox-polyfill";
 import { HIDDEN_PAGE_GRACE_MS, usePageHiddenFor } from "@/hooks/usePageHidden";
 import { pageId, trackEventSource } from "@/lib/page-debug";
@@ -272,51 +271,6 @@ function getFileApiUrl(
   return `/api/files/${encoded}?${searchParams.toString()}`;
 }
 
-function useFilePreviewUrl(filePath: string, type: "read" | "preview", sourceSessionId: string | null | undefined, bust: number): string {
-  // The counter triggers a new load, but never becomes the URL itself: local
-  // counters repeat on remount. Metadata renders must keep this URL unchanged.
-  return useMemo(() => {
-    void bust;
-    return getFileApiUrl(filePath, type, sourceSessionId, { v: nextFilePreviewVersion() });
-  }, [filePath, type, sourceSessionId, bust]);
-}
-
-// Recovery does not depend on a working EventSource. Keep its requests separate
-// from watch reconnects, and never apply an answer after a newer watch version.
-function useFilePreviewRecovery(
-  filePath: string,
-  sourceSessionId: string | null | undefined,
-  enabled: boolean,
-  shownVersion: () => string | null,
-  reload: (version: string | null, meta: { size?: number; error?: string }) => void,
-) {
-  const callbacks = useRef({ shownVersion, reload });
-  useEffect(() => { callbacks.current = { shownVersion, reload }; });
-  useEffect(() => {
-    if (!enabled) return;
-    let controller: AbortController | undefined;
-    const checkVersion = () => {
-      controller?.abort();
-      const request = new AbortController();
-      controller = request;
-      const shown = callbacks.current.shownVersion();
-      fetch(getFileApiUrl(filePath, "meta", sourceSessionId), { signal: request.signal })
-        .then((response) => response.json())
-        .then((meta: { size?: number; mtime?: string; error?: string }) => {
-          if (request.signal.aborted || callbacks.current.shownVersion() !== shown) return;
-          // On errors let the existing reader report its normal refusal, rather
-          // than silently leaving an old preview on screen.
-          const version = fileVersion(meta);
-          if (fileVersionChanged(shown, version)) callbacks.current.reload(version, meta);
-        })
-        .catch(() => { /* A failed metadata request keeps the current preview. */ });
-    };
-    const remove = onFilePreviewRefresh(filePath, checkVersion);
-    checkVersion();
-    return () => { remove(); controller?.abort(); };
-  }, [filePath, sourceSessionId, enabled]);
-}
-
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
   const { t } = useI18n();
   return (
@@ -503,14 +457,6 @@ function DiffView({ patch, wrapLines }: { patch: string; wrapLines: boolean }) {
 
 function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
-  useFilePreviewRecovery(filePath, sourceSessionId, watchEnabled, () => shownVersionRef.current, (version, meta) => {
-    if (meta.error) { setError(meta.error); return; }
-    if (typeof meta.size === "number") setSize(meta.size);
-    shownVersionRef.current = version;
-    setNaturalSize(null);
-    setError(null);
-    setBust((value) => value + 1);
-  });
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -598,7 +544,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     };
   }, [filePath, sourceSessionId, watchEnabled]);
 
-  const src = useFilePreviewUrl(filePath, "read", sourceSessionId, bust);
+  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
 
   const formatSizeStr = size != null ? formatSize(size) : null;
 
@@ -691,14 +637,6 @@ function formatDuration(seconds: number): string {
 
 function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
-  useFilePreviewRecovery(filePath, sourceSessionId, watchEnabled, () => shownVersionRef.current, (version, meta) => {
-    if (meta.error) { setError(meta.error); return; }
-    if (typeof meta.size === "number") setSize(meta.size);
-    shownVersionRef.current = version;
-    setDuration(null);
-    setError(null);
-    setBust((value) => value + 1);
-  });
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -786,7 +724,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     };
   }, [filePath, sourceSessionId, watchEnabled]);
 
-  const src = useFilePreviewUrl(filePath, "read", sourceSessionId, bust);
+  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -860,14 +798,6 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
 function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
-  useFilePreviewRecovery(filePath, sourceSessionId, watchEnabled, () => shownVersionRef.current, (version, meta) => {
-    if (meta.error) { setError(meta.error); return; }
-    if (typeof meta.size === "number") setSize(meta.size);
-    shownVersionRef.current = version;
-    setDuration(null);
-    setError(null);
-    setBust((value) => value + 1);
-  });
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -955,7 +885,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     };
   }, [filePath, sourceSessionId, watchEnabled]);
 
-  const src = useFilePreviewUrl(filePath, "read", sourceSessionId, bust);
+  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1031,19 +961,6 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
 function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnabled = true }: Props) {
   const { t } = useI18n();
-  useFilePreviewRecovery(filePath, sourceSessionId, watchEnabled, () => shownVersionRef.current, (version, meta) => {
-    if (meta.error) { setError(meta.error); return; }
-    if (typeof meta.size === "number") {
-      setSize(meta.size);
-      if (!isPdf && meta.size > DOCX_PREVIEW_MAX_BYTES) {
-        setError("DOCX too large for preview (>10MB)");
-        return;
-      }
-    }
-    shownVersionRef.current = version;
-    setError(null);
-    setBust((value) => value + 1);
-  });
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -1056,7 +973,9 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
   const pageFragment = isPdf && initialPage && initialPage > 0 ? `#page=${initialPage}` : "";
-  const previewUrl = `${useFilePreviewUrl(filePath, isPdf ? "read" : "preview", sourceSessionId, bust)}${pageFragment}`;
+  const previewUrl = isPdf
+    ? `${getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)}${pageFragment}`
+    : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
 
   useEffect(() => {
     setBust(0);
@@ -1284,10 +1203,6 @@ function TextFileViewer({
 }: Props) {
   const { isDark } = useTheme();
   const { t } = useI18n();
-  useFilePreviewRecovery(filePath, sourceSessionId, watchEnabled, () => shownVersionRef.current, () => {
-    void fetchContent(filePath);
-    void fetchGitDiff(filePath);
-  });
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [gitDiffLoading, setGitDiffLoading] = useState(false);
@@ -1434,7 +1349,6 @@ function TextFileViewer({
 
     return () => {
       active = false;
-      contentRequestRef.current += 1;
     };
   }, [filePath, fetchContent, sourceSessionId]);
 
