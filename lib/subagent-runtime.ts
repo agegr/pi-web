@@ -120,7 +120,7 @@ const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium
  */
 const CLOSED_BEFORE_RUN = "Subagent session was closed before its run started. Start a new subagent instead.";
 
-const TURN_LIMIT_INSTRUCTION ="You have reached your turn limit. Wrap up immediately and provide your final answer now.";
+const TURN_LIMIT_INSTRUCTION = "You have reached your turn limit. Wrap up immediately and provide your final answer now.";
 
 /**
  * How the last model request ended when `prompt()` resolved anyway: pi records a provider
