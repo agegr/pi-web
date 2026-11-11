@@ -112,7 +112,15 @@ const SUBAGENT_CONTEXT_LIMIT = 50_000;
 const PARENT_IDLE_POLL_MS = 200;
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-const TURN_LIMIT_INSTRUCTION = "You have reached your turn limit. Wrap up immediately and provide your final answer now.";
+/**
+ * A run prompts the SDK session its wrapper held at dispatch. The wrapper is idle while the run
+ * waits in the queue, and one closed meanwhile (a project trust rebuild; the idle timer spares a
+ * session with a run in the map) has disposed it: pi then persists none of the run's messages and
+ * `lastAssistantStop()` reads no error, so a failed request read as completed with no output (#1590).
+ */
+const CLOSED_BEFORE_RUN = "Subagent session was closed before its run started. Start a new subagent instead.";
+
+const TURN_LIMIT_INSTRUCTION ="You have reached your turn limit. Wrap up immediately and provide your final answer now.";
 
 /**
  * How the last model request ended when `prompt()` resolved anyway: pi records a provider
@@ -720,6 +728,7 @@ export function createSubagentController(
         }
         let result: SubagentRunInfo;
         try {
+          if (childSession && !childSession.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
           await prepareChildMcp(childSession, stored);
           await inner.prompt(delegatedTask, { source: "rpc" });
           const text = inner.getLastAssistantText()?.trim();
@@ -893,6 +902,7 @@ export function createSubagentController(
       request.onUpdate?.(stored.run);
       let result: SubagentRunInfo;
       try {
+        if (!wrapper!.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
         await prepareChildMcp(wrapper, stored);
         await wrapper!.inner.prompt(request.task, { source: "rpc" });
         const text = wrapper!.inner.getLastAssistantText()?.trim();
