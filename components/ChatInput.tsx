@@ -33,13 +33,7 @@ import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
-import {
-  CUSTOM_TOOL_SELECTION,
-  getBuiltinToolCheckboxState,
-  SELECTABLE_BUILTIN_TOOLS,
-  type ToolPreset,
-  type ToolSelectionLabel,
-} from "@/lib/tool-presets";
+import type { ToolPreset } from "@/lib/tool-presets";
 import { SelectorRow } from "./SelectorRow";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
 
@@ -87,13 +81,8 @@ interface Props {
   compactError?: string | null;
   onDismissCompactError?: () => void;
   compactResult?: CompactResultInfo | null;
-  toolPreset?: ToolSelectionLabel;
+  toolPreset?: ToolPreset;
   onToolPresetChange?: (preset: ToolPreset) => void;
-  /** The tool menu's checked built-in tools; null until an unpinned session reports them. */
-  selectedBuiltinTools?: readonly string[] | null;
-  onBuiltinToolToggle?: (name: string) => Promise<void> | void;
-  /** The tool menu opened: an unpinned session may load its tools for the checkboxes. */
-  onToolMenuOpen?: () => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   /** New session has not committed a thinking level; the button still shows the resolved default. */
   isAutoThinkingSelection?: boolean;
@@ -709,7 +698,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onSend, onAbort, onSteer, onSideChat, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, allModelList, onLoadAllModels, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
-  selectedBuiltinTools = null, onBuiltinToolToggle, onToolMenuOpen,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -731,8 +719,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const enterSendMode = useEnterSendMode();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
-  // One checkbox at a time: each one rebuilds the selection from the last answer.
-  const [pendingBuiltinTool, setPendingBuiltinTool] = useState<string | null>(null);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
@@ -1783,9 +1769,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     return thinkingLevelMap[lvl] ?? lvl;
   })();
   const rawToolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "configured"))?.[0] ?? "configured";
-  const toolPresetLabel = toolPreset === CUSTOM_TOOL_SELECTION
-    ? t("chat.customTools")
-    : rawToolPresetLabel === "chat-only" ? t("chat.chatOnly") : rawToolPresetLabel;
+  const toolPresetLabel = rawToolPresetLabel === "chat-only" ? t("chat.chatOnly") : rawToolPresetLabel;
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -2795,11 +2779,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 position: isMobile ? "static" : "relative",
               }}>
                 <button
-                  onClick={(e) => {
-                    if (isStreaming || isStrayClick(e)) return;
-                    if (!toolDropdownOpen) onToolMenuOpen?.();
-                    setToolDropdownOpen(!toolDropdownOpen);
-                  }}
+                  onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
                   disabled={isStreaming}
                   title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
                   aria-label={t("chat.changeToolPreset")}
@@ -2876,42 +2856,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                         </button>
                       );
                     })}
-                    {onBuiltinToolToggle && (
-                      <div role="group" aria-label={t("chat.builtInToolsHeading")} style={{ borderTop: "1px solid var(--border)", padding: "4px 0" }}>
-                        <div style={{ padding: "5px 12px 3px", fontSize: 11, color: "var(--text-dim)" }}>{t("chat.builtInToolsHeading")}</div>
-                        {SELECTABLE_BUILTIN_TOOLS.map((name) => {
-                          const { checked, disabled, isLastChecked } = getBuiltinToolCheckboxState(
-                            selectedBuiltinTools, name, pendingBuiltinTool !== null,
-                          );
-                          return (
-                            <label
-                              key={name}
-                              title={isLastChecked ? t("chat.lastBuiltInToolHint") : undefined}
-                              style={{
-                                display: "flex", alignItems: "center", gap: 8,
-                                padding: "5px 12px",
-                                color: checked ? "var(--text)" : "var(--text-muted)",
-                                cursor: disabled ? "default" : "pointer",
-                                opacity: disabled && !isLastChecked ? 0.6 : 1,
-                                fontSize: 12, whiteSpace: "nowrap",
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={disabled}
-                                onChange={() => {
-                                  setPendingBuiltinTool(name);
-                                  void Promise.resolve(onBuiltinToolToggle(name)).finally(() => setPendingBuiltinTool(null));
-                                }}
-                                style={{ margin: 0, accentColor: "var(--accent)" }}
-                              />
-                              <span style={{ fontFamily: "var(--font-mono)" }}>{name}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
