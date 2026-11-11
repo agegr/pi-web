@@ -9,6 +9,8 @@ const { spawnSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const net = require("net");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const os = require("os");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
@@ -97,18 +99,43 @@ function removeRunRecord(dir, pid) {
   fs.rmSync(recordPath(dir, pid), { force: true });
 }
 
+function canConnect(url, timeoutMs) {
+  return new Promise((resolve) => {
+    let target;
+    try {
+      target = new URL(url);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const host = target.hostname.replace(/^\[|\]$/g, "");
+    const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
+    const socket = net.connect({ host, port });
+    const done = (connected) => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(connected);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
 // Any HTTP answer counts (a password-protected server answers 401). Only the
 // status matters, so the body is dropped: its connection is released now
-// instead of being left mid-response when the CLI exits (#1174). No answer
-// within the timeout counts too: a closed port refuses at once, so a server
-// took the request and is busy, as pi-web is while a request holds its event
-// loop (#1584). The record's pid was found alive and ours before this.
-async function isServerAnswering(url, fetchImpl = fetch, timeoutMs = 2_000) {
+// instead of being left mid-response when the CLI exits (#1174). A request
+// that times out counts only when a plain TCP connection to the same address
+// opens: the server took it and is busy, as pi-web is while a request holds
+// its event loop (#1584). A timeout alone may be a slow refusal (Windows
+// retries a refused loopback connect for about 2 s), an unreachable address or
+// a stuck name lookup, and `stop` must not then act on a recycled pid.
+async function isServerAnswering(url, fetchImpl = fetch, timeoutMs = 2_000, connects = canConnect) {
   let response;
   try {
     response = await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
-    return error?.name === "TimeoutError";
+    return error?.name === "TimeoutError" && await connects(url, timeoutMs);
   }
   await response.body?.cancel().catch(() => {});
   return true;
