@@ -210,23 +210,31 @@ export async function searchSessionContents(
         const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
         const textBlocks = blocks.flatMap((block, blockIndex) => block?.type === "text" && typeof block.text === "string" ? [{ text: block.text as string, blockIndex }] : []);
         const text = textBlocks.map((block) => block.text).join("\n");
-        for (const [termIndex, matcher] of matchers.entries()) {
+        // Every term's first hit on this line, evaluated once. The widened span below is the
+        // same for all of them, so re-running the matchers inside the term loop made a line
+        // with a hundred terms cost a hundred full scans per term: seconds on a 1 MB message,
+        // and the deadline is only checked between lines.
+        let lineMatches: Array<RegExpExecArray | null> | undefined;
+        const hitAt = (termIndex: number) =>
+          (lineMatches ??= matchers.map((matcher) => matcher.exec(text)))[termIndex];
+        if (!matchers.some((_, termIndex) => !hits[termIndex] && hitAt(termIndex))) continue;
+        // Widening around the anchor reaches the other terms of this message, so a two-word
+        // query usually shows two marks instead of one; bounded so a couple of far-apart hits
+        // cannot turn the row into a paragraph.
+        let spanStart = Infinity;
+        let spanEnd = -Infinity;
+        for (let termIndex = 0; termIndex < matchers.length; termIndex++) {
+          const hit = hitAt(termIndex);
+          if (!hit) continue;
+          spanStart = Math.min(spanStart, hit.index);
+          spanEnd = Math.max(spanEnd, hit.index + hit[0].length);
+        }
+        for (const [termIndex] of matchers.entries()) {
           if (hits[termIndex]) continue;
-          const match = matcher.exec(text);
+          const match = hitAt(termIndex);
           if (!match) continue;
           const anchorStart = match.index;
           const anchorEnd = anchorStart + match[0].length;
-          // Widen around the anchor to the other terms of this message, so a
-          // two-word query usually shows two marks instead of one. Bounded: a
-          // couple of far-apart hits must not turn the row into a paragraph.
-          let spanStart = anchorStart;
-          let spanEnd = anchorEnd;
-          for (const other of matchers) {
-            const hit = other.exec(text);
-            if (!hit) continue;
-            spanStart = Math.min(spanStart, hit.index);
-            spanEnd = Math.max(spanEnd, hit.index + hit[0].length);
-          }
           // Prefer the historical 80/80 margins; tighten them only when a long term
           // or a wide span would push the row past MAX_SNIPPET_CHARS ("..." costs six
           // characters). A single term never widens, so it keeps the old window.
