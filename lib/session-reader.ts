@@ -258,6 +258,7 @@ function mapScannedSession(
     firstMessage: detailsPending && !scanned.firstMessage
       ? ""
       : catalogFirstMessage(scanned.firstMessage || "(no messages)"),
+    ...(scanned.lastMessagePreview ? { lastMessagePreview: scanned.lastMessagePreview } : {}),
     parentSessionId: originSessionId,
     ...(subagent
       ? { relation: { kind: "subagent" as const, parentSessionId: subagent.parentSessionId, profile: subagent.profile, description: subagent.description, status: subagent.status } }

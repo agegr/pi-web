@@ -125,11 +125,10 @@ test("on a desktop the files sit below the sessions by default, both in view", (
   // and useIsMobile's server snapshots): the stacked layout.
   const html = render({ selectedCwd: "/work/alpha", onOpenTerminal: noop });
   assert.match(html, /^<div class="session-sidebar is-files-below" style="--sidebar-files-height:320px">/);
-  // No tabs: the brand (its name says the versions a click shows), then New
-  // and the sessions' search. No view options.
+  // No tabs: the brand, New, the activity view and the sessions' search.
   assert.match(html, /<div class="sidebar-header"><button type="button" class="sidebar-brand" aria-label="Pi Web, versions: web [^",]+, pi [^",]+">Pi Web<\/button><span class="sidebar-header-spacer"><\/span><button type="button" class="sidebar-new-button"/);
   assert.doesNotMatch(html, /role="tablist"|role="tab"|role="tabpanel"|View options|sidebar-title/);
-  assert.match(html, /<span class="sidebar-new-label">New<\/span><\/button><button type="button" title="Search conversations" aria-label="Search conversations" aria-expanded="false" aria-controls="session-search-input" class="sidebar-search-toggle">/);
+  assert.match(html, /<span class="sidebar-new-label">New<\/span><\/button><button type="button" class="sidebar-search-toggle sidebar-activity-toggle" title="Session activity" aria-label="Session activity" aria-pressed="false" aria-controls="session-sidebar-panel-sessions">[\s\S]*?<\/button><button type="button" title="Search conversations" aria-label="Search conversations" aria-expanded="false" aria-controls="session-search-input" class="sidebar-search-toggle">/);
   // Two regions, both shown: the sessions, the separator, the files.
   const sessions = openingTag(html, "session-sidebar-panel-sessions");
   const files = openingTag(html, "session-sidebar-panel-files");

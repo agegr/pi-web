@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type Ref, type RefObject, type UIEvent as ReactUIEvent } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, type SessionFamily, isHiddenRelation } from "@/lib/session-family";
+import { buildSessionActivityRows, countCompletedUnread, newlyObservedCompletions, type ActivityRow } from "@/lib/session-activity";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
@@ -92,11 +93,13 @@ import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { PiWebTitle } from "./PiWebTitle";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
 import { SessionSearch } from "./SessionSearch";
+import { SessionActivity } from "./SessionActivity";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import { SidebarToast, type SidebarToastAction, type SidebarToastData } from "./SidebarToast";
 import {
   ArchiveIcon,
+  BellIcon,
   ChangesIcon,
   CheckIcon,
   ChevronIcon,
@@ -309,6 +312,7 @@ type SidebarMenuState =
 type ArchiveDeleteScope = "all" | "old";
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const COMPLETED_SESSIONS_STORAGE_KEY = "pi-web:completed-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
@@ -391,20 +395,20 @@ function parseUnreadSessionIds(raw: string | null): Set<string> {
   return new Set();
 }
 
-function loadUnreadSessionIds(): Set<string> {
+function loadUnreadSessionIds(key = UNREAD_SESSIONS_STORAGE_KEY): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    return parseUnreadSessionIds(window.localStorage.getItem(UNREAD_SESSIONS_STORAGE_KEY));
+    return parseUnreadSessionIds(window.localStorage.getItem(key));
   } catch {
     return new Set();
   }
 }
 
-function saveUnreadSessionIds(ids: Set<string>): void {
+function saveUnreadSessionIds(ids: Set<string>, key = UNREAD_SESSIONS_STORAGE_KEY): void {
   if (typeof window === "undefined") return;
   try {
-    if (ids.size === 0) window.localStorage.removeItem(UNREAD_SESSIONS_STORAGE_KEY);
-    else window.localStorage.setItem(UNREAD_SESSIONS_STORAGE_KEY, JSON.stringify([...ids]));
+    if (ids.size === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify([...ids]));
   } catch {
     // ignore storage quota / privacy-mode errors
   }
@@ -558,6 +562,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Sessions whose subagents can still report back with a run there: not done yet (#1434).
   const [subagentsActiveSessionIds, setSubagentsActiveSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
+  // Completion provenance is separate: users can also mark sessions unread manually.
+  // Load after hydration so the bell's server and first client render match.
+  const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(() => new Set());
+  const [completedSessionsLoaded, setCompletedSessionsLoaded] = useState(false);
+  // A read activity row stays in Priority while this page has that family open.
+  const [retainedUnreadRootId, setRetainedUnreadRootId] = useState<string | null>(null);
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const previousActiveSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -599,6 +609,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The archive view's folded projects, per browser (lib/sidebar-prefs.ts).
   const [archiveCollapsed, setArchiveCollapsed] = useState<readonly string[]>([]);
   const [archiveView, setArchiveViewState] = useState(false);
+  const [activityView, setActivityView] = useState(false);
+  const [activityMounted, setActivityMounted] = useState(false);
+  const [activityNow, setActivityNow] = useState(() => Date.now());
   // The fold and the archive view move (hooks/useSidebarMotion.ts): only
   // when the user folds or goes in or out, never on a restore, a drag, keys,
   // a resize or a layout switch, and not at all under reduced motion. The
@@ -798,6 +811,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         const next = new Set([...prev].filter((id) => unreadEligibleIds.has(id)));
         return next.size === prev.size ? prev : next;
       });
+      setCompletedSessionIds((prev) => {
+        if (prev.size === 0) return prev;
+        const next = new Set([...prev].filter((id) => unreadEligibleIds.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
       setError(null);
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
@@ -896,6 +914,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     saveUnreadSessionIds(unreadSessionIds);
   }, [unreadSessionIds]);
+  useEffect(() => {
+    setCompletedSessionIds(loadUnreadSessionIds(COMPLETED_SESSIONS_STORAGE_KEY));
+    setCompletedSessionsLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (completedSessionsLoaded) saveUnreadSessionIds(completedSessionIds, COMPLETED_SESSIONS_STORAGE_KEY);
+  }, [completedSessionIds, completedSessionsLoaded]);
+  useEffect(() => {
+    const onCompletedStorage = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== COMPLETED_SESSIONS_STORAGE_KEY) return;
+      setCompletedSessionIds((prev) => sameIdsOr(prev, [...parseUnreadSessionIds(event.newValue)]));
+    };
+    window.addEventListener("storage", onCompletedStorage);
+    return () => window.removeEventListener("storage", onCompletedStorage);
+  }, []);
 
   // Another tab's read or mark-unread of the same session: its localStorage
   // write is the only cross-tab notice there is, and the browser fires the
@@ -1039,13 +1072,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       (id) => !previousSuppressedCompletionSessionIdsRef.current.has(id) && !knownSubagentIds.has(id),
     );
     const newlyRunning = [...runningSessionIds].filter((id) => !previous.has(id));
+    // Another tab may have already recorded this completion and the user may
+    // have read it there before this tab's poll noticed the run had ended.
+    const newCompletions = newlyObservedCompletions(completedWithNotifications, completedSessionIds);
 
     if (completedWithNotifications.length > 0 || newlyRunning.length > 0) {
       setUnreadSessionIds((prev) => {
         const next = new Set(prev);
         runningSessionIds.forEach((id) => next.delete(id));
-        completedWithNotifications.forEach((id) => next.add(id));
+        newCompletions.forEach((id) => next.add(id));
         return next;
+      });
+      setCompletedSessionIds((prev) => {
+        const next = new Set(prev);
+        runningSessionIds.forEach((id) => next.delete(id));
+        completedWithNotifications.forEach((id) => next.add(id));
+        return sameIdsOr(prev, [...next]);
       });
     }
     const hasUnlistedRunningSession = newlyRunning.some(
@@ -1071,7 +1113,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           || (previousSuppressed.has(id) && !runningSessionIds.has(id)),
       ),
     );
-  }, [runningSessionIds, subagentsActiveSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
+  }, [runningSessionIds, subagentsActiveSessionIds, selectedSessionId, allSessions, completedSessionIds, loadSessions, onBackgroundTaskDone]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -1402,6 +1444,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     () => new Map(sessionFamilies.map((family) => [family.root.id, family])),
     [sessionFamilies],
   );
+  // A switch, archive, deletion or a fresh unread marker ends this page's retention.
+  useEffect(() => {
+    setRetainedUnreadRootId((retained) => {
+      if (!retained) return retained;
+      const family = familyByRootId.get(retained);
+      if (!family || isFamilyArchived(family, uiState, runningSessionIds)) return null;
+      const ids = familyIds(family);
+      return selectedSessionId && ids.includes(selectedSessionId) && !ids.some((id) => unreadSessionIds.has(id))
+        ? retained : null;
+    });
+  }, [familyByRootId, selectedSessionId, unreadSessionIds, uiState, runningSessionIds]);
 
   // Every session id of an archived family (search tags them), and how many
   // families each project has in the archive.
@@ -1485,6 +1538,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
+  const activityRows = useMemo(() => activityMounted ? buildSessionActivityRows({
+    sessions: allSessions,
+    uiState,
+    runningIds: runningSessionIds,
+    awaitingIds: awaitingInputSessionIds,
+    unreadIds: unreadSessionIds,
+    selectedSessionId,
+    retainedUnreadRootId,
+    now: new Date(activityNow),
+  }) : [], [activityMounted, allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, retainedUnreadRootId, activityNow]);
+  useEffect(() => {
+    if (!activityView) return;
+    const timer = window.setInterval(() => setActivityNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [activityView]);
   const archiveMounted = archiveMotion.archiveMounted;
   const archiveCollapsedSet = useMemo(() => new Set(archiveCollapsed), [archiveCollapsed]);
   const archiveRows = useMemo(() => (archiveMounted ? buildArchiveRows({
@@ -1690,6 +1758,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // stay as they were.
   const openArchiveView = useCallback((projectKey?: string) => {
     setMenu(null);
+    setActivityView(false);
     setArchiveView(true);
     // Search results would cover it.
     setSessionSearchOpen(false);
@@ -2265,6 +2334,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     handleSelectSessionFromList(family.root);
   }, [handleSelectSessionFromList]);
 
+  const handleSelectActivity = useCallback((row: Extract<ActivityRow, { kind: "session" }>) => {
+    const active = document.activeElement;
+    if (isMobile && active instanceof HTMLElement && active.closest(`[data-activity-row-key="${CSS.escape(row.key)}"]`)) active.blur();
+    if (row.unread) {
+      setRetainedUnreadRootId(row.family.root.id);
+      markFamilyRead(row.family, true);
+    }
+    handleSelectSessionFromList(row.family.root);
+  }, [handleSelectSessionFromList, isMobile, markFamilyRead]);
+
   // Every group at once: a group's menu, or Alt+click on its header.
   // Re-inserted, so the choices count as the newest ones kept.
   const setAllGroupsExpanded = useCallback((expanded: (project: SidebarProject) => boolean) => {
@@ -2734,6 +2813,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     : ["tabs", t("sidebar.tabSessions"), t("sidebar.tabFiles"), t("sidebar.new"), explorerCwd && changesCount > 0 ? changesCount : "", sidebarTab]
   ).join("\n"));
   const archivedCount = model.archivedCount;
+  const completedUnreadCount = useMemo(
+    () => countCompletedUnread(completedSessionIds, unreadSessionIds, allSessions, uiState, runningSessionIds),
+    [completedSessionIds, unreadSessionIds, allSessions, uiState, runningSessionIds],
+  );
+  const activityLabel = t("sidebar.activityView");
+  const activityTitle = completedUnreadCount > 0
+    ? `${activityLabel}: ${t("sidebar.activityCompletedUnread", { count: completedUnreadCount })}`
+    : activityLabel;
 
   // The files' keys: below the sessions in the files section's header row,
   // in the files tab in the row under the picker. Always the same ones in
@@ -2917,6 +3004,28 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <span className="sidebar-new-label">{t("sidebar.new")}</span>
         </button>
         <button
+          type="button"
+          className={`sidebar-search-toggle sidebar-activity-toggle${activityView ? " is-active" : ""}`}
+          title={activityTitle}
+          aria-label={activityTitle}
+          aria-pressed={activityView}
+          aria-controls="session-sidebar-panel-sessions"
+          onClick={() => {
+            setMenu(null);
+            setRetainedUnreadRootId(null);
+            setSessionSearchOpen(false);
+            setSessionSearchQuery("");
+            if (archiveView) setArchiveView(false);
+            setActivityMounted(true);
+            setActivityNow(Date.now());
+            setActivityView(!sessionsShown || archiveView ? true : !activityView);
+            if (!sessionsShown) switchTab("sessions");
+          }}
+        >
+          <BellIcon size={16} />
+          {completedUnreadCount > 0 && <span className="sidebar-activity-badge" aria-hidden="true" />}
+        </button>
+        <button
           ref={searchButtonRef}
           type="button"
           onClick={() => {
@@ -2988,7 +3097,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <div className="sidebar-sessions-views">
             {/* Kept mounted under the archive view, so going back finds it as
                 it was: inert while the archive slides in, then hidden. */}
-            <div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden} inert={archiveMotion.mainInert}>
+            <div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden || activityView} inert={archiveMotion.mainInert || activityView}>
               <SessionTree
                 {...treeProps}
                 rows={model.rows}
@@ -2997,6 +3106,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onRevealHandled={handleRevealHandled}
               />
             </div>
+            {activityMounted && (
+              <div className="sidebar-sessions-view" hidden={!activityView || archiveMotion.archiveMounted} inert={!activityView || archiveMotion.archiveMounted}>
+                <SessionActivity rows={activityRows} layout={treeLayout} loading={treeLoading} error={error} onSelect={handleSelectActivity} />
+              </div>
+            )}
             {/* Mounted while open and on its way out, inert then, so nothing
                 in it is clicked twice; the tree is back under it at once. */}
             {archiveMotion.archiveMounted && (

@@ -19,6 +19,7 @@ import {
   preferUserBashExtension,
 } from "./project-command-env";
 import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { sessionMessagePreview } from "./session-preview";
 import { computeLiveSessionTotalActiveMs } from "./session-timing";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
@@ -2919,9 +2920,11 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
       ?? new Date().toISOString();
     const headerTimestamp = new Date(created).getTime();
     let lastActivityMs = Number.isNaN(headerTimestamp) ? Date.now() : headerTimestamp;
+    let lastMessagePreview: string | undefined;
     for (const message of messages) {
       const activityMs = runtimeMessageActivityMs(message);
       if (activityMs !== undefined) lastActivityMs = Math.max(lastActivityMs, activityMs);
+      lastMessagePreview = sessionMessagePreview(message.message) ?? lastMessagePreview;
     }
 
     sessions.push({
@@ -2933,6 +2936,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
       modified: new Date(lastActivityMs).toISOString(),
       messageCount: messages.length,
       firstMessage: catalogFirstMessage(firstUserMessage ? runtimeMessageText(firstUserMessage) || "(no messages)" : "(no messages)"),
+      ...(lastMessagePreview ? { lastMessagePreview } : {}),
       ...(subagent ? {
         parentSessionId: subagent.parentSessionId,
         relation: {
