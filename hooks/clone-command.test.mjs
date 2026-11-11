@@ -48,6 +48,8 @@ function hook(reply) {
     agentRunningRef: { current: false },
     bashRunningRef: { current: false },
     activeLeafId: "leaf-1",
+    appendedLeafRef: { current: null },
+    entryIdsRef: { current: [] },
     onSessionForked: (id) => calls.forked.push(id),
     sendAgentCommand: async (sid, command) => {
       calls.requests.push(command);
