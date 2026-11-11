@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
+import { randomUUID } from "crypto";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
@@ -77,15 +78,16 @@ export async function POST(req: Request) {
     const startedAt = Date.now();
 
     try {
-      const message = await completeSimple(model, {
+      // The runtime adds the auth, models.json and session headers a chat request gets
+      // (opencode.ai refuses a request without x-opencode-session). One fresh id per probe.
+      const message = await modelRuntime.completeSimple(model, {
         messages: [{
           role: "user",
           content: "Reply with OK only.",
           timestamp: Date.now(),
         }],
       }, {
-        apiKey: resolved.auth.apiKey,
-        headers: resolved.auth.headers,
+        sessionId: randomUUID(),
         maxTokens: 16,
         timeoutMs: TEST_TIMEOUT_MS,
         maxRetries: 0,
