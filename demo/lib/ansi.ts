@@ -1,6 +1,6 @@
 const ANSI_ESCAPE_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
 const ANSI_ESCAPE_AT_START_RE = /^\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/;
-const TUI_CURSOR_MARKER_RE = /\x1B_pi:c\x07/g;
+export const TUI_CURSOR_MARKER_RE = /\x1B_pi:[^\x07\x1B]*(?:\x07|\x1B\\)/g;
 
 export function stripAnsi(text: string): string {
   return text.replace(TUI_CURSOR_MARKER_RE, "").replace(ANSI_ESCAPE_RE, "");
@@ -82,5 +82,5 @@ export function normalizeCustomPanelLines(lines: string[]): string[] {
 
   while (normalized.length > 0 && stripAnsi(normalized[0]).trim() === "") normalized.shift();
   while (normalized.length > 0 && stripAnsi(normalized[normalized.length - 1]).trim() === "") normalized.pop();
-  return normalized.length ? normalized : lines;
+  return normalized.length ? normalized : lines.map((line) => line.replace(TUI_CURSOR_MARKER_RE, ""));
 }
