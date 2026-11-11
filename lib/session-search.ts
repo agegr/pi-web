@@ -300,10 +300,15 @@ export async function searchSessionContents(
         // look like a one-word one and hides why the session matched at all.
         let appended = false;
         for (const size of EXCERPT_SIZES) {
+          // Excerpts carry their own "..." when the window was cut; strip those first so the
+          // row shows one set of dots (" … ..." or a cut through the dots would show several).
+          const sourceBefore = hit.before.startsWith("...") ? hit.before.slice(3) : hit.before;
+          const sourceAfter = hit.after.endsWith("...") ? hit.after.slice(0, -3) : hit.after;
+          const afterCut = hit.after.endsWith("...");
           // No leading ellipsis: the separator already marks the gap in front of it.
           const excerpt =
-            tail(hit.before, size) + hit.match + head(hit.after, size) +
-            (hit.after.length > size ? "..." : "");
+            tail(sourceBefore, size) + hit.match + head(sourceAfter, size) +
+            (sourceAfter.length > size || afterCut ? "..." : "");
           // Drop the anchor's trailing ellipsis: the separator already marks the gap.
           const base = after.endsWith("...") ? after.slice(0, -3) : after;
           const joined = base + " … " + excerpt;
@@ -314,14 +319,13 @@ export async function searchSessionContents(
         }
         if (!appended) omitted += 1;
       }
-      // Count what no longer fits, so a row never pretends every term is visible.
-      if (omitted) {
-        const base = after.endsWith("...") ? after.slice(0, -3) : after;
-        after = base + ` … (+${omitted})`;
-      }
-      // Ranges are recomputed over the assembled snippet so the appended excerpts
-      // are marked like the anchor.
-      response.results.push({ session, ...primary, before, match: matchText, after, highlights: highlightRanges(before, matchText, after, matchers) });
+      // Count what no longer fits, so a row never pretends every term is visible. The ranges
+      // are computed over the text alone: the marker is UI, and a query term like "2" must
+      // not paint the count.
+      const text = omitted && after.endsWith("...") ? after.slice(0, -3) : after;
+      const highlights = highlightRanges(before, matchText, text, matchers);
+      after = text + (omitted ? ` … (+${omitted})` : "");
+      response.results.push({ session, ...primary, before, match: matchText, after, highlights });
     }
     if (!found && stream.bytesRead >= MAX_FILE_BYTES) response.truncated = true;
     // Preserve message navigation when both body and title match. The catalogue
