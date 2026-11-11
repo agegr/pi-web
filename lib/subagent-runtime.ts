@@ -37,7 +37,7 @@ import type { DebugParentNotification, DebugSubagentRun } from "./debug-types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputLimits } from "./subagent-input";
-import { projectTrustReloadOptions } from "./project-trust";
+import { getProjectTrustStatus } from "./project-trust";
 import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
@@ -454,7 +454,12 @@ export function createSubagentController(
       const turnLimit = profile.maxTurns;
 
       const agentDir = getAgentDir();
-      const settingsManager = SettingsManager.create(childCwd, agentDir);
+      // The child runs on the parent session's trust, as pi's `--approve` / `--no-approve`
+      // decide a run: read once here, never written. Created trusted by default, a child
+      // that loads no resources read the project settings of a folder never trusted; and
+      // an isolated run's throwaway worktree has no decision of its own to find.
+      const projectTrusted = getProjectTrustStatus(parent.cwd, agentDir).trusted;
+      const settingsManager = SettingsManager.create(childCwd, agentDir, { projectTrusted });
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
@@ -530,9 +535,6 @@ export function createSubagentController(
             : {}),
           appendSystemPrompt,
         },
-        ...((profile.loadExtensions || profile.loadSkills || codemodeEnabled || mcpEnabled)
-          ? { resourceLoaderReloadOptions: projectTrustReloadOptions(childCwd, agentDir) }
-          : {}),
       });
 
       if (codemodeEnabled && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
