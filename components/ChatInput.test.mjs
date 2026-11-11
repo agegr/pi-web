@@ -1060,13 +1060,23 @@ test("grows the composer to its text and hides the scrollbar until the text is t
 });
 
 test("a capped composer keeps its scroll while it regrows, so a caret at the end stays visible", () => {
-  const fake = (value, scrollHeight, clientHeight) => ({
-    value,
-    style: { height: "", overflowY: "" },
-    scrollTop: 40,
-    get scrollHeight() { return scrollHeight; },
-    clientHeight,
-  });
+  // As a browser does: an "auto" height fits the whole text, which clamps
+  // scrollTop to 0.
+  const fake = (value, scrollHeight, clientHeight) => {
+    let height = "";
+    const ta = {
+      value,
+      style: {
+        overflowY: "",
+        get height() { return height; },
+        set height(next) { height = next; if (next === "auto") ta.scrollTop = 0; },
+      },
+      scrollTop: 40,
+      get scrollHeight() { return scrollHeight; },
+      clientHeight,
+    };
+    return ta;
+  };
 
   const tall = fake("lots of lines", 320, 24);
   autoGrowTextarea(tall);
