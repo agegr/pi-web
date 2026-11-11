@@ -67,8 +67,8 @@ export async function POST(req: Request) {
     const model = modelRuntime.getModel(providerName, modelId);
     if (!model) return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
 
-    const resolved = await modelRuntime.getAuth(model);
-    if (!resolved?.auth.apiKey) {
+    // A status check, not getAuth(): the request resolves auth itself, so a `!command` key runs once.
+    if (!modelRuntime.getProviderAuthStatus(providerName).configured) {
       return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
     }
 
