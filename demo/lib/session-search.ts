@@ -8,8 +8,6 @@ const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_LINE_CHARS = 1024 * 1024;
 /** Bound on one result's snippet, including margins and any appended excerpts. */
 const MAX_SNIPPET_CHARS = 200;
-/** Past this many terms the per-message width expansion turns quadratic; search the whole query literally. */
-const MAX_TERMS = 8;
 /** Anchor margin of a multi-term query: it keeps room for terms found in other messages. */
 const MULTI_TERM_MARGIN = 40;
 /** Excerpt sizes tried in order, largest first, for a term outside the anchor's window. */
@@ -118,6 +116,23 @@ function parseTerms(query: string): string[] {
   return terms;
 }
 
+/**
+ * `a a` needs one matcher, not two. Only ASCII case is folded: `toLowerCase()` merges pairs a
+ * non-`u` regex's `i` keeps apart (`ß`/`ẞ`, `k`/U+212A KELVIN SIGN), which would drop a term
+ * that still fails to match. Folding less is safe; folding more changes what a query means.
+ */
+function dedupeTerms(terms: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const term of terms) {
+    const key = term.replace(/[A-Z]+/g, (upper) => upper.toLowerCase());
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(term);
+  }
+  return unique;
+}
+
 // Raw JSONL keeps text as UTF-8 (only quotes, backslashes and control characters are
 // escaped), so a plain term can be spotted in the raw line and JSON.parse skipped for
 // every line that cannot contribute a still-missing term. A forward slash is included
@@ -140,10 +155,10 @@ export async function searchSessionContents(
   if (needle.length > 200) throw new RangeError("Search query exceeds 200 characters");
   // Escape every operator: this is literal search, with offsets in the original text.
   const parsed = parseTerms(needle);
-  // A query of only quotes, e.g. `""`, parses to no term at all and a pathological one
-  // can parse to dozens; both fall back to the whole string as a single literal term,
-  // which is exactly the search this change must never narrow.
-  const terms = parsed.length && parsed.length <= MAX_TERMS ? parsed : [needle];
+  // A query of only quotes, e.g. `""`, parses to no term at all; it falls back to the
+  // whole string as a single literal term, which is exactly the search this change must
+  // never narrow. Repeated terms collapse first: a term cannot change the answer twice.
+  const terms = parsed.length ? dedupeTerms(parsed) : [needle];
   const matchers = terms.map((term) => new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
   const prefilters = terms.map(rawPrefilter);
   // A term outside ASCII could in principle be stored as \uXXXX escapes; keep a
