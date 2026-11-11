@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
+import { memo, useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
@@ -311,17 +311,24 @@ function diffLines(patch: string): Array<DiffLine | DiffGap> {
 // Renders one diff line's text through the same Prism pipeline the source view
 // uses. The red/green row background, gutter and +/- marker are drawn by the
 // row itself; this only colors the code tokens, with no <pre> wrapper so the
-// inline flow layout stays intact.
-function DiffLineCode({
+// inline flow layout stays intact. The theme's <pre> rules (vs draws a border,
+// both set `white-space: pre` and their own font) would land on the wrapper
+// span: they are reset so the row keeps its 20.8px line box. The code span's
+// `white-space` is the highlighter's own (`wrapLongLines`), so the wrap toggle
+// reaches it as a prop. Memoized: a render of the view for any other reason
+// reuses each line's tokens instead of running Prism on every line again.
+const DiffLineCode = memo(function DiffLineCode({
   text,
   language,
   prismReady,
   isDark,
+  wrapLines,
 }: {
   text: string;
   language: string;
   prismReady: boolean;
   isDark: boolean;
+  wrapLines: boolean;
 }) {
   if (!prismReady || language === "text" || !text) {
     return <>{text || "\u00a0"}</>;
@@ -331,15 +338,21 @@ function DiffLineCode({
       language={language}
       style={isDark ? fileViewerDarkTheme : vs}
       showLineNumbers={false}
+      wrapLongLines={wrapLines}
       PreTag="span"
       CodeTag="span"
       customStyle={{
         margin: 0,
         padding: 0,
-        background: "transparent",
+        border: 0,
+        backgroundColor: "transparent",
         display: "inline",
+        overflow: "visible",
+        fontFamily: "inherit",
         fontSize: "inherit",
         lineHeight: "inherit",
+        whiteSpace: "inherit",
+        overflowWrap: "inherit",
       }}
       codeTagProps={{
         style: {
@@ -351,7 +364,7 @@ function DiffLineCode({
       {text}
     </SyntaxHighlighter>
   );
-}
+});
 
 function DiffView({
   patch,
@@ -512,6 +525,7 @@ function DiffView({
                       language={language}
                       prismReady={prismReady}
                       isDark={isDark}
+                      wrapLines={wrapLines}
                     />
                   )
                   : (line.text || "\u00a0")}
@@ -524,6 +538,11 @@ function DiffView({
     </div>
   );
 }
+
+// Only primitive props: the viewer re-renders for reasons of its own (the
+// sidebar toggled, a watch reconnecting), which must not tokenize up to
+// SOURCE_HIGHLIGHT_MAX_LINES lines again.
+const MemoizedDiffView = memo(DiffView);
 
 function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
@@ -1913,7 +1932,7 @@ function TextFileViewer({
         style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: showLoadMore ? 48 : undefined }}
       >
         {effectiveDisplayMode === "diff" && hasGitDiff ? (
-          <DiffView
+          <MemoizedDiffView
             patch={gitDiff.patch!}
             wrapLines={wrapLines}
             language={language}
