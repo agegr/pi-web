@@ -66,6 +66,8 @@ export const enLocale: LocalePlugin = {
     "settings.filesPlacementTab": "Separate tab",
     "settings.filesPlacementDescription": "Phones always use tabs.",
     "settings.languageDescription": "Choose the language used throughout the interface.",
+    "settings.builtinTools": "Built-in tools",
+    "settings.builtinToolsDescription": "The tools new sessions start with when the tool menu says From settings.json defaultTools. Saved as defaultTools in the global settings.json; a project's .pi/settings.json can override it.",
     "settings.shellTool": "Shell tool",
     "settings.shellToolDescription": "Choose which shell the model uses for commands. Direct ! and !! commands still use Bash.",
     "settings.pushPermission": "Background push (iOS home-screen app)",

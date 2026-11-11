@@ -66,6 +66,8 @@ export const zhTWLocale: LocalePlugin = {
     "settings.filesPlacementTab": "獨立分頁",
     "settings.filesPlacementDescription": "手機上一律使用分頁切換。",
     "settings.languageDescription": "選擇整個介面使用的語言。",
+    "settings.builtinTools": "內建工具",
+    "settings.builtinToolsDescription": "工具選單選「取自 settings.json 的 defaultTools」時，新工作階段啟用的工具。儲存為全域 settings.json 的 defaultTools，專案的 .pi/settings.json 可以覆寫它。",
     "settings.shellTool": "Shell 工具",
     "settings.shellToolDescription": "選擇模型執行命令時使用的 Shell。直接輸入的 ! 和 !! 命令仍使用 Bash。",
     "settings.pushPermission": "背景推送（iOS 主畫面應用）",

@@ -13,21 +13,24 @@ import {
 } from "@/lib/codemode-settings";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import {
+  readBuiltinTools,
   readPowerShellToolEnabled,
+  writeBuiltinTools,
   writePowerShellToolEnabled,
 } from "@/lib/powershell-settings";
+import { SETTINGS_BUILTIN_TOOLS } from "@/lib/tool-presets";
 
 export const dynamic = "force-dynamic";
 
-// The only writer of the global `defaultTools` key: the PowerShell switch
-// (Windows) and the Code mode choice (ADR 0006, chosen in Settings › MCP) both
+// The only writer of the global `defaultTools` key: the built-in tool switches
+// and the PowerShell switch (Windows) in Settings › General, and the Code mode choice (ADR 0006, chosen in Settings › MCP) both
 // edit it, under the lock pi's SettingsManager takes on the same file. Settings
 // › MCP saves the global `codemode.mode` and `codemode.inlineBudget` here too,
 // under the same lock.
 // Every refusal carries a `reason` code the panel translates, beside the
 // English `error` it shows only as the diagnostic of an `internal` failure.
 
-const CHANGES = ["enabled", "codemode", "codemodeMode", "codemodeInlineBudget"] as const;
+const CHANGES = ["enabled", "builtinTools", "codemode", "codemodeMode", "codemodeInlineBudget"] as const;
 
 function refusal(status: number, reason: McpRefusalReason, error: string) {
   return NextResponse.json({ error, reason } satisfies McpErrorResponse, { status });
@@ -41,9 +44,10 @@ async function readToolSettings(): Promise<ToolSettingsResponse> {
   // One after the other: each takes the file lock, and a reader that finds it
   // held backs off for about a second.
   const powerShellEnabled = await readPowerShellToolEnabled();
+  const builtinTools = await readBuiltinTools();
   const codemode = await readCodemodePreference();
   const { mode: codemodeMode, inlineBudget: codemodeInlineBudget } = await readCodemodeSettings();
-  return { isWindows: process.platform === "win32", powerShellEnabled, codemode, codemodeMode, codemodeInlineBudget };
+  return { isWindows: process.platform === "win32", powerShellEnabled, builtinTools, codemode, codemodeMode, codemodeInlineBudget };
 }
 
 export async function GET() {
@@ -71,9 +75,23 @@ export async function PUT(req: Request) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return refusal(400, "invalid-request", "Expected a JSON object");
   }
-  const changes = body as { enabled?: unknown; codemode?: unknown; codemodeMode?: unknown; codemodeInlineBudget?: unknown };
+  const changes = body as { enabled?: unknown; builtinTools?: unknown; codemode?: unknown; codemodeMode?: unknown; codemodeInlineBudget?: unknown };
   if (CHANGES.filter((key) => key in changes).length !== 1) {
-    return refusal(400, "invalid-request", "Send one of enabled (PowerShell), codemode, codemodeMode or codemodeInlineBudget");
+    return refusal(400, "invalid-request", "Send one of enabled (PowerShell), builtinTools, codemode, codemodeMode or codemodeInlineBudget");
+  }
+
+  if ("builtinTools" in changes) {
+    // The built-in tools new sessions start with; every other defaultTools entry is kept.
+    const tools = changes.builtinTools;
+    if (!Array.isArray(tools) || !tools.every((name) => SETTINGS_BUILTIN_TOOLS.includes(name))) {
+      return refusal(400, "invalid-request", `builtinTools must list names from ${SETTINGS_BUILTIN_TOOLS.join(", ")}`);
+    }
+    try {
+      await writeBuiltinTools(tools);
+      return NextResponse.json(await readToolSettings());
+    } catch (error) {
+      return errorResponse(error);
+    }
   }
 
   if ("codemodeMode" in changes) {
