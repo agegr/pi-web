@@ -2404,13 +2404,10 @@ export class AgentSessionWrapper {
         } as ExtensionUiRequest as AgentEvent);
       },
       custom: <T = unknown>(factory: unknown, options?: unknown) => this.requestExtensionCustomUi<T>(factory, options),
+      // pi's RPC mode has no paste and sends set_editor_text; its TUI inserts at the
+      // caret. The page is the TUI's editor here, so it gets an event of its own.
       pasteToEditor: (text) => {
-        this.emit({
-          type: "extension_ui_request",
-          id: randomUUID(),
-          method: "set_editor_text",
-          text,
-        } as ExtensionUiRequest as AgentEvent);
+        this.emit({ type: "editor_paste", text });
       },
       setEditorText: (text) => {
         this.emit({
