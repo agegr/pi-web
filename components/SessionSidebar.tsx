@@ -1588,30 +1588,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setMoreShown((shown) => forgetShownMoreOfFolded(shown, next, keys));
   }, []);
 
-  // A search-result pick lands the user in the session's project: the results
-  // give way to the tree, a collapsed group opens, and the tree scrolls to
-  // the row. An archived session only opens: its row lives in the archive
-  // view, not the tree.
-  const handleSelectSessionFromSearch = useCallback((s: SessionInfo, entryId?: string, blockIndex?: number) => {
-    const projectKey = workspaceKeyOf(s);
-    if (!archiveIndex.ids.has(s.id) && Object.hasOwn(shownGroupExpansion, projectKey) && shownGroupExpansion[projectKey] === false) {
-      const next = { ...groupExpansion };
-      // Re-opened, so the choice counts as the newest one kept.
-      delete next[projectKey];
-      next[projectKey] = true;
-      saveGroupChoices(next, [projectKey]);
-    }
-    setSessionSearchOpen(false);
-    handleSelectSessionFromList(s, entryId, blockIndex);
-    treeRevealIdRef.current += 1;
-    setTreeReveal({ id: treeRevealIdRef.current, at: Date.now(), rowKey: `session:group:${s.id}` });
-  }, [archiveIndex, shownGroupExpansion, groupExpansion, saveGroupChoices, handleSelectSessionFromList]);
-
-  // A search-result pick lands the user in the session's project: the results
-  // give way to the tree, a collapsed group opens, and the tree scrolls to
-  // the row. An archived session only opens: its row lives in the archive
-  // view, not the tree.
-
   /**
    * The selected tab: focus has somewhere to go when the control it was on is
    * gone. With the files below the sessions there are no tabs (their refs are
@@ -3004,7 +2980,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           open={sessionSearchOpen}
           query={sessionSearchQuery}
           selectedSessionId={selectedSessionId}
-          onSelectSession={handleSelectSessionFromSearch}
+          onSelectSession={handleSelectSessionFromList}
           archivedSessionIds={archiveIndex.ids}
           projectNames={projectNames}
         >
