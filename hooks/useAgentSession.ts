@@ -55,7 +55,7 @@ import { bareMcpOpensSettings } from "@/lib/mcp-command";
 import { copyText } from "@/lib/clipboard";
 import type { SettingsSection } from "@/lib/settings-navigation";
 import { withTranscriptNotices, type TranscriptNotice } from "@/lib/transcript-notices";
-import { applyToolClockEvent, NO_TOOL_CLOCKS, withoutToolClock, type ToolClocks } from "@/lib/tool-clock";
+import { applyToolClockEvent, endedToolClocks, NO_TOOL_CLOCKS, withoutToolClock, type ToolClocks } from "@/lib/tool-clock";
 import {
   enqueueExtensionUiRequest,
   removeExtensionUiRequest,
@@ -1860,7 +1860,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setExtensionCustomUis((queue) => retainExtensionUiRequests(queue, pending));
         }
         // The replay that follows brings each running call's start with its elapsed time.
-        setToolClocks(NO_TOOL_CLOCKS);
+        setToolClocks(endedToolClocks);
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
           sdkAgentActiveRef.current = true;

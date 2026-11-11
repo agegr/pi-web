@@ -57,6 +57,15 @@ export function withoutToolClock(clocks: ToolClocks, id: string): ToolClocks {
   return next;
 }
 
+/**
+ * The clocks a reconnect keeps: ended calls' measured times. The server replays only calls still
+ * running, and an ended call of a parallel batch waits for its siblings before its result arrives.
+ */
+export function endedToolClocks(clocks: ToolClocks): ToolClocks {
+  const next = new Map([...clocks].filter(([, clock]) => "durationMs" in clock));
+  return next.size === clocks.size ? clocks : next.size ? next : NO_TOOL_CLOCKS;
+}
+
 /** A clock's time at `now`: the run so far, or pi's measured time. */
 export function toolClockMs(clock: ToolClock, now: number): number {
   return "durationMs" in clock ? clock.durationMs : Math.max(0, now - clock.startedAt);

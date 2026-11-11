@@ -131,7 +131,7 @@ test("each event stream connection reads usage, since connecting resumes an idle
     script.runInNewContext({
       event: { type: "connected", sessionId: sid ?? "pending", isStreaming },
       sessionIdRef: { current: sid }, sdkAgentActiveRef: { current: false }, agentRunningRef: { current: false },
-      dispatch() {}, cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {}, setToolClocks() {}, NO_TOOL_CLOCKS: new Map(),
+      dispatch() {}, cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {}, setToolClocks() {}, endedToolClocks: (clocks) => clocks, NO_TOOL_CLOCKS: new Map(),
       refreshContextUsage: (id) => reads.push(id),
     });
     assert.deepEqual(reads, sid ? [sid] : []);
