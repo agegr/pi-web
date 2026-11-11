@@ -271,6 +271,16 @@ function getFileApiUrl(
   return `/api/files/${encoded}?${searchParams.toString()}`;
 }
 
+// Each load of a media or document preview gets a URL new to this page. The
+// browser shows an image it already holds for a URL again, whatever the
+// response's Cache-Control, so a counter local to one viewer (1 on every mount)
+// showed a closed and reopened tab's old picture.
+let previewLoads = 0;
+function usePreviewUrl(filePath: string, type: "read" | "preview", sourceSessionId: string | null | undefined, bust: number): string {
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new `bust` asks for a new load
+  return useMemo(() => getFileApiUrl(filePath, type, sourceSessionId, { v: ++previewLoads }), [filePath, type, sourceSessionId, bust]);
+}
+
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
   const { t } = useI18n();
   return (
@@ -544,7 +554,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     };
   }, [filePath, sourceSessionId, watchEnabled]);
 
-  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
+  const src = usePreviewUrl(filePath, "read", sourceSessionId, bust);
 
   const formatSizeStr = size != null ? formatSize(size) : null;
 
@@ -724,7 +734,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     };
   }, [filePath, sourceSessionId, watchEnabled]);
 
-  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
+  const src = usePreviewUrl(filePath, "read", sourceSessionId, bust);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -885,7 +895,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     };
   }, [filePath, sourceSessionId, watchEnabled]);
 
-  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
+  const src = usePreviewUrl(filePath, "read", sourceSessionId, bust);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -973,9 +983,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
   const pageFragment = isPdf && initialPage && initialPage > 0 ? `#page=${initialPage}` : "";
-  const previewUrl = isPdf
-    ? `${getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)}${pageFragment}`
-    : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
+  const previewUrl = `${usePreviewUrl(filePath, isPdf ? "read" : "preview", sourceSessionId, bust)}${pageFragment}`;
 
   useEffect(() => {
     setBust(0);
