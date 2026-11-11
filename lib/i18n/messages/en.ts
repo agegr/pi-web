@@ -719,6 +719,7 @@ export const enLocale: LocalePlugin = {
     "chat.runningToolsMore": "Running {names} (+{count})...",
     "chat.waitingModel": "Waiting for model...",
     "chat.runningCommand": "Running command...",
+    "chat.bashAlreadyRunning": "A bash command is already running. Press Esc to cancel it first.",
     "chat.thinking": "Thinking...",
     "chat.processDetails": "Process details",
     "chat.message": "message",

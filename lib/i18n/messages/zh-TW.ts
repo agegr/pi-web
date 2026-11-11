@@ -719,6 +719,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.runningToolsMore": "正在執行 {names}（另有 {count} 個）...",
     "chat.waitingModel": "正在等待模型...",
     "chat.runningCommand": "正在執行命令...",
+    "chat.bashAlreadyRunning": "已有一個 bash 命令在執行。請先按 Esc 取消它。",
     "chat.thinking": "正在思考...",
     "chat.processDetails": "處理詳細資料",
     "chat.message": "則訊息",

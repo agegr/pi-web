@@ -201,6 +201,10 @@ function chatOnlyExtensionModelError(provider: string, modelId: string): Error {
 
 export const MCP_WAIT_STOPPED_MESSAGE = "Stopped while MCP servers were connecting; the message was not sent.";
 
+/** A running `!` command's output tail sent to the page (UTF-16 units), and how often (createBashOutputSnapshots). */
+const BASH_OUTPUT_TAIL_CHARS = 16 * 1024;
+const BASH_OUTPUT_INTERVAL_MS = 150;
+
 const IDLE_RESET_EVENT_TYPES = new Set([
   "agent_end",
   "agent_settled",
@@ -353,6 +357,8 @@ export class AgentSessionWrapper {
   private extensionWidgetGenerations = new Map<string, number>();
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
+  /** Prompts that reached send() and wait on the extensions or their admission, not counted yet. */
+  private arrivingPromptCount = 0;
   // Prompts waiting for the running compaction to finish (ParkedPrompt above).
   private parkedDuringCompaction: ParkedPrompt[] = [];
   private activeMutatingCommands = 0;
@@ -381,6 +387,8 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
+  /** Stop's forced shutdown waits out a `!` command too (`abort_bash`); a run's Stop, only the run. */
+  private forceShutdownCoversShell = false;
   // What went wrong as the session started, told to each stream under the same ids (the page
   // shows each once); null on a subagent's or side chat's wrapper.
   private readonly startupNotices: AgentEvent[] | null;
@@ -450,6 +458,33 @@ export class AgentSessionWrapper {
    */
   isAlive(): boolean {
     return this._alive && !this.closing;
+  }
+
+  /**
+   * A running `!` command's output for the page, as pi's TUI draws it while it runs:
+   * the tail (`BASH_OUTPUT_TAIL_CHARS`) at most every `BASH_OUTPUT_INTERVAL_MS`, as
+   * `bash_output` snapshots a later one replaces, never pi's per-chunk deltas, which a
+   * command printing megabytes would pile up in a slow stream.
+   */
+  private createBashOutputSnapshots(command: string): { onChunk: (chunk: string) => void; stop: () => void } {
+    let tail = "";
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    return {
+      onChunk: (chunk) => {
+        tail = (tail + chunk).slice(-BASH_OUTPUT_TAIL_CHARS);
+        // A cut through a surrogate pair would start the tail with half a character.
+        if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1);
+        if (timer) return;
+        timer = setTimeout(() => {
+          timer = null;
+          this.emit({ type: "bash_output", command, output: tail } as unknown as AgentEvent);
+        }, BASH_OUTPUT_INTERVAL_MS);
+      },
+      stop: () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      },
+    };
   }
 
   /** A `!` command is under way: its `user_bash` handlers, or pi running it. */
@@ -1014,13 +1049,26 @@ export class AgentSessionWrapper {
     return release;
   }
 
+  /**
+   * Stop's forced shutdown is for what it stopped: the run (a pending prompt, streaming,
+   * compacting), with `abort_bash` the `!` command too. Once that is idle, a healthy command
+   * beside it keeps the normal idle timer, which leases move.
+   */
+  private releaseForcedShutdownOnceStopped(): void {
+    const stoppedWorkRunning = this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting
+      || (this.forceShutdownCoversShell && this.shellRunning);
+    if (this._alive && stoppedWorkRunning) return;
+    this.forceShutdownOnIdle = false;
+    this.forceShutdownCoversShell = false;
+  }
+
   private resetIdleTimer(): void {
     if (!this._alive) {
       if (this.idleTimer) clearTimeout(this.idleTimer);
       this.idleDeadlineAt = null;
       return;
     }
-    if (!this.isRunning()) this.forceShutdownOnIdle = false;
+    this.releaseForcedShutdownOnceStopped();
     // A stuck user reloads, reopens the session or presses Stop again, and
     // each of those commands lands here. Moving the forced deadline for them
     // would keep a run that Stop cannot unwind alive indefinitely.
@@ -1149,6 +1197,15 @@ export class AgentSessionWrapper {
 
     const tracksMutation = !allowedDuringReplacement;
     if (tracksMutation) this.activeMutatingCommands += 1;
+    // A prompt counts from its arrival: a `!` sent right after it must not start
+    // while it waits on the extensions or its admission, and then refuse it.
+    let arrivingPrompt = type === "prompt";
+    if (arrivingPrompt) this.arrivingPromptCount += 1;
+    const promptCounted = () => {
+      if (!arrivingPrompt) return;
+      arrivingPrompt = false;
+      this.arrivingPromptCount -= 1;
+    };
 
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
@@ -1178,7 +1235,9 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
-          if (this.shellRunning) {
+          // A steer or follow-up joins the run beside a `!` command, as pi's TUI
+          // queues it; only a prompt that would start a run waits for the command.
+          if (this.shellRunning && !(command.streamingBehavior && this.inner.isStreaming)) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           if (this.sideChat) this.nameSideChat(command.message);
@@ -1222,6 +1281,7 @@ export class AgentSessionWrapper {
           };
 
           this.pendingPromptCount += 1;
+          promptCounted();
           // A prompt that may start a run first connects the session's MCP servers and
           // waits for the ones still connecting. The SDK runs before_agent_start before a
           // run has an abort signal, so Stop is honoured here: it ends the wait, and the
@@ -1345,7 +1405,7 @@ export class AgentSessionWrapper {
           await this.withFinalIdleReset(() => this.inner.abort());
           return recalled.steering.length || recalled.followUp.length ? recalled : null;
         } finally {
-          if (!this.isRunning()) this.forceShutdownOnIdle = false;
+          this.releaseForcedShutdownOnceStopped();
         }
       }
 
@@ -1731,13 +1791,18 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
-        if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.shellRunning) {
+        // Beside a run it may go, as in pi's TUI: pi holds its result until the run
+        // ends (recordBashResult), so a tool call never loses its result's place.
+        // A prompt on its way to a run (arrived, admitted, not streaming yet), or a
+        // compaction, still refuses it.
+        if ((this.pendingPromptCount + this.arrivingPromptCount > 0 && !this.inner.isStreaming) || this.inner.isCompacting || this.shellRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
         const bashCommand = command.command as string;
         const excludeFromContext = command.excludeFromContext === true;
         // pi counts a command as running only once executeBash starts; the hook comes first.
         this.userBashPending = true;
+        const liveOutput = this.createBashOutputSnapshots(bashCommand);
         try {
           // pi's TUI and RPC mode ask `user_bash` handlers first: one may run the
           // command itself (a sandbox, a remote host) or hand over how to. A handler
@@ -1756,7 +1821,7 @@ export class AgentSessionWrapper {
             this.inner.recordBashResult?.(bashCommand, hooked.result, { excludeFromContext });
             result = hooked.result;
           } else {
-            result = await this.inner.executeBash(bashCommand, undefined, {
+            result = await this.inner.executeBash(bashCommand, liveOutput.onChunk, {
               excludeFromContext,
               // An extension's operations get what pi gives them: no `env` (its
               // executor's own, a sandbox's). Wrapping them would hand the host's
@@ -1770,6 +1835,9 @@ export class AgentSessionWrapper {
           return result;
         } finally {
           this.userBashPending = false;
+          liveOutput.stop();
+          // A run that ended while the command went on reports its end now (isRunning() held it).
+          this.notifyAgentRunCompleteIfIdle();
           this.resetIdleTimer();
           invalidateSessionListCache();
         }
@@ -1777,6 +1845,7 @@ export class AgentSessionWrapper {
 
       case "abort_bash": {
         this.forceShutdownOnIdle = true;
+        this.forceShutdownCoversShell = true;
         this.resetIdleTimer();
         this.inner.abortBash();
         return null;
@@ -1786,6 +1855,7 @@ export class AgentSessionWrapper {
           throw new Error(`Unsupported command: ${type}`);
       }
     } finally {
+      promptCounted();
       if (tracksMutation) this.activeMutatingCommands = Math.max(0, this.activeMutatingCommands - 1);
     }
   }
