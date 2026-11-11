@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
+import { Fragment, memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
@@ -1182,7 +1182,9 @@ export function formatToolDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
 }
 
-function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSubagent?: (sessionId: string, label: string) => void }) {
+// `resultFooter` is drawn under the result, so only while the card is expanded:
+// what it offers acts on the result the reader is looking at.
+function ToolCallBlock({ block, result, duration, onOpenSubagent, resultFooter }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number; onOpenSubagent?: (sessionId: string, label: string) => void; resultFooter?: ReactNode }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(() => isToolCallExpanded(block.toolCallId));
   const toggleExpanded = () => {
@@ -1373,6 +1375,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
           />
         )
       )}
+      {expanded && result && resultFooter}
     </div>
   );
 }
@@ -2306,7 +2309,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
   const fullOutputUrl = sessionId && message.fullOutputPath
     ? `/api/agent/${encodeURIComponent(sessionId)}/bash-output?path=${encodeURIComponent(message.fullOutputPath)}`
     : null;
-  const showFullButton = message.truncated && fullOutputUrl && fullOutput === null;
+  const fullShown = fullOutput !== null;
   const displayOutput = fullOutput ?? message.output;
 
   async function loadFullOutput() {
@@ -2315,14 +2318,15 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
     setFullError(null);
     try {
       const res = await fetch(fullOutputUrl);
-      const d = await res.json() as { success?: boolean; data?: { output?: string }; error?: string };
-      if (d.success) {
+      const d = await res.json().catch(() => null) as { success?: boolean; data?: { output?: string } } | null;
+      if (d?.success) {
         setFullOutput(d.data?.output ?? "");
       } else {
-        setFullError(d.error ?? "failed");
+        // 413: past the inline limit, the download still streams it.
+        setFullError(t(res.status === 413 ? "chat.fullOutputTooLarge" : "chat.fullOutputUnavailable"));
       }
-    } catch (e) {
-      setFullError(String(e));
+    } catch {
+      setFullError(t("chat.fullOutputUnavailable"));
     } finally {
       setLoadingFull(false);
     }
@@ -2349,29 +2353,46 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
         timestamp: message.timestamp,
       };
 
+  // pi keeps the end of a long output (2000 lines or 50KB) and writes all of it
+  // to a temp file. The card's result is that end, so the line under it says so
+  // and offers the rest. It sits inside the expanded card: loading the file
+  // changes the text right above it.
+  const linkStyle: CSSProperties = { color: "var(--accent)", fontSize: 11, textDecoration: "underline" };
+  const fullOutputFooter = message.truncated && fullOutputUrl ? (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "baseline",
+        gap: "2px 10px",
+        padding: "5px 10px",
+        fontSize: 11,
+        color: "var(--text-dim)",
+        borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
+      }}
+    >
+      <span role="status">
+        {fullError ?? t(fullShown ? "chat.fullOutputShown" : "chat.outputTruncated")}
+      </span>
+      {!fullShown && (
+        <button
+          type="button"
+          onClick={loadFullOutput}
+          disabled={loadingFull}
+          style={{ ...linkStyle, background: "none", border: "none", cursor: loadingFull ? "default" : "pointer", padding: 0 }}
+        >
+          {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
+        </button>
+      )}
+      <a href={`${fullOutputUrl}&download=1`} style={linkStyle}>
+        {t("chat.downloadFullOutput")}
+      </a>
+    </div>
+  ) : null;
+
   return (
     <div style={{ margin: "6px 0" }}>
-      <ToolCallBlock block={block} result={result} />
-      {message.truncated && fullOutputUrl && (
-        <div style={{ padding: "4px 10px", fontSize: 11, marginTop: -1 }}>
-          {showFullButton && (
-            <button
-              onClick={loadFullOutput}
-              disabled={loadingFull}
-              style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
-            >
-              {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
-            </button>
-          )}
-          <a
-            href={`${fullOutputUrl}&download=1`}
-            style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
-          >
-            {t("chat.downloadFullOutput")}
-          </a>
-          {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
-        </div>
-      )}
+      <ToolCallBlock block={block} result={result} resultFooter={fullOutputFooter} />
     </div>
   );
 }
