@@ -97,7 +97,7 @@ export const DEBUG_POLL_FAILURE_KEYS: Record<DebugPollFailure["kind"], string> =
 /** A subagent run's status: the agent switcher's words, and "unknown" for one the server could not read. */
 export const DEBUG_RUN_STATUS_KEYS: Record<SubagentSessionStatus | "unknown", string> = {
   starting: "agentSwitcher.status.starting",
-  queued: "debug.run.status.queued",
+  queued: "agentSwitcher.status.queued",
   running: "agentSwitcher.status.running",
   completed: "agentSwitcher.status.completed",
   failed: "agentSwitcher.status.failed",

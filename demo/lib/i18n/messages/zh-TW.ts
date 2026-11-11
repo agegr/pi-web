@@ -115,6 +115,7 @@ export const zhTWLocale: LocalePlugin = {
     "agentSwitcher.search": "搜尋 Agents",
     "agentSwitcher.noMatches": "找不到相符的 Agent",
     "agentSwitcher.status.starting": "正在啟動",
+    "agentSwitcher.status.queued": "排隊中",
     "agentSwitcher.status.running": "執行中",
     "agentSwitcher.status.completed": "已完成",
     "agentSwitcher.status.failed": "失敗",
