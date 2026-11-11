@@ -89,3 +89,8 @@ test("strips pi-tui internal cursor and fake cursor markers", () => {
   assert.doesNotMatch(html, /_pi:/);
   assert.doesNotMatch(html, /\x07/);
 });
+
+test("an unterminated pi-tui marker never swallows the following lines", () => {
+  const html = toHtml("cut\x1b_pi:fc\nnext line\x07 end");
+  assert.match(html, /next line/);
+});

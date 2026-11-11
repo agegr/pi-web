@@ -1,6 +1,10 @@
 const ANSI_ESCAPE_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
 const ANSI_ESCAPE_AT_START_RE = /^\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/;
-export const TUI_CURSOR_MARKER_RE = /\x1B_pi:[^\x07\x1B]*(?:\x07|\x1B\\)/g;
+// pi-tui's zero-width APC markers: CURSOR_MARKER `\x1B_pi:c\x07` and the fake cursor's
+// FAKE_CURSOR_START / FAKE_CURSOR_END (`\x1B_pi:fc\x07`, `\x1B_pi:/fc\x07`). pi's TUI turns the fake
+// cursor into reverse video, which ansi_up does not draw, so all of them are dropped. A marker never
+// spans a line: an unterminated one must not swallow the text up to a later BEL.
+export const TUI_CURSOR_MARKER_RE = /\x1B_pi:[^\x07\x1B\n]*(?:\x07|\x1B\\)/g;
 
 export function stripAnsi(text: string): string {
   return text.replace(TUI_CURSOR_MARKER_RE, "").replace(ANSI_ESCAPE_RE, "");
