@@ -677,8 +677,6 @@ export const enLocale: LocalePlugin = {
     "files.insertPath": "Insert path into chat",
     "files.mention": "mention",
     "files.download": "Download file",
-    "files.copyContent": "Copy file content",
-    "files.copyFailed": "Couldn't copy the file content",
     "files.binary": "binary",
     "files.binaryNoPreview": "Binary file: no preview. Download it to open it.",
     "files.outsideLink": "Links to {target}, outside this project",
