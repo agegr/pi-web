@@ -39,3 +39,73 @@ export function toolFieldsOfInput(input: unknown): ToolField[] | null {
   }
   return fields;
 }
+
+const PREVIEW_MAX = 120;
+
+function primitiveText(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() ? value : null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+/**
+ * A value that reads as itself: a non-empty string, a number or boolean, or a
+ * list of only those (`web_search`'s `queries[]`, `fetch_content`'s `urls[]`,
+ * an argv-style `command`), its items joined.
+ */
+function firstRankText(value: unknown, separator = ", "): string | null {
+  if (!Array.isArray(value)) return primitiveText(value);
+  if (value.length === 0 || !value.every((item) => item === null || typeof item !== "object")) return null;
+  const items = value.map(primitiveText).filter((text): text is string => text !== null);
+  return items.length > 0 ? items.join(separator) : null;
+}
+
+/** A nested value's first readable text: an object's first value that reads, a list's items' texts joined. */
+function nestedText(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const items = value
+      .map((item) => primitiveText(item) ?? nestedText(item))
+      .filter((text): text is string => text !== null);
+    return items.length > 0 ? items.join(", ") : null;
+  }
+  if (value && typeof value === "object") {
+    for (const inner of Object.values(value)) {
+      const text = firstRankText(inner) ?? nestedText(inner);
+      if (text !== null) return text;
+    }
+  }
+  return null;
+}
+
+/**
+ * The one line a collapsed tool card shows after the tool's name: the path,
+ * command or query when the call has one, else its first argument that reads
+ * as itself (a string, number, boolean or list of those), else the text inside
+ * its first object argument (an `ask_user_question` call's `questions[]`)
+ * instead of `[object Object]`.
+ */
+export function toolInputPreview(input: unknown, resultPatchPath: string | null = null): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+  const record = input as Record<string, unknown>;
+  const clip = (text: string) => text.slice(0, PREVIEW_MAX);
+  for (const key of ["command", "path", "file_path"]) {
+    // An argv-style command reads as the command line it is.
+    const text = firstRankText(record[key], key === "command" ? " " : ", ");
+    if (text !== null) return clip(text);
+  }
+  if (resultPatchPath) return clip(resultPatchPath);
+  for (const key of ["pattern", "query"]) {
+    const text = firstRankText(record[key]);
+    if (text !== null) return clip(text);
+  }
+  const values = Object.values(record);
+  for (const value of values) {
+    const text = firstRankText(value);
+    if (text !== null) return clip(text);
+  }
+  for (const value of values) {
+    const text = nestedText(value);
+    if (text !== null) return clip(text);
+  }
+  return "";
+}

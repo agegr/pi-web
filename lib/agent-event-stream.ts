@@ -51,11 +51,12 @@ export const TOOL_UPDATE_COALESCE_MS = 150;
  * Whether a later event repairs this one if it is dropped. A `*_delta` only
  * extends a block that its `*_end` replaces with the authoritative content, and
  * `tool_execution_update` carries the whole partial result, which the next update
- * or `tool_execution_end` supersedes. `*_start` / `*_end` are never dropped: the
+ * or `tool_execution_end` supersedes, as the next `bash_output` (a command's output
+ * tail) or the command's result supersedes one. `*_start` / `*_end` are never dropped: the
  * client's stream reducer creates and finalizes blocks from them.
  */
 function isDroppableEvent(event: AgentEventLike): boolean {
-  if (event.type === "tool_execution_update") return true;
+  if (event.type === "tool_execution_update" || event.type === "bash_output") return true;
   if (event.type !== "message_update") return false;
   const update = event.assistantMessageEvent;
   return typeof update === "object"
