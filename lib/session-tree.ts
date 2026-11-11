@@ -17,7 +17,7 @@
  * rest; in each band the projects without a place come first.
  */
 
-import { listSessionFamilies, type SessionFamily } from "./session-family";
+import { getSessionFamily, listSessionFamilies, type SessionFamily } from "./session-family";
 import { storedProjectName, type ProjectMovePosition, type SessionUiFamilyState, type SessionUiState } from "./session-ui-state-shared";
 import type { SessionInfo } from "./types";
 import { workspaceKeyOf } from "./workspace-memory";
@@ -916,21 +916,116 @@ export function getVisibleRowIndices(
  * now scrolled to `scrollTop`: centred when it is partly or wholly out of
  * view, null when it is already in view (or there is no such row). With
  * `block` "start" the row goes to the top unless it is there already (the
- * browser clamps a list too short to put it there).
+ * browser clamps a list too short to put it there). With "nearest" a row
+ * partly in view moves only as far as it takes to show it whole (its top
+ * first when it is taller than the viewport): a click on a row cut by an
+ * edge never moves it from under the pointer by half the list.
  */
 export function revealScrollTop(
   offsets: readonly number[],
   index: number,
   scrollTop: number,
   viewportHeight: number,
-  block?: "start",
+  block?: "start" | "nearest",
 ): number | null {
   if (!Number.isInteger(index) || index < 0 || index >= offsets.length - 1) return null;
   const top = offsets[index];
   const bottom = offsets[index + 1];
   if (block === "start") return top === scrollTop ? null : top;
   if (top >= scrollTop && bottom <= scrollTop + viewportHeight) return null;
+  if (block === "nearest" && bottom > scrollTop && top < scrollTop + viewportHeight) {
+    return top < scrollTop || bottom - top > viewportHeight ? top : bottom - viewportHeight;
+  }
   return Math.max(0, top - Math.max(0, (viewportHeight - (bottom - top)) / 2));
+}
+
+/**
+ * Where the main tree shows a session's row: its family's row in the pinned
+ * section or in its project's group, keyed as `buildSessionTree()` keys it
+ * (a subagent or a side chat is its root's row), and what hides it now: the
+ * pinned section folded, or the group folded on purpose. A group closed
+ * only because its project is not the current one needs nothing: opening
+ * a session makes its project current. Null when the main tree has no row
+ * for it: not in the list (a fresh session not saved yet) or archived.
+ */
+export interface SessionRowLocation {
+  rowKey: string;
+  projectKey: string;
+  /** The pinned section is folded over the row. */
+  unfoldPinned: boolean;
+  /** The row's group is folded by an explicit choice. */
+  unfoldGroup: boolean;
+}
+
+export function locateSessionRow(
+  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "groupExpansion" | "pinnedCollapsed">,
+  sessionId: string,
+): SessionRowLocation | null {
+  const family = getSessionFamily(input.sessions, sessionId);
+  if (!family || isFamilyArchived(family, input.uiState, input.runningIds)) return null;
+  const projectKey = familyProjectKey(family);
+  if (isFamilyPinned(family, input.uiState, input.runningIds)) {
+    return { rowKey: `session:pinned:${family.root.id}`, projectKey, unfoldPinned: input.pinnedCollapsed, unfoldGroup: false };
+  }
+  const unfoldGroup = Object.hasOwn(input.groupExpansion, projectKey) && input.groupExpansion[projectKey] === false;
+  return { rowKey: `session:group:${family.root.id}`, projectKey, unfoldPinned: false, unfoldGroup };
+}
+
+/**
+ * The session opened in the chat whose row is still to be brought into view
+ * (#1595). `shownSince`: when the main tree was first seen showing while
+ * this waited, null while it is hidden (another tab, the archive view,
+ * search results over it).
+ */
+export interface OpenSessionReveal { sessionId: string; shownSince: number | null }
+
+export interface OpenSessionRevealStep {
+  /** What is still to do; null: done or given up. */
+  pending: OpenSessionReveal | null;
+  /** Fold to open first: the pinned section, or a group's key. */
+  unfold: { pinned: boolean; groupKey: string | null };
+  /** The row to scroll to now. */
+  rowKey: string | null;
+}
+
+/**
+ * One look at the tree for the session opened in the chat, made on every
+ * change while one waits. Nothing happens before the list, the ui state and
+ * the browser's folds are in (`ready`), nor while the main tree is not on
+ * the page (`shown`): a
+ * hidden tree has no box to scroll, and an archive or a search over it is
+ * what the user is looking at. Then the fold over the row opens, and the row
+ * is revealed once it is in `rows`. A session without a row in the main tree
+ * is let go at once; a row that does not turn up within REVEAL_EXPIRY_MS of
+ * the tree showing (its project never became current, say) is let go too,
+ * so the tree never scrolls later, when the row turns up for another reason.
+ */
+export function openSessionRevealStep(
+  pending: OpenSessionReveal,
+  input: Pick<SessionTreeInput, "sessions" | "uiState" | "runningIds" | "groupExpansion" | "pinnedCollapsed"> & {
+    ready: boolean;
+    shown: boolean;
+    rows: readonly SidebarRow[];
+    now: number;
+  },
+): OpenSessionRevealStep {
+  const nothing = { pinned: false, groupKey: null };
+  if (!input.ready) return { pending, unfold: nothing, rowKey: null };
+  const location = locateSessionRow(input, pending.sessionId);
+  if (!location) return { pending: null, unfold: nothing, rowKey: null };
+  if (!input.shown) {
+    return { pending: pending.shownSince === null ? pending : { ...pending, shownSince: null }, unfold: nothing, rowKey: null };
+  }
+  // A look comes with every change, the row turning up included, so its
+  // time is when the row turned up: too late, and it is not scrolled to.
+  const shownSince = pending.shownSince ?? input.now;
+  // Written so an unreadable time counts as too old.
+  if (!(input.now - shownSince <= REVEAL_EXPIRY_MS)) return { pending: null, unfold: nothing, rowKey: null };
+  const unfold = { pinned: location.unfoldPinned, groupKey: location.unfoldGroup ? location.projectKey : null };
+  if (!unfold.pinned && unfold.groupKey === null && input.rows.some((row) => row.key === location.rowKey)) {
+    return { pending: null, unfold, rowKey: location.rowKey };
+  }
+  return { pending: shownSince === pending.shownSince ? pending : { ...pending, shownSince }, unfold, rowKey: null };
 }
 
 /** A reveal request is dropped once its row has missed this many rows updates, or this long after it was made. */

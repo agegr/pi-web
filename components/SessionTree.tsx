@@ -63,8 +63,9 @@ type SessionRow = Extract<SidebarRow, { kind: "session" }>;
 
 /**
  * A request to bring one row into view, made by the parent after a change
- * that puts it somewhere the user is not looking (a fork's new row, a moved
- * group). Until it is handled the row is kept mounted. It is handled once:
+ * that puts it somewhere the user may not be looking (the row of a session
+ * just opened, however it was opened; a moved group). Until it is handled
+ * the row is kept mounted. It is handled once:
  * scrolled to when its row is in the rows, or dropped (revealStep(): its row
  * missed REVEAL_MAX_MISSES rows updates, or it is older than
  * REVEAL_EXPIRY_MS), so it never fires later, when that row shows up for
@@ -80,8 +81,12 @@ export interface SessionTreeReveal {
   at: number;
   /** Any row's key: a session row, a group header. */
   rowKey: string;
-  /** "start": the row goes to the top (a group header with its rows below it); else centred when out of view. */
-  block?: "start";
+  /**
+   * "start": the row goes to the top (a group header with its rows below it);
+   * "nearest": a row partly in view scrolls only as far as it takes to show
+   * it whole; else centred when out of view (revealScrollTop()).
+   */
+  block?: "start" | "nearest";
   /**
    * Also focus the row's first control once it is on the page: when focus has
    * fallen to <body>, or when this says the element that has it may give it
