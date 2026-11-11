@@ -32,6 +32,8 @@ import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { formatSessionSummary } from "@/lib/session-stats-format";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
+import { createIdleMessageReads, entriesAfter } from "@/lib/idle-message-read";
+import { isHiddenCustomMessage } from "@/lib/message-display";
 import {
   AgentEventConnection,
   canReleaseHiddenEventStream,
@@ -950,7 +952,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (showLoading && !messagesLoaded) setLoading(false);
     }
     })();
-    if (!options?.force) loadFlightsRef.current.set(flightKey, flight);
+    loadFlightsRef.current.set(flightKey, flight);
     flight.finally(() => {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
@@ -1760,6 +1762,68 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  /**
+   * A message an extension posted while idle: the branch's newest entries (a
+   * tail read) appended after the loaded window, so the pages the reader loaded
+   * above stay. A read that does not reach back to the window's last entry, or a
+   * window holding messages no entry backs, takes the full read.
+   */
+  const idleMessageReadWanted = useCallback((sid: string) => (
+    sessionHookMountedRef.current && sessionIdRef.current === sid && !agentRunningRef.current
+  ), []);
+  // The leaf an append moved the view to. activeLeafId stays the last full
+  // read's, as the tree the navigator finds it in does; /clone copies this one
+  // while the view still ends with that append and no read moved the leaf.
+  const appendedLeafRef = useRef<{ base: string | null; lastEntryId: string; leafId: string } | null>(null);
+  // A `!` command's record a tail read found before the command's own read.
+  const idleReadAfterBashRef = useRef<string | null>(null);
+  const readIdleMessages = useCallback(async (sid: string) => {
+    // `tail` counts user and assistant entries: 1 reads from the newest of them to the leaf.
+    const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: "1" });
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { context, leafId } = await res.json() as { context: SessionData["context"]; leafId?: string | null };
+    // A run started meanwhile shows its own messages, and its end reads them all.
+    if (!idleMessageReadWanted(sid)) return;
+    // The window as it is now: a read that landed meanwhile started after the
+    // message, so nothing follows its last entry then.
+    const anchor = entryIdsRef.current.at(-1);
+    const anchorMessage = messagesRef.current.at(-1);
+    const added = anchor !== undefined && messagesRef.current.length === entryIdsRef.current.length
+      ? entriesAfter(anchor, { messages: context.messages, entryIds: context.entryIds ?? [] })
+      : null;
+    if (!added) {
+      await loadSession(sid);
+      return;
+    }
+    if (added.entryIds.length === 0) return;
+    // A `!` command's record ahead of the command's own read would show beside its
+    // pending card: that read shows it, and this one comes again after the command.
+    if (bashRunningRef.current && added.messages.some((message) => message.role === "bashExecution")) {
+      idleReadAfterBashRef.current = sid;
+      return;
+    }
+    // The refs move with the state: a read landing before the render appends after these.
+    entryIdsRef.current = [...entryIdsRef.current, ...added.entryIds];
+    messagesRef.current = [...messagesRef.current, ...added.messages];
+    setEntryIds((prev) => (prev.at(-1) === anchor ? [...prev, ...added.entryIds] : prev));
+    setMessages((prev) => (prev.at(-1) === anchorMessage ? [...prev, ...added.messages] : prev));
+    if (leafId) appendedLeafRef.current = { base: activeLeafIdRef.current, lastEntryId: added.entryIds.at(-1)!, leafId };
+    // The cached view covers them too, or the unmount drops it (snapshotCoversLoadedEntries()).
+    // Its revision stays the old one, so coming back still reads the session.
+    const snapshot = getSessionViewSnapshot(sid);
+    if (snapshot) setSessionViewSnapshot({ ...snapshot, loadedEntryIds: [...snapshot.loadedEntryIds, ...added.entryIds] });
+  }, [idleMessageReadWanted, loadSession]);
+  const readIdleMessagesRef = useRef(readIdleMessages);
+  readIdleMessagesRef.current = readIdleMessages;
+  const idleMessageReadsRef = useRef<((sid: string) => void) | null>(null);
+  idleMessageReadsRef.current ??= createIdleMessageReads({
+    pendingReads: (sid) => [loadFlightsRef.current.get(sid), loadFlightsRef.current.get(`force:${sid}`)],
+    read: (sid) => readIdleMessagesRef.current(sid),
+    wanted: idleMessageReadWanted,
+    onError: (error) => console.error("Failed to read a message sent while idle:", error),
+  });
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected": {
@@ -1917,7 +1981,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Same late-event guard: after reconcile finished this run,
         // loadSession already loaded this message from the session file —
         // appending it again would duplicate it.
-        if (!agentRunningRef.current) break;
+        if (!agentRunningRef.current) {
+          // An extension's sendMessage({ display: true }) while idle (a timer, a
+          // watcher): pi appends it to the session before this event, so a session
+          // read (the live wrapper's SessionManager) shows it, as pi's TUI prints it at once.
+          const idle = event.message as { role?: AgentMessage["role"]; display?: boolean } | undefined;
+          if (idle?.role === "custom" && !isHiddenCustomMessage(idle) && sessionIdRef.current) {
+            idleMessageReadsRef.current?.(sessionIdRef.current);
+          }
+          break;
+        }
         if (isSystemMessageEvent(event)) break;
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role === "user") {
@@ -2269,6 +2342,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       bashRunningRef.current = false;
       setPendingBash(null);
       setBashRunning(false);
+      const idleRead = idleReadAfterBashRef.current;
+      idleReadAfterBashRef.current = null;
+      if (idleRead) idleMessageReadsRef.current?.(idleRead);
     }
   }, [addNotice, composerDraftKey, ensureEventsConnected, ensureNewSession, loadSession, promoteNewSession, restoreSubmission, session]);
   executeBashRef.current = executeBash;
@@ -2745,9 +2821,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentRunningRef.current || bashRunningRef.current) {
             return complete({ handled: true, error: "Cannot clone while the session is running" });
           }
+          const appended = appendedLeafRef.current;
           const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
             type: "clone",
-            leafId: activeLeafId,
+            leafId: appended?.base === activeLeafId && appended.lastEntryId === entryIdsRef.current.at(-1)
+              ? appended.leafId
+              : activeLeafId,
           });
           if (result?.cancelled || !result?.newSessionId) {
             return complete({ handled: true, error: "Cannot clone an empty or unsaved session" });
