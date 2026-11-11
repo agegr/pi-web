@@ -19,12 +19,15 @@ import {
   modelSidebarLabel,
   moveModelEntry,
   parseCompleteModelCost,
+  providerRuntimeName,
   providerSidebarLabel,
   providerMatchesSearch,
   savedModelIds,
+  savedProviderNames,
   serializeHeaderRows,
   setCompatBool,
   setCompatFlag,
+  setProviderDisplayName,
   sortModelEntries,
   trackAddedModels,
   collectModelRenames,
@@ -338,8 +341,8 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, editingName, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels, enabledModels }: {
-  name: string; editingName: string; provider: ProviderEntry;
+function ProviderDetail({ name, editingName, fallbackLabel, provider, onChange, onEditingNameChange, onRename, onDelete, onAddModels, enabledModels }: {
+  name: string; editingName: string; fallbackLabel: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onEditingNameChange: (n: string) => void;
   onRename: (n: string) => void; onDelete: () => void;
   onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
@@ -449,6 +452,12 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
              {t("i18n.rename")}
           </button>
         )}
+      </Field>
+
+      {/* models.json `name`: the label the sidebar and the selector show (#1567). */}
+      <Field label={t("models.providerDisplayName")}>
+        <TextInput value={provider.name ?? ""} onChange={(v) => onChange(setProviderDisplayName(provider, v))}
+          placeholder={fallbackLabel} />
       </Field>
 
       <Field label="Base URL">
@@ -1933,6 +1942,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const [apiKeyProviders, setApiKeyProviders] = useState<ApiKeyProvider[]>([]);
   /** Runtime display names of every provider, including ones with no chat models. */
   const [providerNames, setProviderNames] = useState<Record<string, string>>({});
+  /** Each provider's models.json `name` as saved, which pi also reports as its runtime name. */
+  const [savedNames, setSavedNames] = useState<Map<string, string>>(() => new Map());
   /** Set once the provider lists have answered; until then an overrides-only entry may be a managed provider's. */
   const [authListed, setAuthListed] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1981,6 +1992,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         setConfig(normalized);
         savedProvidersRef.current = new Set(Object.keys(normalized.providers ?? {}));
         savedModelIdsRef.current = savedModelIds(normalized);
+        setSavedNames(savedProviderNames(normalized));
         const keys = Object.keys(normalized.providers ?? {});
         setSelection((current) => current && customSelectionExists(normalized, current)
           ? current
@@ -2241,8 +2253,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         const modelRenames = collectModelRenames(draft, savedModelIdsRef.current, renamesRef.current);
         savedProvidersRef.current = new Set(Object.keys(draft.providers ?? {}));
         savedModelIdsRef.current = savedModelIds(draft);
+        setSavedNames(savedProviderNames(draft));
         renamesRef.current.clear();
         enabledModels.resync(renames, modelRenames);
+        // Runtime names follow the saved ids and `name`s.
+        refreshAuthProviders();
       }
     } catch (e) {
       if (e instanceof ProviderEntryError) {
@@ -2254,13 +2269,21 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     } finally {
       setSaving(false);
     }
-  }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, t]);
+  }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, refreshAuthProviders, t]);
 
   const providers = Object.entries(config.providers ?? {}).filter(([id, entry]) => {
     if (!isOverridesOnly(entry)) return true;
     const managed = oauthProviders.some((provider) => provider.id === id) || apiKeyProviders.some((provider) => provider.id === id);
     return authListed && !managed;
   });
+  const customProviderLabel = (providerId: string, entry: ProviderEntry) => providerSidebarLabel(
+    providerId,
+    entry,
+    providerRuntimeName(
+      providerNames[providerId] ?? enabledModels.view?.providers.find((provider) => provider.id === providerId)?.name,
+      savedNames.get(providerId),
+    ),
+  );
   // `12/40` next to a provider makes a narrowed selector visible at a glance.
   const scopeBadge = (providerId: string) => {
     const label = providerBadgeLabel(enabledModels.view, providerId);
@@ -2291,6 +2314,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
           key={selection.name}
           name={selection.name}
           editingName={providerNameDraft?.provider === selection.name ? providerNameDraft.name : selection.name}
+          fallbackLabel={customProviderLabel(selection.name, {})}
           provider={provider}
           onChange={(p) => updateProvider(selection.name, p)}
           onEditingNameChange={(n) => setProviderNameDraft(n === selection.name ? null : { provider: selection.name, name: n })}
@@ -2386,12 +2410,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                         <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                       </svg>
                       <ConfigSidebarText className="is-grow">
-                        {providerSidebarLabel(
-                          pName,
-                          pData,
-                          providerNames[pName]
-                            ?? enabledModels.view?.providers.find((provider) => provider.id === pName)?.name,
-                        )}
+                        {customProviderLabel(pName, pData)}
                       </ConfigSidebarText>
                       {scopeBadge(pName)}
                     </ConfigSidebarItem>
