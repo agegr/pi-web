@@ -1,5 +1,5 @@
 import type { AssistantContentBlock, AssistantMessage } from "./types";
-import { getAssistantErrorMessage, isAssistantTruncated, splitFinalAssistantBlocks } from "./message-display";
+import { getAssistantErrorMessage, isAssistantAborted, isAssistantTruncated, splitFinalAssistantBlocks } from "./message-display";
 import type { WrittenFile } from "./turn-written-files";
 
 /** What the chat shows of a turn's final assistant message, apart. */
@@ -14,10 +14,15 @@ export interface FinalAnswerViews {
 function withAssistantBlocks(
   message: AssistantMessage,
   content: AssistantContentBlock[],
-  options: { omitUsage?: boolean } = {},
+  options: { omitUsage?: boolean; omitStop?: boolean } = {},
 ): AssistantMessage {
   const next = { ...message, content };
   if (options.omitUsage) next.usage = undefined;
+  // How the message ended is said once, under the answer.
+  if (options.omitStop) {
+    next.stopReason = undefined;
+    next.errorMessage = undefined;
+  }
   return next;
 }
 
@@ -36,7 +41,10 @@ export function getFinalAnswerViews(
   if (cached) return cached;
 
   const { answerBlocks } = splitFinalAssistantBlocks(message);
-  const answer = answerBlocks.length > 0 || getAssistantErrorMessage(message) || isAssistantTruncated(message)
+  const answer = answerBlocks.length > 0
+    || getAssistantErrorMessage(message)
+    || isAssistantTruncated(message)
+    || isAssistantAborted(message)
     ? withAssistantBlocks(message, answerBlocks)
     : null;
   const processEnd = message.content.indexOf(answerBlocks[0]);
@@ -46,7 +54,7 @@ export function getFinalAnswerViews(
     process: withAssistantBlocks(
       message,
       message.content.slice(0, processEnd < 0 ? undefined : processEnd),
-      { omitUsage: Boolean(answer) },
+      { omitUsage: Boolean(answer), omitStop: Boolean(answer) },
     ),
   };
   cache.set(message, views);
