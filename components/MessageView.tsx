@@ -201,7 +201,8 @@ interface Props {
   onOpenSubagent?: (sessionId: string, label: string) => void;
   entryId?: string;
   searchBlock?: AssistantContentBlock;
-  onFork?: (entryId: string) => void;
+  /** `message` as the composer takes it back: pi's /fork puts the forked message in the editor. */
+  onFork?: (entryId: string, message: UserMessage) => void;
   forking?: boolean;
   onEditContent?: (message: UserMessage, entryId: string) => void;
   onCancelEdit?: () => void;
@@ -339,7 +340,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   entryId?: string;
-  onFork?: (entryId: string) => void;
+  onFork?: (entryId: string, message: UserMessage) => void;
   forking?: boolean;
   onEditContent?: (message: UserMessage, entryId: string) => void;
   onCancelEdit?: () => void;
@@ -609,7 +610,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               )}
               {canFork && (
                 <button
-                  onClick={() => { onFork!(entryId!); }}
+                  onClick={() => { onFork!(entryId!, editTarget); }}
                   disabled={forking}
                    title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
                   style={{
