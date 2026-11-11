@@ -19,7 +19,7 @@ import {
   isVideoPath,
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
-import { fileVersion, fileVersionChanged } from "@/lib/file-version";
+import { FILE_WATCH_HEARTBEAT_MS, fileVersion, fileVersionChanged } from "@/lib/file-version";
 import { injectSandboxedHtmlPolyfill } from "@/lib/html-sandbox-polyfill";
 import { HIDDEN_PAGE_GRACE_MS, usePageHiddenFor } from "@/hooks/usePageHidden";
 import { pageId, trackEventSource } from "@/lib/page-debug";
@@ -281,6 +281,37 @@ function usePreviewUrl(filePath: string, type: "read" | "preview", sourceSession
   return useMemo(() => getFileApiUrl(filePath, type, sourceSessionId, { v: ++previewLoads }), [filePath, type, sourceSessionId, bust]);
 }
 
+/**
+ * Keeps a viewer's file watch alive. The browser never retries an EventSource
+ * whose reconnect got an HTTP error (a proxy's 502 while pi-web restarts), and a
+ * half-open connection (sleep, a dropped NAT entry) goes quiet without one.
+ * Either way the viewer opens a new watch; its `connected` reads the file again
+ * if it changed meanwhile.
+ */
+function useWatchRecovery(): [number, (es: EventSource) => () => void] {
+  const [attempt, setAttempt] = useState(0);
+  const failures = useRef(0);
+  const supervise = useCallback((es: EventSource) => {
+    let stale: ReturnType<typeof setTimeout> | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const reopen = () => {
+      clearTimeout(stale);
+      es.close();
+      retry ??= setTimeout(() => setAttempt((n) => n + 1), Math.min(1000 * 2 ** failures.current++, FILE_WATCH_HEARTBEAT_MS));
+    };
+    const alive = () => {
+      clearTimeout(stale);
+      stale = setTimeout(reopen, FILE_WATCH_HEARTBEAT_MS * 2.5);
+    };
+    es.addEventListener("connected", () => { failures.current = 0; });
+    for (const name of ["connected", "change", "ping"]) es.addEventListener(name, alive);
+    es.addEventListener("error", () => { if (es.readyState === EventSource.CLOSED) reopen(); });
+    alive();
+    return () => { clearTimeout(stale); clearTimeout(retry); };
+  }, []);
+  return [attempt, supervise];
+}
+
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
   const { t } = useI18n();
   return (
@@ -468,6 +499,7 @@ function DiffView({ patch, wrapLines }: { patch: string; wrapLines: boolean }) {
 function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
   const [watching, setWatching] = useState(false);
+  const [watchAttempt, superviseWatch] = useWatchRecovery();
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
@@ -524,6 +556,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
     const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
+    const stopSupervising = superviseWatch(es);
 
     es.addEventListener("connected", () => {
       setWatching(true);
@@ -550,9 +583,10 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     return () => {
       active = false;
       es.close();
+      stopSupervising();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, sourceSessionId, watchEnabled]);
+  }, [filePath, sourceSessionId, watchEnabled, watchAttempt, superviseWatch]);
 
   const src = usePreviewUrl(filePath, "read", sourceSessionId, bust);
 
@@ -648,6 +682,7 @@ function formatDuration(seconds: number): string {
 function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
   const [watching, setWatching] = useState(false);
+  const [watchAttempt, superviseWatch] = useWatchRecovery();
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -704,6 +739,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
     const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
+    const stopSupervising = superviseWatch(es);
 
     es.addEventListener("connected", () => {
       setWatching(true);
@@ -730,9 +766,10 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     return () => {
       active = false;
       es.close();
+      stopSupervising();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, sourceSessionId, watchEnabled]);
+  }, [filePath, sourceSessionId, watchEnabled, watchAttempt, superviseWatch]);
 
   const src = usePreviewUrl(filePath, "read", sourceSessionId, bust);
 
@@ -809,6 +846,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
   const { t } = useI18n();
   const [watching, setWatching] = useState(false);
+  const [watchAttempt, superviseWatch] = useWatchRecovery();
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -865,6 +903,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
     const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
+    const stopSupervising = superviseWatch(es);
 
     es.addEventListener("connected", () => {
       setWatching(true);
@@ -891,9 +930,10 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
     return () => {
       active = false;
       es.close();
+      stopSupervising();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, sourceSessionId, watchEnabled]);
+  }, [filePath, sourceSessionId, watchEnabled, watchAttempt, superviseWatch]);
 
   const src = usePreviewUrl(filePath, "read", sourceSessionId, bust);
 
@@ -972,6 +1012,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnabled = true }: Props) {
   const { t } = useI18n();
   const [watching, setWatching] = useState(false);
+  const [watchAttempt, superviseWatch] = useWatchRecovery();
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1056,6 +1097,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
 
     const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
+    const stopSupervising = superviseWatch(es);
 
     es.addEventListener("connected", () => {
       setWatching(true);
@@ -1087,9 +1129,10 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
     return () => {
       active = false;
       es.close();
+      stopSupervising();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, isPdf, sourceSessionId, watchEnabled]);
+  }, [filePath, isPdf, sourceSessionId, watchEnabled, watchAttempt, superviseWatch]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1225,6 +1268,7 @@ function TextFileViewer({
   const [displayMode, setDisplayMode] = useState<DisplayMode>(requestedInitialDisplayMode);
   const [wrapLines, setWrapLines] = useState(initialWrapLines);
   const [watching, setWatching] = useState(false);
+  const [watchAttempt, superviseWatch] = useWatchRecovery();
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
   // The version of the content on screen; a reconnect that finds it unchanged
@@ -1378,6 +1422,7 @@ function TextFileViewer({
 
     const es = trackEventSource("file-watch", new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId)), filePath);
     esRef.current = es;
+    const stopSupervising = superviseWatch(es);
 
     es.addEventListener("connected", () => {
       setWatching(true);
@@ -1413,9 +1458,10 @@ function TextFileViewer({
     return () => {
       active = false;
       es.close();
+      stopSupervising();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, fetchContent, fetchGitDiff, sourceSessionId, watchEnabled]);
+  }, [filePath, fetchContent, fetchGitDiff, sourceSessionId, watchEnabled, watchAttempt, superviseWatch]);
 
   useEffect(() => {
     void fetchGitDiff(filePath);
