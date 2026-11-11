@@ -100,6 +100,19 @@ export function getAssistantErrorMessage(
 }
 
 /**
+ * A reply cut off by Stop, which pi's TUI marks "Operation aborted" as it ends.
+ * Its `errorMessage` is whatever the provider's client threw ("Request aborted",
+ * "This operation was aborted", …), so the chat says its own line instead. A
+ * tool call it streamed never ran: pi runs no tools after an abort.
+ */
+export function isAssistantAborted(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): boolean {
+  return !options.isStreaming && message.stopReason === "aborted";
+}
+
+/**
  * A turn that ended on `stopReason: "length"` spent its whole output budget
  * (often on reasoning alone) and produced no final answer; without a notice it
  * looks like a hung session. The copy lives in i18n (`chat.truncatedByOutputLimit`).

@@ -16,6 +16,16 @@ export const extensionSource = `export default function (pi) {
         result = await ctx.ui.confirm("E2E code", "Run this?\\n\\n\`\`\`sql\\n" + "CREATE TABLE t (" + Array.from({ length: 2 }, (_, i) => "column_" + i + " VARCHAR(255) NOT NULL").join(", ") + ");\\n\`\`\`");
       } else if (mode === "huge") {
         result = await ctx.ui.confirm("E2E huge", "\`\`\`sql\\n" + "SELECT " + "column_name, ".repeat(80) + "1;\\n\`\`\`");
+      } else if (mode === "editor-text") {
+        ctx.ui.setEditorText("E2E stale");
+        ctx.ui.setEditorText("E2E replaced");
+        await ctx.ui.confirm("E2E editor-text", "Replaced");
+        ctx.ui.setEditorText("");
+        await ctx.ui.confirm("E2E editor-text cleared", "Cleared");
+        ctx.ui.pasteToEditor("E2E one");
+        ctx.ui.pasteToEditor(" two");
+        result = await ctx.ui.confirm("E2E editor-text pasted", "Pasted");
+        ctx.ui.pasteToEditor("");
       } else if (mode === "panel") {
         result = await ctx.ui.custom((tui, theme, keybindings, done) => ({
           render: (width) => ["E2E panel", "x".repeat(width)],
@@ -106,7 +116,26 @@ export async function checkExtensionDialogs(page, artifacts, width) {
     await afterTimeout.getByRole("textbox").fill("Still answerable");
     await page.keyboard.press("Enter");
     await finish("timeout", "Still answerable");
-    console.log(`PASS: ${width}px extension keyboard navigation, cancel, draft preservation, and server expiry`);
+
+    // setEditorText() replaces the draft (the last call wins, "" clears it), as pi's
+    // editor setText() does; pasteToEditor() inserts at the caret, and "" inserts nothing.
+    const composer = page.locator("textarea").last();
+    const editorText = await start("editor-text");
+    assert.equal(await composer.inputValue(), "E2E replaced", "setEditorText replaces the draft");
+    await editorText.getByRole("button", { name: "Cancel", exact: true }).click();
+    const cleared = page.getByRole("dialog", { name: "E2E editor-text cleared", exact: true });
+    await cleared.waitFor();
+    assert.equal(await composer.inputValue(), "", "An empty setEditorText clears the draft");
+    await cleared.getByRole("button", { name: "Cancel", exact: true }).click();
+    const pasted = page.getByRole("dialog", { name: "E2E editor-text pasted", exact: true });
+    await pasted.waitFor();
+    assert.equal(await composer.inputValue(), "E2E one two", "pasteToEditor inserts at the caret");
+    await composer.evaluate((textarea) => textarea.setSelectionRange(0, 3));
+    await pasted.getByRole("button", { name: "Cancel", exact: true }).click();
+    await finish("editor-text", "false");
+    assert.equal(await composer.inputValue(), "E2E one two", "An empty pasteToEditor leaves a selection in place");
+    await composer.fill("");
+    console.log(`PASS: ${width}px extension keyboard navigation, cancel, draft preservation, server expiry, and editor text`);
   } finally {
     page.off("request", onRequest);
   }
