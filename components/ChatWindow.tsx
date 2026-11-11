@@ -285,7 +285,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const {
     loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, selectedBuiltinTools, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -305,7 +305,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     dismissCompactError,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, loadAllModels, scrollUserMsgToTop,
+    handleToolPresetChange, handleBuiltinToolToggle, handleToolMenuOpen, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, loadAllModels, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
@@ -841,6 +841,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
+  const canChangeTools = (session && !isHiddenRelation(session.relation)) || isNew;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
@@ -981,7 +982,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onDismissCompactError={dismissCompactError}
       compactResult={compactResult}
       toolPreset={toolPreset}
-      onToolPresetChange={(session && !isHiddenRelation(session.relation)) || isNew ? handleToolPresetChange : undefined}
+      onToolPresetChange={canChangeTools ? handleToolPresetChange : undefined}
+      selectedBuiltinTools={selectedBuiltinTools}
+      onBuiltinToolToggle={canChangeTools ? handleBuiltinToolToggle : undefined}
+      onToolMenuOpen={canChangeTools ? handleToolMenuOpen : undefined}
       thinkingLevel={thinkingLevel}
       isAutoThinkingSelection={isAutoThinkingSelection}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}

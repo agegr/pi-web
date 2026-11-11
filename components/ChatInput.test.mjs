@@ -488,6 +488,27 @@ test("renders the empty tool preset as Chat only", () => {
   assert.match(html, />Chat only<\/span>/);
 });
 
+test("renders a selection no preset spells as Custom", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onToolPresetChange() {},
+        onBuiltinToolToggle() {},
+        isStreaming: false,
+        toolPreset: "custom",
+        selectedBuiltinTools: ["read", "grep"],
+      }),
+    ),
+  );
+
+  assert.match(html, /title="Change tool preset: Custom"/);
+  assert.match(html, />Custom<\/span>/);
+});
+
 test("renders the compact composer with the standard Send button and no session controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(

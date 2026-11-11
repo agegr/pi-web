@@ -26,7 +26,18 @@ import {
 } from "@/lib/session-view-cache";
 import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
-import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
+import {
+  CONFIGURED_TOOL_PRESET,
+  CUSTOM_TOOL_SELECTION,
+  getActiveBuiltinToolNames,
+  getPresetFromToolNames,
+  getToolNamesForPreset,
+  getToolSelectionLabel,
+  toggleBuiltinToolName,
+  type ToolEntry,
+  type ToolPreset,
+  type ToolSelectionLabel,
+} from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { formatSessionSummary } from "@/lib/session-stats-format";
@@ -486,6 +497,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
+  // A pinned selection no preset spells (the tool menu's checkboxes); null while one does.
+  const [customToolNames, setCustomToolNames] = useState<string[] | null>(null);
+  // The built-in tools get_tools last reported active: what an unpinned session resolved.
+  const [liveBuiltinToolNames, setLiveBuiltinToolNames] = useState<string[] | null>(null);
   const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(() => initialChoices?.thinkingLevel ?? null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
@@ -660,9 +675,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const setToolPresetState = opts.setToolPreset ?? setToolPreset;
   const existingSessionId = session?.id;
 
+  /** Show a selection: undefined is no pin (configured), a list is the session's pin. */
+  const showToolSelection = useCallback((toolNames: readonly string[] | undefined) => {
+    setToolPresetState(toolNames !== undefined ? getPresetFromToolNames(toolNames) : CONFIGURED_TOOL_PRESET);
+    setCustomToolNames(getToolSelectionLabel(toolNames) === CUSTOM_TOOL_SELECTION ? [...toolNames!] : null);
+  }, [setToolPresetState]);
+
   useLayoutEffect(() => {
     if (!existingSessionId && (!isNew || sessionIdRef.current)) return;
     setToolPresetState(getPreferredToolPreset());
+    setCustomToolNames(null);
   }, [existingSessionId, isNew, setToolPresetState]);
 
   const onNewSessionChoicesChange = opts.onNewSessionChoicesChange;
@@ -906,7 +928,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // Tool-preset state is independent of the view cache: it must be applied
       // on every read, cached window or not (#700).
       sessionToolsPinnedRef.current = d.toolNames !== undefined;
-      setToolPresetState(d.toolNames !== undefined ? getPresetFromToolNames(d.toolNames) : CONFIGURED_TOOL_PRESET);
+      showToolSelection(d.toolNames);
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setCurrentThinkingOverride(null);
       setError(null);
@@ -978,7 +1000,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
     return await flight;
-  }, [applyLiveUsage, setToolPresetState, syncLiveModel]);
+  }, [applyLiveUsage, showToolSelection, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -1026,15 +1048,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
       if (!tools || !sessionHookMountedRef.current || sessionIdRef.current !== sid) return null;
-      const { getPresetFromTools } = await import("@/lib/tool-presets");
-      setToolPresetState(sessionToolsPinnedRef.current ? getPresetFromTools(tools) : CONFIGURED_TOOL_PRESET);
+      const builtinToolNames = getActiveBuiltinToolNames(tools);
+      setLiveBuiltinToolNames(builtinToolNames);
+      showToolSelection(sessionToolsPinnedRef.current ? builtinToolNames : undefined);
       onSystemToolsChange?.(tools);
       return tools;
     } catch (e) {
       console.error("Failed to load tools:", e);
       return null;
     }
-  }, [onSystemToolsChange, setToolPresetState]);
+  }, [onSystemToolsChange, showToolSelection]);
 
   const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
     const sid = sessionIdRef.current;
@@ -1074,7 +1097,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (selectedModel) setPendingModel(selectedModel);
       // Undefined means the user never overrode the loadout: omit the field entirely
       // so pi resolves settings.json defaultTools instead of being pinned to ours (#700).
-      const toolNames = getToolNamesForPreset(toolPreset);
+      const toolNames = customToolNames ?? getToolNamesForPreset(toolPreset);
       sessionToolsPinnedRef.current = toolNames !== undefined;
       const res = await fetch("/api/agent/new", {
         method: "POST",
@@ -1126,7 +1149,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [customToolNames, isNew, newSessionCwd, toolPreset]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -3048,10 +3071,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     reloadModelsQuietly();
   }, [addNotice, displayThinkingLevel, handleThinkingLevelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
-  const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
-    const toolNames = getToolNamesForPreset(preset);
-    setPreferredToolPreset(preset);
-    setToolPresetState(preset);
+  const applyToolSelection = useCallback(async (toolNames: string[] | undefined) => {
+    showToolSelection(toolNames);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) {
       sessionToolsPinnedRef.current = toolNames !== undefined;
@@ -3093,7 +3114,42 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
-  }, [cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
+  }, [cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, showToolSelection, syncLiveModel]);
+
+  const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
+    setPreferredToolPreset(preset);
+    await applyToolSelection(getToolNamesForPreset(preset));
+  }, [applyToolSelection]);
+
+  // The tool menu's checkboxes: the pinned selection, or for an unpinned session the
+  // tools defaultTools resolved to (null until get_tools has answered).
+  const selectedBuiltinTools = customToolNames
+    ?? (toolPreset === CONFIGURED_TOOL_PRESET ? liveBuiltinToolNames : getToolNamesForPreset(toolPreset) ?? null);
+
+  // A checkbox pins the selection with one tool switched; the preset pick in browser
+  // storage is left alone, so fresh composers still start from the last chosen preset.
+  const handleBuiltinToolToggle = useCallback(async (name: string) => {
+    let current: string[] | null = selectedBuiltinTools;
+    if (current === null) {
+      const sid = sessionIdRef.current ?? await ensureNewSession();
+      const tools = sid ? await loadTools(sid) : null;
+      if (!tools) return;
+      current = getActiveBuiltinToolNames(tools);
+    }
+    const next = toggleBuiltinToolName(current, name);
+    // An empty selection is Chat only, which also drops extensions, skills and the
+    // system prompt; that stays the preset's to choose.
+    if (next.length === 0) return;
+    await applyToolSelection(next);
+  }, [applyToolSelection, ensureNewSession, loadTools, selectedBuiltinTools]);
+
+  // An unpinned session's checkboxes need its resolved tools: ask for them the way
+  // opening the Tools panel does.
+  const handleToolMenuOpen = useCallback(() => {
+    if (selectedBuiltinTools === null) void loadSystemInfo();
+  }, [loadSystemInfo, selectedBuiltinTools]);
+
+  const toolSelectionLabel: ToolSelectionLabel = customToolNames ? CUSTOM_TOOL_SELECTION : toolPreset;
 
   const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
     const container = scrollContainerRef.current;
@@ -3525,7 +3581,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset: toolSelectionLabel, selectedBuiltinTools, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -3553,7 +3609,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     cancelEdit: editEntryId ? cancelEdit : undefined,
     addNotice,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, loadAllModels, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleBuiltinToolToggle, handleToolMenuOpen, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, loadAllModels, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
