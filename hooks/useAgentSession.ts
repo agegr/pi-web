@@ -2438,17 +2438,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     try {
-      // Stop must not eat what the user already typed and nothing else: the server
-      // hands back the prompts it recalled from behind a compaction plus the queued
-      // messages the abort destroyed, so put both back in the composer (same restore
-      // path as recalling the queue, which also brings the parked images along).
+      // Stop takes the queued messages back for the composer, as Esc does in pi's TUI,
+      // with the prompts parked behind a compaction (and their images), as Recall does.
       const recalled = await sendAgentCommand<RecalledPrompts | null>(sid, { type: "abort" });
-      const surrendered = [...(recalled?.steering ?? []), ...(recalled?.followUp ?? [])];
-      if (surrendered.length > 0 || (recalled?.images?.length ?? 0) > 0) {
-        // queue_update only reaches us while SSE is connected; clear locally too.
-        setQueuedMessages({ steering: [], followUp: [] });
-        restoreRecalledPrompts(recalled);
-      }
+      // The server's queue_update only reaches us while SSE is connected; clear locally too.
+      if (recalled) setQueuedMessages({ steering: [], followUp: [] });
+      restoreRecalledPrompts(recalled);
     } catch (e) {
       console.error("Failed to abort:", e);
     }
