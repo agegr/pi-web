@@ -37,6 +37,8 @@ const OMITTED_EVENT_TYPES = new Set([
   // Carries the whole appended entry (an extension's custom entry, such as a
   // codemode `store()` write, can be 1 MiB), and nothing in the browser reads it.
   "entry_appended",
+  // A `!` command's output per chunk: the wrapper sends `bash_output` snapshots instead.
+  "bash_execution_update",
 ]);
 
 /**

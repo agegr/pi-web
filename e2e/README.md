@@ -65,7 +65,9 @@ Coverage:
   while preserving rename tracking (`model-order.mjs`, desktop and phone widths,
   mocked config routes).
 - A local extension checks dialog keyboard navigation, Esc cancellation,
-  collapse/expand draft preservation, countdown display, and server-side expiry.
+  collapse/expand draft preservation, countdown display, server-side expiry,
+  and that `setEditorText` replaces the composer's draft while `pasteToEditor`
+  inserts at the caret.
 - The production assistant header keeps its height and numeric columns when streaming metrics appear, update and disappear. Static component renders cover digit boundaries with proportional and monospace fonts, without a live model. Run this check alone with `node e2e/streaming-metrics.mjs` (1280, 390 and 320px).
 
 Mutable file-preview recovery can also be checked independently with
