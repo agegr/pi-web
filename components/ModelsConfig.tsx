@@ -1968,17 +1968,17 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
    */
   const [providerNameDraft, setProviderNameDraft] = useState<{ provider: string; name: string } | null>(null);
 
-  const refreshAuthProviders = useCallback(() => {
-    fetch("/api/auth/providers")
-      .then((r) => r.json())
-      .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[]; providerNames?: Record<string, string> }) => {
-        if (Array.isArray(d.oauthProviders)) setOauthProviders(d.oauthProviders);
-        if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
-        setProviderNames(d.providerNames ?? {});
-      })
-      .catch(() => {})
-      .finally(() => setAuthListed(true));
-  }, []);
+  /** Resolves true once the lists and runtime names have been replaced. */
+  const refreshAuthProviders = useCallback(() => fetch("/api/auth/providers")
+    .then((r) => r.json())
+    .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[]; providerNames?: Record<string, string> }) => {
+      if (Array.isArray(d.oauthProviders)) setOauthProviders(d.oauthProviders);
+      if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
+      setProviderNames(d.providerNames ?? {});
+      return true;
+    })
+    .catch(() => false)
+    .finally(() => setAuthListed(true)), []);
 
   useEffect(() => {
     fetch("/api/models-config")
@@ -2013,13 +2013,14 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   useEffect(() => {
     if (selection?.type !== "provider") return;
     const entry = config.providers?.[selection.name];
-    if (!entry || !isOverridesOnly(entry)) return;
+    // Clearing a saved display name leaves only overrides: keep the panel until the name is saved away.
+    if (!entry || !isOverridesOnly(entry) || savedNames.has(selection.name)) return;
     if (oauthProviders.some((provider) => provider.id === selection.name)) {
       setSelection({ type: "oauth", providerId: selection.name });
     } else if (apiKeyProviders.some((provider) => provider.id === selection.name)) {
       setSelection({ type: "apikey", providerId: selection.name });
     }
-  }, [apiKeyProviders, config.providers, oauthProviders, selection]);
+  }, [apiKeyProviders, config.providers, oauthProviders, savedNames, selection]);
 
   const contextSettings = (providerId: string): ModelContextSettings => ({
     overrides: config.providers?.[providerId]?.modelOverrides,
@@ -2253,11 +2254,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         const modelRenames = collectModelRenames(draft, savedModelIdsRef.current, renamesRef.current);
         savedProvidersRef.current = new Set(Object.keys(draft.providers ?? {}));
         savedModelIdsRef.current = savedModelIds(draft);
-        setSavedNames(savedProviderNames(draft));
         renamesRef.current.clear();
         enabledModels.resync(renames, modelRenames);
-        // Runtime names follow the saved ids and `name`s.
-        refreshAuthProviders();
+        // Runtime names follow the saved ids and `name`s. Until they arrive, the old runtime
+        // name still equals the old saved `name`, so both move together.
+        const nextSavedNames = savedProviderNames(draft);
+        void refreshAuthProviders().then((refreshed) => { if (refreshed) setSavedNames(nextSavedNames); });
       }
     } catch (e) {
       if (e instanceof ProviderEntryError) {
@@ -2272,7 +2274,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, refreshAuthProviders, t]);
 
   const providers = Object.entries(config.providers ?? {}).filter(([id, entry]) => {
-    if (!isOverridesOnly(entry)) return true;
+    if (!isOverridesOnly(entry) || savedNames.has(id)) return true;
     const managed = oauthProviders.some((provider) => provider.id === id) || apiKeyProviders.some((provider) => provider.id === id);
     return authListed && !managed;
   });
