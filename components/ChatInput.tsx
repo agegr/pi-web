@@ -113,6 +113,10 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  /** An extension's `setEditorText()`: the draft becomes `text`, as pi's editor `setText()` does (undoable). */
+  setText: (text: string) => void;
+  /** An extension's `pasteToEditor()`: `text` at the caret as typed, like a paste. */
+  pasteText: (text: string) => void;
   /** Insert at the caret as a paragraph of its own: a blockquote must start a line. */
   insertQuote: (text: string) => void;
   insertIfEmpty: (text: string) => void;
@@ -771,6 +775,32 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   attachedImagesRef.current = attachedImages;
 
   useImperativeHandle(ref, () => ({
+    setText(text: string) {
+      const ta = textareaRef.current;
+      if (!ta) {
+        valueRef.current = text;
+        setValue(text);
+        return;
+      }
+      // Selected whole, the draft goes in one undoable insert; a collapsed caret
+      // would delete it character by character.
+      ta.setSelectionRange(0, ta.value.length);
+      replaceTextareaRange(ta, 0, ta.value.length, text);
+      setAtQuery(null);
+      requestAnimationFrame(() => autoGrowTextarea(ta));
+    },
+    pasteText(text: string) {
+      // An empty paste inserts nothing, as in the TUI; over a selection it would delete it.
+      if (!text) return;
+      const ta = textareaRef.current;
+      if (!ta) {
+        setValue((v) => v + text);
+        return;
+      }
+      replaceTextareaRange(ta, ta.selectionStart ?? ta.value.length, ta.selectionEnd ?? ta.value.length, text);
+      setAtQuery(null);
+      requestAnimationFrame(() => autoGrowTextarea(ta));
+    },
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
@@ -1128,7 +1158,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
-    if (isStreaming) return;
+    // A `!` command runs beside the run, as in pi's TUI; anything else queues.
+    if (isStreaming && !(msg.startsWith("!") && !attachedImages.length)) return;
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
   }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
@@ -1344,6 +1375,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
+    if (msg.startsWith("!") && !attachedImages.length) {
+      // A shell command is never steered into the run as text.
+      void handleSend();
+      return;
+    }
     onAudioUnlock?.();
     const images = attachedImages.length ? attachedImages : undefined;
     const queue = () => {
@@ -1373,7 +1409,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       return;
     }
     queue();
-  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand, handleSend]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -2393,7 +2429,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
           />
 
-          {isStreaming ? (
+          {isStreaming && !bashMode ? (
             <div style={{ display: "flex", alignItems: "stretch", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
               {onSideChat && (
                 <button
