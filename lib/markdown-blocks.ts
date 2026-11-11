@@ -63,13 +63,17 @@ const FENCE_OPEN = /^(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$/;
  * renderer (no trailing newline). A fence still being written has no closing
  * line yet. MarkdownBody renders such a block straight, so a long fence is
  * not run through the markdown parser again on every chunk. Anything else
- * (an indented fence, text after the closing line, a ```math fence) is null
- * and parsed as usual.
+ * (an indented fence, text after the closing line, a ```math fence, CR line
+ * endings, an info string with escapes or entities the parser decodes) is
+ * null and parsed as usual.
  */
 export function parseFenceBlock(block: string): { lang: string; code: string } | null {
+  // The parser takes \r\n and \r as line endings, and decodes `\+` and
+  // `&amp;` in the info string.
+  if (block.includes("\r")) return null;
   const lines = block.split("\n");
   const open = lines[0].match(FENCE_OPEN);
-  if (!open) return null;
+  if (!open || /[\\&]/.test(open[2])) return null;
   const marker = open[1][0];
   const size = open[1].length;
   let close = -1;
@@ -81,6 +85,8 @@ export function parseFenceBlock(block: string): { lang: string; code: string } |
   const lang = open[2].toLowerCase();
   // A math fence is display math (KaTeX, lib/markdown.ts), not code.
   if (lang === "math") return null;
-  const body = lines.slice(1, close === -1 ? lines.length : close);
-  return { lang, code: body.join("\n").replace(/\n$/, "") };
+  // A closed fence's code is every line up to the closing one, a blank last
+  // line included; an open fence's ends before the block's final line break.
+  const end = close !== -1 ? close : lines.length > 1 && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+  return { lang, code: lines.slice(1, end).join("\n") };
 }
