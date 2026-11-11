@@ -153,7 +153,6 @@ function normalizeQueuedMessages(q?: { steering?: string[]; followUp?: string[] 
 type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
 type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 export type NoticeType = "info" | "success" | "warning" | "error";
-export type SessionEndNotice = { message: string; type: "warning" | "error" };
 
 export type NoticeItem = {
   id: string;
@@ -234,8 +233,8 @@ export interface UseAgentSessionOptions {
   newSessionDraftKey: string | null;
   /** A run ended; `aborted` when it was stopped rather than finished (pi's `agent_settled.aborted`). */
   onAgentEnd?: (end: AgentEndInfo) => void;
-  /** An extension explicitly ended this session's runtime. Its file may remain. */
-  onSessionEnded?: (sessionId: string, notices: SessionEndNotice[]) => void;
+  /** An extension's `ctx.shutdown()` ended this session's runtime, as pi quits. Its file may remain. */
+  onSessionEnded?: (sessionId: string) => void;
   /** A top-level tool call finished; the files it touched may have changed. */
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -818,7 +817,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
-    if (endedSessionRef.current === sid) return null;
     // Single-flight: concurrent reads for the same session (mount + SSE settle +
     // reconcile) share one request unless the caller forces a fresh read.
     const flightKey = options?.force ? `force:${sid}` : sid;
@@ -835,7 +833,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "summary" });
       if (options?.force) params.set("force", "1");
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
-      if (endedSessionRef.current === sid) return null;
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -1258,7 +1255,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // not come within SESSION_LEASE_TIMEOUT_MS, or no network, is "unanswered";
   // an error reply is null.
   const requestLease = useCallback((sid: string): Promise<SessionLeaseOutcome> => {
-    if (endedSessionRef.current === sid) return Promise.resolve(null);
     const pending = leaseRequestRef.current;
     if (pending?.sid === sid) return pending.promise;
     const controller = new AbortController();
@@ -1859,32 +1855,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "session_ended": {
         const sid = sessionIdRef.current;
         if (!sid || event.sessionId !== sid) return;
+        // The owner leaves the session (a fresh composer, or the tab closes) and this view
+        // unmounts; until then nothing reconnects, which would start the runtime again.
         endedSessionRef.current = sid;
-        sessionIdRef.current = null;
-        promptRunIdRef.current += 1;
-        bashRecoveryIdRef.current += 1;
-        unconfirmedSendRef.current = null;
-        rpcPromptPendingRef.current = false;
-        sdkAgentActiveRef.current = false;
-        bashRunningRef.current = false;
         cancelEventStreamGrace();
         eventConnectionRef.current?.close();
         deleteSessionViewSnapshot(sid);
-        settleUiStage();
-        setBashRunning(false);
-        setIsCompacting(false);
-        setQueuedMessages({ steering: [], followUp: [] });
-        setExtensionDialogs([]);
-        setExtensionCustomUis([]);
-        setExtensionStatuses([]);
-        setExtensionWidgets([]);
-        const notices = Array.isArray(event.notices)
-          ? event.notices.filter((notice): notice is SessionEndNotice => Boolean(
-            notice && typeof notice.message === "string"
-            && (notice.type === "warning" || notice.type === "error"),
-          ))
-          : [];
-        onSessionEnded?.(sid, notices);
+        onSessionEnded?.(sid);
         return;
       }
       case "connected": {
@@ -2225,7 +2202,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
-    if (endedSessionRef.current) return;
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     const isBashCommand = !images?.length && trimmedMessage.startsWith("!");
@@ -2330,7 +2306,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
-        if (endedSessionRef.current === sid) return;
         if (queuedAck?.queued) dropOptimisticUserMessage();
         promoteNewSession(1, message);
       } else if (session) {
@@ -2342,7 +2317,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message,
           ...(piImages?.length ? { images: piImages } : {}),
         });
-        if (endedSessionRef.current === session.id) return;
         if (queuedAck?.queued) dropOptimisticUserMessage();
       } else {
         throw new Error("No active session for the prompt");
@@ -2352,7 +2326,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
     } catch (e) {
-      if (endedSessionRef.current) return;
       console.error("Failed to send message:", e);
       const definitivelyRejected = !promptRequestStarted || isPromptRejectedError(e);
       // A transport/proxy failure after dispatch is ambiguous: the server may
@@ -3210,7 +3183,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // under way on the server: a run or command, a `!` command, a compaction. The
   // mount and a hidden page's return show it the same way.
   const applyLoadedAgentState = useCallback((sid: string, loadedAgentState: unknown) => {
-    if (endedSessionRef.current === sid) return;
     const agentState = loadedAgentState as { running: boolean; state?: AgentStateResponse } | null;
     if (agentState?.running) {
       loadTools(sid);

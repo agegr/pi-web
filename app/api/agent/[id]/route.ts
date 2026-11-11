@@ -72,7 +72,7 @@ export async function POST(
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),
-    }, { status: status === 404 || status === 409 ? status : 500 });
+    }, { status: status === 404 ? status : 500 });
   }
 }
 

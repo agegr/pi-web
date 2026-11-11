@@ -388,7 +388,6 @@ export class AgentSessionWrapper {
   private sessionShutdownEmitted = false;
   private extensionShutdownRequested = false;
   private extensionShutdownComplete = false;
-  private shutdownNotices: Array<{ message: string; type: "warning" | "error" }> = [];
   private forceShutdownOnIdle = false;
   /** Stop's forced shutdown waits out a `!` command too (`abort_bash`); a run's Stop, only the run. */
   private forceShutdownCoversShell = false;
@@ -1036,12 +1035,6 @@ export class AgentSessionWrapper {
   }
 
   private emit(event: AgentEvent): void {
-    if (this.extensionShutdownRequested && this.closing
-      && event.type === "extension_ui_request" && event.method === "notify"
-      && (event.notifyType === "warning" || event.notifyType === "error")
-      && typeof event.message === "string") {
-      this.shutdownNotices.push({ message: event.message, type: event.notifyType });
-    }
     // A session_start handler that throws as the session starts is one of its startup issues, as
     // pi's TUI shows it then: every stream the page opens hears it, not only one open at that moment.
     if (event.type === "extension_error" && event.event === "session_start" && this.startupNotices && !this.extensionsBound) {
@@ -1146,7 +1139,7 @@ export class AgentSessionWrapper {
 
   onEvent(listener: EventListener): () => void {
     if (this.extensionShutdownComplete) {
-      listener({ type: "session_ended", sessionId: this.sessionId, notices: [...this.shutdownNotices] });
+      listener({ type: "session_ended", sessionId: this.sessionId });
       return () => {};
     }
     this.listeners.add(listener);
@@ -1238,9 +1231,6 @@ export class AgentSessionWrapper {
       // Status reconciliation must not postpone forced cleanup after Stop.
       if (type !== "get_state") this.resetIdleTimer();
       if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
-      if (!this.isAlive() || (this.extensionShutdownRequested && tracksMutation)) {
-        throw new Error("Session is shutting down");
-      }
       if (this.sessionReplacement && !allowedDuringReplacement) {
         throw new Error("Session is being copied to a new session");
       }
@@ -1265,7 +1255,6 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
-          if (this.extensionShutdownRequested || !this.isAlive()) throw new Error("Session is shutting down");
           // A steer or follow-up joins the run beside a `!` command, as pi's TUI
           // queues it; only a prompt that would start a run waits for the command.
           if (this.shellRunning && !(command.streamingBehavior && this.inner.isStreaming)) {
@@ -1939,7 +1928,7 @@ export class AgentSessionWrapper {
           if (this.sessionFile) invalidateSessionManagerCache(this.sessionFile);
           invalidateSessionListCache();
           this.extensionShutdownComplete = true;
-          this.emit({ type: "session_ended", sessionId: this.sessionId, notices: [...this.shutdownNotices] });
+          this.emit({ type: "session_ended", sessionId: this.sessionId });
         }
         this.resolveDisposed();
       }
@@ -2024,31 +2013,8 @@ export class AgentSessionWrapper {
       await emit.call(this.inner.extensionRunner, { type: "session_shutdown", reason: "quit" });
       return "handled" as const;
     })();
-    if (this.extensionShutdownRequested) {
-      // Disposal is bounded, but hooks cannot be cancelled. Keep their file owned
-      // until the real hook promise settles, including after this wrapper is gone.
-      const pending = globalThis.__piExplicitShutdownHooks ??= new Map();
-      pending.set(this.sessionId, handled);
-      const release = () => {
-        if (pending.get(this.sessionId) !== handled) return;
-        invalidateSessionPathCache(this.sessionId);
-        if (this.sessionFile) invalidateSessionManagerCache(this.sessionFile);
-        invalidateSessionListCache();
-        pending.delete(this.sessionId);
-      };
-      void handled.then(release, release);
-    }
     try {
       if (await Promise.race([handled, deadline]) === "timeout") {
-        if (this.extensionShutdownRequested) {
-          this.emit({
-            type: "extension_ui_request",
-            id: randomUUID(),
-            method: "notify",
-            notifyType: "warning",
-            message: "Session shutdown cleanup is still running. This session cannot be resumed until cleanup finishes; its saved file may be retained or deleted.",
-          } as ExtensionUiRequest as AgentEvent);
-        }
         console.warn(
           `[pi-web] extensions did not finish session_shutdown for session ${this.sessionId} within ${SESSION_SHUTDOWN_DEADLINE_MS} ms; disposing it anyway`,
         );
@@ -2712,14 +2678,6 @@ declare global {
   /** Debug panel: the id a `__new__…`/`__recreate__…` start registered its wrapper under, while its lock is held. */
   var __piStartRegisteredIds: Map<string, string> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
-  /** Explicit shutdown hooks can outlive bounded disposal and still delete their saved file. */
-  var __piExplicitShutdownHooks: Map<string, Promise<unknown>> | undefined;
-}
-
-function assertSessionCleanupFinished(sessionId: string): void {
-  if (globalThis.__piExplicitShutdownHooks?.has(sessionId)) {
-    throw Object.assign(new Error("Session shutdown cleanup is still running. Try again after cleanup finishes."), { status: 409 });
-  }
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -2942,7 +2900,6 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
  */
 export async function renameRpcSession(sessionId: string, name: string, writeToDisk: () => boolean): Promise<boolean> {
   for (;;) {
-    assertSessionCleanupFinished(sessionId);
     const wrapper = getRegistry().get(sessionId);
     if (wrapper?.isAlive()) {
       wrapper.inner.setSessionName(name);
@@ -2972,7 +2929,6 @@ export async function setRpcSessionTools(
   sessionFile: string | undefined,
   requestedToolNames: unknown,
 ): Promise<SetRpcSessionToolsResult> {
-  assertSessionCleanupFinished(sessionId);
   const toolNames = requestedToolNames === undefined
     ? undefined
     : validateSessionToolSelection(requestedToolNames);
@@ -3339,7 +3295,6 @@ export async function startRpcSession(
   const requestedToolNames = options.toolNames === undefined
     ? undefined
     : validateSessionToolSelection(options.toolNames);
-  assertSessionCleanupFinished(sessionId);
   const registry = getRegistry();
   const locks = getLocks();
 

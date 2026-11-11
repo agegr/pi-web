@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
-import { DismissButton } from "./DismissButton";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
@@ -73,7 +72,7 @@ import {
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
-import type { AgentEndInfo, NewSessionChoices, SessionEndNotice } from "@/hooks/useAgentSession";
+import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
@@ -112,8 +111,6 @@ export function AppShell() {
   // Restore fonts even when Settings and the chat composer have not been opened.
   useFontPreferences();
   const { locale, t: translate } = useI18n();
-  // Cleanup errors must outlive the ChatWindow that the shutdown disposes.
-  const [sessionEndNotices, setSessionEndNotices] = useState<SessionEndNotice[]>([]);
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
@@ -1257,8 +1254,6 @@ export function AppShell() {
     if (initialLinkedSessionId) skipWorkspaceRestoreRef.current = true;
   }, [initialLinkedSessionId]);
 
-  // Explicit extension shutdown uses the same guarded composer fallback as deletion;
-  // the refreshed catalogue decides whether the session file still exists.
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
     setRefreshKey((k) => k + 1);
@@ -1422,8 +1417,9 @@ export function AppShell() {
     });
   }, [fileTabs, terminalTabs, agentTabs]);
 
-  const handleSessionEnded = useCallback((sessionId: string, notices: SessionEndNotice[]) => {
-    if (notices.length) setSessionEndNotices((current) => [...current, ...notices].slice(-20));
+  // An extension's ctx.shutdown() ended the session's runtime, as pi quits: leave it the
+  // way a deleted session is left (the refreshed list shows whether its file remains).
+  const handleSessionEnded = useCallback((sessionId: string) => {
     handleSessionDeleted(sessionId);
     handleCloseFileTab(`agent:${sessionId}`);
   }, [handleSessionDeleted, handleCloseFileTab]);
@@ -2820,13 +2816,6 @@ export function AppShell() {
         </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
-
-        {sessionEndNotices.map((notice, index) => (
-          <div key={index} role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 16px", color: "var(--text)", background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
-            <span style={{ flex: 1, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{notice.message}</span>
-            <DismissButton title={translate("sidebar.dismiss")} onClick={() => setSessionEndNotices((current) => current.filter((_, itemIndex) => itemIndex !== index))} />
-          </div>
-        ))}
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>

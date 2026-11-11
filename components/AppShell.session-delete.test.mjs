@@ -56,24 +56,21 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
   return state;
 }
 
-test("extension end preserves cleanup warnings and closes only its panel", () => {
+test("an extension's session end leaves the session and closes only its panel", () => {
   assert.match(source, /onSessionEnded=\{handleSessionEnded\}/);
   const start = source.indexOf("  const handleSessionEnded = useCallback");
   const end = source.indexOf("  // The Agents switcher's Delete", start);
-  const state = { notices: [], deleted: [], closed: [] };
+  const state = { deleted: [], closed: [] };
   const context = vm.createContext({
     useCallback: (callback) => callback,
-    setSessionEndNotices: (update) => { state.notices = update(state.notices); },
     handleSessionDeleted: (id) => state.deleted.push(id),
     handleCloseFileTab: (id) => state.closed.push(id),
   });
   vm.runInContext(stripTypeScriptTypes(`${source.slice(start, end)}
-    handleSessionEnded("side-session", [{message: "Cleanup failed", type: "warning"}]);
+    handleSessionEnded("side-session");
   `), context);
-  assert.deepEqual(JSON.parse(JSON.stringify(state.notices)), [{ message: "Cleanup failed", type: "warning" }]);
   assert.deepEqual(state.deleted, ["side-session"]);
   assert.deepEqual(state.closed, ["agent:side-session"]);
-  assert.match(source, /sessionEndNotices\.map[\s\S]*?role="alert"/);
 });
 
 test("a delete completing after the user navigated away keeps the new chat", () => {

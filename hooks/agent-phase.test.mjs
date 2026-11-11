@@ -49,7 +49,6 @@ const runningCodemode = {
 async function setup(options = {}) {
   mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const sources = [];
-  const requests = [];
   const stateRead = Promise.withResolvers();
   globalThis.EventSource = class {
     readyState = 0;
@@ -63,7 +62,6 @@ async function setup(options = {}) {
     }
   };
   globalThis.fetch = async (url, init = {}) => {
-    requests.push(url);
     if (url.startsWith("/api/models")) return json({ models: {}, modelList: [] });
     if (url.startsWith("/api/sessions/s1?")) return json(sessionData);
     if (url === "/api/sessions/s1/state") return stateRead.promise;
@@ -99,7 +97,7 @@ async function setup(options = {}) {
   };
   const phase = () => hook.result.agentPhase;
   const toolNames = () => phase()?.tools?.map((tool) => tool.name);
-  return { hook, emit, landStateRead, reconnect, phase, toolNames, sources, requests };
+  return { hook, emit, landStateRead, reconnect, phase, toolNames, sources };
 }
 
 function teardown(state) {
@@ -107,29 +105,18 @@ function teardown(state) {
   mock.timers.reset();
 }
 
-test("an explicit end stops retries, leases and reconciliation and ignores an in-flight state reply", async () => {
+test("an extension's session end hands the session back and never reconnects", async () => {
   const ended = [];
-  const state = await setup({ onSessionEnded: (id, notices) => ended.push({ id, notices }) });
+  const state = await setup({ onSessionEnded: (id) => ended.push(id) });
   try {
     await state.emit({ type: "connected", sessionId: "s1", isStreaming: true });
-    await state.emit({ type: "session_ended", sessionId: "s1", notices: [{ message: "Cleanup failed", type: "warning" }] });
-    assert.deepEqual(ended, [{ id: "s1", notices: [{ message: "Cleanup failed", type: "warning" }] }]);
-    assert.equal(state.hook.result.agentRunning, false);
-    assert.equal(state.phase(), null);
+    await state.emit({ type: "session_ended", sessionId: "s1" });
+    assert.deepEqual(ended, ["s1"]);
     assert.equal(state.sources[0].readyState, 2);
-    const requestsAtEnd = state.requests.length;
-    await state.hook.result.handleSend("must not send after shutdown");
-    assert.equal(state.hook.result.agentRunning, false, "an ended composer cannot start a run");
-    await state.landStateRead();
     mock.timers.tick(90_000);
     await settle();
     state.hook.flush();
-    assert.equal(state.requests.length, requestsAtEnd, "no lease or reconciliation after end");
     assert.equal(state.sources.length, 1, "no reconnect after end");
-    assert.equal(state.hook.result.agentRunning, false, "late state cannot resume the ended instance");
-    state.hook.result.handleAgentEventRef.current({ type: "agent_start" });
-    state.hook.flush();
-    assert.equal(state.hook.result.agentRunning, false);
   } finally {
     teardown(state);
   }
