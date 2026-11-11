@@ -17,7 +17,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// The sidebar's pins, archive, project order and project names
+// The sidebar's pins, archive, project order, project names and read times
 // (lib/session-ui-state.ts). Ids and projectKeys are not checked against the
 // session list: an entry for a session that is gone is harmless, and deleting
 // a session removes its entry; a project no longer shown keeps its place in

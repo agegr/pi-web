@@ -15,6 +15,8 @@ export const dynamic = "force-dynamic";
 // archive changed elsewhere; it costs one stat while the file is unchanged.
 // subagentsActiveSessionIds: sessions whose subagents can still start a run
 // there, so the sidebar announces their completion only after the last one.
+// serverNow: this server's clock, which stamps reads (`readAt`); a browser
+// dates its unread markers on it (lib/unread-markers.ts), never on its own.
 export async function GET() {
   return NextResponse.json(
     {
@@ -24,6 +26,7 @@ export async function GET() {
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       subagentsActiveSessionIds: getSessionIdsWithUnsettledSubagentRuns(),
       sessionUiStateRevision: getSessionUiStateRevision(),
+      serverNow: Date.now(),
     },
     { headers: { "Cache-Control": "no-store" } },
   );
