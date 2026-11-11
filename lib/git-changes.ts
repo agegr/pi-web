@@ -100,7 +100,8 @@ async function readTrackedLineStats(
 }
 
 const STATUS_ENTRIES_PER_TURN = 1000;
-const UNTRACKED_READ_CONCURRENCY = 8;
+// libuv's default thread pool: more reads only queue in front of the server's other fs work.
+const UNTRACKED_READ_CONCURRENCY = 4;
 const UNTRACKED_READ_CHUNK_BYTES = 64 * 1024;
 const NEWLINE = 0x0a;
 
@@ -140,13 +141,13 @@ async function countUntrackedTextLines(filePath: string, buffer: Buffer): Promis
 
 // Async and a few files at a time: tens of thousands of untracked files read
 // synchronously held the server's event loop, every stream and request, for
-// seconds (#1584). Same counts, no cache.
-async function countUntrackedLines(filePaths: readonly string[]): Promise<number> {
+// seconds (#1584). Same counts, no cache. Stops when the request is gone.
+async function countUntrackedLines(filePaths: readonly string[], signal?: AbortSignal): Promise<number> {
   let next = 0;
   let total = 0;
   const worker = async () => {
     const buffer = Buffer.allocUnsafe(UNTRACKED_READ_CHUNK_BYTES);
-    while (next < filePaths.length) {
+    while (next < filePaths.length && !signal?.aborted) {
       const lines = await countUntrackedTextLines(filePaths[next++], buffer);
       total += lines;
     }
@@ -155,7 +156,8 @@ async function countUntrackedLines(filePaths: readonly string[]): Promise<number
   return total;
 }
 
-export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
+/** `signal`: the request's; once it aborts the scan stops and this throws. */
+export async function getGitStatus(cwd: string, signal?: AbortSignal): Promise<GitStatusResponse> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) {
     return {
@@ -179,7 +181,10 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
   const files: GitFileStatus[] = [];
   for (let index = 0; index < entries.length; index++) {
     // Tens of thousands of paths take long enough to stall the server on their own.
-    if (index > 0 && index % STATUS_ENTRIES_PER_TURN === 0) await yieldToEventLoop();
+    if (index > 0 && index % STATUS_ENTRIES_PER_TURN === 0) {
+      await yieldToEventLoop();
+      signal?.throwIfAborted();
+    }
     const entry = entries[index];
     const relative = path.relative(realCwd, path.resolve(realRoot, entry.path));
     if (!isRelativeWithin(relative)) continue;
@@ -192,7 +197,9 @@ export async function getGitStatus(cwd: string): Promise<GitStatusResponse> {
   }
   const untrackedAdditions = await countUntrackedLines(
     files.flatMap((file) => (file.status === "untracked" ? [file.filePath] : [])),
+    signal,
   );
+  signal?.throwIfAborted();
 
   return {
     isGitRepository: true,
