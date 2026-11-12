@@ -1564,6 +1564,7 @@ export const enLocale: LocalePlugin = {
     "models.discoverySelectShown": "Select shown",
     "models.discoveryNoMatches": "No matching models.",
     "models.configUnreadable": "Could not read models.json, so saving is disabled to avoid overwriting it. Fix the file, then reopen this panel. {error}",
+    "models.providerDisplayName": "Display name",
     "models.providerNameTaken": "Another provider is already named \"{name}\". Choose a different name.",
     "models.providerIncomplete": "{provider} needs a Base URL or at least one model. Fill it in or delete the provider.",
     "models.providerNeedsBaseUrl": "{provider} needs a Base URL.",
