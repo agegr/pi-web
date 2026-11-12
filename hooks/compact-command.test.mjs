@@ -54,7 +54,7 @@ function deferred() {
 }
 
 function hook() {
-  const calls = { notices: [], compacting: [], compactErrors: [], compactResults: [], requests: [], promoted: 0, restored: [] };
+  const calls = { notices: [], compacting: [], compactErrors: [], compactResults: [], requests: [], reloads: [], promoted: 0, restored: [] };
   const compact = deferred();
   const scope = {
     sessionIdRef: { current: "session-1" },
@@ -70,7 +70,7 @@ function hook() {
       calls.requests.push(command);
       return compact.promise;
     },
-    loadSession: async () => true,
+    loadSession: async (...args) => { calls.reloads.push(args); return true; },
     promoteNewSession: () => { calls.promoted += 1; },
     opts: { chatInputRef: { current: { prependText: (text) => calls.restored.push(text) } } },
   };
@@ -94,6 +94,10 @@ test("/compact completes at once and runs the compaction detached", async () => 
   // The reset at the start, then the compaction's own result banner.
   assert.deepEqual(calls.compactResults, [null, { tokensBefore: 10 }]);
   assert.equal(calls.promoted, 1);
+  assert.equal(calls.reloads.length, 1);
+  assert.equal(calls.reloads[0][0], "session-1");
+  assert.equal(calls.reloads[0][1] ?? false, false,
+    "refreshing the compacted history must not unmount the focused composer with a loading screen");
 });
 
 test("/compact passes its instructions to the detached compaction", async () => {
