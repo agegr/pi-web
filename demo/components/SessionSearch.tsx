@@ -4,23 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import type { SessionInfo } from "@/lib/types";
-import type { SessionSearchResponse, SessionSearchResult } from "@/lib/session-search";
-
-// Server sends every term's range as offsets into the snippet it built, so an AND
-// query marks each word; a payload without ranges (older server) marks `match`.
-function SearchSnippet({ before, match, after, highlights }: Pick<SessionSearchResult, "before" | "match" | "after" | "highlights">) {
-  const text = before + match + after;
-  const ranges = highlights?.length ? highlights : [{ start: before.length, end: before.length + match.length }];
-  const parts: ReactNode[] = [];
-  let cursor = 0;
-  for (const range of ranges) {
-    if (range.start > cursor) parts.push(text.slice(cursor, range.start));
-    parts.push(<mark key={range.start} className="rounded-sm bg-accent/20 text-text">{text.slice(range.start, range.end)}</mark>);
-    cursor = range.end;
-  }
-  if (cursor < text.length) parts.push(text.slice(cursor));
-  return <>{parts}</>;
-}
+import type { SessionSearchResponse } from "@/lib/session-search";
 
 export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession }: {
   open: boolean;
@@ -69,7 +53,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
       {response?.truncated && (
         <div role="status" className="px-3 pb-2 text-xs text-text-muted">{t("sidebar.sessionSearchPartial")}</div>
       )}
-      {response?.results.map(({ session, entryId, blockIndex, titleMatch, before, match, after, highlights }) => (
+      {response?.results.map(({ session, entryId, blockIndex, titleMatch, before, match, after }) => (
         <button
           key={session.id}
           type="button"
@@ -78,7 +62,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           className={`block w-full cursor-pointer border-b border-border px-3 py-2 text-left hover:bg-bg-hover focus-visible:outline-2 focus-visible:outline-accent ${session.id === selectedSessionId ? "bg-bg-selected" : ""}`}
         >
           <span className="block truncate text-xs font-medium text-text">
-            {titleMatch ? <SearchSnippet before={before} match={match} after={after} highlights={highlights} /> : session.name || session.firstMessage}
+            {titleMatch ? <>{before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}</> : session.name || session.firstMessage}
           </span>
           <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-text-dim">
             <span className="min-w-0 flex-1 truncate" title={session.cwd}>{session.cwd}</span>
@@ -86,7 +70,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           </span>
           {!titleMatch && (
             <span className="mt-1 block text-xs leading-relaxed wrap-anywhere text-text-muted">
-              <SearchSnippet before={before} match={match} after={after} highlights={highlights} />
+              {before}<mark className="rounded-sm bg-accent/20 text-text">{match}</mark>{after}
             </span>
           )}
         </button>
