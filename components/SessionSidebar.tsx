@@ -562,12 +562,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [unreadMarks, setUnreadMarks] = useState<Map<string, number>>(() => loadUnreadMarks());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const previousActiveSessionIdsRef = useRef<Set<string>>(new Set());
-  // When (this page's clock) the running set was last observed, and when the
-  // previous one, the set a completion is found against, was: a marker is
-  // dated by the last time its session was seen running, which is no later
-  // than its run's end, so a read written at that end covers it.
-  const runningObservedAtRef = useRef<number | null>(null);
-  const previousActiveObservedAtRef = useRef<number | null>(null);
+  // When (this page's clock) the running set was last observed (`latest`),
+  // and the observation before it (`before`). A completion shows in the
+  // latest answer, so `before` is the last time its session was seen running:
+  // its marker is dated then, no later than the run's end, so a read written
+  // at that end covers it, and a read written earlier in the run does not.
+  const runningObservedAtRef = useRef<{ latest: number | null; before: number | null }>({ latest: null, before: null });
   const serverClockRef = useRef<ReturnType<typeof createServerClock> | null>(null);
   serverClockRef.current ??= createServerClock();
   // Selected sessions whose run finished while nobody was looking at the
@@ -856,7 +856,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         currentSuppressedCompletionSessionIdsRef.current = new Set(
           data.completionNotificationSuppressedSessionIds ?? [],
         );
-        runningObservedAtRef.current = Date.now();
+        runningObservedAtRef.current = { latest: Date.now(), before: runningObservedAtRef.current.latest };
         setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
       }
@@ -1036,7 +1036,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         runningPollAuthoritativeRef.current = true;
         if (typeof data.serverNow === "number") serverClockRef.current?.note(data.serverNow, startedAt, answeredAt);
         // The request's start: the server saw this set no earlier, so a marker dated by it is never late.
-        runningObservedAtRef.current = startedAt;
+        runningObservedAtRef.current = { latest: startedAt, before: runningObservedAtRef.current.latest };
         currentSuppressedCompletionSessionIdsRef.current = new Set(
           data.completionNotificationSuppressedSessionIds ?? [],
         );
@@ -1121,7 +1121,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
     if (completedWithNotifications.length > 0 || newlyRunning.length > 0) {
       // Dated by the last poll that saw them running, on the server's clock.
-      const observedAt = previousActiveObservedAtRef.current;
+      const observedAt = runningObservedAtRef.current.before;
       const markedAt = serverClockRef.current!.toServer(observedAt ?? undefined);
       setUnreadMarks((prev) => {
         const next = new Map(prev);
@@ -1152,7 +1152,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
     previousRunningSessionIdsRef.current = runningSessionIds;
     previousActiveSessionIdsRef.current = active;
-    previousActiveObservedAtRef.current = runningObservedAtRef.current;
     const previousSuppressed = previousSuppressedCompletionSessionIdsRef.current;
     previousSuppressedCompletionSessionIdsRef.current = new Set(
       [...active].filter(
