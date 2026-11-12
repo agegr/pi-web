@@ -41,6 +41,8 @@ export interface CodemodeModeSetting {
 export interface ToolSettingsResponse {
   isWindows: boolean;
   powerShellEnabled: boolean;
+  /** The built-in tools the global defaultTools starts sessions with; "bash" is the active shell. */
+  builtinTools: string[];
   /** "always" when the global defaultTools starts sessions with codemode active (ADR 0006). */
   codemode: McpCodemodePreference;
   /** The global `codemode.mode`. */

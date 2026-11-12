@@ -4,6 +4,7 @@ import {
   readGlobalSettings,
   updateGlobalSettings,
 } from "./global-settings-file";
+import { SETTINGS_BUILTIN_TOOLS } from "./tool-presets";
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
@@ -95,4 +96,57 @@ export async function writePowerShellToolEnabled(
     settings.defaultTools = nextTools;
   });
   return enabled;
+}
+
+/** The built-in tools a global `defaultTools` list starts sessions with. */
+export function builtinToolsOf(
+  entries: readonly string[] | undefined,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const tools = entries === undefined ? DEFAULT_TOOLS : resolveDefaultToolEntries(entries);
+  const shells = platform === "win32" ? [...SHELL_TOOLS] : ["bash"];
+  return SETTINGS_BUILTIN_TOOLS.filter((name) => (name === "bash" ? shells : [name]).some((tool) => tools.includes(tool)));
+}
+
+/**
+ * The entries that start sessions with exactly `selected` of the built-in tools, every
+ * other entry kept. Beside another plain name the built-ins are plain names too; else they
+ * are `-name` / `+name` against pi's defaults, so pi's defaults alone remove the key.
+ * On Windows the shell stays PowerShell while the PowerShell switch is on.
+ */
+export function withBuiltinTools(
+  entries: readonly string[] | undefined,
+  selected: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): string[] | undefined {
+  const shell = isPowerShellToolEnabled(entries && resolveDefaultToolEntries(entries), platform) ? "powershell" : "bash";
+  const managed = platform === "win32" ? [...SETTINGS_BUILTIN_TOOLS, "powershell"] : SETTINGS_BUILTIN_TOOLS;
+  const kept = (entries ?? []).filter((entry) => !managed.includes(isToolModifier(entry) ? entry.slice(1) : entry));
+  const wanted = SETTINGS_BUILTIN_TOOLS.filter((name) => selected.includes(name)).map((name) => name === "bash" ? shell : name);
+  if (kept.some((entry) => !isToolModifier(entry))) return [...wanted, ...kept];
+  const next = [
+    ...kept,
+    ...DEFAULT_TOOLS.filter((name) => !wanted.includes(name)).map((name) => `-${name}`),
+    ...wanted.filter((name) => !DEFAULT_TOOLS.includes(name)).map((name) => `+${name}`),
+  ];
+  return next.length > 0 ? next : undefined;
+}
+
+export async function readBuiltinTools(
+  settingsPath = getPowerShellSettingsPath(),
+  platform: NodeJS.Platform = process.platform,
+): Promise<string[]> {
+  return readGlobalSettings(settingsPath, (settings) => builtinToolsOf(defaultToolEntries(settings), platform));
+}
+
+export async function writeBuiltinTools(
+  selected: readonly string[],
+  settingsPath = getPowerShellSettingsPath(),
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  await updateGlobalSettings(settingsPath, (settings) => {
+    const next = withBuiltinTools(defaultToolEntries(settings), selected, platform);
+    if (next === undefined) delete settings.defaultTools;
+    else settings.defaultTools = next;
+  });
 }

@@ -1981,6 +1981,12 @@
   white-space: nowrap;
 }
 
+.settings-builtin-tools {
+  flex-wrap: wrap;
+  max-width: 420px;
+  font-family: var(--font-mono);
+}
+
 .settings-chat-reset {
   width: 28px;
   height: 28px;
