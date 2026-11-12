@@ -37,7 +37,7 @@ import type { DebugParentNotification, DebugSubagentRun } from "./debug-types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputLimits } from "./subagent-input";
-import { projectTrustReloadOptions } from "./project-trust";
+import { getProjectTrustStatus } from "./project-trust";
 import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
@@ -111,6 +111,14 @@ declare global {
 const SUBAGENT_CONTEXT_LIMIT = 50_000;
 const PARENT_IDLE_POLL_MS = 200;
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/**
+ * A run prompts the SDK session its wrapper held at dispatch. The wrapper is idle while the run
+ * waits in the queue, and one closed meanwhile (a project trust rebuild; the idle timer spares a
+ * session with a run in the map) has disposed it: pi then persists none of the run's messages and
+ * `lastAssistantStop()` reads no error, so a failed request read as completed with no output (#1590).
+ */
+const CLOSED_BEFORE_RUN = "Subagent session was closed before its run started. Start a new subagent instead.";
 
 const TURN_LIMIT_INSTRUCTION = "You have reached your turn limit. Wrap up immediately and provide your final answer now.";
 
@@ -454,7 +462,12 @@ export function createSubagentController(
       const turnLimit = profile.maxTurns;
 
       const agentDir = getAgentDir();
-      const settingsManager = SettingsManager.create(childCwd, agentDir);
+      // The child runs on the parent session's trust, as pi's `--approve` / `--no-approve`
+      // decide a run: read once here, never written. Created trusted by default, a child
+      // that loads no resources read the project settings of a folder never trusted; and
+      // an isolated run's throwaway worktree has no decision of its own to find.
+      const projectTrusted = getProjectTrustStatus(parent.cwd, agentDir).trusted;
+      const settingsManager = SettingsManager.create(childCwd, agentDir, { projectTrusted });
       const inheritedParentContext = inheritContext
         ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
         : undefined;
@@ -530,9 +543,6 @@ export function createSubagentController(
             : {}),
           appendSystemPrompt,
         },
-        ...((profile.loadExtensions || profile.loadSkills || codemodeEnabled || mcpEnabled)
-          ? { resourceLoaderReloadOptions: projectTrustReloadOptions(childCwd, agentDir) }
-          : {}),
       });
 
       if (codemodeEnabled && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
@@ -720,6 +730,7 @@ export function createSubagentController(
         }
         let result: SubagentRunInfo;
         try {
+          if (childSession && !childSession.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
           await prepareChildMcp(childSession, stored);
           await inner.prompt(delegatedTask, { source: "rpc" });
           const text = inner.getLastAssistantText()?.trim();
@@ -893,6 +904,7 @@ export function createSubagentController(
       request.onUpdate?.(stored.run);
       let result: SubagentRunInfo;
       try {
+        if (!wrapper!.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
         await prepareChildMcp(wrapper, stored);
         await wrapper!.inner.prompt(request.task, { source: "rpc" });
         const text = wrapper!.inner.getLastAssistantText()?.trim();

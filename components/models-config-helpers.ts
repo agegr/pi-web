@@ -301,3 +301,35 @@ export function providerSidebarLabel(
 ): string {
   return provider.name?.trim() || runtimeName?.trim() || providerId;
 }
+
+/**
+ * Sets a provider's models.json `name`, the label the sidebar and the selector
+ * show. Blank input removes it, so the label falls back to the id. A new name
+ * goes first in the entry; typed spaces stay, as in the other fields.
+ */
+export function setProviderDisplayName<T extends { name?: string }>(provider: T, value: string): T {
+  if (!value.trim()) {
+    const rest = { ...provider };
+    delete rest.name;
+    return rest;
+  }
+  return "name" in provider ? { ...provider, name: value } : { name: value, ...provider };
+}
+
+/** Each saved provider's models.json `name`, by id. */
+export function savedProviderNames(config: { providers?: Record<string, { name?: string }> }): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const [id, provider] of Object.entries(config.providers ?? {})) {
+    if (typeof provider.name === "string") names.set(id, provider.name);
+  }
+  return names;
+}
+
+/**
+ * The runtime's name for a models.json provider, unless it is the saved `name`
+ * itself: pi reads that name, so a name cleared in the draft would otherwise
+ * stay the label until the next save.
+ */
+export function providerRuntimeName(runtimeName: string | undefined, savedName: string | undefined): string | undefined {
+  return savedName !== undefined && runtimeName?.trim() === savedName.trim() ? undefined : runtimeName;
+}

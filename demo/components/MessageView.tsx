@@ -396,7 +396,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
     copyText(copyTarget).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   return (
@@ -711,7 +711,7 @@ function AssistantMessageView({
     copyText(textContent).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   useEffect(() => {
@@ -1786,7 +1786,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
     copyText(text || detailsText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   return (

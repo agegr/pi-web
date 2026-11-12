@@ -3,7 +3,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatRelativeTime } from "@/lib/i18n/format";
+import { projectNameOf } from "@/lib/session-tree";
 import type { SessionInfo } from "@/lib/types";
+import { workspaceKeyOf } from "@/lib/workspace-memory";
 import type { SessionSearchResponse, SessionSearchResult } from "@/lib/session-search";
 
 // Server sends every term's range as offsets into the snippet it built, so an AND
@@ -22,7 +24,7 @@ function SearchSnippet({ before, match, after, highlights }: Pick<SessionSearchR
   return <>{parts}</>;
 }
 
-export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, archivedSessionIds }: {
+export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, archivedSessionIds, projectNames }: {
   open: boolean;
   query: string;
   children: ReactNode;
@@ -30,12 +32,20 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
   onSelectSession: (session: SessionInfo, entryId?: string, blockIndex?: number) => void;
   /** Ids of every session in an archived family: their results are tagged, not hidden. */
   archivedSessionIds?: ReadonlySet<string>;
+  /** The sidebar's project display names, by project key: a hit names its project like the tree's groups do. */
+  projectNames?: Readonly<Record<string, string>>;
 }) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<{ query: string; response?: SessionSearchResponse; failed?: boolean }>({ query: "" });
   const search = query.trim();
   const response = state.query === search ? state.response : undefined;
   const failed = state.query === search && state.failed;
+
+  const projectLabelOf = (session: SessionInfo) => {
+    const key = workspaceKeyOf(session);
+    const root = session.projectRoot ?? session.cwd;
+    return projectNames && Object.hasOwn(projectNames, key) ? projectNames[key] : projectNameOf(root);
+  };
 
   // Re-runs only when the query changes. It deliberately does not depend on the
   // session-list version: ordinary agent activity bumps that version every few
@@ -88,7 +98,10 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
             )}
           </span>
           <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-text-dim">
-            <span className="min-w-0 flex-1 truncate" title={session.cwd}>{session.cwd}</span>
+            <span className="min-w-0 flex-1 truncate" title={session.cwd}>
+              <span className="font-medium text-text-muted">{projectLabelOf(session)}</span>
+              {session.cwd !== (session.projectRoot ?? session.cwd) && ` · ${session.cwd}`}
+            </span>
             <span className="shrink-0">{formatRelativeTime(session.modified, locale)}</span>
           </span>
           {!titleMatch && (

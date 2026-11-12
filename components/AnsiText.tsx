@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { AnsiUp } from "ansi_up";
+import { TUI_CURSOR_MARKER_RE } from "@/lib/ansi";
 
 /**
  * Renders ANSI SGR escape sequences (as emitted by pi extension widgets such
@@ -27,7 +28,8 @@ export function AnsiText({ text }: { text: string }) {
   const html = useMemo(() => {
     const ansiUp = new AnsiUp();
     ansiUp.use_classes = true;
-    return ansiUp.ansi_to_html(text).replaceAll('<a href="', '<a target="_blank" rel="noopener noreferrer" href="');
+    const cleanText = text.replace(TUI_CURSOR_MARKER_RE, "");
+    return ansiUp.ansi_to_html(cleanText).replaceAll('<a href="', '<a target="_blank" rel="noopener noreferrer" href="');
   }, [text]);
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }

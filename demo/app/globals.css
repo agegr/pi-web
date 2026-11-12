@@ -1002,6 +1002,16 @@ pre, code {
 .markdown-code-line {
   display: flex;
 }
+/* Keep line numbers out of text selection. `user-select: none` alone still
+   lets browsers paint the number when a selection crosses lines, so the
+   visible digits are generated content rather than text nodes. */
+.markdown-code-line-number {
+  flex-shrink: 0;
+  user-select: none;
+}
+.markdown-code-line-number::before {
+  content: attr(data-line-number);
+}
 /* A zero basis: an `auto` one measures every line's unwrapped width first,
    which nearly doubled the layout of a reply's fences. */
 .markdown-code-line-text {
