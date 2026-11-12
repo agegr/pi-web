@@ -88,7 +88,8 @@ export function toolInputPreview(input: unknown, resultPatchPath: string | null 
   if (!input || typeof input !== "object" || Array.isArray(input)) return "";
   const record = input as Record<string, unknown>;
   const clip = (text: string) => text.slice(0, PREVIEW_MAX);
-  if (toolName === "grep") {
+  // pi's own grep and find cards lead with the pattern ("grep /TODO/ in src").
+  if (toolName === "grep" || toolName === "find") {
     const pattern = firstRankText(record.pattern);
     if (pattern !== null) return clip(pattern);
   }
