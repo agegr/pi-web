@@ -84,10 +84,15 @@ function nestedText(value: unknown): string | null {
  * its first object argument (an `ask_user_question` call's `questions[]`)
  * instead of `[object Object]`.
  */
-export function toolInputPreview(input: unknown, resultPatchPath: string | null = null): string {
+export function toolInputPreview(input: unknown, resultPatchPath: string | null = null, toolName?: string): string {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "";
   const record = input as Record<string, unknown>;
   const clip = (text: string) => text.slice(0, PREVIEW_MAX);
+  // pi's own grep and find cards lead with the pattern ("grep /TODO/ in src").
+  if (toolName === "grep" || toolName === "find") {
+    const pattern = firstRankText(record.pattern);
+    if (pattern !== null) return clip(pattern);
+  }
   for (const key of ["command", "path", "file_path"]) {
     // An argv-style command reads as the command line it is.
     const text = firstRankText(record[key], key === "command" ? " " : ", ");
