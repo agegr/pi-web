@@ -3414,7 +3414,12 @@ export async function startRpcSession(
       : chatOnly
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
-    const settingsManager = SettingsManager.create(sessionCwd, agentDir);
+    // Trusted only by the folder's decision, as `syncProjectTrust()` reads it: created trusted
+    // by default, a session that resolves no trust on load (a subagent that loads no
+    // resources, Chat only) read the project settings of a folder never trusted.
+    const settingsManager = SettingsManager.create(sessionCwd, agentDir, {
+      projectTrusted: getProjectTrustStatus(sessionCwd, agentDir).trusted,
+    });
     // Here the allow-list is the point: extensions stay loaded, their tools and what
     // the parent did not have stay out of the registry.
     if (sideChatTools) toolsOption = resolveShellTools(selectedToolNames ?? [], settingsManager.getDefaultTools());
