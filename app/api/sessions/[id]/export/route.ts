@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { promisify } from "util";
@@ -115,9 +115,10 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const tempDir = join(tmpdir(), "pi-web-export");
-    mkdirSync(tempDir, { recursive: true });
-
+    // Per-request private directory. A fixed /tmp/pi-web-export is created by
+    // whichever OS user runs the first WebUI process; other users on the same
+    // host then cannot write into it and history export fails.
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-web-export-"));
     const sessionBase = basename(filePath, ".jsonl");
     const fileName = `pi-session-${sessionBase}.html`;
     const outputPath = join(tempDir, `${randomUUID()}.html`);
@@ -137,7 +138,7 @@ export async function GET(
         },
       });
     } finally {
-      rmSync(outputPath, { force: true });
+      rmSync(tempDir, { recursive: true, force: true });
     }
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
