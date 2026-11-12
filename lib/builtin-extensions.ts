@@ -52,6 +52,10 @@ function errorMessage(error: unknown): string {
 const SELF_TEST_SCRIPT = "return 6 * 7";
 const SELF_TEST_OUTPUT = "42";
 const SELF_TEST_TIMEOUT_MS = 10_000;
+/** How often the self-test's deadline counts time. */
+const SELF_TEST_TICK_MS = 100;
+/** A failed self-test is run again by a session starting this long after it failed. */
+const SELF_TEST_RETRY_MS = 60_000;
 
 export interface CodemodeSelfTestOptions {
   timeoutMs?: number;
@@ -94,11 +98,25 @@ export async function runCodemodeSelfTest(options: CodemodeSelfTestOptions = {})
   const timeoutMs = options.timeoutMs ?? SELF_TEST_TIMEOUT_MS;
   const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
+  // The deadline counts only time the event loop was free to deliver the sandbox's answer. The
+  // first session runs the self-test while the server does its heaviest work, and a synchronous
+  // stall there fires a plain timer before the poll phase hands over a reply the worker already
+  // sent (#1615); a late tick therefore counts as at most two ticks. A loop that keeps stalling
+  // still gives up after three times the limit.
+  const tickMs = Math.min(SELF_TEST_TICK_MS, timeoutMs);
+  const startedAt = Date.now();
   const timedOut = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
+    let counted = 0;
+    let last = startedAt;
+    timer = setInterval(() => {
+      const now = Date.now();
+      counted += Math.min(Math.max(now - last, 0), 2 * tickMs);
+      last = now;
+      if (counted < timeoutMs && now - startedAt < 3 * timeoutMs) return;
+      clearInterval(timer);
       controller.abort();
       reject(new Error(`the sandbox did not answer within ${timeoutMs} ms`));
-    }, timeoutMs);
+    }, tickMs);
     timer.unref?.();
   });
   try {
@@ -121,20 +139,49 @@ export async function runCodemodeSelfTest(options: CodemodeSelfTestOptions = {})
   } catch (error) {
     return { available: false, reason: errorMessage(error) };
   } finally {
-    clearTimeout(timer);
+    clearInterval(timer);
   }
 }
 
 // Hot reload re-evaluates this module; globalThis keeps one self-test per process.
-const CODEMODE_SANDBOX_KEY: symbol = Symbol.for("pi-web.codemodeSandbox");
+const CODEMODE_SANDBOX_KEY: symbol = Symbol.for("pi-web.codemodeSandboxCheck");
 
-/** The sandbox self-test, run once per server process on the first normal session. */
-export function checkCodemodeSandbox(): Promise<BuiltinFeatureStatus> {
-  const store = globalThis as Record<symbol, Promise<BuiltinFeatureStatus> | undefined>;
-  return store[CODEMODE_SANDBOX_KEY] ??= runCodemodeSelfTest().then((status) => {
-    if (!status.available) console.warn(`[pi-web] Code mode is off: ${status.reason}`);
-    return status;
-  });
+interface CodemodeSandboxCheck {
+  result: Promise<BuiltinFeatureStatus>;
+  /** Set once the test failed: a session starting from then on runs it again. */
+  retryAt?: number;
+  /** The failure this run retries, which Settings keeps showing until it settles. */
+  previous?: BuiltinFeatureStatus;
+  failure?: BuiltinFeatureStatus;
+}
+
+function sandboxStore(): Record<symbol, CodemodeSandboxCheck | undefined> {
+  return globalThis as Record<symbol, CodemodeSandboxCheck | undefined>;
+}
+
+/**
+ * The sandbox self-test, run on the first normal session of a server process. A pass is kept for
+ * the process; a failure only for `SELF_TEST_RETRY_MS`, so one bad moment never switches Code mode
+ * off until a restart, and a sandbox that keeps failing costs a session start at most once a minute.
+ */
+export function checkCodemodeSandbox(options: { now?: number; selfTest?: () => Promise<BuiltinFeatureStatus> } = {}): Promise<BuiltinFeatureStatus> {
+  const store = sandboxStore();
+  const current = store[CODEMODE_SANDBOX_KEY];
+  const now = options.now ?? Date.now();
+  if (current && (current.retryAt === undefined || now < current.retryAt)) return current.result;
+  const check: CodemodeSandboxCheck = {
+    previous: current?.failure,
+    result: (options.selfTest ?? runCodemodeSelfTest)().then((status) => {
+      if (!status.available) {
+        console.warn(`[pi-web] Code mode is off: ${status.reason}`);
+        check.failure = status;
+        check.retryAt = Date.now() + SELF_TEST_RETRY_MS;
+      }
+      return status;
+    }),
+  };
+  store[CODEMODE_SANDBOX_KEY] = check;
+  return check.result;
 }
 
 export type CodemodeSandboxPeek = { checked: false } | ({ checked: true } & BuiltinFeatureStatus);
@@ -145,15 +192,15 @@ const NOT_SETTLED: unique symbol = Symbol("not settled");
  * The self-test's result once it has settled, without ever starting it: the
  * first normal session runs it, and Settings only reports what it found. A
  * test still running, or not started since the server did, is `checked:
- * false`. A promise that has already settled wins the race against one
+ * false`, unless it retries a failure, which stays reported until it settles. A promise that has already settled wins the race against one
  * resolved now, because their reactions run in the order they were attached.
  */
 export async function peekCodemodeSandbox(): Promise<CodemodeSandboxPeek> {
-  const store = globalThis as Record<symbol, Promise<BuiltinFeatureStatus> | undefined>;
-  const pending = store[CODEMODE_SANDBOX_KEY];
-  if (!pending) return { checked: false };
-  const settled = await Promise.race([pending, Promise.resolve(NOT_SETTLED)]);
-  return settled === NOT_SETTLED ? { checked: false } : { checked: true, ...settled };
+  const check = sandboxStore()[CODEMODE_SANDBOX_KEY];
+  if (!check) return { checked: false };
+  const settled = await Promise.race([check.result, Promise.resolve(NOT_SETTLED)]);
+  if (settled !== NOT_SETTLED) return { checked: true, ...settled };
+  return check.previous ? { checked: true, ...check.previous } : { checked: false };
 }
 
 // ---------------------------------------------------------------------------
