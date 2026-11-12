@@ -76,9 +76,13 @@ pi-web --help
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
 
-### Native HTTPS / HTTP2 (production CLI)
+### Native HTTPS / HTTP2 (optional, production CLI)
 
-To keep many active event streams open without exhausting the browser's HTTP/1.1 connection pool, the production `pi-web` launcher can provide a native TLS/HTTP2 entry point:
+**Who this is for:** operators who already have a certificate and private key, or can arrange HTTPS certificate provisioning, hostname matching and browser trust. It is an optional deployment feature; ordinary users can keep starting `pi-web` without either file. Visitors to the same instance do not need its private key.
+
+This option does not change the default HTTP transport or remove its connection-pool limit. Its concurrency benefit requires a configured HTTPS entry point and a browser that actually negotiates HTTP/2. Default transport improvements for users without certificates are a separate task.
+
+To enable this entry point:
 
 ```bash
 pi-web --hostname 127.0.0.1 --port 8443 \
