@@ -345,7 +345,14 @@ function renderCodeLines({ rows, stylesheet, useInlineStyles }: CodeLinesProps) 
     };
     return (
       <span key={index} className="markdown-code-line">
-        {number && renderSyntaxNode({ node: number, stylesheet, useInlineStyles, key: "number" })}
+        {number && (
+          <span
+            className="markdown-code-line-number"
+            data-line-number={index + 1}
+            aria-hidden="true"
+            style={number.properties?.style}
+          />
+        )}
         {renderSyntaxNode({ node: text, stylesheet, useInlineStyles, key: "text" })}
       </span>
     );
