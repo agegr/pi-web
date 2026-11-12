@@ -1634,7 +1634,8 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
-const DEFAULT_LLAMA_ROUTER_URL = "http://127.0.0.1:9931";
+// pi's default router address (`/login llama.cpp`, docs/llama-cpp.md).
+const DEFAULT_LLAMA_ROUTER_URL = "http://127.0.0.1:8080";
 
 function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
   provider: ApiKeyProvider; onRefresh: () => void; enabledModels: EnabledModelsController;
@@ -1811,9 +1812,7 @@ function AddProviderPicker({
   const q = search.trim().toLowerCase();
 
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && providerMatchesSearch(q, p.id, p.name));
-  // Keep the router connection reachable here when Pi CLI already configured it.
-  const availableApiKey = apiKeyProviders.filter((p) =>
-    (!p.configured || p.id === LLAMA_CPP_PROVIDER_ID) && providerMatchesSearch(q, p.id, p.displayName));
+  const availableApiKey = apiKeyProviders.filter((p) => !p.configured && providerMatchesSearch(q, p.id, p.displayName));
   const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q);
 
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
@@ -1918,7 +1917,7 @@ function AddProviderPicker({
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
                     <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
                       {p.id === LLAMA_CPP_PROVIDER_ID
-                        ? t(p.configured ? "i18n.configured" : "models.optionalApiKey")
+                        ? t("models.optionalApiKey")
                         : t(p.modelCount === 1 ? "models.modelCountOne" : "models.modelCount", { count: p.modelCount })}
                     </div>
                   </div>
