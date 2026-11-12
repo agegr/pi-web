@@ -42,7 +42,6 @@ export async function checkStreamingMetrics(page) {
             height: header.getBoundingClientRect().height,
             contentTop: header.nextElementSibling.getBoundingClientRect().top,
             tokenTop: tokens?.getBoundingClientRect().top,
-            rateLeft: rate?.getBoundingClientRect().left,
             rateWidth: rate?.getBoundingClientRect().width,
             overflows: header.scrollWidth > fixture.clientWidth,
           };
@@ -59,10 +58,10 @@ export async function checkStreamingMetrics(page) {
       heights: distinct("height").length,
       contentTops: distinct("contentTop").length,
       tokenTops: distinct("tokenTop").length,
-      rateLefts: distinct("rateLeft").length,
-      rateWidths: distinct("rateWidth").length,
+      // The count and a rate of 100 t/s or more take their natural width (#1566).
+      rateWidths: [...new Set(samples.filter((_, i) => states[i].tps < 100).map(s => s.rateWidth))].length,
       overflows: samples.some(s => s.overflows),
-    }, { heights: 1, contentTops: 1, tokenTops: 1, rateLefts: 1, rateWidths: 1, overflows: false },
+    }, { heights: 1, contentTops: 1, tokenTops: 1, rateWidths: 1, overflows: false },
     `${font}: streaming header moves: ${JSON.stringify(samples)}`);
   }
   console.log("PASS: streaming metrics keep their height and numeric columns across updates");
