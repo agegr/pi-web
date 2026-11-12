@@ -341,12 +341,19 @@ function isCompactionInProgressError(error: unknown): boolean {
 // Wraps AgentSession with the same interface the rest of the app expects
 // ============================================================================
 
+/** A running top-level tool call's start, when this process saw it, and its latest update. */
+interface ActiveToolEvents {
+  start: AgentEvent;
+  startedAt: number;
+  update?: AgentEvent;
+}
+
 export class AgentSessionWrapper {
   // A Set, not an array: an SSE stream unsubscribes from inside emit() when it
   // closes on session_shutdown, and splicing an array mid-iteration made the
   // next stream miss that same event.
   private listeners = new Set<EventListener>();
-  private activeToolEvents = new Map<string, AgentEvent>();
+  private activeToolEvents = new Map<string, ActiveToolEvents>();
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
@@ -676,8 +683,8 @@ export class AgentSessionWrapper {
   }
 
   /**
-   * Keep the latest start or update of each running tool call for onEvent() to
-   * replay. Calls a tool makes itself (a codemode script's, which carry
+   * Keep the start and the latest update of each running tool call for onEvent()
+   * to replay. Calls a tool makes itself (a codemode script's, which carry
    * `parentToolCallId`) are left out: a reconnecting client would show each as a
    * top-level tool, and the parent's own update already reports them. A nested
    * end can still arrive after its parent's, and is ignored like the rest.
@@ -685,8 +692,11 @@ export class AgentSessionWrapper {
   private trackActiveToolEvent(event: AgentEvent): void {
     const toolCallId = event.toolCallId;
     if (typeof toolCallId !== "string" || isNestedToolExecutionEvent(event)) return;
-    if (event.type === "tool_execution_start" || event.type === "tool_execution_update") {
-      this.activeToolEvents.set(toolCallId, event);
+    if (event.type === "tool_execution_start") {
+      this.activeToolEvents.set(toolCallId, { start: event, startedAt: performance.now() });
+    } else if (event.type === "tool_execution_update") {
+      const active = this.activeToolEvents.get(toolCallId);
+      if (active) active.update = event;
     } else if (event.type === "tool_execution_end") {
       this.activeToolEvents.delete(toolCallId);
       const nestedPrefix = `${toolCallId}/`;
@@ -1144,7 +1154,13 @@ export class AgentSessionWrapper {
     }
     this.listeners.add(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
-    for (const event of this.activeToolEvents.values()) listener(event);
+    // A replayed start says how long the call has run (`elapsedMs`, this process's clock): the
+    // page's live elapsed time on its card counts from the start it saw, which a reload missed.
+    const now = performance.now();
+    for (const { start, startedAt, update } of this.activeToolEvents.values()) {
+      listener({ ...start, elapsedMs: Math.max(0, Math.round(now - startedAt)) });
+      if (update) listener(update);
+    }
     for (const event of this.startupNotices ?? []) listener(event);
     return () => {
       this.listeners.delete(listener);
