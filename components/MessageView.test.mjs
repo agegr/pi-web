@@ -37,6 +37,12 @@ function renderMessage(message, props = {}) {
   );
 }
 
+test("a collapsed grep card shows what was searched for", () => {
+  const html = renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: "grep-preview", toolName: "grep", input: { path: "src", pattern: "TODO" } }] });
+  assert.match(html, />TODO<\/span>/);
+  assert.doesNotMatch(html, />src<\/span>/);
+});
+
 test("updates a reused message when its written files change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
