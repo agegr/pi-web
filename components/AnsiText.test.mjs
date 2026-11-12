@@ -82,3 +82,15 @@ test("styles do not leak between complete widget snapshots", () => {
   assert.match(toHtml("\x1b[31mred"), /class="ansi-red-fg"/);
   assert.equal(toHtml("plain"), "<span>plain</span>");
 });
+
+test("strips pi-tui internal cursor and fake cursor markers", () => {
+  const html = toHtml("> \x1b_pi:c\x07\x1b_pi:fc\x07中\x1b_pi:/fc\x07");
+  assert.equal(html, "<span>&gt; 中</span>");
+  assert.doesNotMatch(html, /_pi:/);
+  assert.doesNotMatch(html, /\x07/);
+});
+
+test("an unterminated pi-tui marker never swallows the following lines", () => {
+  const html = toHtml("cut\x1b_pi:fc\nnext line\x07 end");
+  assert.match(html, /next line/);
+});

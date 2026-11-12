@@ -1,4 +1,11 @@
 /**
+ * How often a file watch sends a `ping` event. It is an event, not an SSE comment,
+ * so the viewer sees it: a watch silent for a few of these is a half-open
+ * connection (sleep, a dropped NAT entry) and the viewer opens a new one.
+ */
+export const FILE_WATCH_HEARTBEAT_MS = 30_000;
+
+/**
  * A watched file's version as `/api/files` meta and watch `change` events report
  * it (size and modification time). A viewer that reconnects its watch (the page
  * came back from hidden, the panel reopened) compares it with the version it

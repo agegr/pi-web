@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    return NextResponse.json(await getGitStatus(cwd));
+    // A closed request (a newer refresh replaced it) stops its scan.
+    return NextResponse.json(await getGitStatus(cwd, request.signal));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

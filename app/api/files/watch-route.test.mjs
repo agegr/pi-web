@@ -82,3 +82,16 @@ test("a watch whose watcher fails is let go once, before the stream ends", async
   await reader.cancel();
   assert.equal(countFileWatches(), baseline);
 });
+
+test("a watch sends a ping event each heartbeat until the client goes", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { FILE_WATCH_HEARTBEAT_MS } = await jiti.import("../../../lib/file-version.ts");
+  const file = path.join(root, "heartbeat.txt");
+  fs.writeFileSync(file, "one");
+  const client = new AbortController();
+  const reader = await openWatch(file, client.signal);
+  t.mock.timers.tick(FILE_WATCH_HEARTBEAT_MS);
+  assert.match(decoder.decode((await reader.read()).value), /^event: ping\n/);
+  client.abort();
+  assert.equal((await reader.read()).done, true);
+});

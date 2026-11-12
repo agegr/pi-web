@@ -84,7 +84,7 @@ function truncateCodemodeSnapshot(partialResult: unknown): unknown {
 /**
  * Nested calls travel as a slim start and end, and their progress updates are
  * dropped. A `tool_execution_end` never carries `result`: the browser only
- * reads its ids and renders the tool result message that follows, while the
+ * reads its ids and time and renders the tool result message that follows, while the
  * raw result can hold up to 1 MiB of bash output in `structuredContent`.
  */
 function toClientToolExecutionEvent(event: AgentEventLike): AgentEventLike | null {
@@ -114,6 +114,9 @@ function toClientToolExecutionEvent(event: AgentEventLike): AgentEventLike | nul
     toolCallId: event.toolCallId,
     toolName: event.toolName,
     isError: event.isError,
+    // pi's measured run time: a card shows it before the result message, which
+    // a parallel batch sends only once its last call ends.
+    ...(!nested && typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
     ...(nested ? { parentToolCallId: event.parentToolCallId } : {}),
   };
 }

@@ -54,3 +54,39 @@ export function splitMarkdownBlocks(markdown: string): string[] {
   blocks.push(current.join("\n"));
   return blocks;
 }
+
+const FENCE_OPEN = /^(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$/;
+
+/**
+ * A streaming block that is one fenced code block and nothing else: its
+ * language and code, as react-markdown would hand them to the `code`
+ * renderer (no trailing newline). A fence still being written has no closing
+ * line yet. MarkdownBody renders such a block straight, so a long fence is
+ * not run through the markdown parser again on every chunk. Anything else
+ * (an indented fence, text after the closing line, a ```math fence, CR line
+ * endings, an info string with escapes or entities the parser decodes) is
+ * null and parsed as usual.
+ */
+export function parseFenceBlock(block: string): { lang: string; code: string } | null {
+  // The parser takes \r\n and \r as line endings, and decodes `\+` and
+  // `&amp;` in the info string.
+  if (block.includes("\r")) return null;
+  const lines = block.split("\n");
+  const open = lines[0].match(FENCE_OPEN);
+  if (!open || /[\\&]/.test(open[2])) return null;
+  const marker = open[1][0];
+  const size = open[1].length;
+  let close = -1;
+  for (let i = 1; i < lines.length; i += 1) {
+    const fence = lines[i].match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+    if (fence && fence[1][0] === marker && fence[1].length >= size) { close = i; break; }
+  }
+  if (close !== -1 && lines.slice(close + 1).some((line) => line.trim() !== "")) return null;
+  const lang = open[2].toLowerCase();
+  // A math fence is display math (KaTeX, lib/markdown.ts), not code.
+  if (lang === "math") return null;
+  // A closed fence's code is every line up to the closing one, a blank last
+  // line included; an open fence's ends before the block's final line break.
+  const end = close !== -1 ? close : lines.length > 1 && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+  return { lang, code: lines.slice(1, end).join("\n") };
+}
