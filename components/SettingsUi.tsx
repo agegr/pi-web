@@ -644,6 +644,7 @@ export function ConfigAddSourcePanel({
               if (normalizeValue) onValueChange(normalizeValue(event.currentTarget.value));
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
               if (event.key === "Enter" && canSubmit) onSubmit();
             }}
           />
