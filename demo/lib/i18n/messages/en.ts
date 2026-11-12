@@ -627,7 +627,7 @@ export const enLocale: LocalePlugin = {
     "i18n.testConnection": "Test model connection",
     "i18n.provider": "Provider",
     "i18n.model": "Model",
-    "i18n.providerName": "Provider name",
+    "i18n.providerId": "Provider ID",
     "i18n.rename": "Rename",
     "i18n.default": "Default",
     "i18n.disabled": "Disabled",

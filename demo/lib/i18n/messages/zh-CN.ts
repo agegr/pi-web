@@ -627,7 +627,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.testConnection": "测试模型连接",
     "i18n.provider": "Provider",
     "i18n.model": "模型",
-    "i18n.providerName": "Provider 名称",
+    "i18n.providerId": "Provider ID",
     "i18n.rename": "重命名",
     "i18n.default": "默认",
     "i18n.disabled": "已禁用",
