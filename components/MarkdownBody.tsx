@@ -72,10 +72,12 @@ function MathDisplay({ source, children }: { source: string; children: ReactNode
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = () => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     copyText(source).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
   return (
     <div className="markdown-math-display">

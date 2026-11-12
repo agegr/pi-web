@@ -387,11 +387,13 @@ export function AppShell() {
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCopySessionField = useCallback((field: SessionCopyField, value: string) => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     void copyText(value).then(() => {
       if (sessionCopyTimerRef.current) clearTimeout(sessionCopyTimerRef.current);
       setCopiedSessionField(field);
       sessionCopyTimerRef.current = setTimeout(() => setCopiedSessionField(null), 1400);
-    });
+    }, () => {});
   }, []);
 
   useEffect(() => {
