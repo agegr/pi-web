@@ -50,16 +50,46 @@ export async function GET(
   const { provider } = await params;
 
   const encoder = new TextEncoder();
+  let closed = false;
   const send = (controller: ReadableStreamDefaultController, data: unknown) => {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    if (closed) return;
+    try {
+      // A `notify` callback (e.g. from a provider's local OAuth callback
+      // server reporting `listening`) can fire after the stream has already
+      // been closed — either by `finally` below or by a client disconnect.
+      // `desiredSize` is `null` once the controller is closed/errored, and
+      // `enqueue` on a closed controller throws "Controller is already closed",
+      // which otherwise escapes as an uncaughtException and kills the server.
+      // Mirror the guard used in app/api/terminal/[id]/events/route.ts.
+      if ((controller.desiredSize ?? 0) <= 0) {
+        closed = true;
+        return;
+      }
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+    } catch {
+      closed = true;
+    }
   };
 
-  // AbortController propagates client disconnect into ModelRuntime.login().
-  const abort = new AbortController();
-  req.signal.addEventListener("abort", () => abort.abort());
+  // Login must survive a client (SSE) disconnect. kiro's OAuth/IDC flow opens a
+  // local callback server and then polls a device code for 10–30s; if the
+  // browser drops the EventSource (tab switch, proxy blip, a ~3.5s disconnect
+  // seen in logs) we used to abort login() — which meant it never resolved, so
+  // the credential was never persisted to auth.json and the provider stayed
+  // "not authenticated" even though kiro itself logged in. Now we only close the
+  // SSE and reject pending client-input prompts on disconnect; login keeps
+  // running and persists its result, which the frontend picks up via
+  // /api/auth/providers.
+  const loginAbort = new AbortController();
+
+  // Shared so `cancel()` (stream consumer disconnect) can reach the same
+  // controller/cleanup that `start()` owns.
+  let activeController: ReadableStreamDefaultController | null = null;
+  let activeCleanup: (() => void) | null = null;
 
   const stream = new ReadableStream({
     async start(controller) {
+      activeController = controller;
       const modelRuntime = await createModelRuntimeWithExtensions();
       if (!modelRuntime.getProvider(provider)?.auth.oauth) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
@@ -115,9 +145,22 @@ export async function GET(
         }
         activeTokens.clear();
       };
+      activeCleanup = cleanup;
 
-      // Also cancel on client disconnect
-      abort.signal.addEventListener("abort", cleanup);
+      // On client (SSE) disconnect: close the stream and reject any pending
+      // client-input prompts (manual code / text), but do NOT abort loginAbort —
+      // the OAuth device/IDC flow must run to completion so its credential gets
+      // persisted to auth.json. The frontend reflects the final state via
+      // /api/auth/providers.
+      req.signal.addEventListener("abort", () => {
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+        cleanup();
+      });
 
       const loginOptions = createLoginOptions();
       try {
@@ -164,7 +207,7 @@ export async function GET(
               send(controller, { type: "progress", message: event.message });
             }
           },
-          signal: abort.signal,
+          signal: loginAbort.signal,
         }, loginOptions.options);
 
         invalidateModelsCache();
@@ -178,12 +221,30 @@ export async function GET(
         }
       } finally {
         cleanup();
-        await loginOptions.flush();
-        controller.close();
+        try {
+          await loginOptions.flush();
+        } catch {
+          /* flush best-effort */
+        }
+        try {
+          controller.close();
+        } catch {
+          /* already closed by client disconnect */
+        }
+        closed = true;
       }
     },
     cancel() {
-      abort.abort();
+      // Client cancelled the stream: close the SSE and reject any pending
+      // client-input prompts, but do NOT abort loginAbort — let the OAuth flow
+      // finish so credentials still get persisted.
+      closed = true;
+      try {
+        activeController?.close();
+      } catch {
+        /* already closed */
+      }
+      activeCleanup?.();
     },
   });
 
