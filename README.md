@@ -57,6 +57,7 @@ For port and hostname, command-line options override the corresponding environme
 | `--help`, `-h` | Print startup options and exit | — |
 | `--port <port>`, `-p <port>`, or `PORT` | Server port | `30141` |
 | `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
+| `--https-cert <file>` + `--https-key <file>` | Enable the production HTTPS/HTTP2 entry point with a PEM certificate chain and matching unencrypted PEM private key; both are required | Plain HTTP |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
 | `PI_WEB_APP_NAME` | PWA manifest `name` and `short_name`; surrounding whitespace is trimmed, empty values use the default | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
@@ -75,6 +76,22 @@ pi-web --help
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
 
+### Native HTTPS / HTTP2 (production CLI)
+
+To keep many active event streams open without exhausting the browser's HTTP/1.1 connection pool, the production `pi-web` launcher can provide a native TLS/HTTP2 entry point:
+
+```bash
+pi-web --hostname 127.0.0.1 --port 8443 \
+  --https-cert /path/to/fullchain.pem --https-key /path/to/private-key.pem
+```
+
+Open `https://127.0.0.1:8443` using a certificate valid for that address. For a DNS name, use an appropriate certificate and bind hostname, or bind a wildcard and add the exact browser hostname to `PI_WEB_ALLOWED_HOSTS`. `--port` and `--hostname` select the **public** listener; Next runs on a random private port bound only to `127.0.0.1`. `status`, `open`, automatic browser opening and `stop` use the public HTTPS endpoint, including the actual port when `--port 0` is used.
+
+- Both PEM files are required. Missing, invalid, encrypted or mismatched keys and startup/bind failures are errors, **not a fallback to HTTP**. The private key is read only by the TLS entry point, not printed, recorded or passed to Next's environment.
+- You supply and protect the certificate/key, ensure hostname matching and browser trust, and handle renewal and restart yourself. Pi Web does not generate a CA, obtain certificates, install trust, configure ACME or automatically reload/renew them. A CLI status probe pins the recorded public certificate for that instance only; it does not install trust for your browser or other Node requests.
+- Multiplexing requires the browser's actual negotiated protocol to be **`h2`** (check the browser Network panel's Protocol column). HTTPS with HTTP/1.1 fallback still has the old pool limit; the HTTPS URL alone does not prove it is fixed. Default plain HTTP remains compatible.
+- Existing SSE/API, authentication, Origin/Host and file-root policies are unchanged. No WebSocket migration or automatic replay of prompts is involved. This option does **not** apply to `npm run dev` or `next start` invoked directly.
+
 ### Remote Access
 
 Binding to a non-loopback address exposes an agent that can execute high-privilege actions. On a trusted LAN, require a long random password:
@@ -83,7 +100,7 @@ Binding to a non-loopback address exposes an agent that can execute high-privile
 PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
 ```
 
-Password authentication does not encrypt the connection. Do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
+Password authentication does not encrypt the connection. Do not expose Pi Web over plain HTTP to the internet; use the native HTTPS entry point above, HTTPS through a trusted reverse proxy, or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
 
 ### Docker
 

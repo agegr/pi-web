@@ -14,6 +14,10 @@ const os = require("os");
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { fileURLToPath } = require("url");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const tls = require("node:tls");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { isIP } = require("node:net");
 
 // pi's getAgentDir(): PI_CODING_AGENT_DIR with `~` expanded, else ~/.pi/agent.
 function getAgentDir(env = process.env, home = os.homedir()) {
@@ -31,12 +35,12 @@ function getRunDir(env = process.env, home = os.homedir()) {
 
 // The address a browser on this machine can open: wildcard binds become
 // loopback, and IPv6 literals get brackets.
-function getOpenUrl(hostname, port) {
+function getOpenUrl(hostname, port, scheme = "http") {
   let host = hostname;
   if (host === "0.0.0.0") host = "127.0.0.1";
   else if (host === "::" || host === "[::]") host = "::1";
   if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;
-  return `http://${host}:${port}`;
+  return `${scheme}://${host}:${port}`;
 }
 
 function isProcessAlive(pid, kill = process.kill) {
@@ -100,7 +104,49 @@ function removeRunRecord(dir, pid) {
 // Any HTTP answer counts (a password-protected server answers 401). Only the
 // status matters, so the body is dropped: its connection is released now
 // instead of being left mid-response when the CLI exits (#1174).
-async function isServerAnswering(url, fetchImpl = fetch) {
+// A launcher-owned HTTPS listener may use a user-supplied certificate absent
+// from Node's CA store. Probe only the recorded bind address, pinning the
+// public certificate fingerprint BEFORE sending a credential-free request.
+// This neither changes system trust nor disables TLS checks for other fetches.
+function isHttpsServerAnswering(record) {
+  if (!Number.isInteger(record.port) || record.port < 1 || record.port > 65535
+    || typeof record.hostname !== "string"
+    || !/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(record.certFingerprint256 || "")
+    || record.url !== getOpenUrl(record.hostname, record.port, "https")) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let socket;
+    let settled = false;
+    const finish = (answer) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      socket?.destroy();
+      resolve(answer);
+    };
+    // A wall-clock deadline includes DNS, TLS negotiation and a peer that
+    // continuously trickles bytes (an idle socket timeout does not).
+    const deadline = setTimeout(() => finish(false), 2_000);
+    try {
+      const host = new URL(record.url).hostname.replace(/^\[|\]$/g, "");
+      socket = tls.connect({ host, port: record.port, servername: isIP(host) ? undefined : host,
+        rejectUnauthorized: false, ALPNProtocols: ["http/1.1"] }, () => {
+        if (socket.getPeerCertificate().fingerprint256 !== record.certFingerprint256) return finish(false);
+        socket.write(`GET / HTTP/1.1\r\nHost: ${new URL(record.url).host}\r\nConnection: close\r\n\r\n`);
+      });
+      let statusLine = "";
+      socket.on("data", (chunk) => {
+        statusLine += chunk.toString();
+        if (statusLine.includes("\r\n")) finish(/^HTTP\/1\.[01] \d{3} /.test(statusLine));
+        else if (statusLine.length > 1024) finish(false);
+      });
+      socket.on("error", () => finish(false));
+      socket.on("close", () => finish(false));
+    } catch { finish(false); }
+  });
+}
+
+async function isServerAnswering(url, fetchImpl = fetch, record) {
+  if (record?.scheme === "https") return isHttpsServerAnswering(record);
   let response;
   try {
     response = await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(2_000) });
@@ -149,7 +195,14 @@ async function listRunRecords(dir, {
       fs.rmSync(file, { force: true });
     }
   }
-  const answering = await Promise.all(candidates.map((record) => isAnswering(record.url)));
+  const answering = await Promise.all(candidates.map((record) => (
+    // A dead HTTPS launcher leaves no public listener, but its private Next
+    // child must remain visible to status/stop rather than becoming unkillable.
+    record.scheme === "https" && record.orphaned
+      ? (Number.isInteger(record.backendPort) && record.backendPort > 0 && record.backendPort <= 65535
+        ? isAnswering(`http://127.0.0.1:${record.backendPort}/`, undefined) : false)
+      : isAnswering(record.url, undefined, record)
+  )));
   return candidates.filter((_, index) => answering[index]).sort((a, b) => a.port - b.port);
 }
 
@@ -169,7 +222,9 @@ function selectRunRecord(records, port) {
 }
 
 function formatRunRecord(record) {
-  const pid = record.orphaned ? `Next.js pid ${record.stopPid} (launcher gone)` : `pid ${record.pid}`;
+  const pid = record.orphaned
+    ? `Next.js pid ${record.stopPid} (launcher gone${record.scheme === "https" ? "; HTTPS entry gone, private backend remains" : ""})`
+    : `pid ${record.pid}`;
   return `  ${record.url}  ${pid}  v${record.version}  started ${record.startedAt}`;
 }
 
@@ -178,11 +233,20 @@ function formatRunRecord(record) {
 // `dir` may be a function, so a failing home lookup is caught here too.
 function createRunRecordTracker({ dir, record, parentProcess = process, warn = console.warn }) {
   let written = false;
+  let runDir;
+  function remove() {
+    if (!runDir) return;
+    // Never remove a newer launcher's replacement record with the same pid.
+    try {
+      const current = JSON.parse(fs.readFileSync(recordPath(runDir, record.pid), "utf8"));
+      if (current.instanceId === record.instanceId && current.startedAt === record.startedAt) removeRunRecord(runDir, record.pid);
+    } catch { /* Missing record, or cleanup cannot access its directory. */ }
+  }
   return {
+    remove,
     markReady() {
       if (written) return;
       written = true;
-      let runDir;
       try {
         runDir = typeof dir === "function" ? dir() : dir;
         writeRunRecord(runDir, record);
@@ -190,7 +254,7 @@ function createRunRecordTracker({ dir, record, parentProcess = process, warn = c
         warn(`[pi-web] could not write the run record (pi-web status/stop/open will not see this server): ${error.message}`);
         return;
       }
-      parentProcess.once("exit", () => removeRunRecord(runDir, record.pid));
+      parentProcess.once("exit", remove);
     },
   };
 }
@@ -203,6 +267,7 @@ module.exports = {
   getRunDir,
   isProcessAlive,
   isRecordProcess,
+  isHttpsServerAnswering,
   isServerAnswering,
   listRunRecords,
   readProcessCommand,

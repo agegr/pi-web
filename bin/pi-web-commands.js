@@ -95,6 +95,10 @@ async function runCommand(options, {
         if (code === 0) records.removeRunRecord(runDir, selected.record.pid);
         return code;
       }
+      if (selected.record.scheme === "https" && selected.record.orphaned) {
+        error("The HTTPS entry point is gone; stop the remaining private Next.js backend and restart pi-web.");
+        return 1;
+      }
       log(`Opening ${selected.record.url}`);
       open(selected.record.url);
       return 0;

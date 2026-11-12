@@ -59,6 +59,7 @@ pi-web update [--check] # 更新全局 npm 安装
 | `--help`、`-h` | 打印启动选项并退出 | — |
 | `--port <端口>`、`-p <端口>` 或 `PORT` | 服务端口 | `30141` |
 | `--hostname <主机>`、`-H <主机>` 或 `PI_WEB_HOSTNAME` | 监听主机名 | `127.0.0.1` |
+| `--https-cert <文件>` + `--https-key <文件>` | 使用 PEM 证书链和匹配的未加密 PEM 私钥启用生产 HTTPS/HTTP2 入口；必须成对提供 | 明文 HTTP |
 | `--no-open` 或 `PI_WEB_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
 | `PI_WEB_APP_NAME` | PWA manifest 的 `name` 和 `short_name`；去除首尾空白，空值使用默认值 | `Pi Web` |
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
@@ -73,6 +74,22 @@ pi-web --help
 pi-web -p 8080 -H 0.0.0.0 --no-open
 ```
 
+### 原生 HTTPS / HTTP2（生产命令行）
+
+为避免多个活动事件流耗尽浏览器的 HTTP/1.1 连接池，生产 `pi-web` 启动器可提供原生 TLS/HTTP2 入口：
+
+```bash
+pi-web --hostname 127.0.0.1 --port 8443 \
+  --https-cert /path/to/fullchain.pem --https-key /path/to/private-key.pem
+```
+
+使用对该地址有效的证书访问 `https://127.0.0.1:8443`。使用域名时，应提供相应证书及监听主机名；也可监听通配地址，并把浏览器使用的精确域名加入 `PI_WEB_ALLOWED_HOSTS`。`--port` 和 `--hostname` 指定的是**公开入口**；Next 仅绑定 `127.0.0.1` 上随机选择的私有端口。`status`、`open`、自动打开浏览器及 `stop` 使用公开 HTTPS 地址；`--port 0` 时也会记录实际公开端口。
+
+- 两个 PEM 文件必须成对提供。缺失、损坏、加密或不匹配的私钥，以及启动或端口绑定失败都会明确报错，**不会降级为 HTTP**。私钥仅由 TLS 入口读取，不打印、不写入运行记录，也不传入 Next 子进程环境。
+- 用户负责提供和保护证书/私钥、保证主机名匹配及浏览器信任，并自行续期、重启。Pi Web 不生成 CA、不申请证书、不安装信任、不配置 ACME，也不自动重载或续期。命令行状态探测仅固定校验该实例记录的公开证书指纹，不改变浏览器或其他 Node 请求的信任配置。
+- 连接复用要求浏览器实际协商协议为 **`h2`**（可在浏览器 Network 面板的 Protocol 列检查）。HTTPS 回退至 HTTP/1.1 时仍有原来的连接池限制；仅看到 HTTPS 地址不能证明问题已解决。默认明文 HTTP 保持兼容。
+- 现有 SSE/API、认证、Origin/Host 和文件 root 策略不变；不迁移到 WebSocket，也不自动重放 prompt。此选项**不适用于 `npm run dev` 或直接运行的 `next start`**。
+
 ### 远程访问
 
 监听非回环地址会暴露一个可执行高权限操作的智能体。在可信局域网中使用时，请设置足够长的随机密码：
@@ -81,7 +98,7 @@ pi-web -p 8080 -H 0.0.0.0 --no-open
 PI_WEB_PASSWORD='足够长的随机密码' pi-web --hostname 0.0.0.0
 ```
 
-密码认证不会加密连接。不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
+密码认证不会加密连接。不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用上述原生 HTTPS 入口、可信反向代理提供的 HTTPS，或可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
 
 ### HTTP 代理
 

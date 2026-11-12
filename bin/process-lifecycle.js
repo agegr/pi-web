@@ -78,4 +78,4 @@ function wireChildProcessLifecycle(
   });
 }
 
-module.exports = { wireChildProcessLifecycle };
+module.exports = { wireChildProcessLifecycle, getSignalExitCode };

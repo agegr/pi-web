@@ -33,15 +33,15 @@ function getReachableAddresses(hostname, { interfaces = os.networkInterfaces() }
   return addresses;
 }
 
-function formatUrl(address, port) {
+function formatUrl(address, port, scheme = "http") {
   const host = address.includes(":") ? `[${address}]` : address;
-  return `http://${host}:${port}`;
+  return `${scheme}://${host}:${port}`;
 }
 
 // The startup block that names each interface and the URL it serves. Empty when
 // there is nothing to add: a concrete bind address, port 0 (the OS picks one we
 // never learn), or no address of the bound family.
-function formatReachableAddresses(hostname, port, options) {
+function formatReachableAddresses(hostname, port, options = {}) {
   if (String(port) === "0") return "";
   const addresses = getReachableAddresses(hostname, options);
   if (addresses.length === 0) return "";
@@ -49,7 +49,7 @@ function formatReachableAddresses(hostname, port, options) {
   return [
     "Reachable at:",
     ...addresses.map(
-      ({ name, address }) => `  ${name.padEnd(width)}  ${formatUrl(address, port)}`,
+      ({ name, address }) => `  ${name.padEnd(width)}  ${formatUrl(address, port, options.scheme)}`,
     ),
   ].join("\n");
 }

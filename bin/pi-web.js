@@ -31,6 +31,10 @@ const { createRunRecordTracker, getOpenUrl, getRunDir } = require("./run-records
 const { getPackageVersion, runCommand } = require("./pi-web-commands");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { formatReachableAddresses } = require("./network-addresses");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { readTlsFiles } = require("./http2-gateway");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { startHttpsServer } = require("./https-launcher");
 
 let launchOptions;
 try {
@@ -49,7 +53,10 @@ if (launchOptions.help) {
 }
 
 if (launchOptions.command === "start") {
-  startServer(launchOptions);
+  Promise.resolve().then(() => startServer(launchOptions)).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    exitWhenIdle(1);
+  });
 } else {
   runCommand(launchOptions).then(
     exitWhenIdle,
@@ -70,8 +77,10 @@ function exitWhenIdle(code) {
   setTimeout(() => process.exit(code), 2_000).unref();
 }
 
-function startServer({ port, hostname, openBrowser }) {
-
+function startServer({ port, hostname, openBrowser, httpsCert, httpsKey }) {
+  // Validate PEMs before rotation, binding any socket, or starting Next. There
+  // is deliberately no HTTP fallback and no TLS material in the child env.
+  const tls = httpsCert ? readTlsFiles(httpsCert, httpsKey) : null;
   const pkgDir = path.join(__dirname, "..");
   const nextDir = path.join(pkgDir, ".next");
 
@@ -107,15 +116,19 @@ function startServer({ port, hostname, openBrowser }) {
   }
 
   if (!loopbackHostnames.has(hostname)) {
-    if (passwordEnabled) {
+    if (passwordEnabled && !tls) {
       console.warn(
         `Warning: pi-web is listening on ${hostname} with password authentication over HTTP. Use HTTPS or a trusted VPN to protect the password in transit.`,
       );
-    } else {
+    } else if (!passwordEnabled) {
       console.warn(
         `Warning: pi-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
       );
     }
+  }
+
+  if (tls) {
+    return startHttpsServer({ port, hostname, openBrowser, ...tls, nextBin, pkgDir, version: getPackageVersion(pkgDir) });
   }
 
   const nextArgs = ["start", "-p", port];

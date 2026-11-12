@@ -74,3 +74,144 @@ Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under
 `test-results/e2e/`; CI uploads that directory. Open a trace with
 `npx playwright show-trace test-results/e2e/trace.zip`.
+
+## HTTP connection pool mechanism acceptance (standalone)
+
+```sh
+PLAYWRIGHT_BROWSERS_PATH=/path/to/existing/ms-playwright node e2e/http-connection-pool.mjs
+```
+
+Uses the repository's Playwright and an already cached Chromium; it does not
+install dependencies or download a browser. Requires `openssl` on `PATH`.
+This check **does not start Next.js, contact an existing Pi Web instance, read
+agent configuration, or run a model**. It serves only synthetic HTML/JSON/SSE
+on ephemeral `127.0.0.1` ports, launches Chromium with an empty temporary home,
+and blocks browser requests outside the fixture origin.
+
+Controls distinguish encryption from multiplexing:
+
+- HTTP/1.1 and HTTPS + HTTP/1.1 each hold six real `EventSource` streams.
+  An ordinary JSON `fetch` remains pending and has not reached the server in
+  an approximately 800ms observation window. Closing exactly one SSE stream
+  lets that same fetch reach the server and complete promptly.
+- HTTPS + HTTP/2 uses the actual `createHttp2Gateway({ backendPort, cert, key })`
+  helper in `bin/http2-gateway.js`, in front of `startPoolFixture("http1")`.
+  A single page holds twelve SSE streams while the fetch succeeds. The browser
+  must actually negotiate `h2`; backend probes/streams must actually use `1.1`.
+- Another gateway context holds eight same-origin pages and sixteen logical
+  SSE streams (two per page). After warming each page with the streams held,
+  twenty sequential short fetches (ten GET, ten POST with verified JSON echo)
+  rotate across those pages. All streams must stay open without errors/reconnects.
+  Warm p95 must be <500ms, max <2000ms, and no request may hit the 5s deadline.
+  Closing one stream and then its page must release their backend sockets,
+  while the other fourteen streams continue receiving new events.
+- Gateway observations record completed frontend TLS connections and HTTP/2
+  sessions separately from logical SSE streams: observed totals, concurrent
+  peaks and active counts. Browser snapshots exclude the later Node Origin
+  control; final snapshots include it when present and are taken after cleanup.
+  These are measurements, not assertions that Chromium must use exactly one
+  physical connection/session.
+- A trusted-certificate Node HTTP/2 client sends an Origin-only POST without
+  Fetch Metadata. Backend counters independently verify unchanged public
+  Host/Origin, `x-forwarded-proto=https`, and HTTP/1.1. Explicit `:authority`
+  uses the public URL, not Node's default derived from the TLS `servername`.
+
+JSON lines on stdout record the Chromium version, actual navigation and fetch
+`nextHopProtocol`, server-side HTTP/ALPN protocols, whether probes reached the
+server, every measured duration, and nearest-rank p50/p95/max. Redirect stdout
+and stderr to a log outside the checkout to retain evidence; failures exit
+nonzero. Durations measure browser fetch through JSON consumption, not
+Playwright RPC overhead. These conservative thresholds are **local mechanism
+acceptance, not a production performance guarantee**. The positive cases
+validate the production gateway helper with synthetic backend data, not a
+production Next server or the launcher. Default HTTP still has the demonstrated
+browser pool limit. `startPoolFixture`, `openEventStreams`, `createTestTls` and
+`bounded` are exported for the separate Next forwarding check.
+
+Self-signed certificates live only in the temporary directory and are ignored
+only by the isolated HTTPS test contexts, never installed into system trust.
+Each scenario closes EventSources, contexts, HTTP/2 sessions and server sockets.
+A 90s whole-script deadline enters `finally` cleanup; an additional 15s cleanup
+watchdog bounds hangs. Temporary certificates/home are removed on success or
+failure. No generated output or certificate belongs in the repository.
+
+## Production HTTPS launcher acceptance (standalone)
+
+```sh
+PLAYWRIGHT_BROWSERS_PATH=/path/to/existing/ms-playwright \
+E2E_GATEWAY_PACKAGE_DIR=/tmp/candidate-pi-web/package \
+E2E_GATEWAY_ARTIFACTS=/tmp/pi-web-gateway-evidence \
+node e2e/http2-gateway.mjs
+```
+
+Requires an **existing published/build artifact** with `.next/BUILD_ID`, its
+runtime dependencies, cached Chromium and `openssl`. Prepare an isolated,
+disposable candidate package before running: its `bin/*.js` copies must match
+this checkout's candidate files. The script verifies every candidate bin file
+using SHA-256 before startup and saves the hash manifest. This validates CLI
+identity, not whether a prebuilt application bundle reflects source changes;
+use an application artifact compatible with the candidate. Do not point it at
+an installed instance: the real CLI rotates preview secrets in that package's
+`.next` directory. The script never builds, installs dependencies or downloads
+fonts/browsers. If `E2E_GATEWAY_PACKAGE_DIR` is omitted, it uses this checkout
+and clearly refuses to start when `.next/BUILD_ID` is absent.
+
+It starts the actual `node <package>/bin/pi-web.js --port <available-port>
+--hostname 127.0.0.1 --https-cert <temporary-cert> --https-key <temporary-key>
+--no-open` from a temporary fixture project. The CLI owns the HTTPS gateway
+and its private loopback **`next start`** backend; readiness is checked through
+the public HTTPS API, allowing only bounded startup retries (including 503).
+It does not start Next dev, exercise dev/HMR, use port 30141, or attach to an
+existing instance.
+
+Child processes use an explicit temporary-home/environment whitelist,
+synthetic password/sessions, `PI_OFFLINE=1`, and disabled catalog/version
+checks. An injected harness `NODE_OPTIONS` network guard is preserved; provider
+credentials and personal agent configuration are not inherited. Browser
+requests outside the fixture origin are blocked. PTY shells, when available,
+use a temporary no-profile wrapper. No model prompt is sent and no native PTY
+dependency is installed.
+
+Node HTTP/2 requests trust only the temporary certificate via `ca` and explicitly
+set `:authority` to the public URL's host, independent of TLS `servername`.
+Coverage exercises actual application routes:
+
+- Unauthenticated API 401 and public-origin login redirects; password login
+  and Secure/HttpOnly cookies; authenticated GET.
+- Same-origin POST with and without Fetch Metadata; malicious Origin/Host 403.
+- Normal file reads and outside/traversal 403.
+- Two no-prompt agent SSE connections, short GET while held, and cancellation
+  cleanup verified by the debug API.
+- Real temporary PTY echo, reconnect offsets and deletion, or an explicit
+  missing-native-binary gap.
+- The launcher's run record and actual `pi-web status`: public HTTPS URL/port,
+  HTTPS scheme and no advertised private backend URL.
+
+The browser uses the **real hydrated login page and password submit button**,
+without cookie injection or application-route stubs, and navigates to
+`/api/sessions`. It checks actual navigation `nextHopProtocol=h2`, the
+Secure/HttpOnly cookie, authenticated GET and same-origin POST, DELETE logout,
+and logged-out redirects that stay on the public origin. Production assets and
+fonts are served unchanged from the existing build; font rendering itself is
+not asserted. Browser JS errors and asset statuses are logged. Failures exit
+nonzero; `E2E_GATEWAY_DIAGNOSTICS=origin` stops after the earlier Node
+security checks and never claims complete launcher/browser acceptance.
+
+JSON lines report individual checks and a final grouped summary.
+`launcherValidated=true` requires complete browser/API coverage and successful
+cleanup checks, not just a listening gateway. The external artifact directory
+(default: a newly created temporary log directory) retains
+`production-launcher.log`, `candidate-hashes.json` and `checks.json`; redirect
+stdout/stderr outside the checkout to retain browser diagnostics and thrown
+errors too. Cookie/password/key values are never printed.
+
+The work deadline is 160s and the hard deadline is 180s including cleanup.
+On normal completion or caught failure, `finally` closes request streams,
+HTTP/2/browser resources and the test's own process group, then removes the
+temporary home/certificates. SIGTERM shutdown checks the public/private sockets,
+Next child exit and run-record removal. Fatal driver/process termination cannot
+guarantee JavaScript `finally`; an external harness must inspect and clean its
+own task processes in that case. This acceptance harness requires **Linux**
+(process-group signalling and `/proc` checks); Windows is untested and rejected.
+These standalone scripts are not added to the full E2E/CI runner and do not
+claim a production performance guarantee.
