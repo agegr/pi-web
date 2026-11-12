@@ -115,6 +115,7 @@ export const zhCNLocale: LocalePlugin = {
     "agentSwitcher.search": "搜索 Agents",
     "agentSwitcher.noMatches": "没有匹配的 Agent",
     "agentSwitcher.status.starting": "正在启动",
+    "agentSwitcher.status.queued": "排队中",
     "agentSwitcher.status.running": "运行中",
     "agentSwitcher.status.completed": "已完成",
     "agentSwitcher.status.failed": "失败",

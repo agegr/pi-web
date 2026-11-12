@@ -32,8 +32,8 @@ export interface DebugWrapperIdle {
   /** `PI_WEB_IDLE_TIMEOUT_MS` in effect; 0 = disabled (Stop still arms its forced deadline). */
   timeoutMs: number;
   /**
-   * When the idle timer fires next. A check, not a close: a run or an extension's liveness
-   * provider re-arms a full timeout then, unless `forcedByStop`; a page's lease renewal moves it
+   * When the idle timer fires next. A check, not a close: a run, an extension's liveness
+   * provider or a subagent run of this session waiting for its start re-arms a full timeout then, unless `forcedByStop`; a page's lease renewal moves it
    * a full timeout on. Null: not armed.
    */
   nextCheckAt: number | null;
