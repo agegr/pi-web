@@ -434,39 +434,44 @@ test("the running poll keeps the same Set while the running ids stay the same", 
   assert.equal(sameIdsOr(empty, []), empty);
 });
 
-test("a read or a mark in another tab reaches this one: the storage handler adopts that tab's write", () => {
-  const parse = between("function parseUnreadSessionIds(", "\nfunction loadUnreadSessionIds");
+test("a read or a mark in another tab reaches this one: the storage handler adopts that tab's write", async () => {
+  const { parseUnreadMarks, sameMarksOr } = await jiti.import("@/lib/unread-markers.ts");
   const handler = between("const onStorage = (event: StorageEvent) => {", '\n    window.addEventListener("storage", onStorage);');
-  const code = ts.transpileModule(`${parse}\n${handler}`, {
+  const code = ts.transpileModule(handler, {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText;
   const updaters = [];
   const onStorage = vm.runInNewContext(`${code}\nonStorage`, {
     UNREAD_SESSIONS_STORAGE_KEY: "pi-web:unread-session-ids",
-    sameIdsOr,
-    setUnreadSessionIds: (updater) => updaters.push(updater),
+    parseUnreadMarks,
+    sameMarksOr,
+    setUnreadMarks: (updater) => updaters.push(updater),
   });
+  const marks = (entries) => new Map(entries);
 
   // Another key's write never touches the unread markers.
-  onStorage({ key: "pi-web:terminal-theme", newValue: '["a"]' });
+  onStorage({ key: "pi-web:terminal-theme", newValue: '{"a":1}' });
   assert.equal(updaters.length, 0);
 
   // The other tab read the session: the key (or all of storage) went away.
   onStorage({ key: "pi-web:unread-session-ids", newValue: null });
-  assert.deepEqual([...updaters.pop()(new Set(["a", "b"]))], []);
+  assert.deepEqual([...updaters.pop()(marks([["a", 1], ["b", 2]]))], []);
 
   // The other tab wrote a newer set; it replaces this tab's, stale markers and all.
-  onStorage({ key: "pi-web:unread-session-ids", newValue: '["a","b","b","c"]' });
-  assert.deepEqual([...updaters.pop()(new Set(["a", "d"]))].sort(), ["a", "b", "c"]);
+  onStorage({ key: "pi-web:unread-session-ids", newValue: '{"a":1,"b":2,"c":3}' });
+  assert.deepEqual([...updaters.pop()(marks([["a", 1], ["d", 4]]))], [["a", 1], ["b", 2], ["c", 3]]);
 
-  // The same set keeps the same Set: no re-render, so no echo of the write back.
-  onStorage({ key: "pi-web:unread-session-ids", newValue: '["a"]' });
-  const unchanged = new Set(["a"]);
+  // The same markers keep the same Map: no re-render, so no echo of the write back.
+  onStorage({ key: "pi-web:unread-session-ids", newValue: '{"a":1}' });
+  const unchanged = marks([["a", 1]]);
   assert.equal(updaters.pop()(unchanged), unchanged);
+  // A marker's time is part of it: a later mark of the same session is adopted.
+  onStorage({ key: "pi-web:unread-session-ids", newValue: '{"a":5}' });
+  assert.deepEqual([...updaters.pop()(unchanged)], [["a", 5]]);
 
   // A malformed write means no markers, not a crash.
   onStorage({ key: "pi-web:unread-session-ids", newValue: "{not json" });
-  assert.deepEqual([...updaters.pop()(new Set(["a"]))], []);
+  assert.deepEqual([...updaters.pop()(marks([["a", 1]]))], []);
 
   // The listener is registered for the storage event and taken off again.
   assert.match(source, /window\.addEventListener\("storage", onStorage\);/);
