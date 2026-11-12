@@ -28,7 +28,7 @@ import {
 import type {
   McpOAuthChallenge,
   McpOAuthSettings,
-  McpOAuthStateStore,
+  McpOAuthServerStore,
   McpSignInOptions,
   PiSdkInternals,
 } from "./pi-sdk-internals";
@@ -151,7 +151,7 @@ export interface McpSignInDeps {
   /** The SDK's `signInMcpServer()`. */
   signIn(options: McpSignInOptions): Promise<void>;
   /** The server's part of `mcp-auth.json`, from the SDK's credential store, by its name and URL. */
-  store(name: string, url: string): McpOAuthStateStore;
+  store(name: string, url: string): McpOAuthServerStore;
   /** Whether `error` is the SDK's McpSignInCancelledError: the prompt was answered with "". */
   isCancelled(error: unknown): boolean;
 }
@@ -368,7 +368,7 @@ function prune(flows: Map<string, Flow>): void {
  * it checks a redirect against), whose writes stop once the server was signed
  * out (`guard`, checked right before the SDK's synchronous write).
  */
-function watchedStore(store: McpOAuthStateStore, flow: Flow, guard: McpSignInWriteGuard): McpOAuthStateStore {
+function watchedStore(store: McpOAuthServerStore, flow: Flow, guard: McpSignInWriteGuard): McpOAuthServerStore {
   const note = (state: unknown) => {
     const value = isRecord(state) ? state.oauthState : undefined;
     flow.storedState = typeof value === "string" ? value : undefined;
@@ -384,6 +384,7 @@ function watchedStore(store: McpOAuthStateStore, flow: Flow, guard: McpSignInWri
       note(state);
       await store.save(state);
     },
+    withRefreshLock: (fn) => store.withRefreshLock(fn),
   };
 }
 

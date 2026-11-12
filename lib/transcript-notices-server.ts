@@ -4,6 +4,8 @@ import { join } from "node:path";
 import type { AgentUsage, SessionEntry } from "./types";
 import { withTranscriptNotices, type TranscriptNotice } from "./transcript-notices";
 
+type CacheWarmNotice = Extract<TranscriptNotice, { kind: "cache_warm" }>;
+
 // The notices pi's TUI shows when `showCacheMissNotices` is on (#1265), derived
 // from session entries so a reload, a reconnect or an older page shows the same
 // ones: cache misses are never persisted, the TUI re-derives them too.
@@ -238,6 +240,8 @@ export function collectTranscriptNotices(
   }
 
   const { misses } = scanCacheMisses(entries, models);
+  // The line each cache_warm entry was drawn in, by entry id.
+  const warmLines = new Map<string, CacheWarmNotice>();
   for (const entry of entries) {
     switch (entry.type) {
       case "message": {
@@ -256,13 +260,20 @@ export function collectTranscriptNotices(
       case "usage": {
         if (entry.kind !== "cache_warm" || !isUsage(entry.usage) || (onBranch && !onBranch.has(entry.id))) break;
         const anchor = ancestor(entry, rendersStandalone);
-        if (anchor) {
-          pushNotice(notices, anchor.id, {
-            kind: "cache_warm",
-            cost: typeof entry.usage.cost.total === "number" ? entry.usage.cost.total : 0,
-            ...(entry.note ? { note: entry.note } : {}),
-          });
+        if (!anchor) break;
+        const cost = typeof entry.usage.cost.total === "number" ? entry.usage.cost.total : 0;
+        // Back-to-back warms are one line with the cumulative cost, as pi's TUI
+        // (1.5.1) draws them: a warm right after another with the same note,
+        // while that line is still the anchor's last.
+        const previous = entry.parentId ? warmLines.get(entry.parentId) : undefined;
+        if (previous && previous.note === (entry.note || undefined) && notices.get(anchor.id)?.at(-1) === previous) {
+          previous.cost += cost;
+          warmLines.set(entry.id, previous);
+          break;
         }
+        const line: CacheWarmNotice = { kind: "cache_warm", cost, ...(entry.note ? { note: entry.note } : {}) };
+        warmLines.set(entry.id, line);
+        pushNotice(notices, anchor.id, line);
         break;
       }
       case "compaction":
