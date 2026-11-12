@@ -331,6 +331,66 @@ test("an edit call shows no table: its arguments are a list of patches", () => {
   }
 });
 
+test("a pending edit previews its edits as a diff until the result's diff replaces it (#1625)", (t) => {
+  const block = {
+    type: "toolCall",
+    toolCallId: "call-edit-pending",
+    toolName: "edit",
+    input: { path: "src/a.ts", edits: [{ oldText: "const keep = 0;\nconst a = 1;", newText: "const keep = 0;\nconst a = 2;" }] },
+  };
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const message = { role: "assistant", provider: "anthropic", model: "claude-test", content: [block] };
+
+  const pending = textOf(renderMessage(message, { toolResults: new Map() }));
+  assert.ok(pending.includes("const a = 1;"));
+  assert.ok(pending.includes("const a = 2;"));
+  assert.ok(pending.includes("const keep = 0;"));
+  assert.ok(!pending.includes('"edits"'), "the diff, not the input JSON");
+
+  const result = {
+    role: "toolResult",
+    toolCallId: block.toolCallId,
+    toolName: "edit",
+    content: [{ type: "text", text: "Successfully replaced 1 block(s) in src/a.ts." }],
+    details: { diff: "", patch: "--- src/a.ts\n+++ src/a.ts\n@@ -7,1 +7,1 @@\n-const a = 1;\n+const a = 3;\n" },
+    isError: false,
+  };
+  const done = textOf(renderMessage(message, { toolResults: new Map([[block.toolCallId, result]]) }));
+  assert.ok(done.includes("const a = 3;"));
+  assert.ok(!done.includes("const a = 2;"), "the preview is gone once the result arrives");
+
+  const failed = { ...result, content: [{ type: "text", text: "Could not find the exact text" }], details: undefined, isError: true };
+  const error = textOf(renderMessage(message, { toolResults: new Map([[block.toolCallId, failed]]) }));
+  assert.ok(error.includes("Could not find the exact text"));
+  assert.ok(!error.includes("const a = 2;"));
+});
+
+test("an edit in an aborted or failed message gets no preview: pi never runs it", (t) => {
+  for (const stopReason of ["aborted", "error"]) {
+    const block = {
+      type: "toolCall",
+      toolCallId: `call-edit-${stopReason}`,
+      toolName: "edit",
+      input: { path: "src/a.ts", edits: [{ oldText: "const a = 1;", newText: "const a = 2;" }] },
+    };
+    setToolCallExpanded(block.toolCallId, true);
+    t.after(() => setToolCallExpanded(block.toolCallId, false));
+    const message = { role: "assistant", provider: "anthropic", model: "claude-test", content: [block], stopReason, errorMessage: "boom" };
+    const html = textOf(renderMessage(message, { toolResults: new Map() }));
+    assert.ok(!html.includes("const a = 2;"), stopReason);
+    assert.ok(!html.includes("const a = 1;"), stopReason);
+  }
+});
+
+test("a pending edit with no edits to preview shows its input instead of nothing", (t) => {
+  const block = { type: "toolCall", toolCallId: "call-edit-other", toolName: "str_replace_editor", input: { path: "f", old_str: "a", new_str: "b" } };
+  setToolCallExpanded(block.toolCallId, true);
+  t.after(() => setToolCallExpanded(block.toolCallId, false));
+  const html = renderMessage({ role: "assistant", provider: "anthropic", model: "claude-test", content: [block] }, { toolResults: new Map() });
+  assert.ok(textOf(html).includes("old_str"));
+});
+
 test("a read, a subagent and a flat MCP call show one row per argument", (t) => {
   const cases = [
     { id: "call-read-rows", toolName: "read", input: { path: "lib/tool-fields.ts", offset: 120, limit: 80 }, expect: [">path</td>", "lib/tool-fields.ts", ">120</td>"] },
@@ -1135,10 +1195,10 @@ test("one column names a file section by the file's own path, not by Before and 
 test("the layout is the viewport's choice, taken once for both the patch input and the patch result", () => {
   const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
 
-  // Both the applied-patch card and a result's patch render through SplitFilesView,
-  // so a phone never gets one of each.
+  // The applied-patch card, a result's patch and a pending edit's preview all
+  // render through SplitFilesView, so a phone never gets one of each.
   assert.match(source, /const layout: PatchDiffLayout = useIsMobile\(\) \? "stacked" : "split";/);
-  assert.equal(countIn(source, "<SplitFilesView"), 2);
+  assert.equal(countIn(source, "<SplitFilesView"), 3);
 });
 
 test("one column numbers a removed line by the old file and every other line by the new one", () => {
