@@ -518,7 +518,7 @@ export const zhTWLocale: LocalePlugin = {
     "directoryPicker.go": "前往",
     "directoryPicker.loadingDirectories": "正在載入目錄…",
     "directoryPicker.noSubdirectories": "沒有子目錄",
-    "directoryPicker.openBeforeSelecting": "選擇前請先開啟此路徑",
+    "directoryPicker.selectTypedPath": "選擇 {path}",
     "directoryPicker.selectCurrentDirectory": "選擇目前目錄",
     "directoryPicker.selectThisFolder": "選擇此資料夾",
     "directoryPicker.noDrives": "找不到磁碟機代號",

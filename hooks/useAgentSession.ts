@@ -233,6 +233,8 @@ export interface UseAgentSessionOptions {
   newSessionDraftKey: string | null;
   /** A run ended; `aborted` when it was stopped rather than finished (pi's `agent_settled.aborted`). */
   onAgentEnd?: (end: AgentEndInfo) => void;
+  /** An extension's `ctx.shutdown()` ended this session's runtime, as pi quits. Its file may remain. */
+  onSessionEnded?: (sessionId: string) => void;
   /** A top-level tool call finished; the files it touched may have changed. */
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -440,7 +442,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
+    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onSessionEnded, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, onSideSession,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings, onDebugSnapshotReaderChange,
   } = opts;
@@ -549,6 +551,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const isCompactingRef = useRef(false);
   const extensionUiCountRef = useRef(0);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const endedSessionRef = useRef<string | null>(null);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   // False while the session carries no tool selection of its own, so its loadout
   // follows settings.json defaultTools and the picker must say so rather than
@@ -631,6 +634,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // before each (re)connect, the debug reader to show it.
   const wantsEventStream = useCallback((sid: string) => (
     sessionHookMountedRef.current
+    && endedSessionRef.current !== sid
     && sessionIdRef.current === sid
     && (
       agentRunningRef.current
@@ -1846,7 +1850,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   });
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    if (endedSessionRef.current) return;
     switch (event.type) {
+      case "session_ended": {
+        const sid = sessionIdRef.current;
+        if (!sid || event.sessionId !== sid) return;
+        // The owner leaves the session (a fresh composer, or the tab closes) and this view
+        // unmounts; until then nothing reconnects, which would start the runtime again.
+        endedSessionRef.current = sid;
+        cancelEventStreamGrace();
+        eventConnectionRef.current?.close();
+        deleteSessionViewSnapshot(sid);
+        onSessionEnded?.(sid);
+        return;
+      }
       case "connected": {
         dispatch({ type: "end" });
         if (Array.isArray(event.pendingExtensionUiIds)) {
@@ -2181,7 +2198,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, opts.chatInputRef, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, opts.chatInputRef, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onSessionEnded, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -2438,8 +2455,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     try {
-      // Prompts parked behind a compaction come back for the composer, as Recall's do.
-      restoreRecalledPrompts(await sendAgentCommand<RecalledPrompts | null>(sid, { type: "abort" }));
+      // Stop takes the queued messages back for the composer, as Esc does in pi's TUI,
+      // with the prompts parked behind a compaction (and their images), as Recall does.
+      const recalled = await sendAgentCommand<RecalledPrompts | null>(sid, { type: "abort" });
+      // The server's queue_update only reaches us while SSE is connected; clear locally too.
+      if (recalled) setQueuedMessages({ steering: [], followUp: [] });
+      restoreRecalledPrompts(recalled);
     } catch (e) {
       console.error("Failed to abort:", e);
     }
@@ -2590,7 +2611,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ...(customInstructions ? { customInstructions } : {}),
       });
       setCompactResult(readCompactResult(result, "manual"));
-      if (await loadSession(sid, true)) promoteNewSession();
+      // Keep the composer mounted: a loading screen would discard its focus
+      // and selection while the user is writing the next prompt.
+      if (await loadSession(sid)) promoteNewSession();
       return true;
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
@@ -3201,7 +3224,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // dialogs, so their completion and attention notifications reach the page as
   // if it had never let go. Nothing is resent.
   reattachEventStreamRef.current = (sid: string, reason: "visible" | "activity") => {
-    if (!eventStreamReleasedRef.current) return;
+    if (!eventStreamReleasedRef.current || endedSessionRef.current === sid) return;
     eventStreamReleasedRef.current = false;
     reattachDebugRef.current = { count: reattachDebugRef.current.count + 1, lastAt: Date.now(), lastReason: reason };
     setEventStreamReattachCount((count) => count + 1);

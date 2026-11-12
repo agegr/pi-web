@@ -1578,6 +1578,15 @@ pre, code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A streaming fence in pieces (CodeBlock): each piece is its own block, and a
+   finished one off screen skips layout and paint, sized by its last layout. */
+.markdown-code-stream-chunk {
+  display: block;
+}
+.markdown-code-stream-chunk.is-frozen {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto calc(64 * 1.62em);
+}
 /* An extension dialog measures its fences unwrapped (ChatWindow), so it still
    grows to show them whole where the screen allows. */
 .extension-dialog-measuring .markdown-code-line-text {

@@ -412,10 +412,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const canCancelEdit = !!isEditing && !!onCancelEdit;
 
   const copyContent = () => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     copyText(copyTarget).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   return (
@@ -796,10 +798,12 @@ function AssistantMessageView({
   }
 
   const copyContent = () => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     copyText(textContent).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   useEffect(() => {
@@ -1968,10 +1972,12 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const time = formatTime(message.timestamp);
 
   const copyContent = () => {
+    // A refused copy is silent: no "Copied", and the rejection is handled
+    // so it never surfaces as an unhandled one (lib/clipboard.ts).
     copyText(text || detailsText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }, () => {});
   };
 
   return (
