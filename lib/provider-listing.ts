@@ -11,6 +11,8 @@
  * it from an id.
  */
 
+export const LLAMA_CPP_PROVIDER_ID = "llama.cpp";
+
 /** Credential kinds pi stores in `auth.json`. */
 export type ProviderCredentialType = "api_key" | "oauth";
 

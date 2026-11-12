@@ -1,5 +1,6 @@
 "use client";
 
+import { LLAMA_CPP_PROVIDER_ID } from "@/lib/provider-listing";
 import { useState, useEffect, useCallback, useId, useRef, type ButtonHTMLAttributes, type DragEvent } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
@@ -1633,26 +1634,24 @@ function OAuthDetail({ provider, onRefresh, enabledModels, contextSettings }: {
 
 // ── API Key detail ────────────────────────────────────────────────────────────
 
+const DEFAULT_LLAMA_ROUTER_URL = "http://127.0.0.1:9931";
+
 function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
   provider: ApiKeyProvider; onRefresh: () => void; enabledModels: EnabledModelsController;
   contextSettings: ModelContextSettings;
 }) {
+  const llama = provider.id === LLAMA_CPP_PROVIDER_ID;
+  const [serverUrl, setServerUrl] = useState(llama && !provider.configured ? DEFAULT_LLAMA_ROUTER_URL : "");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
   const { t } = useI18n();
+  const canSave = Boolean(llama ? serverUrl.trim() : apiKey.trim());
 
-  // Reset state when provider changes
-  useEffect(() => {
-    setApiKey("");
-    setError(null);
-    setSavedOk(false);
-  }, [provider.id]);
-
-  const handleSave = useCallback(async () => {
-    if (!apiKey.trim()) return;
+  async function handleSave() {
+    if (!canSave || saving) return;
     setSaving(true);
     setError(null);
     setSavedOk(false);
@@ -1660,13 +1659,18 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
       const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
+        body: JSON.stringify({ apiKey: apiKey.trim(), ...(llama ? { serverUrl: serverUrl.trim() } : {}) }),
       });
-      const d = await res.json() as { success?: boolean; error?: string };
+      const d = await res.json() as { error?: string; catalog?: { completed: boolean; reason?: string } };
       if (!res.ok || d.error) {
         setError(d.error ?? `HTTP ${res.status}`);
       } else {
         setApiKey("");
+        if (llama) {
+          setServerUrl("");
+          enabledModels.refresh();
+          if (!d.catalog?.completed) setError(t(d.catalog?.reason === "offline" ? "models.catalogOffline" : "models.catalogUnreachable"));
+        }
         setSavedOk(true);
         setTimeout(() => setSavedOk(false), 2000);
         onRefresh();
@@ -1676,7 +1680,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
     } finally {
       setSaving(false);
     }
-  }, [apiKey, provider.id, onRefresh]);
+  }
 
   const handleRemove = useCallback(async () => {
     setRemoving(true);
@@ -1697,7 +1701,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <ConfigDetailHeader>
         <ConfigDetailHeaderInfo>
-          <SectionTitle>API Key</SectionTitle>
+          <SectionTitle>{llama ? provider.displayName : "API Key"}</SectionTitle>
         </ConfigDetailHeaderInfo>
         <ConfigDetailActions>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1719,7 +1723,14 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         </ConfigDetailActions>
       </ConfigDetailHeader>
 
-      {!provider.configured && (
+      {llama && (
+        <label style={{ display: "grid", gap: 6 }}>
+          {t("models.llamaRouterUrl")}
+          <input type="url" style={inputStyle} value={serverUrl} placeholder={DEFAULT_LLAMA_ROUTER_URL}
+            onChange={(event) => setServerUrl(event.target.value)} spellCheck={false} />
+        </label>
+      )}
+      {!llama && !provider.configured && (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
           {provider.modelCount === 1
             ? t("models.apiKeyEnableOne", { provider: provider.displayName })
@@ -1731,8 +1742,8 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         <SecretTextInput
           value={apiKey}
           onChange={setApiKey}
-          onKeyDown={(e) => { if (e.key === "Enter" && apiKey.trim()) handleSave(); }}
-          placeholder={provider.configured ? t("models.replaceApiKey") : "sk-…"}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+          placeholder={llama ? t("models.optionalApiKey") : provider.configured ? t("models.replaceApiKey") : "sk-…"}
           style={{ flex: 1 }}
           autoComplete="off"
           spellCheck={false}
@@ -1740,13 +1751,13 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         />
         <button
           onClick={handleSave}
-          disabled={saving || !apiKey.trim() || savedOk}
+          disabled={saving || !canSave || savedOk}
           style={{
             padding: "6px 12px",
-            background: savedOk ? "#16a34a" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
+            background: savedOk ? "#16a34a" : canSave ? "var(--accent)" : "var(--bg-panel)",
             border: "none", borderRadius: 5,
-            color: savedOk ? "#fff" : apiKey.trim() ? "var(--accent-contrast)" : "var(--text-dim)",
-            cursor: (saving || !apiKey.trim() || savedOk) ? "not-allowed" : "pointer",
+            color: savedOk ? "#fff" : canSave ? "var(--accent-contrast)" : "var(--text-dim)",
+            cursor: (saving || !canSave || savedOk) ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600, flexShrink: 0,
             display: "flex", alignItems: "center", gap: 5,
           }}
@@ -1764,7 +1775,14 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
 
       <ProviderUsageSummary providerId={provider.id} enabled={provider.configured} />
 
-      {provider.configured && <EnabledModelsSection providerId={provider.id} controller={enabledModels} contextSettings={contextSettings} />}
+      {provider.configured && (
+        <EnabledModelsSection
+          providerId={provider.id}
+          controller={enabledModels}
+          contextSettings={contextSettings}
+          emptyCatalogHint={llama ? t("models.llamaEmptyCatalog") : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -1793,7 +1811,9 @@ function AddProviderPicker({
   const q = search.trim().toLowerCase();
 
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && providerMatchesSearch(q, p.id, p.name));
-  const availableApiKey = apiKeyProviders.filter((p) => !p.configured && providerMatchesSearch(q, p.id, p.displayName));
+  // Keep the router connection reachable here when Pi CLI already configured it.
+  const availableApiKey = apiKeyProviders.filter((p) =>
+    (!p.configured || p.id === LLAMA_CPP_PROVIDER_ID) && providerMatchesSearch(q, p.id, p.displayName));
   const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q);
 
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
@@ -1896,7 +1916,11 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.displayName}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount === 1 ? t("models.modelCountOne") : t("models.modelCount", { count: p.modelCount })}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
+                      {p.id === LLAMA_CPP_PROVIDER_ID
+                        ? t(p.configured ? "i18n.configured" : "models.optionalApiKey")
+                        : t(p.modelCount === 1 ? "models.modelCountOne" : "models.modelCount", { count: p.modelCount })}
+                    </div>
                   </div>
                   <ProviderIcon id={p.id} size={28} />
                 </button>
