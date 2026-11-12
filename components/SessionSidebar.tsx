@@ -21,6 +21,7 @@ import {
   isFamilyArchived,
   isGroupExpanded,
   keepOutgoingGroupOpen,
+  locateSessionRow,
   nextProjectKeysToRecord,
   PINNED_MORE_KEY,
   showLessFamilies,
@@ -610,6 +611,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [keptOpenGroups, setKeptOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [moreShown, setMoreShown] = useState<Readonly<Record<string, number>>>({});
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  // True once the mount effect below has put the browser's folds back: set
+  // in the same batch, so a render that has it has them too.
+  const [sidebarPrefsRestored, setSidebarPrefsRestored] = useState(false);
   // The archive view's folded projects, per browser (lib/sidebar-prefs.ts).
   const [archiveCollapsed, setArchiveCollapsed] = useState<readonly string[]>([]);
   const [archiveView, setArchiveViewState] = useState(false);
@@ -828,6 +832,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (archiveFolds.length > 0) setArchiveCollapsed(archiveFolds);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
     if (loadShowIgnoredFiles()) setShowIgnoredFiles(true);
+    setSidebarPrefsRestored(true);
     forgetRetiredSidebarKeys();
   }, []);
 
@@ -2043,18 +2048,84 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [performDelete]);
 
+  // The session open in the chat has its row in view, however it was opened
+  // (#1595): a row click, a search pick, a fork, a reload or a link
+  // (`?session=`), a notification, the agent switcher. One effect, keyed on
+  // the selected id, so a new way to open a session needs nothing here. A new
+  // selection waits for the list, the ui state and the browser's folds (React
+  // may apply the mount effect's restore after the list has rendered: read
+  // before it, a folded group looks open and its fold comes back over the
+  // revealed row), and for the main tree to be on the page (not the files
+  // tab, the archive view or search results over it). Then, once, it opens
+  // the fold over the row as the user's own choice would (the pinned
+  // section, or a group folded on purpose) and asks the tree for the row
+  // (locateSessionRow()); the tree's reveal waits for the row and lets go of
+  // it if it does not turn up. The tree scrolls only when the row is not
+  // wholly in view ("nearest": a row cut by an edge moves just far enough).
+  // Focus stays put, except where a fork says it may move. Nothing else
+  // scrolls the tree: a run, the running poll, a list reload or another
+  // tab's change reach the effect only while a selection still waits.
+  const mainTreeShown = (stacked || sidebarTab === "sessions")
+    && !archiveView
+    && !(sessionSearchOpen && sessionSearchQuery.trim() !== "");
+  // The selection still to reveal, and the last one seen.
+  const openRevealRef = useRef<string | null>(null);
+  const openRevealSessionIdRef = useRef<string | null>(null);
+  // A fork's focus rule for its copy's row (openForked), used by the reveal of that session only.
+  const openRevealFocusRef = useRef<{ sessionId: string; takeFocusFrom: (active: Element) => boolean } | null>(null);
+  useEffect(() => {
+    if (selectedSessionId !== openRevealSessionIdRef.current) {
+      openRevealSessionIdRef.current = selectedSessionId;
+      openRevealRef.current = selectedSessionId;
+    }
+    const sessionId = openRevealRef.current;
+    // What the tree waits for before it shows rows (treeLoading below), the folds, the tree on the page.
+    if (!sessionId || loading || !uiStateLoaded || !sidebarPrefsRestored || !mainTreeShown) return;
+    openRevealRef.current = null;
+    const focus = openRevealFocusRef.current;
+    openRevealFocusRef.current = null;
+    const location = locateSessionRow({
+      sessions: allSessions,
+      uiState,
+      runningIds: runningSessionIds,
+      groupExpansion: shownGroupExpansion,
+      pinnedCollapsed,
+    }, sessionId);
+    if (!location) return;
+    if (location.unfoldPinned) {
+      setPinnedCollapsed(false);
+      savePinnedCollapsed(false);
+    }
+    if (location.unfoldGroup) {
+      const next = { ...groupExpansion };
+      // Re-inserted, so the choice counts as the newest one kept.
+      delete next[location.projectKey];
+      next[location.projectKey] = true;
+      saveGroupChoices(next, [location.projectKey]);
+    }
+    treeRevealIdRef.current += 1;
+    setTreeReveal({
+      id: treeRevealIdRef.current,
+      at: Date.now(),
+      rowKey: location.rowKey,
+      block: "nearest",
+      ...(focus?.sessionId === sessionId ? { takeFocusFrom: focus.takeFocusFrom } : {}),
+    });
+  }, [selectedSessionId, allSessions, uiState, runningSessionIds, shownGroupExpansion, groupExpansion, pinnedCollapsed, loading, uiStateLoaded, sidebarPrefsRestored, mainTreeShown, saveGroupChoices]);
+
   // Fork (the row menu's F): the server copies the family's current branch
   // into a new session beside it (POST /api/sessions/[id]/fork) and leaves
   // the source as it is, running or not. The copy opens where its row is: the
-  // archive view closes (the copy has no pin or archive flag), a group the
-  // user collapsed opens, and the main tree scrolls to the row, which takes
-  // focus when it is still on the source's row (or fell to the page). Called
-  // after a request and from a toast, so always through openForkedRef: the
-  // newest state and AppShell's newest selection handler, never a click-time
-  // closure. `fromRowKey` is the row whose Fork this answers: focus may move
-  // from it, and a phone's drawer stays open, since the copy looks just like
-  // its source and only the sidebar (its row, the toast) tells them apart.
-  // null is the toast's Open, which opens the copy as a row click does.
+  // archive view closes (the copy has no pin or archive flag), and the open
+  // session's reveal above brings its row into view (opening its group if the
+  // user collapsed it); the row takes focus when it is still on the source's
+  // row (or fell to the page). Called after a request and from a toast, so
+  // always through openForkedRef: the newest state and AppShell's newest
+  // selection handler, never a click-time closure. `fromRowKey` is the row
+  // whose Fork this answers: focus may move from it, and a phone's drawer
+  // stays open, since the copy looks just like its source and only the
+  // sidebar (its row, the toast) tells them apart. null is the toast's Open,
+  // which opens the copy as a row click does.
   const openForked = (forked: SessionInfo, fromRowKey: string | null) => {
     archiveCloseFocusRef.current = null;
     if (archiveView) {
@@ -2063,25 +2134,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       if (main) panelScrollTopsRef.current.delete(main);
       setArchiveView(false);
     }
-    const groupKey = workspaceKeyOf(forked);
-    if (Object.hasOwn(shownGroupExpansion, groupKey) && shownGroupExpansion[groupKey] === false) {
-      const next = { ...groupExpansion };
-      // Re-inserted, so the choice counts as the newest one kept.
-      delete next[groupKey];
-      next[groupKey] = true;
-      saveGroupChoices(next, [groupKey]);
-    }
+    const fromRow = fromRowKey ? `[data-row-key="${CSS.escape(fromRowKey)}"]` : null;
+    openRevealFocusRef.current = {
+      sessionId: forked.id,
+      takeFocusFrom: (active) => (fromRow !== null && active.closest(fromRow) !== null) || active === archiveCloseFocusRef.current,
+    };
     handleSelectSessionFromList(forked, undefined, undefined, { keepSidebarOpen: fromRowKey !== null });
     // The route invalidated the list: the next load has the copy.
     void loadSessions();
-    const fromRow = fromRowKey ? `[data-row-key="${CSS.escape(fromRowKey)}"]` : null;
-    treeRevealIdRef.current += 1;
-    setTreeReveal({
-      id: treeRevealIdRef.current,
-      at: Date.now(),
-      rowKey: `session:group:${forked.id}`,
-      takeFocusFrom: (active) => (fromRow !== null && active.closest(fromRow) !== null) || active === archiveCloseFocusRef.current,
-    });
   };
   const openForkedRef = useRef(openForked);
   openForkedRef.current = openForked;
