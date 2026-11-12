@@ -488,19 +488,18 @@ test("every way of opening a session reveals its row through one effect keyed on
   const effect = between("const mainTreeShown = ", "\n  // Fork (the row menu's F)");
   // The tree is on the page: its tab (or no tabs), no archive view and no search results over it.
   assert.match(effect, /\(stacked \|\| sidebarTab === "sessions"\)\s+&& !archiveView\s+&& !\(sessionSearchOpen && sessionSearchQuery\.trim\(\) !== ""\)/);
-  // A new selection is noted once; later changes only look at it again.
+  // A new selection is noted once, and revealed once when the tree can show it.
   assert.match(effect, /if \(selectedSessionId !== openRevealSessionIdRef\.current\) \{/);
-  assert.match(effect, /openSessionRevealStep\(pending, \{/);
-  assert.match(effect, /ready: !loading && uiStateLoaded && sidebarPrefsRestored,/);
+  assert.match(effect, /if \(!sessionId \|\| loading \|\| !uiStateLoaded \|\| !sidebarPrefsRestored \|\| !mainTreeShown\) return;\n    openRevealRef\.current = null;/);
+  assert.match(effect, /locateSessionRow\(\{/);
   // The folds are back first: the restore sets this flag in the same batch.
   assert.match(source, /if \(loadShowIgnoredFiles\(\)\) setShowIgnoredFiles\(true\);\n    setSidebarPrefsRestored\(true\);/);
-  assert.match(effect, /shown: mainTreeShown,/);
   // It scrolls only as far as needed and moves focus only where a fork allows it.
   assert.match(effect, /block: "nearest",/);
-  assert.match(effect, /focus\?\.sessionId === pending\.sessionId \? \{ takeFocusFrom: focus\.takeFocusFrom \} : \{\}/);
+  assert.match(effect, /focus\?\.sessionId === sessionId \? \{ takeFocusFrom: focus\.takeFocusFrom \} : \{\}/);
   // A fold over the row is opened as the user's own choice would be.
   assert.match(effect, /savePinnedCollapsed\(false\);/);
-  assert.match(effect, /saveGroupChoices\(next, \[groupKey\]\);/);
+  assert.match(effect, /saveGroupChoices\(next, \[location\.projectKey\]\);/);
 
   // The fork has no reveal of its own any more: it hands its focus rule to the effect.
   const fork = callbackBody("openForked");

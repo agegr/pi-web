@@ -21,12 +21,11 @@ import {
   isFamilyArchived,
   isGroupExpanded,
   keepOutgoingGroupOpen,
+  locateSessionRow,
   nextProjectKeysToRecord,
-  openSessionRevealStep,
   PINNED_MORE_KEY,
   showLessFamilies,
   showMoreFamilies,
-  type OpenSessionReveal,
   type SidebarProject,
   type SidebarRow,
 } from "@/lib/session-tree";
@@ -1946,16 +1945,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The session open in the chat has its row in view, however it was opened
   // (#1595): a row click, a search pick, a fork, a reload or a link
   // (`?session=`), a notification, the agent switcher. One effect, keyed on
-  // the selected id, so a new way to open a session needs nothing here. A
-  // selection is noted once and looked at on every change until it is done
-  // (openSessionRevealStep()): it waits for the list, the ui state and the
-  // browser's folds (React may apply the mount effect's restore after the
-  // list has rendered: read before it, a folded group looks open and its
-  // fold comes back over the revealed row), and for the main tree to be on
-  // the page (not the files tab, the archive view or search results over
-  // it), then opens the fold over the row, as the user's own choice (the
-  // pinned section, or a group folded on purpose), and asks the tree for
-  // the row. The tree scrolls only when the row is not
+  // the selected id, so a new way to open a session needs nothing here. A new
+  // selection waits for the list, the ui state and the browser's folds (React
+  // may apply the mount effect's restore after the list has rendered: read
+  // before it, a folded group looks open and its fold comes back over the
+  // revealed row), and for the main tree to be on the page (not the files
+  // tab, the archive view or search results over it). Then, once, it opens
+  // the fold over the row as the user's own choice would (the pinned
+  // section, or a group folded on purpose) and asks the tree for the row
+  // (locateSessionRow()); the tree's reveal waits for the row and lets go of
+  // it if it does not turn up. The tree scrolls only when the row is not
   // wholly in view ("nearest": a row cut by an edge moves just far enough).
   // Focus stays put, except where a fork says it may move. Nothing else
   // scrolls the tree: a run, the running poll, a list reload or another
@@ -1963,55 +1962,50 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const mainTreeShown = (stacked || sidebarTab === "sessions")
     && !archiveView
     && !(sessionSearchOpen && sessionSearchQuery.trim() !== "");
-  const openRevealRef = useRef<OpenSessionReveal | null>(null);
+  // The selection still to reveal, and the last one seen.
+  const openRevealRef = useRef<string | null>(null);
   const openRevealSessionIdRef = useRef<string | null>(null);
   // A fork's focus rule for its copy's row (openForked), used by the reveal of that session only.
   const openRevealFocusRef = useRef<{ sessionId: string; takeFocusFrom: (active: Element) => boolean } | null>(null);
   useEffect(() => {
     if (selectedSessionId !== openRevealSessionIdRef.current) {
       openRevealSessionIdRef.current = selectedSessionId;
-      openRevealRef.current = selectedSessionId ? { sessionId: selectedSessionId, shownSince: null } : null;
-      if (openRevealFocusRef.current?.sessionId !== selectedSessionId) openRevealFocusRef.current = null;
+      openRevealRef.current = selectedSessionId;
     }
-    const pending = openRevealRef.current;
-    if (!pending) return;
-    const step = openSessionRevealStep(pending, {
+    const sessionId = openRevealRef.current;
+    // What the tree waits for before it shows rows (treeLoading below), the folds, the tree on the page.
+    if (!sessionId || loading || !uiStateLoaded || !sidebarPrefsRestored || !mainTreeShown) return;
+    openRevealRef.current = null;
+    const focus = openRevealFocusRef.current;
+    openRevealFocusRef.current = null;
+    const location = locateSessionRow({
       sessions: allSessions,
       uiState,
       runningIds: runningSessionIds,
       groupExpansion: shownGroupExpansion,
       pinnedCollapsed,
-      // What the tree waits for before it shows rows (treeLoading below), and the folds.
-      ready: !loading && uiStateLoaded && sidebarPrefsRestored,
-      shown: mainTreeShown,
-      rows: model.rows,
-      now: Date.now(),
-    });
-    openRevealRef.current = step.pending;
-    if (step.unfold.pinned) {
+    }, sessionId);
+    if (!location) return;
+    if (location.unfoldPinned) {
       setPinnedCollapsed(false);
       savePinnedCollapsed(false);
     }
-    const groupKey = step.unfold.groupKey;
-    if (groupKey !== null) {
+    if (location.unfoldGroup) {
       const next = { ...groupExpansion };
       // Re-inserted, so the choice counts as the newest one kept.
-      delete next[groupKey];
-      next[groupKey] = true;
-      saveGroupChoices(next, [groupKey]);
+      delete next[location.projectKey];
+      next[location.projectKey] = true;
+      saveGroupChoices(next, [location.projectKey]);
     }
-    if (step.rowKey === null) return;
-    const focus = openRevealFocusRef.current;
-    openRevealFocusRef.current = null;
     treeRevealIdRef.current += 1;
     setTreeReveal({
       id: treeRevealIdRef.current,
       at: Date.now(),
-      rowKey: step.rowKey,
+      rowKey: location.rowKey,
       block: "nearest",
-      ...(focus?.sessionId === pending.sessionId ? { takeFocusFrom: focus.takeFocusFrom } : {}),
+      ...(focus?.sessionId === sessionId ? { takeFocusFrom: focus.takeFocusFrom } : {}),
     });
-  }, [selectedSessionId, allSessions, uiState, runningSessionIds, shownGroupExpansion, groupExpansion, pinnedCollapsed, loading, uiStateLoaded, sidebarPrefsRestored, mainTreeShown, model.rows, saveGroupChoices]);
+  }, [selectedSessionId, allSessions, uiState, runningSessionIds, shownGroupExpansion, groupExpansion, pinnedCollapsed, loading, uiStateLoaded, sidebarPrefsRestored, mainTreeShown, saveGroupChoices]);
 
   // Fork (the row menu's F): the server copies the family's current branch
   // into a new session beside it (POST /api/sessions/[id]/fork) and leaves
