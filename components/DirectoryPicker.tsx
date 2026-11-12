@@ -216,6 +216,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
         backdropPressRef.current = false;
       }}
       onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
         if (event.key === "Escape" && !busy) onCancel();
       }}
       style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" }}
@@ -357,6 +358,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
             }}
             onKeyDown={(event) => {
               event.stopPropagation();
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
               if (event.key === "Escape") closeCreateDialog();
             }}
           >
