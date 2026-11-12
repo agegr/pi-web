@@ -17,8 +17,17 @@ function addressFamilies(hostname) {
 
 // Addresses another machine can open when the server binds a wildcard address:
 // the wildcard itself routes nowhere, so list this host's interfaces instead.
-function getReachableAddresses(hostname, { interfaces = os.networkInterfaces() } = {}) {
+function getReachableAddresses(hostname, { interfaces } = {}) {
   if (!isWildcardHostname(hostname)) return [];
+  if (!interfaces) {
+    // A sandbox may deny the interface list (uv_interface_addresses, #1573);
+    // the list only decorates the startup log, so skip it.
+    try {
+      interfaces = os.networkInterfaces();
+    } catch {
+      return [];
+    }
+  }
   const addresses = [];
   for (const family of addressFamilies(hostname)) {
     for (const [name, entries] of Object.entries(interfaces)) {
