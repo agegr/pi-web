@@ -478,7 +478,8 @@ function AddSkillPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") search(query);
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter" && !searching) void search(query);
             }}
              placeholder={t("i18n.skillSearchPlaceholder")}
             style={{
