@@ -1,3 +1,4 @@
+import { LLAMA_CPP_PROVIDER_ID } from "./provider-listing";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "./models-cache";
@@ -31,6 +32,9 @@ export async function rememberProviderModels(runtime: ModelRuntime): Promise<voi
   const extensionProviders = new Set(runtime.getRegisteredProviderIds());
   const byProvider = new Map<string, RuntimeModel[]>();
   for (const model of await runtime.getAvailable()) {
+    // The built-in registers at resource load. Its router may now be empty,
+    // or the project may disable builtin:llama.cpp. Always use its live list.
+    if (model.provider === LLAMA_CPP_PROVIDER_ID) continue;
     // Only current virtual models qualify without a provider registration.
     // A concurrent refresh may have removed a physical model while availability loaded.
     if (!extensionProviders.has(model.provider)) {

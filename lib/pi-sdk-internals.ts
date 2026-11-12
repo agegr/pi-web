@@ -1,6 +1,8 @@
+import type { Provider } from "@earendil-works/pi-ai";
 import {
   createMcpExtension,
   getPackageDir,
+  type InlineExtension,
   type LoadedMcpConfig,
   type McpExposure,
   type McpExtensionOptions,
@@ -309,6 +311,17 @@ function resolvedSdkPackageDir(cwd: string): string {
   if (!manifestPath) throw new Error(`cannot resolve ${SDK_PACKAGE} from ${cwd}`);
   return realpathSync(join(manifestPath, ".."));
 }
+
+// The CLI's /llama command needs its TUI. Load just its provider for the web.
+export const llamaCppExtension: InlineExtension = {
+  name: "llama.cpp",
+  builtin: true,
+  async factory(pi) {
+    const path = join(resolvedSdkPackageDir(process.cwd()), "dist/extensions/llama/provider.js");
+    const { createLlamaProvider } = await importFile(path) as { createLlamaProvider(): { provider: Provider } };
+    pi.registerProvider(createLlamaProvider().provider);
+  },
+};
 
 async function importSdkModules(packageDir: string): Promise<LoadedModules | string> {
   const paths = Object.fromEntries(

@@ -23,8 +23,8 @@ import { PROJECT_SETTINGS_MAX_BYTES, readRegularFileText } from "./regular-file"
 // export (ADR 0006, "Loading"). Normal sessions load them under the CLI's
 // names, so `-builtin:<name>`, project overrides, `noExtensions`, and
 // replacement by a third-party extension that registers `/mcp`, `codemode`, or
-// `tool_search` behave as in the CLI. `llama.cpp` is not among them: it serves
-// a local model server, not a feature of the session. Chat-only sessions load
+// `tool_search` behave as in the CLI. The llama.cpp provider also loads in
+// the runtimes used to list models. Chat-only sessions load
 // none of them; a subagent only what its profile turns on.
 
 export const MCP_DISABLE_VARIABLE = "PI_WEB_DISABLE_MCP";
