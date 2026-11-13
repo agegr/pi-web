@@ -115,8 +115,29 @@ function hasUsage(usage: SessionUsageSummary | undefined): usage is SessionUsage
   return Boolean(usage && (usage.tokens.total > 0 || usage.totalActiveMs > 0));
 }
 
-function sessionTitle(session: SessionInfo): string {
+export function sessionTitle(session: SessionInfo): string {
   return session.name || session.firstMessage || session.id.slice(0, 12);
+}
+
+/** A subagent row's first line: the task it was given, else the session's title. */
+export function subagentTitle(session: SessionInfo): string {
+  const relation = session.relation?.kind === "subagent" ? session.relation : null;
+  return relation?.description || sessionTitle(session);
+}
+
+/** A row's icon: a person for the main agent, a bubble for a side chat, a robot for a subagent. */
+export function AgentKindIcon({ kind, size }: { kind: "main" | "side" | "subagent"; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {kind === "main" ? (
+        <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>
+      ) : kind === "side" ? (
+        <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" />
+      ) : (
+        <><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" /></>
+      )}
+    </svg>
+  );
 }
 
 function formatRelativeTime(value: string, locale: string): string {
@@ -207,7 +228,7 @@ function AgentRow({
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
   const side = session.relation?.kind === "side";
   const status: SubagentSessionStatus = running ? "running" : relation?.status ?? "completed";
-  const primary = main ? t("agentSwitcher.main") : side ? sideTitle ?? t("agentSwitcher.sideChat") : relation?.description || sessionTitle(session);
+  const primary = main ? t("agentSwitcher.main") : side ? sideTitle ?? t("agentSwitcher.sideChat") : subagentTitle(session);
   const profile = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
   const modelId = usage?.model?.modelId;
   const thinkingLevel = usage?.thinkingLevel && usage.thinkingLevel !== "off" ? usage.thinkingLevel : undefined;
@@ -289,19 +310,7 @@ function AgentRow({
         }}
       >
         <span style={{ width: 28, height: 28, display: "grid", placeItems: "center", color: main ? "var(--text-muted)" : "var(--accent)" }}>
-          {main ? (
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" />
-            </svg>
-          ) : side ? (
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M21 12a8 8 0 0 1-8 8H5.5a2 2 0 0 1-1.4-3.4A8 8 0 1 1 21 12z" />
-            </svg>
-          ) : (
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
-            </svg>
-          )}
+          <AgentKindIcon kind={main ? "main" : side ? "side" : "subagent"} size={17} />
         </span>
         <span style={{ minWidth: 0 }}>
           <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: selected ? 600 : 500 }} title={primary}>
