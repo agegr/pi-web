@@ -7,6 +7,7 @@ import type { SkillToggleResult } from "@/lib/api-types";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { setDisableModelInvocation } from "@/lib/skill-frontmatter";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { getProjectTrustStatus } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +31,21 @@ export async function GET(req: Request) {
 }
 
 async function getSkillEditRoots(): Promise<Set<string>> {
-  const allowedRoots = new Set(await getAllowedFileRoots());
-  allowedRoots.add(getAgentDir());
-  // Globally installed skills live in ~/.agents/skills and are symlinked into
-  // the agent's skills dir; isExistingFilePathAllowed resolves the symlink, so
-  // the real target sits outside getAgentDir(). Allow the global skills root
-  // too (the SDK always treats ~/.agents/skills as trusted).
-  const globalSkillsDir = path.join(homedir(), ".agents", "skills");
-  if (existsSync(globalSkillsDir)) allowedRoots.add(globalSkillsDir);
-  return allowedRoots;
+  const agentDir = getAgentDir();
+  const skillRoots = new Set<string>([
+    path.join(agentDir, "skills"),
+    path.join(agentDir, "npm"),
+    path.join(agentDir, "git"),
+    path.join(homedir(), ".agents", "skills"),
+  ]);
+  for (const root of await getAllowedFileRoots()) {
+    if (!getProjectTrustStatus(root, agentDir).trusted) continue;
+    skillRoots.add(path.join(root, ".pi", "skills"));
+    skillRoots.add(path.join(root, ".pi", "npm"));
+    skillRoots.add(path.join(root, ".pi", "git"));
+    skillRoots.add(path.join(root, ".agents", "skills"));
+  }
+  return skillRoots;
 }
 
 /** Edits one SKILL.md, or returns the status and message that refused it. */

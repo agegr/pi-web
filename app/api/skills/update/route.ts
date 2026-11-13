@@ -3,7 +3,10 @@ import { runNpx } from "@/lib/npx";
 import type { SkillInstallScope } from "@/lib/api-types";
 import { buildSkillUpdateArgs } from "@/lib/skill-updates";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { sanitizeProjectCommandEnvironment } from "@/lib/project-command-env";
+import { getProjectTrustStatus } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,12 @@ export async function POST(req: Request) {
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
+    if (scope === "project" && !getProjectTrustStatus(cwd, getAgentDir()).trusted) {
+      return NextResponse.json(
+        { error: "Project resources must be trusted before updating project skills" },
+        { status: 403 },
+      );
+    }
 
     const { skills } = await loadSkillsWithInstallInfo(cwd);
     const skill = skills.find(
@@ -41,7 +50,7 @@ export async function POST(req: Request) {
     const { stdout, stderr } = await runNpx(buildSkillUpdateArgs(skill.install), {
       timeout: 60_000,
       cwd: scope === "project" ? cwd : undefined,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...sanitizeProjectCommandEnvironment(process.env), FORCE_COLOR: "0" },
     });
 
     const refreshed = await loadSkillsWithInstallInfo(cwd);
