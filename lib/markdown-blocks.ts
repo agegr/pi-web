@@ -20,6 +20,8 @@ const INLINE_CODE = /`[^`]*`/g;
  * message is rendered whole.
  */
 export function splitMarkdownBlocks(markdown: string): string[] {
+  // 引用和脚注定义会影响其他段落；出现定义标记时交给完整的 Markdown 解析器。
+  if (markdown.includes("]:")) return [markdown];
   const lines = markdown.split("\n");
   if (/^---[ \t]*\r?$/.test(lines[0])) return [markdown];
   const blocks: string[] = [];
