@@ -71,6 +71,7 @@ export function replaceUploadFile(destination: string, bytes: Buffer): void {
   const stagingFile = path.join(stagingDirectory, "upload");
   try {
     fs.writeFileSync(stagingFile, bytes, { flag: "wx", mode: stat.mode & 0o777 });
+    fs.chmodSync(stagingFile, stat.mode & 0o777);
     // The destination may have changed since the multipart upload was inspected.
     const current = fs.lstatSync(destination);
     if (!current.isFile() || current.isSymbolicLink()) {
