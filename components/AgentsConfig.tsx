@@ -622,7 +622,8 @@ export function AgentsConfig({
 
                   <Field label={t("agents.tools")}>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px" }}>
-                      {TOOL_OPTIONS.map((tool) => (
+                      {/* `powershell` gets a switch only when the profile names it, so it can be turned off. */}
+                      {[...TOOL_OPTIONS, ...draft.tools.filter((tool) => tool === "powershell")].map((tool) => (
                         <Toggle key={tool} label={tool} disabled={disabled} checked={draft.tools.includes(tool)} onChange={(checked) => update("tools", checked ? [...draft.tools, tool] : draft.tools.filter((item) => item !== tool))} />
                       ))}
                     </div>
