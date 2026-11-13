@@ -45,12 +45,14 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
   let prevHunkEnd: { old: number; new: number } | null = null;
   let removed: PendingChangeLine[] = [];
   let added: PendingChangeLine[] = [];
+  let changeMarkers: string[] = [];
 
   const emptyCell = (): SplitDiffCell => ({ lineNo: null, text: "", type: "empty" });
   const flushChanges = () => {
     if (!current) {
       removed = [];
       added = [];
+      changeMarkers = [];
       return;
     }
     const count = Math.max(removed.length, added.length);
@@ -63,8 +65,10 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
         : emptyCell();
       current.rows.push({ type: "line", left, right });
     }
+    for (const text of changeMarkers) current.rows.push({ type: "hunk", text });
     removed = [];
     added = [];
+    changeMarkers = [];
   };
 
   for (const line of text.split(/\r?\n/)) {
@@ -116,8 +120,8 @@ export function parseUnifiedPatch(text: string): SplitDiffFile[] | null {
     if (!current) continue;
 
     if (line.startsWith("\\ ")) {
-      flushChanges();
-      current.rows.push({ type: "hunk", text: line });
+      if (removed.length || added.length) changeMarkers.push(line);
+      else current.rows.push({ type: "hunk", text: line });
       continue;
     }
 

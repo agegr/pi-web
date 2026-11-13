@@ -30,6 +30,8 @@ const ALT_ARROW_SEQUENCES: Record<string, string> = {
 
 function legacyCtrlSequence(key: string): string | null {
   if (key.length !== 1) return null;
+  if (key === " ") return "\x00";
+  if (key === "/" || key === "-") return "\x1f";
   const code = key.toUpperCase().charCodeAt(0);
   if (code >= 64 && code <= 95) return String.fromCharCode(code & 0x1f);
   if (key === "?") return "\x7f";
@@ -43,6 +45,13 @@ export function toTerminalKeyData(event: TerminalKeyEventLike): string | null {
   if (event.ctrlKey && !event.altKey) {
     const control = legacyCtrlSequence(event.key);
     if (control) return control;
+  }
+
+  const sequence = SPECIAL_KEY_SEQUENCES[event.key];
+  const modifier = 1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
+  if (modifier > 1 && !(event.altKey && !event.ctrlKey && !event.shiftKey && ALT_ARROW_SEQUENCES[event.key])) {
+    if (/^\x1b\[[ABCDHF]$/.test(sequence ?? "")) return `\x1b[1;${modifier}${sequence.at(-1)}`;
+    if (/^\x1b\[\d+~$/.test(sequence ?? "")) return `${sequence.slice(0, -1)};${modifier}~`;
   }
 
   if (event.altKey && !event.ctrlKey) {
