@@ -2,6 +2,10 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SessionInfo } from "./types";
 
+// Kept as a literal so this module stays dependency-free (it is imported by
+// standalone benchmark scripts). Canonical definition: session-family.ts.
+const SIDE_BOUNDARY_MESSAGE_TYPE = "pi-web:side-boundary";
+
 const MAX_FILES = 500;
 const MAX_RESULTS = 30;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -80,6 +84,9 @@ export async function searchSessionContents(
     // The row shows the first term's first hit; the other terms only have to appear somewhere.
     let hit: SessionSearchResult | undefined;
     let pending = matchers.slice(1);
+    // A side chat copies its parent's whole text: only what follows the boundary
+    // message is its own. Other sessions have no boundary and search everything.
+    let pastBoundary = session.relation?.kind !== "side";
     try {
       for await (const line of lines) {
         if (signal.aborted || Date.now() >= deadline) {
@@ -92,6 +99,13 @@ export async function searchSessionContents(
         }
         let entry;
         try { entry = JSON.parse(line); } catch { continue; }
+        // The boundary itself is boilerplate, never a hit; everything before it
+        // is inherited and already searchable in the parent session.
+        if (entry?.type === "custom_message" && entry?.customType === SIDE_BOUNDARY_MESSAGE_TYPE) {
+          pastBoundary = true;
+          continue;
+        }
+        if (!pastBoundary) continue;
         if (entry?.type !== "message" || !["user", "assistant"].includes(entry.message?.role)) continue;
         const content: unknown = entry.message.content;
         const blocks = typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
@@ -137,7 +151,9 @@ export async function searchSessionContents(
     // already carries the displayed name (including session_info names), so a
     // title hit is a fallback only when the transcript has no match.
     if (!found && !signal.aborted && Date.now() < deadline) {
-      const title = session.name || session.firstMessage || "";
+    // A side chat's firstMessage is its inherited first question, so only its own
+    // name may stand in for a title hit; the parent's row already covers the rest.
+    const title = session.relation?.kind === "side" ? session.name || "" : session.name || session.firstMessage || "";
       // Every term has to be in the title too: half the terms there and half in the body is no hit.
       const titleHit = matchers.every((matcher) => matcher.test(title)) ? matchers[0].exec(title) : null;
       if (titleHit) {
