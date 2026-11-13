@@ -47,7 +47,9 @@ function getBaseName(filePath: string): string {
 }
 
 export function getFileExt(filePath: string): string {
-  return getBaseName(filePath).toLowerCase().split(".").pop() ?? "";
+  const name = getBaseName(filePath).toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1) : "";
 }
 
 export function getImageMime(filePath: string): string | null {
