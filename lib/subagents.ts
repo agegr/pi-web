@@ -138,9 +138,8 @@ export interface SubagentRunInfo {
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-const BUILTIN_TOOLS = new Set(DEFAULT_TOOLS);
-// `powershell` is platform-added by resolveShellTools and therefore is absent from
-// profile parsing's portable allow-list, but valid historical snapshots may contain it.
+const BUILTIN_TOOLS = new Set([...DEFAULT_TOOLS, "powershell"]);
+// 显式 PowerShell 选择与快照使用相同的内置工具范围；默认列表仍由平台解析。
 const SNAPSHOT_BUILTIN_TOOLS = new Set([...BUILTIN_TOOLS, "powershell"]);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
