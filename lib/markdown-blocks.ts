@@ -47,7 +47,7 @@ export function splitMarkdownBlocks(markdown: string): string[] {
       const marker = fenceMatch[1][0];
       const size = fenceMatch[1].length;
       if (!fence) fence = { marker, size };
-      else if (marker === fence.marker && size >= fence.size) fence = null;
+      else if (marker === fence.marker && size >= fence.size && /^[ \t]*\r?$/.test(line.slice(fenceMatch[0].length))) fence = null;
     } else if (!fence) {
       if (DEFINITION.test(line)) return [markdown];
       const prose = line.replace(INLINE_CODE, "");

@@ -43,7 +43,7 @@ export interface NoticeLinkPart {
 // (`http://[::1]:3000`). A `)` is kept only while it closes a `(` of the URL's
 // own (`…/wiki/Foo_(bar)`), as GFM autolinks do; trailing sentence punctuation
 // is trimmed below ("Open http://localhost:3000.").
-const URL_RE = /https?:\/\/(?:\[[0-9A-Fa-f:.]+\])?[^\s<>"'`\]}。，、；：！？）」』】]*/g;
+const URL_RE = /https?:\/\/(?:\[[0-9A-Fa-f:.]+\])?[^\s<>"'`\]}。，、；：！？）」』】]*/gi;
 const TRAILING_PUNCTUATION_RE = /^[.,;:!?]$/;
 
 function trimUrl(candidate: string): string {
@@ -81,7 +81,7 @@ export function splitNoticeLinks(text: string): NoticeLinkPart[] {
   let last = 0;
   for (const match of text.matchAll(URL_RE)) {
     const url = trimUrl(match[0]);
-    if (!/^https?:\/\/[^/]/.test(url)) continue;
+    if (!/^https?:\/\/[^/]/i.test(url)) continue;
     const start = match.index ?? 0;
     if (start > last) parts.push({ kind: "text", text: text.slice(last, start) });
     parts.push({ kind: "link", text: url });

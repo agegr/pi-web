@@ -35,7 +35,14 @@ export function prettyMcpResultText(text: string): string {
   const trimmed = text.trim();
   if (trimmed.length > PRETTY_JSON_MAX_CHARS || !/^[[{]/.test(trimmed)) return text;
   try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
+    let unsafeNumber = false;
+    const parsed = JSON.parse(trimmed, (_key, value: unknown) => {
+      if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
+        unsafeNumber = true;
+      }
+      return value;
+    });
+    return unsafeNumber ? text : JSON.stringify(parsed, null, 2);
   } catch {
     return text;
   }

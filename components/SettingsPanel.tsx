@@ -667,6 +667,7 @@ export function SettingsPanel({
   const phone = usePhoneSettingsLevel(isPhone, openAtHome);
   const { dropHistory, enter: enterPhoneLevel, goUp: goUpPhoneLevel, levelRef: phoneLevelRef } = phone;
   const headerRef = useRef<HTMLDivElement>(null);
+  const backdropPressRef = useRef(false);
   const mainRef = useRef<HTMLElement>(null);
   const shownPhoneLevelRef = useRef(phone.level);
   // Before paint, so the new level never shows in place first.
@@ -747,7 +748,15 @@ export function SettingsPanel({
       aria-modal="true"
       aria-label={t("settings.title")}
       tabIndex={-1}
-      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onPointerDown={(event) => {
+        backdropPressRef.current = event.target === event.currentTarget;
+      }}
+      onPointerCancel={() => { backdropPressRef.current = false; }}
+      onClick={(event) => {
+        const pressedBackdrop = backdropPressRef.current;
+        backdropPressRef.current = false;
+        if (pressedBackdrop && event.target === event.currentTarget) onClose();
+      }}
       className="settings-dialog-backdrop"
     >
       <div className="settings-dialog-surface">

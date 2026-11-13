@@ -1,5 +1,5 @@
-const ANSI_ESCAPE_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;
-const ANSI_ESCAPE_AT_START_RE = /^\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/;
+const ANSI_ESCAPE_RE = /\x1B(?:\][^\x07\x1B]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g;
+const ANSI_ESCAPE_AT_START_RE = /^\x1B(?:\][^\x07\x1B]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/;
 // pi-tui's zero-width APC markers: CURSOR_MARKER `\x1B_pi:c\x07` and the fake cursor's
 // FAKE_CURSOR_START / FAKE_CURSOR_END (`\x1B_pi:fc\x07`, `\x1B_pi:/fc\x07`). pi's TUI turns the fake
 // cursor into reverse video, which ansi_up does not draw, so all of them are dropped. A marker never

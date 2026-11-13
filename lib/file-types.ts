@@ -47,23 +47,29 @@ function getBaseName(filePath: string): string {
 }
 
 export function getFileExt(filePath: string): string {
-  return getBaseName(filePath).toLowerCase().split(".").pop() ?? "";
+  const name = getBaseName(filePath).toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1) : "";
 }
 
 export function getImageMime(filePath: string): string | null {
-  return IMAGE_EXT_TO_MIME[getFileExt(filePath)] ?? null;
+  const ext = getFileExt(filePath);
+  return Object.hasOwn(IMAGE_EXT_TO_MIME, ext) ? IMAGE_EXT_TO_MIME[ext] : null;
 }
 
 export function getAudioMime(filePath: string): string | null {
-  return AUDIO_EXT_TO_MIME[getFileExt(filePath)] ?? null;
+  const ext = getFileExt(filePath);
+  return Object.hasOwn(AUDIO_EXT_TO_MIME, ext) ? AUDIO_EXT_TO_MIME[ext] : null;
 }
 
 export function getVideoMime(filePath: string): string | null {
-  return VIDEO_EXT_TO_MIME[getFileExt(filePath)] ?? null;
+  const ext = getFileExt(filePath);
+  return Object.hasOwn(VIDEO_EXT_TO_MIME, ext) ? VIDEO_EXT_TO_MIME[ext] : null;
 }
 
 export function getDocumentMime(filePath: string): string | null {
-  return DOCUMENT_EXT_TO_MIME[getFileExt(filePath) as DocumentPreviewKind] ?? null;
+  const ext = getFileExt(filePath) as DocumentPreviewKind;
+  return Object.hasOwn(DOCUMENT_EXT_TO_MIME, ext) ? DOCUMENT_EXT_TO_MIME[ext] : null;
 }
 
 export function documentPreviewKind(filePath: string): DocumentPreviewKind | null {
