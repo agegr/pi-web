@@ -248,6 +248,7 @@ async function createTrackedFilePatch(
       "--no-color",
       "--no-ext-diff",
       "--unified=3",
+      "--no-textconv",
       "HEAD",
       "--",
       ...paths,
