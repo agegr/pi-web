@@ -519,6 +519,7 @@ export const zhTWLocale: LocalePlugin = {
     "directoryPicker.selectDirectory": "選擇目錄",
     "directoryPicker.goToParent": "前往上一層目錄",
     "directoryPicker.directoryPath": "目錄路徑",
+    "directoryPicker.pathPlaceholder": "/path/to/project 或 ~/project",
     "directoryPicker.goToDirectory": "前往目錄",
     "directoryPicker.go": "前往",
     "directoryPicker.loadingDirectories": "正在載入目錄…",
