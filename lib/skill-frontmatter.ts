@@ -1,13 +1,24 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { COLLECTION_STYLE_BLOCK, EVENT_MAPPING, EVENT_SCALAR, parseEvents } from "js-yaml";
 
 const KEY = "disable-model-invocation";
-const KEY_LINE = `[ \\t]*(?:${KEY}|"${KEY}"|'${KEY}')[ \\t]*:`;
+const KEY_LINE = `(?:${KEY}|"${KEY}"|'${KEY}')[ \\t]*:`;
 const NEWLINE = "\\r\\n|\\n|\\r";
 
 interface FrontmatterBlock {
   openingEnd: number;
   closingStart: number;
   newline: string;
+}
+
+function rootIndent(head: string): string {
+  const root = parseEvents(head, {})[1];
+  if (!root || (root.type === EVENT_SCALAR && root.valueStart === root.valueEnd)) return "";
+  if (root.type !== EVENT_MAPPING || root.style !== COLLECTION_STYLE_BLOCK) {
+    throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
+  }
+  const lineStart = Math.max(head.lastIndexOf("\n", root.start - 1), head.lastIndexOf("\r", root.start - 1)) + 1;
+  return head.slice(lineStart, root.start);
 }
 
 function findFrontmatterBlock(content: string): FrontmatterBlock | undefined {
@@ -53,7 +64,7 @@ export function setDisableModelInvocation(content: string, disable: boolean): st
     if (hasKey) {
       if (!block) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
       const head = content.slice(block.openingEnd, block.closingStart);
-      const keyLine = new RegExp(`(^|${NEWLINE})(${KEY_LINE})[^\\r\\n]*`);
+      const keyLine = new RegExp(`(^|${NEWLINE})(${rootIndent(head)}${KEY_LINE})[^\\r\\n]*`);
       if (!keyLine.test(head)) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
       const updated = head.replace(keyLine, "$1$2 true");
       return content.slice(0, block.openingEnd) + updated + content.slice(block.closingStart);
@@ -69,7 +80,7 @@ export function setDisableModelInvocation(content: string, disable: boolean): st
     }
     return (
       content.slice(0, block.openingEnd) +
-      `${KEY}: true${block.newline}` +
+      `${rootIndent(content.slice(block.openingEnd, block.closingStart))}${KEY}: true${block.newline}` +
       content.slice(block.openingEnd)
     );
   }
@@ -78,7 +89,7 @@ export function setDisableModelInvocation(content: string, disable: boolean): st
   const head = content.slice(block.openingEnd, block.closingStart);
   // Keep the preceding newline, when present, and consume the key line's own
   // newline so the surrounding frontmatter retains exactly one line break.
-  const keyLine = new RegExp(`(^|${NEWLINE})${KEY_LINE}[^\\r\\n]*(?:${NEWLINE}|$)`);
+  const keyLine = new RegExp(`(^|${NEWLINE})${rootIndent(head)}${KEY_LINE}[^\\r\\n]*(?:${NEWLINE}|$)`);
   if (!keyLine.test(head)) throw new Error(`Cannot edit ${KEY}: unsupported frontmatter formatting`);
   const updated = head.replace(keyLine, "$1");
   return content.slice(0, block.openingEnd) + updated + content.slice(block.closingStart);
