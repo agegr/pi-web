@@ -70,21 +70,25 @@ export function loadSubagentInputFiles(
     if (!isPathWithinRoots(filePath, allowedRoots)) {
       throw new Error(`Agent input file is outside the session cwd: ${requestedPath}`);
     }
-    if (!statSync(filePath).isFile()) {
+    const fileInfo = statSync(filePath);
+    if (!fileInfo.isFile()) {
       throw new Error(`Agent input path is not a file: ${requestedPath}`);
     }
     if (seen.has(filePath)) continue;
     seen.add(filePath);
 
-    const buffer = readFileSync(filePath);
-    totalBytes += buffer.byteLength;
-    if (totalBytes > maxBytes) {
+    const checkSize = (bytes: number) => {
+      if (totalBytes + bytes <= maxBytes) return;
       const scope = limits.model ? ` for ${limits.model}, about a tenth of its context window` : "";
       throw new Error(
         `Agent input_files exceeds the ${formatInputLimit(maxBytes)} total limit${scope}. `
         + "Pass fewer or smaller files, or name the paths in prompt if the subagent can read them.",
       );
-    }
+    };
+    checkSize(fileInfo.size);
+    const buffer = readFileSync(filePath);
+    checkSize(buffer.byteLength);
+    totalBytes += buffer.byteLength;
 
     let content: string;
     try {
