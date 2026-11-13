@@ -70,7 +70,13 @@ The Compose file explicitly sets the following:
 
 There are no model API keys required to start the web server. Configure provider credentials in the Models panel or persist an existing Pi agent directory. Provider API requests still require network access unless using a local provider.
 
-Other supported/consumed variables can be supplied through the `environment:` section or `.env` as needed:
+Pass other supported variables through the service's `environment:` section. Compose uses `.env` for interpolation; adding a variable there alone does not pass it into the container. See [Docker's environment variable documentation](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/). For example, add this entry alongside the existing environment entries in `compose.yaml`:
+
+```yaml
+      PI_WEB_APP_NAME: ${PI_WEB_APP_NAME:-Pi Web}
+```
+
+Then set `PI_WEB_APP_NAME=Work Pi` in `.env` and run `docker compose up -d` to recreate the service with the updated environment. `docker compose restart` retains the container's existing environment. Apply the same explicit mapping for the optional variables below:
 
 - `PI_WEB_APP_NAME`: PWA manifest name.
 - `PI_WEB_IDLE_TIMEOUT_MS`, `PI_WEB_SHUTDOWN_DEADLINE_MS`, `PI_WEB_MCP_IDLE_MS`: session/MCP lifecycle timings.
