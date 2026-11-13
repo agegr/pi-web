@@ -1,4 +1,5 @@
 import { addSubscription, type PushSubscriptionRecord } from "@/lib/web-push";
+import { getLocalePlugin } from "@/lib/i18n/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "Invalid push subscription" }, { status: 400 });
   }
 
-  const locale = body.locale === "zh-CN" ? "zh-CN" : "en";
+  const locale = typeof body.locale === "string" ? getLocalePlugin(body.locale)?.id ?? "en" : "en";
   await addSubscription({
     endpoint: body.subscription.endpoint,
     keys: body.subscription.keys,
