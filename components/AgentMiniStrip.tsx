@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useHorizontalStrip } from "@/hooks/useHorizontalStrip";
 import { useI18n } from "@/hooks/useI18n";
 import { sideChatTitle } from "@/lib/session-family";
 import type { SessionInfo } from "@/lib/types";
@@ -23,35 +24,18 @@ interface Props {
  */
 export function AgentMiniStrip({ rootSession, members, selectedSessionId, runningSessionIds, onSelectSession }: Props) {
   const { t } = useI18n();
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // No scrollbar (TabBar's `.tabbar-scroll`), so a vertical wheel scrolls the row sideways.
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const onWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX) || list.scrollWidth <= list.clientWidth) return;
-      event.preventDefault();
-      list.scrollLeft += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? list.clientWidth : 1);
-    };
-    list.addEventListener("wheel", onWheel, { passive: false });
-    return () => list.removeEventListener("wheel", onWheel);
-  }, []);
-
-  // The current chip stays in view; only the row moves (scrollIntoView could move the page).
-  useEffect(() => {
-    const list = listRef.current;
-    const chip = list?.querySelector<HTMLElement>('[aria-current="true"]');
-    if (!list || !chip) return;
-    const strip = list.getBoundingClientRect();
-    const { left, right } = chip.getBoundingClientRect();
-    if (left < strip.left) list.scrollLeft -= strip.left - left;
-    else if (right > strip.right) list.scrollLeft += right - strip.right;
-  }, [selectedSessionId, members.length]);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  // Only the members scroll (hidden scrollbar, wheel, current chip kept in view): the way back stays put.
+  const scrollerRef = useHorizontalStrip<HTMLDivElement>('[aria-current="true"]', `${members.length}\n${selectedSessionId}`);
+  // Roving tab stop: one Tab stop for the row, on the chip last focused, else the current one.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const tabStopId = focusedId && (focusedId === rootSession.id || members.some((session) => session.id === focusedId))
+    ? focusedId
+    : selectedSessionId;
 
   // A toolbar's arrow keys: Left and Right move between chips, Home and End to the ends.
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const chips = [...(listRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+    const chips = [...(toolbarRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
     const index = chips.indexOf(document.activeElement as HTMLButtonElement);
     if (index < 0) return;
     const next = event.key === "ArrowRight" ? Math.min(index + 1, chips.length - 1)
@@ -65,23 +49,22 @@ export function AgentMiniStrip({ rootSession, members, selectedSessionId, runnin
   };
 
   const statusText = t("agentSwitcher.status.running");
+  const rootRunning = runningSessionIds.has(rootSession.id);
   return (
     <div
-      ref={listRef}
+      ref={toolbarRef}
       role="toolbar"
       aria-label={t("agentSwitcher.strip")}
-      className="tabbar-scroll"
       onKeyDown={handleKeyDown}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 6,
         height: 34,
+        // The right padding sits outside the scroller, so the current chip kept in view never touches the edge.
         padding: "0 8px",
         background: "var(--bg-panel)",
         borderBottom: "1px solid var(--border)",
-        overflowX: "auto",
-        overflowY: "hidden",
         flexShrink: 0,
       }}
     >
@@ -89,52 +72,76 @@ export function AgentMiniStrip({ rootSession, members, selectedSessionId, runnin
         label={t("agentSwitcher.main")}
         title={t("agentSwitcher.backToMain")}
         current={false}
-        icon={runningSessionIds.has(rootSession.id) ? <StatusIcon status="running" /> : (
+        tabStop={tabStopId === rootSession.id}
+        icon={rootRunning ? <StatusIcon status="running" /> : (
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M19 12H5M11 6l-6 6 6 6" />
           </svg>
         )}
-        running={runningSessionIds.has(rootSession.id)}
+        running={rootRunning}
+        onFocus={() => setFocusedId(rootSession.id)}
         onClick={() => onSelectSession(rootSession)}
       />
       <span aria-hidden="true" style={{ width: 1, height: 16, flexShrink: 0, background: "var(--border)" }} />
-      {members.map((session) => {
-        const side = session.relation?.kind === "side";
-        const relation = session.relation?.kind === "subagent" ? session.relation : null;
-        const label = side ? sideChatTitle(session, t("agentSwitcher.sideChat"), members) : subagentTitle(session);
-        const running = runningSessionIds.has(session.id);
-        const kind = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
-        return (
-          <Chip
-            key={session.id}
-            label={label}
-            title={[label, kind, running ? statusText : null].filter(Boolean).join(" · ")}
-            current={session.id === selectedSessionId}
-            icon={running ? <StatusIcon status="running" /> : <AgentKindIcon kind={side ? "side" : "subagent"} size={12} />}
-            running={running}
-            onClick={() => onSelectSession(session)}
-          />
-        );
-      })}
+      <div
+        ref={scrollerRef}
+        className="tabbar-scroll"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          overflowX: "auto",
+          overflowY: "hidden",
+        }}
+      >
+        {members.map((session) => {
+          const side = session.relation?.kind === "side";
+          const relation = session.relation?.kind === "subagent" ? session.relation : null;
+          const label = side ? sideChatTitle(session, t("agentSwitcher.sideChat"), members) : subagentTitle(session);
+          const running = runningSessionIds.has(session.id);
+          const kind = side ? t("agentSwitcher.sideChat") : relation?.profile ?? t("agentSwitcher.subagent");
+          return (
+            <Chip
+              key={session.id}
+              label={label}
+              title={[label, kind, running ? statusText : null].filter(Boolean).join(" · ")}
+              current={session.id === selectedSessionId}
+              tabStop={tabStopId === session.id}
+              icon={running ? <StatusIcon status="running" /> : <AgentKindIcon kind={side ? "side" : "subagent"} size={12} />}
+              running={running}
+              onFocus={() => setFocusedId(session.id)}
+              onClick={() => onSelectSession(session)}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function Chip({ label, title, current, icon, running, onClick }: {
+function Chip({ label, title, current, tabStop, icon, running, onFocus, onClick }: {
   label: string;
   title: string;
   current: boolean;
+  tabStop: boolean;
   icon: ReactNode;
   running: boolean;
+  onFocus: () => void;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      onFocus={onFocus}
       title={title}
+      tabIndex={tabStop ? 0 : -1}
       aria-current={current ? "true" : undefined}
-      className={current ? "cursor-pointer" : "cursor-pointer bg-transparent hover:bg-bg-hover hover:text-text"}
+      // Colours as classes, so hover can win over them (an inline colour would).
+      className={current ? "cursor-pointer text-text" : "cursor-pointer bg-transparent text-text-muted hover:bg-bg-hover hover:text-text"}
       style={{
         display: "flex",
         alignItems: "center",
@@ -146,13 +153,12 @@ function Chip({ label, title, current, icon, running, onClick }: {
         border: `1px solid ${current ? "var(--accent)" : "var(--border)"}`,
         borderRadius: 12,
         background: current ? "var(--bg-selected)" : undefined,
-        color: current ? "var(--text)" : "var(--text-muted)",
         fontSize: 11,
         fontWeight: current ? 600 : 500,
         whiteSpace: "nowrap",
       }}
     >
-      <span style={{ display: "grid", placeItems: "center", flexShrink: 0, color: running ? "var(--accent)" : current ? "var(--accent)" : "var(--text-dim)" }}>
+      <span style={{ display: "grid", placeItems: "center", flexShrink: 0, color: running || current ? "var(--accent)" : "var(--text-dim)" }}>
         {icon}
       </span>
       <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
