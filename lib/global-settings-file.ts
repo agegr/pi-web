@@ -19,7 +19,7 @@ function parseSettings(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
   // As pi's SettingsManager reads it: an empty file is no settings, and a
   // byte-order mark (Notepad, Windows PowerShell 5.1's UTF-8) is not JSON.
-  const text = readFileSync(path, "utf8").replace(/^﻿/, "");
+  const text = readFileSync(path, "utf8").replace(/^\uFEFF/, "");
   if (!text) return {};
   let parsed: unknown;
   try {
