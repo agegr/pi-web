@@ -83,6 +83,8 @@ PI_WEB_PASSWORD='足够长的随机密码' pi-web --hostname 0.0.0.0
 
 密码认证不会加密连接。不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
 
+同时开着很多活跃的会话、终端或文件预览时，明文 HTTP 下浏览器最多只有六个连接，请求会开始排队；见 [Serving Pi Web over HTTP/2](./http2.md)。
+
 ### HTTP 代理
 
 服务端的模型和 API 请求会读取标准的 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY` 环境变量。
