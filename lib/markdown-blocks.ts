@@ -2,6 +2,8 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const LIST_ITEM = /^(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/;
 const HTML_TAG = /<[A-Za-z!/?]/;
 const INLINE_CODE = /`[^`]*`/g;
+// A link reference or footnote definition (`[guide]: https://…`, `[^1]: …`).
+const DEFINITION = /^ {0,3}\[[^\]]+\]:/;
 
 /**
  * Splits markdown before top-level blocks that cannot belong to the block
@@ -15,13 +17,13 @@ const INLINE_CODE = /`[^`]*`/g;
  * never inside a loose list or an indented continuation. Raw HTML may wrap
  * blank lines (`<details>`, an inline `<b>` left open), so nothing after the
  * first line with a tag outside inline code is split, nor is a document
- * opening with front matter. A rare miss only makes a block larger
+ * opening with front matter. A definition line outside a fence (`[guide]: …`,
+ * `[^1]: …`) keeps the whole message one block, since its references may sit
+ * in any other block. A rare miss only makes a block larger
  * or, at worst, renders one transiently apart while streaming: the finished
  * message is rendered whole.
  */
 export function splitMarkdownBlocks(markdown: string): string[] {
-  // 引用和脚注定义会影响其他段落；出现定义标记时交给完整的 Markdown 解析器。
-  if (markdown.includes("]:")) return [markdown];
   const lines = markdown.split("\n");
   if (/^---[ \t]*\r?$/.test(lines[0])) return [markdown];
   const blocks: string[] = [];
@@ -47,6 +49,7 @@ export function splitMarkdownBlocks(markdown: string): string[] {
       if (!fence) fence = { marker, size };
       else if (marker === fence.marker && size >= fence.size) fence = null;
     } else if (!fence) {
+      if (DEFINITION.test(line)) return [markdown];
       const prose = line.replace(INLINE_CODE, "");
       if (HTML_TAG.test(prose)) rawHtml = true;
       if ((prose.match(/\$\$/g)?.length ?? 0) % 2 === 1) inMath = !inMath;
