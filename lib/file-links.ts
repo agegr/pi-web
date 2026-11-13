@@ -68,7 +68,7 @@ export function normalizeShellDrivePath(filePath: string): string {
 }
 
 function stripLineSuffix(filePath: string): string {
-  return filePath.replace(/:\d+(?::\d+)?$/, "");
+  return filePath.replace(/:\d+(?:(?::|-)\d+)?$/, "");
 }
 
 function normalizeLocalPath(filePath: string): string {
