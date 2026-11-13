@@ -90,6 +90,10 @@ const FILTERED_PACKAGE_ERROR =
  * enabling keeps every key except the emptied resource lists (`autoload` on a
  * project entry, say), so neither drops what the entry configures.
  */
+const RESOURCE_FILTER_KEYS = ["extensions", "skills", "prompts", "themes"] as const;
+type SavedPackageFilters = Partial<Pick<Exclude<PackageSource, string>, (typeof RESOURCE_FILTER_KEYS)[number]>>;
+type StoredPackageObject = Exclude<PackageSource, string> & { _savedFilters?: SavedPackageFilters };
+
 function setPackagesDisabled(
   settingsManager: SettingsManager,
   sources: readonly string[],
@@ -114,8 +118,16 @@ function setPackagesDisabled(
     }
     changed = true;
     if (disabled) {
+      if (typeof entry === "string") {
+        return { source: entry, extensions: [], skills: [], prompts: [], themes: [] };
+      }
+      const savedFilters: SavedPackageFilters = {};
+      for (const key of RESOURCE_FILTER_KEYS) {
+        if (entry[key] !== undefined) savedFilters[key] = entry[key];
+      }
       return {
-        ...(typeof entry === "string" ? { source: entry } : entry),
+        ...entry,
+        ...(Object.keys(savedFilters).length > 0 ? { _savedFilters: savedFilters } : {}),
         extensions: [],
         skills: [],
         prompts: [],
@@ -123,11 +135,16 @@ function setPackagesDisabled(
       };
     }
     if (typeof entry === "string") return source;
-    const rest = { ...entry };
+    const rest: StoredPackageObject = { ...entry };
+    const savedFilters = rest._savedFilters;
     delete rest.extensions;
     delete rest.skills;
     delete rest.prompts;
     delete rest.themes;
+    delete rest._savedFilters;
+    if (savedFilters && typeof savedFilters === "object") {
+      Object.assign(rest, savedFilters);
+    }
     return Object.keys(rest).length > 1 ? rest : source;
   });
   if (changed) {

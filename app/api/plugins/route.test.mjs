@@ -204,3 +204,22 @@ test("enabling keeps an entry's own settings such as autoload", async () => {
 
   assert.deepEqual(await readPackages(), [{ source: alpha, autoload: false }, { source: beta, autoload: false }]);
 });
+
+test("single-package disable and enable preserves resource filters", async () => {
+  const pkg = await makePackage("filtered-single");
+  const filtered = { source: pkg, skills: ["-skills/ponytail-debt/SKILL.md"] };
+  await writeFile(settingsPath, JSON.stringify({ packages: [filtered] }));
+
+  const disabledRes = await postPlugins({ action: "disable", source: pkg, scope: "global" });
+  assert.equal(disabledRes.status, 200);
+  const disabledBody = await disabledRes.json();
+  assert.equal(disabledBody.packages.find((item) => item.source === pkg)?.disabled, true);
+
+  const enabledRes = await postPlugins({ action: "enable", source: pkg, scope: "global" });
+  assert.equal(enabledRes.status, 200);
+  const enabledBody = await enabledRes.json();
+  const restored = enabledBody.packages.find((item) => item.source === pkg);
+  assert.equal(restored?.disabled, false);
+  assert.equal(restored?.filtered, true);
+  assert.deepEqual(await readPackages(), [filtered]);
+});
