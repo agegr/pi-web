@@ -75,6 +75,7 @@ async function readTrackedLineStats(
   const pathspec = relativeCwd || ".";
   try {
     const output = await git(repositoryRoot, [
+      "--literal-pathspecs",
       "diff",
       "--no-color",
       "--no-ext-diff",
@@ -244,6 +245,7 @@ async function createTrackedFilePatch(
   try {
     return await git(repositoryRoot, [
       ...gitConfig,
+      "--literal-pathspecs",
       "diff",
       "--no-color",
       "--no-ext-diff",
