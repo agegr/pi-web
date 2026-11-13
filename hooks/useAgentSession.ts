@@ -1131,12 +1131,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const realId = result.sessionId;
       sessionIdRef.current = realId;
       applyNewSessionStartState(result, selectedModel, selectedThinkingLevel);
-      // An extension's session_start may wait on a dialog, which only the event stream shows,
-      // and the server answered without waiting for it (#1678). get_commands, a prompt and a
-      // `!` command wait for session_start, so the dialog must be on screen before they go.
-      if (sessionHookMountedRef.current) {
-        void eventConnectionRef.current?.ensureConnected(realId).catch(() => {});
-      }
       return realId;
     })();
 
@@ -1177,6 +1171,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     replaceSlashCommands([]);
   }, [replaceSlashCommands]);
 
+  // An extension's session_start may wait on a dialog, which only the event stream shows (#1678),
+  // and get_commands waits for session_start. A fresh composer has no stream (a prompt and a `!`
+  // command open one themselves), so it holds one while the request is out, and lets go of it
+  // after, as before, unless something in the page still needs it. A selected session keeps its own.
+  const withSessionStartStream = useCallback(async <T,>(sid: string, request: () => Promise<T>): Promise<T> => {
+    const fresh = sessionPropIdRef.current === null && sessionHookMountedRef.current;
+    if (fresh) void eventConnectionRef.current?.ensureConnected(sid).catch(() => {});
+    try {
+      return await request();
+    } finally {
+      if (
+        fresh
+        && sessionPropIdRef.current === null
+        && sessionIdRef.current === sid
+        && extensionUiCountRef.current === 0
+        && !agentRunningRef.current
+        && !bashRunningRef.current
+      ) {
+        eventConnectionRef.current?.close("grace_end");
+      }
+    }
+  }, []);
+
   // Null when get_commands failed, which an empty list (a Chat-only session's) must not be mistaken for.
   const requestSlashCommands = useCallback((): Promise<SlashCommandInfo[] | null> => {
     const generation = ++slashCommandsGenerationRef.current;
@@ -1189,7 +1206,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       setSlashCommandsLoading(true);
       try {
-        const data = await sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" });
+        const data = await withSessionStartStream(sid, () => sendAgentCommand<SlashCommandsResponse>(sid, { type: "get_commands" }));
         const commands = data?.commands ?? [];
         if (current()) replaceSlashCommands(commands);
         return commands;
@@ -1208,7 +1225,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
     load.then(settle, settle);
     return load;
-  }, [ensureNewSession, replaceSlashCommands]);
+  }, [ensureNewSession, replaceSlashCommands, withSessionStartStream]);
 
   const loadSlashCommands = useCallback(async () => (await requestSlashCommands()) ?? [], [requestSlashCommands]);
 
@@ -1417,6 +1434,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         model: state.model ? { provider: state.model.provider, modelId: state.model.id } : null,
         thinkingLevel: state.thinkingLevel,
       }, selectedModel, selectedThinkingLevel);
+      // Extensions may have changed the prompt the System panel shows as session_start went on.
+      if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt);
     } catch {
       // The composer keeps the model it shows; the first run's state corrects it.
     }
