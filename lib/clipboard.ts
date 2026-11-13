@@ -2,6 +2,7 @@ export function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     return navigator.clipboard.writeText(text);
   }
+  const activeElement = document.activeElement;
   let ta: HTMLTextAreaElement | null = null;
   try {
     ta = document.createElement("textarea");
@@ -19,5 +20,8 @@ export function copyText(text: string): Promise<void> {
     return Promise.reject(error);
   } finally {
     ta?.remove();
+    if (activeElement?.isConnected && activeElement instanceof HTMLElement) {
+      activeElement.focus({ preventScroll: true });
+    }
   }
 }
