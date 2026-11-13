@@ -1068,6 +1068,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }, provisionalDraftKey);
   }, [isNew, newSessionCwd, newSessionDraftKey, onSessionCreated, opts.chatInputRef]);
 
+  // The model and reasoning level a fresh composer's session started with, unless the user
+  // picked others since `selectedModel` / `selectedThinkingLevel` were read.
+  const applyNewSessionStartState = useCallback((
+    state: { model?: SelectedModel | null; thinkingLevel?: string },
+    selectedModel: SelectedModel | null,
+    selectedThinkingLevel: ConcreteThinkingLevel | null,
+  ) => {
+    if (state.model && newSessionModelOverrideRef.current === selectedModel) {
+      setPendingModel(state.model);
+      if (!selectedModel) setNewSessionDefaultModel(state.model);
+    }
+    if (state.thinkingLevel && thinkingLevelOverrideRef.current === selectedThinkingLevel) {
+      setLiveThinkingLevel(asConcreteThinkingLevel(state.thinkingLevel));
+      if (!selectedThinkingLevel) {
+        setNewSessionDefaultThinkingLevel(asConcreteThinkingLevel(state.thinkingLevel));
+      }
+    }
+  }, []);
+
   const ensureNewSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;
     if (!isNew || !newSessionCwd) return sessionIdRef.current;
@@ -1111,18 +1130,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
-      if (result.model && newSessionModelOverrideRef.current === selectedModel) {
-        setPendingModel(result.model);
-        if (!selectedModel) setNewSessionDefaultModel(result.model);
-      }
-      if (
-        result.thinkingLevel
-        && thinkingLevelOverrideRef.current === selectedThinkingLevel
-      ) {
-        setLiveThinkingLevel(asConcreteThinkingLevel(result.thinkingLevel));
-        if (!selectedThinkingLevel) {
-          setNewSessionDefaultThinkingLevel(asConcreteThinkingLevel(result.thinkingLevel));
-        }
+      applyNewSessionStartState(result, selectedModel, selectedThinkingLevel);
+      // An extension's session_start may wait on a dialog, which only the event stream shows,
+      // and the server answered without waiting for it (#1678). get_commands, a prompt and a
+      // `!` command wait for session_start, so the dialog must be on screen before they go.
+      if (sessionHookMountedRef.current) {
+        void eventConnectionRef.current?.ensureConnected(realId).catch(() => {});
       }
       return realId;
     })();
@@ -1133,7 +1146,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [applyNewSessionStartState, isNew, newSessionCwd, toolPreset]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message
@@ -1389,8 +1402,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     } catch (e) {
       console.error("Failed to send extension UI response:", e);
+      return;
     }
-  }, []);
+    // A fresh composer heard its model from /api/agent/new, which may have answered while a
+    // session_start handler waited on this dialog (#1678); the handler may pick the model next.
+    // get_state answers once session_start has finished (or waits on another dialog).
+    if (sessionPropIdRef.current !== null) return;
+    const selectedModel = newSessionModelOverrideRef.current;
+    const selectedThinkingLevel = thinkingLevelOverrideRef.current;
+    try {
+      const state = await sendAgentCommand<AgentStateResponse>(sid, { type: "get_state" });
+      if (!sessionHookMountedRef.current || sessionIdRef.current !== sid || sessionPropIdRef.current !== null) return;
+      applyNewSessionStartState({
+        model: state.model ? { provider: state.model.provider, modelId: state.model.id } : null,
+        thinkingLevel: state.thinkingLevel,
+      }, selectedModel, selectedThinkingLevel);
+    } catch {
+      // The composer keeps the model it shows; the first run's state corrects it.
+    }
+  }, [applyNewSessionStartState]);
 
   const sendExtensionCustomInput = useCallback(async (request: ExtensionUiCustomRequest, data: string) => {
     const sid = sessionIdRef.current;
