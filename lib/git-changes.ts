@@ -215,6 +215,7 @@ function hasNullByte(content: Buffer): boolean {
 }
 
 function createAddedFilePatch(gitPath: string, content: string): string {
+  if (content.length === 0) return "";
   const hasTrailingNewline = content.endsWith("\n");
   const lines = content.split("\n");
   if (hasTrailingNewline) lines.pop();
