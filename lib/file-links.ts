@@ -76,12 +76,13 @@ function normalizeLocalPath(filePath: string): string {
   const isWindowsDrive = /^[a-zA-Z]:\//.test(normalized);
   const isUnc = normalized.startsWith("//");
   const leadingSlash = normalized.startsWith("/") && !isWindowsDrive && !isUnc;
+  const rootParts = isWindowsDrive ? 1 : isUnc ? 2 : 0;
   const parts: string[] = [];
 
   for (const part of normalized.split("/")) {
     if (!part || part === ".") continue;
     if (part === "..") {
-      if (parts.length > 0 && parts[parts.length - 1] !== "..") {
+      if (parts.length > rootParts && parts[parts.length - 1] !== "..") {
         parts.pop();
       } else if (!leadingSlash && !isWindowsDrive && !isUnc) {
         parts.push(part);
@@ -92,7 +93,7 @@ function normalizeLocalPath(filePath: string): string {
   }
 
   const joined = parts.join("/");
-  if (isWindowsDrive) return joined;
+  if (isWindowsDrive) return parts.length === 1 ? `${joined}/` : joined;
   if (isUnc) return `//${joined}`;
   return leadingSlash ? `/${joined}` : joined;
 }
