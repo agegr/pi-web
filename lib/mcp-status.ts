@@ -63,6 +63,22 @@ export function mcpStatusKey(entry: McpStatusEntry): string {
  * content (a writer behind the file, or ahead of the listing) is held beside
  * it, and whichever the file holds is shown.
  */
+const TEST_CONNECTED_LISTENERS_KEY: symbol = Symbol.for("pi-web:mcp-test-connected-listeners");
+type McpTestConnectedListener = (entry: McpStatusEntry, configKey: string) => void;
+
+function testConnectedListeners(): Set<McpTestConnectedListener> {
+  const store = globalThis as Record<symbol, Set<McpTestConnectedListener> | undefined>;
+  return (store[TEST_CONNECTED_LISTENERS_KEY] ??= new Set());
+}
+
+export function onMcpTestConnected(listener: McpTestConnectedListener): () => void {
+  const listeners = testConnectedListeners();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export function recordMcpStatus(entry: McpStatusEntry, configKey: string, status: McpServerStatus): void {
   const map = records();
   const key = mcpStatusKey(entry);
@@ -77,6 +93,13 @@ export function recordMcpStatus(entry: McpStatusEntry, configKey: string, status
     const [oldestKey, oldest] = map.entries().next().value as [string, Map<string, McpServerStatus>];
     oldest.delete(oldest.keys().next().value as string);
     if (oldest.size === 0) map.delete(oldestKey);
+  }
+  if (status.origin === "test" && status.state === "connected") {
+    for (const listener of testConnectedListeners()) {
+      try {
+        listener(entry, configKey);
+      } catch {}
+    }
   }
 }
 

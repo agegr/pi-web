@@ -21,6 +21,7 @@ import {
   forgetMcpStatus,
   isCurrentMcpStatus,
   mcpStatusKey,
+  onMcpTestConnected,
   recordMcpHostInactive,
   recordMcpStatus,
   replaceMcpStatus,
@@ -556,8 +557,16 @@ class HostInstance {
   private runActive = false;
   /** Prompts waiting in prepareForPrompt(); nor does it run while one waits. */
   private preparing = 0;
+  private readonly stopListeningTestConnected: () => void;
 
   constructor(private readonly pi: ExtensionAPI, private readonly options: Required<McpHostOptions>) {
+    this.stopListeningTestConnected = onMcpTestConnected((entry) => {
+      if (this.disposed || !this.active) return;
+      const attempt = this.attempts.get(entry.name);
+      if (attempt && !attempt.released && (attempt.state === "failed" || attempt.state === "disconnected")) {
+        void this.sync({ retryFailed: true });
+      }
+    });
     pi.on("session_start", (_event, ctx) => {
       if (this.disposed) return;
       this.ctx = ctx;
@@ -666,7 +675,7 @@ class HostInstance {
     });
   }
 
-  sync(): Promise<void> {
+  sync({ retryFailed = false }: { retryFailed?: boolean } = {}): Promise<void> {
     const synced = this.enqueue(async () => {
       if (!this.active || !this.ctx) return;
       const desired = this.desiredServers(this.ctx);
@@ -677,7 +686,8 @@ class HostInstance {
       }
       for (const [name, attempt] of [...this.attempts]) {
         const wanted = desired.get(name);
-        if (wanted && canonicalJson(wanted.config) === attempt.configKey) continue;
+        const shouldRetry = retryFailed && (attempt.state === "failed" || attempt.state === "disconnected");
+        if (wanted && canonicalJson(wanted.config) === attempt.configKey && !shouldRetry) continue;
         await this.unregister(name);
       }
       for (const [name, wanted] of desired) {
@@ -710,7 +720,7 @@ class HostInstance {
 
   private async waitForServers(signal: AbortSignal, wait: boolean): Promise<void> {
     const stopped = aborted(signal);
-    await Promise.race([this.sync(), stopped]);
+    await Promise.race([this.sync({ retryFailed: true }), stopped]);
     if (signal.aborted || !wait) return;
     const connecting = [...this.attempts.values()].filter((attempt) =>
       (attempt.declaresTools || attempt.restoreTools !== undefined) && !attempt.settled && !attempt.waited);
@@ -783,6 +793,7 @@ class HostInstance {
   dispose(): void {
     this.disposed = true;
     this.active = false;
+    this.stopListeningTestConnected();
     this.clearIdle();
     this.forgetLoadedTools();
     this.letGoOfAll();
