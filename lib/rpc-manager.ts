@@ -192,7 +192,11 @@ type AgentSessionWrapperOptions = {
    * binding (prompts, get_commands, get_state) sees what it did. Handles its own errors.
    */
   afterSessionStart?: () => Promise<void>;
+  /** The deferred model (#1240) and level afterSessionStart switches to; see pendingStartupModel(). */
+  deferredStartupModel?: StartupModelTarget;
 };
+
+type StartupModelTarget = { provider: string; id: string; thinkingLevel?: string };
 
 /** An extension's dialog on a wrapper already disposed, which no page can answer. */
 function closedSessionUiError(): Error {
@@ -401,6 +405,10 @@ export class AgentSessionWrapper {
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private readonly sideChat: boolean;
   private readonly afterSessionStart?: () => Promise<void>;
+  private deferredStartupModel: StartupModelTarget | null;
+  // What the session was built on, so a model or level picked before the deferred switch stands.
+  private readonly builtOnModel: string | undefined;
+  private readonly builtOnThinkingLevel: string | undefined;
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
@@ -453,6 +461,9 @@ export class AgentSessionWrapper {
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
     this.sideChat = options.sideChat === true;
     this.afterSessionStart = options.afterSessionStart;
+    this.deferredStartupModel = options.deferredStartupModel ?? null;
+    this.builtOnModel = inner.model && `${inner.model.provider}/${inner.model.id}`;
+    this.builtOnThinkingLevel = inner.agent?.state?.thinkingLevel;
     this.startupNotices = options.startupIssues ? [] : null;
     for (const issue of options.startupIssues ?? []) this.notifyIssue(issue);
   }
@@ -886,22 +897,53 @@ export class AgentSessionWrapper {
   }
 
   /**
+   * The deferred model (#1240) the session still switches to once session_start has run, null
+   * once it has. A model picked meanwhile (a session_start dialog may hold the binding, #1678)
+   * stands, so there is none; a level picked meanwhile replaces the target's.
+   */
+  pendingStartupModel(): StartupModelTarget | null {
+    const target = this.deferredStartupModel;
+    // By name: pi refreshes the model object itself when an extension registers providers.
+    const model = this.inner.model;
+    if (!target || (model && `${model.provider}/${model.id}`) !== this.builtOnModel) return null;
+    const thinkingLevel = this.inner.agent.state?.thinkingLevel;
+    return thinkingLevel === this.builtOnThinkingLevel ? target : { ...target, thinkingLevel };
+  }
+
+  /** The model and level the session runs on, or will once its deferred switch is made. */
+  startupModel(): { model?: { provider: string; id: string }; thinkingLevel?: string } {
+    const pending = this.pendingStartupModel();
+    const model = pending ?? this.inner.model;
+    return {
+      ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+      thinkingLevel: pending?.thinkingLevel ?? this.inner.agent.state?.thinkingLevel,
+    };
+  }
+
+  /**
    * A subagent run prompts the SDK session directly (`lib/subagent-runtime.ts`), past `send()`:
-   * connect the session's MCP servers first, as a sent prompt does, once session_start has bound
-   * the host. Stop (`abort`) ends the wait as it ends a sent prompt's, and so does `signal`.
-   * Resolves whether the run may start.
+   * wait for session_start first, as a sent prompt does (a resumed child's deferred model is
+   * switched to at its end, and one of its dialogs may hold it, #1678), then connect the
+   * session's MCP servers. Stop (`abort`) ends the wait as it ends a sent prompt's, and so does
+   * `signal`. Resolves whether the run may start.
    */
   async prepareMcpForRun(signal: AbortSignal): Promise<boolean> {
     const mcpHost = this.mcpHost;
-    if (!mcpHost || this.inner.isStreaming) return !signal.aborted;
+    if (this.inner.isStreaming || (!mcpHost && (this.extensionsBound || !this.extensionBindingPromise))) {
+      return !signal.aborted;
+    }
     const controller = new AbortController();
     const stop = () => controller.abort();
     if (signal.aborted) stop();
     signal.addEventListener("abort", stop, { once: true });
+    const stopped = new Promise<void>((resolve) => {
+      if (controller.signal.aborted) resolve();
+      else controller.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
     // Registered before the binding is awaited, so a Stop meanwhile already ends it.
     const waited = (async () => {
-      await this.waitForExtensionsBound();
-      if (!controller.signal.aborted) await mcpHost.prepareForPrompt(controller.signal);
+      await Promise.race([this.waitForExtensionsBound(), stopped]);
+      if (mcpHost && !controller.signal.aborted) await mcpHost.prepareForPrompt(controller.signal);
     })().catch((error: unknown) => {
       console.error("[pi-web] MCP servers could not be prepared:", error instanceof Error ? error.message : error);
     });
@@ -950,13 +992,18 @@ export class AgentSessionWrapper {
       } else {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
-      await this.afterSessionStart?.();
+      // Not on a closing wrapper: what it would write lands in a session being shut down,
+      // perhaps after a replacement took the file.
+      if (this._alive && !this.closing) await this.afterSessionStart?.();
       this.extensionsBound = true;
       console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
       throw err;
-    }).finally(() => this.checkExtensionShutdown());
+    }).finally(() => {
+      this.deferredStartupModel = null;
+      this.checkExtensionShutdown();
+    });
 
     return this.extensionBindingPromise;
   }
@@ -3087,8 +3134,12 @@ export async function setRpcSessionTools(
     ? existing.sessionFile
     : undefined;
   const sessionCwd = existing.cwd;
-  const model = existing.inner.model;
-  const currentThinkingLevel = existing.inner.agent.state?.thinkingLevel;
+  // The deferred model it was about to switch to, while a session_start dialog held the switch
+  // (#1678): the shutdown below ends that session_start without it. A wrapper from before a hot
+  // reload may lack startupModel().
+  const { model, thinkingLevel: currentThinkingLevel } = typeof existing.startupModel === "function"
+    ? existing.startupModel()
+    : { model: existing.inner.model, thinkingLevel: existing.inner.agent.state?.thinkingLevel };
   await existing.shutdown();
 
   if (persistedFile) {
@@ -3719,13 +3770,16 @@ export async function startRpcSession(
     // shows it, which it can only once the start has answered (#1678).
     const switchToDeferredModel = deferredModel && !chatOnly
       ? async () => {
+        // A model picked while session_start ran stands.
+        const target = wrapper.pendingStartupModel();
+        if (!target) return;
         let restored = false;
         try {
-          await wrapper.send({ type: "set_model", provider: deferredModel.provider, modelId: deferredModel.id });
+          await wrapper.send({ type: "set_model", provider: target.provider, modelId: target.id });
           restored = true;
-          if (deferredThinkingLevel) await wrapper.send({ type: "set_thinking_level", level: deferredThinkingLevel });
+          if (target.thinkingLevel) await wrapper.send({ type: "set_thinking_level", level: target.thinkingLevel });
         } catch (error) {
-          console.error(`[pi-web] could not switch to ${deferredModel.provider}/${deferredModel.id}:`, error instanceof Error ? error.message : error);
+          console.error(`[pi-web] could not switch to ${target.provider}/${target.id}:`, error instanceof Error ? error.message : error);
         }
         if (!restored) reportRestoreFallback();
       }
@@ -3747,7 +3801,12 @@ export async function startRpcSession(
       sideChat: isSideChat,
       // A subagent's or side chat's tab would say again what its parent's page said.
       ...(subagentResources || isSideChat ? {} : { startupIssues: limitStartupNotices(startupIssues) }),
-      ...(switchToDeferredModel ? { afterSessionStart: switchToDeferredModel } : {}),
+      ...(switchToDeferredModel && deferredModel
+        ? {
+          afterSessionStart: switchToDeferredModel,
+          deferredStartupModel: { provider: deferredModel.provider, id: deferredModel.id, thinkingLevel: deferredThinkingLevel },
+        }
+        : {}),
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
