@@ -145,7 +145,7 @@ function startServer({ port, hostname, openBrowser }) {
   });
 
   let serverReady = false;
-  const url = `http://${hostname}:${port}`;
+  const url = getOpenUrl(hostname, port);
   // Next.js repeats the `-H` value in its own "Network:" line, which a wildcard
   // bind makes unusable; name the interfaces and their addresses instead.
   const reachable = formatReachableAddresses(hostname, port);
