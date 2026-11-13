@@ -211,6 +211,8 @@ export const zhTWLocale: LocalePlugin = {
     "agentSwitcher.totalUsageHint": "主 Agent 與全部子 Agent",
     "agentSwitcher.search": "搜尋 Agents",
     "agentSwitcher.noMatches": "找不到相符的 Agent",
+    "agentSwitcher.strip": "此工作階段的 Agents",
+    "agentSwitcher.backToMain": "回到主 Agent",
     "agentSwitcher.status.starting": "正在啟動",
     "agentSwitcher.status.queued": "排隊中",
     "agentSwitcher.status.running": "執行中",

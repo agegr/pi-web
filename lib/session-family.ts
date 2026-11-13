@@ -118,6 +118,20 @@ export function getSessionFamily(
   )) ?? null;
 }
 
+/**
+ * The Agents strip under the chat toolbar (#1658): while the main chat shows a member of a
+ * family other than its root, every member in creation order, so the chips never move as runs
+ * start and end. Null while the main chat shows the root or no family member.
+ */
+export function getAgentStripMembers(
+  family: SessionFamily | null,
+  selectedSessionId: string | null | undefined,
+): SessionInfo[] | null {
+  if (!family || !selectedSessionId || family.root.id === selectedSessionId) return null;
+  if (!family.subagents.some((session) => session.id === selectedSessionId)) return null;
+  return [...family.subagents].sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+}
+
 /** Subagents of a family that the sidebar's running poll lists. */
 export function countRunningSubagents(
   subagents: readonly SessionInfo[],
