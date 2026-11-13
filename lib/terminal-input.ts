@@ -30,6 +30,8 @@ const ALT_ARROW_SEQUENCES: Record<string, string> = {
 
 function legacyCtrlSequence(key: string): string | null {
   if (key.length !== 1) return null;
+  if (key === " ") return "\x00";
+  if (key === "/" || key === "-") return "\x1f";
   const code = key.toUpperCase().charCodeAt(0);
   if (code >= 64 && code <= 95) return String.fromCharCode(code & 0x1f);
   if (key === "?") return "\x7f";
