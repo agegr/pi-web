@@ -26,8 +26,8 @@ function isDiffPathAllowed(filePath: string, allowedRoots: Set<string>): boolean
 
 export async function GET(request: NextRequest) {
   try {
-    const cwd = request.nextUrl.searchParams.get("cwd")?.trim() ?? "";
-    const filePath = request.nextUrl.searchParams.get("path")?.trim() ?? "";
+    const cwd = request.nextUrl.searchParams.get("cwd") ?? "";
+    const filePath = request.nextUrl.searchParams.get("path") ?? "";
     if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
       return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
     }

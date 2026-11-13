@@ -109,7 +109,7 @@ function listWithWalk(cwd: string): FileListing {
 // Guarded by the same allow-list as /api/files.
 export async function GET(req: NextRequest) {
   try {
-    const cwd = req.nextUrl.searchParams.get("cwd")?.trim() ?? "";
+    const cwd = req.nextUrl.searchParams.get("cwd") ?? "";
     if (!cwd || (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd))) {
       return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
     }

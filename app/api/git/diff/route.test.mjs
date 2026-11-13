@@ -51,6 +51,27 @@ function directoryLink(target, link) {
   fs.symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
 }
 
+test("preserves trailing spaces in Git file and directory paths", { skip: process.platform === "win32" }, async () => {
+  const root = path.join(fixture(), "working tree ");
+  fs.mkdirSync(root);
+  git(root, "init", "--quiet");
+  const filePath = path.join(root, "notes.txt ");
+  fs.writeFileSync(filePath, "space-suffixed file\n");
+  const response = await request(root, filePath);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.supported, true);
+  assert.ok(result.patch.includes("+space-suffixed file"));
+
+  const { GET: getStatus } = await jiti.import("../status/route.ts");
+  const url = new URL("http://localhost/api/git/status");
+  url.searchParams.set("cwd", root);
+  const statusResponse = await getStatus(new NextRequest(url));
+  assert.equal(statusResponse.status, 200);
+  const status = await statusResponse.json();
+  assert.ok(status.files.some((file) => file.filePath === filePath));
+});
+
 test("refuses a file reached through an outside junction before returning any content", async () => {
   const root = fixture();
   const outside = fs.mkdtempSync(path.join(base, "outside-"));
