@@ -88,6 +88,23 @@ export async function checkDirectoryPicker({ browser, base, fixture }) {
     );
 
     let picker = await openPicker();
+    for (const composing of [{ isComposing: true }, { keyCode: 229 }]) {
+      assert.equal(await picker.input.evaluate((input, fields) => {
+        const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...fields });
+        input.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, composing), true, "IME confirmation must not submit the browse form");
+    }
+    await picker.create.click();
+    const newName = page.locator("#new-directory-name");
+    for (const composing of [{ isComposing: true }, { keyCode: 229 }]) {
+      assert.equal(await newName.evaluate((input, fields) => {
+        const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...fields });
+        input.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, composing), true, "IME confirmation must not create a directory");
+    }
+    await newName.press("Escape");
     await picker.input.fill(fixture.typedAlpha);
     assert.equal(await picker.select.isDisabled(), false, "a typed folder needs no Go before Select");
     assert.equal(await picker.create.isDisabled(), true, "New directory still waits for the list to be that folder");
