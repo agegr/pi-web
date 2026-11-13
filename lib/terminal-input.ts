@@ -45,6 +45,13 @@ export function toTerminalKeyData(event: TerminalKeyEventLike): string | null {
     if (control) return control;
   }
 
+  const sequence = SPECIAL_KEY_SEQUENCES[event.key];
+  const modifier = 1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
+  if (modifier > 1 && !(event.altKey && !event.ctrlKey && !event.shiftKey && ALT_ARROW_SEQUENCES[event.key])) {
+    if (/^\x1b\[[ABCDHF]$/.test(sequence ?? "")) return `\x1b[1;${modifier}${sequence.at(-1)}`;
+    if (/^\x1b\[\d+~$/.test(sequence ?? "")) return `${sequence.slice(0, -1)};${modifier}~`;
+  }
+
   if (event.altKey && !event.ctrlKey) {
     if (event.key === "Backspace") return "\x1b\x7f";
     const arrow = ALT_ARROW_SEQUENCES[event.key];
