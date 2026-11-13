@@ -7,7 +7,7 @@ import {
   markdownPreviewRemarkPlugins,
   normalizeDisplayMath,
 } from "@/lib/markdown";
-import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { hasTurnRef, isHiddenCustomMessage, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { loadMinimapPreviewLocked, saveMinimapPreviewLocked } from "@/lib/minimap-preview-lock";
 import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
@@ -22,6 +22,8 @@ interface Props {
   onRevealHistory: () => void;
   /** Turns of the branch the server has not sent yet: numbers continue from it (#791). */
   turnsBefore: number;
+  /** ChatWindow's getTurnAnchors() over `messages`: the minimap groups and reads refs as it renders. */
+  turnAnchors: readonly boolean[];
 }
 
 const MINIMAP_WIDTH = 36;
@@ -253,6 +255,7 @@ export const ChatMinimap = memo(function ChatMinimap({
   messageRefs,
   onRevealHistory,
   turnsBefore,
+  turnAnchors,
 }: Props) {
   const { t } = useI18n();
   const [visible, setVisible] = useState(false);
@@ -283,6 +286,8 @@ export const ChatMinimap = memo(function ChatMinimap({
 
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const turnAnchorsRef = useRef(turnAnchors);
+  turnAnchorsRef.current = turnAnchors;
 
   const nodeLayout = useMemo(
     () => layoutNodes(allNodes, minimapHeight),
@@ -350,11 +355,16 @@ export const ChatMinimap = memo(function ChatMinimap({
       const allMessages: (AgentMessage | Partial<AgentMessage>)[] = streamingMessage
         ? [...messagesRef.current, streamingMessage]
         : messagesRef.current;
-      for (const message of allMessages) {
-        const isAnchor = isMessageGroupAnchor(message);
+      for (const [messageIdx, message] of allMessages.entries()) {
+        // The streaming reply, past `messages`, is never an anchor.
+        const isAnchor = turnAnchorsRef.current[messageIdx] === true;
         if (!isAnchor && message.role !== "assistant") continue;
-        const element = refs?.[refIndex];
-        refIndex++;
+        // ChatWindow's refs, in the same order: a hidden anchor renders nothing and has none.
+        let element: HTMLDivElement | null = null;
+        if (hasTurnRef(message, isAnchor)) {
+          element = refs?.[refIndex] ?? null;
+          refIndex++;
+        }
 
         if (isAnchor) {
           currentTurn = null;
@@ -372,6 +382,10 @@ export const ChatMinimap = memo(function ChatMinimap({
         }
 
         if (!currentTurn) continue;
+        // A turn a hidden message opened starts where its first reply shows.
+        if (currentTurn.scrollTop === null && element && isHiddenCustomMessage(currentTurn.userMessage)) {
+          currentTurn.scrollTop = element.getBoundingClientRect().top - containerRect.top + scrollEl.scrollTop;
+        }
         currentTurn.toolCount += countToolCalls(message);
         const answerMarkdown = getAssistantAnswerMarkdown(message);
         if (answerMarkdown) {
@@ -458,7 +472,7 @@ export const ChatMinimap = memo(function ChatMinimap({
       updateScroll();
     }, 50);
     return () => clearTimeout(timeout);
-  }, [messages.length, measureNodes, updateScroll]);
+  }, [messages.length, turnAnchors, measureNodes, updateScroll]);
 
   const scrollToNode = useCallback((node: NodeInfo, behavior: ScrollBehavior) => {
     const scrollEl = scrollContainer.current;
@@ -815,7 +829,9 @@ export const ChatMinimap = memo(function ChatMinimap({
                     }}
                   >
                     <span className={styles.userText}>
-                      {getUserPreview(node.targetTurn.userMessage)}
+                      {isHiddenCustomMessage(node.targetTurn.userMessage)
+                        ? t("chatMinimap.extensionTurn", { type: (node.targetTurn.userMessage as CustomMessage).customType })
+                        : getUserPreview(node.targetTurn.userMessage)}
                     </span>
                   </button>
 
