@@ -16,6 +16,7 @@ import {
   type EnabledModelsView,
   type PatternResolution,
 } from "./enabled-models";
+import { getProjectTrustStatus } from "./project-trust";
 
 /**
  * SDK adapter for the pure `enabledModels` editor in `lib/enabled-models.ts`.
@@ -208,6 +209,18 @@ export function displaySettingsPath(path: string): string {
   if (!home || !path.startsWith(home)) return path;
   const rest = path.slice(home.length);
   return rest === "" || rest.startsWith(sep) ? `~${rest}` : path;
+}
+
+/**
+ * The settings Settings › Models reads `enabledModels` from. pi creates a
+ * `SettingsManager` trusting the project unless told otherwise, so an untrusted
+ * folder's `.pi/settings.json` would otherwise shadow the global list here while
+ * its sessions ignore it. Trusted only by the folder's decision, as sessions are.
+ */
+export function createEnabledModelsSettingsManager(cwd: string, agentDir: string): SettingsManager {
+  return SettingsManager.create(cwd, agentDir, {
+    projectTrusted: getProjectTrustStatus(cwd, agentDir).trusted,
+  });
 }
 
 /**

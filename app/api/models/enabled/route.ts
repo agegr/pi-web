@@ -1,6 +1,6 @@
 import { stat } from "fs/promises";
 import { resolve } from "path";
-import { getAgentDir, SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ModelRuntime, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   clearEnabledModels,
@@ -15,6 +15,7 @@ import {
 import {
   buildEnabledModelsInput,
   buildEnabledModelsView,
+  createEnabledModelsSettingsManager,
   customProviderIds,
   modelRef,
   readEnabledModelsSettings,
@@ -43,7 +44,7 @@ async function loadContext(cwd: string): Promise<RequestContext> {
   return {
     modelRuntime,
     models: await modelRuntime.getAvailable(),
-    settingsManager: SettingsManager.create(cwd, agentDir),
+    settingsManager: createEnabledModelsSettingsManager(cwd, agentDir),
     paths: { cwd, agentDir },
   };
 }
