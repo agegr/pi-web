@@ -519,6 +519,7 @@ export const enLocale: LocalePlugin = {
     "directoryPicker.selectDirectory": "Select directory",
     "directoryPicker.goToParent": "Go to parent directory",
     "directoryPicker.directoryPath": "Directory path",
+    "directoryPicker.pathPlaceholder": "/path/to/project or ~/project",
     "directoryPicker.goToDirectory": "Go to directory",
     "directoryPicker.go": "Go",
     "directoryPicker.loadingDirectories": "Loading directories…",
