@@ -87,7 +87,11 @@ function nestedText(value: unknown): string | null {
 export function toolInputPreview(input: unknown, resultPatchPath: string | null = null, toolName?: string): string {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "";
   const record = input as Record<string, unknown>;
-  const clip = (text: string) => text.slice(0, PREVIEW_MAX);
+  const clip = (text: string) => {
+    if (text.length <= PREVIEW_MAX) return text;
+    const last = text.charCodeAt(PREVIEW_MAX - 1);
+    return text.slice(0, last >= 0xd800 && last <= 0xdbff ? PREVIEW_MAX - 1 : PREVIEW_MAX);
+  };
   // pi's own grep and find cards lead with the pattern ("grep /TODO/ in src").
   if (toolName === "grep" || toolName === "find") {
     const pattern = firstRankText(record.pattern);
