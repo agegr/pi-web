@@ -138,9 +138,9 @@ export interface SubagentRunInfo {
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+// A profile may name `powershell` explicitly; the defaults stay portable, and
+// resolveShellTools() picks the platform's shell for either name at spawn.
 const BUILTIN_TOOLS = new Set([...DEFAULT_TOOLS, "powershell"]);
-// 显式 PowerShell 选择与快照使用相同的内置工具范围；默认列表仍由平台解析。
-const SNAPSHOT_BUILTIN_TOOLS = new Set([...BUILTIN_TOOLS, "powershell"]);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -690,7 +690,7 @@ export function readSubagentSessionResources(
       typeof item === "string"
       && item.length > 0
       && !SUBAGENT_CONTROL_TOOLS.has(item)
-      && ((item === "codemode" && codemode) || SNAPSHOT_BUILTIN_TOOLS.has(item) || loadExtensions)
+      && ((item === "codemode" && codemode) || BUILTIN_TOOLS.has(item) || loadExtensions)
     )
   ) {
     return {
