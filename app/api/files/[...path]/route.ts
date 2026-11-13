@@ -351,7 +351,7 @@ function streamFile(filePath: string, stat: fs.Stats, contentType: string, range
   }
 
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
-  if (!match) {
+  if (!match || (!match[1] && !match[2])) {
     return new Response(null, {
       status: 416,
       headers: {
