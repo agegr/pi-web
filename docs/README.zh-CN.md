@@ -61,8 +61,12 @@ pi-web update [--check] # 更新全局 npm 安装
 | `--hostname <主机>`、`-H <主机>` 或 `PI_WEB_HOSTNAME` | 监听主机名 | `127.0.0.1` |
 | `--no-open` 或 `PI_WEB_NO_OPEN=1` | 不自动打开浏览器 | 自动打开 |
 | `PI_WEB_APP_NAME` | PWA manifest 的 `name` 和 `short_name`；去除首尾空白，空值使用默认值 | `Pi Web` |
+| `PI_WEB_SKIP_VERSION_CHECK=1` | 关闭 Pi Web 的更新检查 | 未设置 |
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
 | `PI_WEB_PASSWORD` | 启用浏览器密码登录；API 客户端可使用用户名为 `pi` 的 Basic Auth | 不启用认证 |
+| `PI_WEB_IDLE_TIMEOUT_MS` | 会话空闲超时，单位毫秒，最大 `2147483647`；`0` 表示不因空闲关闭会话；无效或超出范围的值使用默认值 | `600000`（10 分钟） |
+| `PI_WEB_SHUTDOWN_DEADLINE_MS` | 关闭会话时留给扩展处理 `session_shutdown` 的时间，到时仍会释放会话；单位毫秒，最大 `2147483647`；`0`、无效或超出范围的值使用默认值 | `5000`（5 秒） |
+| `PI_CODEMODE_MAX_WORKERS` | pi 同时运行 codemode 脚本的上限，由服务器里所有会话和 subagent 共用；pi 自身默认是 `2`，变量未设置或为空时 pi-web 设为 `8`。每个脚本最多可用 256 MB | `8` |
 
 在启动服务前设置 `PI_WEB_APP_NAME`，例如 `PI_WEB_APP_NAME='工作 Pi' pi-web`。修改后重启服务即可提供新的 manifest，无需重新构建。已安装 PWA 的名称更新由浏览器管理，不保证立即生效；此设置不改变页面标题或图标。
 
@@ -84,6 +88,10 @@ PI_WEB_PASSWORD='足够长的随机密码' pi-web --hostname 0.0.0.0
 密码认证不会加密连接。不要通过明文 HTTP 将 Pi Web 暴露到互联网；远程访问应使用可信反向代理提供 HTTPS，或通过可信 VPN。如果反向代理传递外部主机名，请把该名称精确加入 `PI_WEB_ALLOWED_HOSTS`。这个白名单不会改变 Pi Web 的监听地址。
 
 同时开着很多活跃的会话、终端或文件预览时，明文 HTTP 下浏览器最多只有六个连接，请求会开始排队；见 [Serving Pi Web over HTTP/2](./http2.md)。
+
+### Docker
+
+每个版本都会向 `ghcr.io/agegr/pi-web` 发布镜像。镜像用法、Compose 示例以及需要保留哪些卷，见 [Running Pi Web in Docker](./docker.md)。
 
 ### HTTP 代理
 
@@ -111,9 +119,10 @@ npx @agegr/pi-web@latest
 
 - **智能体数据**：Pi Web 默认读取 `~/.pi/agent` 下的 pi 数据，包括 `sessions/<编码后的工作目录>/<时间戳>_<uuid>.jsonl` 中的会话文件。可通过 `PI_CODING_AGENT_DIR` 指定其他 pi agent 目录。
 - **文件系统访问**：Pi Web 必须能读取智能体数据目录及会话记录中的工作目录。与现有 pi 会话共用数据时，请让 Pi Web 运行在与 pi 相同的文件系统环境中。
-- **共享配置**：模型面板使用 pi 的模型、设置和凭据存储，因此两种界面都能看到相关更改。
+- **共享配置**：模型面板使用 pi 的模型、设置和凭据存储，因此两种界面都能看到相关更改。已打开的会话要再次选择该模型，才会应用保存后的模型修改。
 - **文件访问边界**：文件浏览器仅能访问在 Pi Web 中选择过的工作目录，以及它已识别的项目或会话根目录；它不是通用的文件系统浏览器。
 - **Git worktree**：切换器何时显示、如何创建 worktree，以及删除会产生什么影响，见 [Pi Web 里的 Worktree](./worktrees.zh-CN.md)。
+- **集成接口**：嵌入 Pi Web 的应用可以替换会话行的右键菜单，服务端的 pi 扩展可以让会话不因空闲被关闭；见 [Integration Hooks](./integrations.md)。
 
 ## 开发
 
