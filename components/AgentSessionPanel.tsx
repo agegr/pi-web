@@ -483,10 +483,11 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
       aria-label={t("agentSwitcher.title")}
       style={{
         background: "var(--bg-panel)",
-        borderLeft: "1px solid var(--border)",
+        // No left border: the panel starts at the chat column's left edge, where the sidebar's
+        // own right border already runs, as the full-width top panels have only a bottom line.
         borderRight: "1px solid var(--border)",
         borderBottom: "1px solid var(--border)",
-        borderRadius: "0 0 6px 6px",
+        borderRadius: "0 0 6px 0",
         boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
         overflow: "hidden",
       }}
