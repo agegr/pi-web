@@ -52,7 +52,10 @@ async function updateStoredCredentials<T>(
 
   try {
     throwIfCompromised();
-    const parsed: unknown = JSON.parse(readFileSync(authPath, "utf-8"));
+    // Read as pi's AuthStorage does: an empty file holds no credentials, and a
+    // byte-order mark (Notepad, Windows PowerShell 5.1's UTF-8) is not JSON.
+    const content = readFileSync(authPath, "utf-8").replace(/^﻿/, "");
+    const parsed: unknown = content ? JSON.parse(content) : {};
     if (!isRecord(parsed)) throw new Error("Invalid auth.json: expected an object");
 
     const { result, changed } = update(parsed);
