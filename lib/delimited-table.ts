@@ -58,20 +58,23 @@ export function parseDelimitedRecords(
   let line = 1;
   let record: string[] = [];
   let recordLine = 1;
+  let recordWasQuoted = false;
 
   const endRecord = () => {
     // A blank line parses as one empty field.
-    if (!(record.length === 1 && record[0] === "")) {
+    if (!(record.length === 1 && record[0] === "" && !recordWasQuoted)) {
       records.push(record);
       lines.push(recordLine);
     }
     record = [];
+    recordWasQuoted = false;
   };
 
   while (index < length && records.length < maxRecords) {
     let value = "";
     let quotedOpen = false;
     if (text.charCodeAt(index) === 34 /* " */) {
+      recordWasQuoted = true;
       index += 1;
       quotedOpen = true;
       let segment = index;
