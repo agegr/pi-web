@@ -80,8 +80,10 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
             key={session.id}
             type="button"
             onClick={() => {
-              // Side chats never open as the main chat (ADR 0007).
-              if (side) { onSelectSideChat(session); return; }
+              // A side chat is never picked as the main chat (ADR 0007). One an
+              // Agents row already put there is a hit like any other: a tab of
+              // the session on screen would only be closed again.
+              if (side && session.id !== selectedSessionId) { onSelectSideChat(session); return; }
               onSelectSession(session, entryId, blockIndex);
             }}
             aria-current={session.id === selectedSessionId ? "true" : undefined}

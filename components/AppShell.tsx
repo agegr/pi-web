@@ -1371,60 +1371,46 @@ export function AppShell() {
     handleOpenSubagentTab(sessionId, label, side);
   };
 
-  // A side chat is never the main chat (ADR 0007): a search hit opens its parent
-  // and then the side chat's right-panel tab, the way the Agents switcher does.
-  // When the panel belongs to another chat, the tab is queued in the parent's
-  // saved state, which the restore effect above applies as the parent arrives.
-  const handleSelectSideChat = useCallback((session: SessionInfo) => {
-    // A search can read a catalogue newer than this page's list: the hit is
-    // listed before the parent is selected, since a tab restore keeps only the
-    // sessions this page can see.
-    const listed = sessionCatalog.some((item) => item.id === session.id);
-    const target = sideChatHit(session, sessionCatalog, translate("agentSwitcher.sideChat"));
-    if (!target) return;
-    const parent = sessionCatalog.find((item) => item.id === target.parentSessionId);
-    if (!parent) {
-      // The search read a catalogue newer than this page's list: list again, so
-      // a second pick finds the parent rather than opening the side chat here.
-      setRefreshKey((key) => key + 1);
-      return;
-    }
-    if (!listed) {
-      // A tab restore keeps only the sessions this page can see: list the side
-      // chat before the parent is selected, or its queued tab is dropped.
-      setSessionCatalog((prev) => (prev.some((item) => item.id === session.id) ? prev : [session, ...prev]));
-      setRefreshKey((key) => key + 1);
-    }
-    if (sideTabOwnerRef.current === parent.id) {
-      handleOpenSubagentTab(session.id, target.label, true);
-      return;
+  // A side chat's tab belongs to its parent's panel: opened here while the main
+  // chat shows that family, else saved with the parent, where the restore effect
+  // above finds it as the parent arrives. False when it waits there.
+  const openSideChatTab = useCallback((session: SessionInfo, label: string) => {
+    const parentId = session.relation?.kind === "side" ? session.relation.parentSessionId : null;
+    if (!parentId || parentId === sideTabOwnerRef.current) {
+      handleOpenSubagentTab(session.id, label, true);
+      return true;
     }
     try {
-      const key = sideTabsKey(parent.id);
-      window.sessionStorage.setItem(key, appendSideTab(window.sessionStorage.getItem(key), session.id, target.label));
+      const key = sideTabsKey(parentId);
+      window.sessionStorage.setItem(key, appendSideTab(window.sessionStorage.getItem(key), session.id, label));
     } catch { /* storage is optional */ }
-    handleSelectSession(parent);
-  }, [handleOpenSubagentTab, handleSelectSession, sessionCatalog, translate]);
+    return false;
+  }, [handleOpenSubagentTab]);
+
+  // A search hit in a side chat never picks it as the main chat (ADR 0007): its
+  // parent opens with the side chat's tab, as the Agents switcher's tab button
+  // shows it.
+  const handleSelectSideChat = useCallback((session: SessionInfo) => {
+    const target = sideChatHit(session, sessionCatalog, translate("agentSwitcher.sideChat"));
+    const parent = target ? sessionCatalog.find((item) => item.id === target.parentSessionId) : undefined;
+    // The search can read a list newer than this page's, which the running poll
+    // brings up to date: until then a parent it lacks cannot be opened.
+    if (!target || !parent) return;
+    // The side chat is listed at once: a tab restore keeps only listed sessions.
+    setSessionCatalog((prev) => (prev.some((item) => item.id === session.id) ? prev : [session, ...prev]));
+    if (!openSideChatTab(session, target.label)) handleSelectSession(parent);
+  }, [handleSelectSession, openSideChatTab, sessionCatalog, translate]);
 
   // `/side` landed (hooks/useAgentSession): open the forked chat's tab, seed
   // its composer when the command carried a prompt, and refresh the list so
-  // the family's badge folds the new member in.
+  // the family's badge folds the new member in. A fork that landed after the
+  // main chat moved on leaves its tab with its own session.
   const handleSideSession = useCallback((session: SessionInfo, prompt: string | null) => {
     if (prompt) setSideChatPrompts((prev) => ({ ...prev, [session.id]: prompt }));
     setSessionCatalog((prev) => [session, ...prev.filter((item) => item.id !== session.id)]);
-    const label = translate("agentSwitcher.sideChat");
-    const parentId = session.relation?.kind === "side" ? session.relation.parentSessionId : null;
-    if (parentId && parentId !== sideTabOwnerRef.current) {
-      // The fork landed after the main chat moved on: the tab waits with its own session.
-      try {
-        const key = sideTabsKey(parentId);
-        window.sessionStorage.setItem(key, appendSideTab(window.sessionStorage.getItem(key), session.id, label));
-      } catch { /* storage is optional */ }
-    } else {
-      handleOpenSubagentTab(session.id, label, true);
-    }
+    openSideChatTab(session, translate("agentSwitcher.sideChat"));
     setRefreshKey((key) => key + 1);
-  }, [handleOpenSubagentTab, translate]);
+  }, [openSideChatTab, translate]);
 
   // The switcher's New side chat, on the main agent's row, whichever family member the main chat shows.
   const handleNewSideChat = useCallback(async (rootSessionId: string) => {
