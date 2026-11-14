@@ -19,14 +19,22 @@ function answersTurn(message: AgentMessage): boolean {
 
 /**
  * How long a finished turn took: from its anchor (the user's message, a compaction summary,
- * a subagent completion) until the last response or tool result in `messages[anchorIdx + 1, endIdx)`
- * ended, less the waits between an answer and a run an extension started after it (its message,
- * e.g. pi's `triggerTurn`, is no anchor). Undefined when the anchor has no time, or when the turn's
- * last response predates `durationMs`: its timestamp is when it started, so the turn's end is unknown.
+ * a subagent completion, an extension's message that opened a run) until the last response or
+ * tool result in `messages[anchorIdx + 1, endIdx)` ended, less the waits between an answer and a
+ * run an extension started after it inside the turn (its message is no anchor, e.g. the one that
+ * continues a reply cut at the output limit). The custom messages right after the anchor opened
+ * the run with it, so the last of them is the start: a shown message anchors the turn
+ * (`getTurnAnchors()`), and the hidden one that triggered the run may have come much later.
+ * Undefined when the anchor has no time, or when the turn's last response predates `durationMs`:
+ * its timestamp is when it started, so the turn's end is unknown.
  */
 export function getTurnDurationMs(messages: AgentMessage[], anchorIdx: number, endIdx: number): number | undefined {
-  const start = recordedMs(messages[anchorIdx]?.timestamp);
+  let start = recordedMs(messages[anchorIdx]?.timestamp);
   if (start === undefined) return undefined;
+  for (let idx = anchorIdx + 1; idx < endIdx && messages[idx].role === "custom"; idx++) {
+    const at = recordedMs(messages[idx].timestamp);
+    if (at !== undefined) start = Math.max(start, at);
+  }
   let end: number | undefined;
   let lastResponseTimed = false;
   let idle = 0;
