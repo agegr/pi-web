@@ -439,6 +439,12 @@ class ConnectAttempt {
    * transports do afterwards is the extension closing them, not news.
    */
   released = false;
+  /**
+   * A test of this very entry connected while this registration read `failed`
+   * (`HostInstance.testConnected()`): the next sync registers it again, though
+   * its entry is unchanged.
+   */
+  retry = false;
   state: AttemptState = "connecting";
   error: string | undefined;
   stderr: string | undefined;
@@ -557,19 +563,17 @@ class HostInstance {
   private runActive = false;
   /** Prompts waiting in prepareForPrompt(); nor does it run while one waits. */
   private preparing = 0;
-  private readonly stopListeningTestConnected: () => void;
+  /** Ends this host's `onMcpTestConnected()` subscription, held from its first session_start to dispose. */
+  private stopListeningTestConnected: (() => void) | undefined;
 
   constructor(private readonly pi: ExtensionAPI, private readonly options: Required<McpHostOptions>) {
-    this.stopListeningTestConnected = onMcpTestConnected((entry) => {
-      if (this.disposed || !this.active) return;
-      const attempt = this.attempts.get(entry.name);
-      if (attempt && !attempt.released && (attempt.state === "failed" || attempt.state === "disconnected")) {
-        void this.sync({ retryFailed: true });
-      }
-    });
     pi.on("session_start", (_event, ctx) => {
       if (this.disposed) return;
       this.ctx = ctx;
+      // From here, never from the constructor: the listeners live on globalThis, and an instance
+      // whose session was never built (its start threw after the extensions loaded) has no wrapper
+      // to dispose it.
+      this.stopListeningTestConnected ??= onMcpTestConnected((entry, configKey) => this.testConnected(entry, configKey));
       // The built-in MCP extension may be switched off (-builtin:mcp) or replaced by one that
       // registers /mcp (several are named mcp:1, mcp:2, …); such an extension would connect
       // these servers its own way, so the host hands it nothing.
@@ -675,7 +679,7 @@ class HostInstance {
     });
   }
 
-  sync({ retryFailed = false }: { retryFailed?: boolean } = {}): Promise<void> {
+  sync(): Promise<void> {
     const synced = this.enqueue(async () => {
       if (!this.active || !this.ctx) return;
       const desired = this.desiredServers(this.ctx);
@@ -686,9 +690,14 @@ class HostInstance {
       }
       for (const [name, attempt] of [...this.attempts]) {
         const wanted = desired.get(name);
-        const shouldRetry = retryFailed && (attempt.state === "failed" || attempt.state === "disconnected");
-        if (wanted && canonicalJson(wanted.config) === attempt.configKey && !shouldRetry) continue;
-        await this.unregister(name);
+        const unchanged = wanted !== undefined && canonicalJson(wanted.config) === attempt.configKey;
+        // A test of the unchanged entry connected since it failed here. Not when the extension's
+        // own reconnect got there first: registering again would only hide its tools for a while.
+        const retry = unchanged && attempt.retry && attempt.state === "failed";
+        if (unchanged && !retry) continue;
+        // A registration that failed after it had been ready (a drop, then a reconnect that failed)
+        // still has its tools registered, and the model may have loaded some.
+        await this.unregister(name, { keepLoadedTools: retry });
       }
       for (const [name, wanted] of desired) {
         if (!this.attempts.has(name)) this.register(name, wanted);
@@ -720,7 +729,7 @@ class HostInstance {
 
   private async waitForServers(signal: AbortSignal, wait: boolean): Promise<void> {
     const stopped = aborted(signal);
-    await Promise.race([this.sync({ retryFailed: true }), stopped]);
+    await Promise.race([this.sync(), stopped]);
     if (signal.aborted || !wait) return;
     const connecting = [...this.attempts.values()].filter((attempt) =>
       (attempt.declaresTools || attempt.restoreTools !== undefined) && !attempt.settled && !attempt.waited);
@@ -734,6 +743,26 @@ class HostInstance {
     deadline.cancel();
     // A server that outlasted one full wait is not waited for again; its tools arrive when it connects.
     if (timedOut) for (const attempt of connecting) attempt.waited = true;
+  }
+
+  /**
+   * A test connected `entry` as it read `configKey` (`onMcpTestConnected()`).
+   * When this session holds that very entry as failed, the same file and the
+   * same content, the server works again and the registration is the only
+   * thing in the way: nothing else retries a failed server whose entry is
+   * unchanged (ADR 0006). The next sync registers it again: now while the
+   * session is idle, else the next prompt's, since a sync applies every pending
+   * `mcp.json` change and would replace other servers in the middle of a run.
+   * `disconnected` is left alone: the extension reconnects it at its next call,
+   * with its tools still registered.
+   */
+  private testConnected(entry: McpStatusEntry, configKey: string): void {
+    if (this.disposed || !this.active) return;
+    const attempt = this.attempts.get(entry.name);
+    if (!attempt || attempt.released || attempt.state !== "failed") return;
+    if (mcpStatusKey(entry) !== mcpStatusKey(attempt.target) || configKey !== attempt.target.configKey) return;
+    attempt.retry = true;
+    if (!this.runActive && this.preparing === 0) void this.sync();
   }
 
   serverStates(): McpHostServerStatus[] {
@@ -793,7 +822,8 @@ class HostInstance {
   dispose(): void {
     this.disposed = true;
     this.active = false;
-    this.stopListeningTestConnected();
+    this.stopListeningTestConnected?.();
+    this.stopListeningTestConnected = undefined;
     this.clearIdle();
     this.forgetLoadedTools();
     this.letGoOfAll();

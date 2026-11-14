@@ -57,12 +57,10 @@ export function mcpStatusKey(entry: McpStatusEntry): string {
   return `${entry.scope}\0${entry.sourcePath}\0${entry.name}`;
 }
 
-/**
- * Records the last known state of `entry` as it read `configKey`; a later
- * record for the same entry and content replaces it. A record for other
- * content (a writer behind the file, or ahead of the listing) is held beside
- * it, and whichever the file holds is shown.
- */
+// Who hears that a test connected: the MCP hosts of open sessions, which connect
+// the tested entry again when they hold it as failed (`lib/mcp-host.ts`). On
+// globalThis like the records: the route that tests and the sessions may be
+// bundled apart.
 const TEST_CONNECTED_LISTENERS_KEY: symbol = Symbol.for("pi-web:mcp-test-connected-listeners");
 type McpTestConnectedListener = (entry: McpStatusEntry, configKey: string) => void;
 
@@ -71,6 +69,11 @@ function testConnectedListeners(): Set<McpTestConnectedListener> {
   return (store[TEST_CONNECTED_LISTENERS_KEY] ??= new Set());
 }
 
+/**
+ * Calls `listener` whenever a test's `connected` is recorded (a Settings › MCP
+ * Test, a sign-in's connection), with the entry and content it was recorded
+ * for. Returns the unsubscribe; a listener is held until it is called.
+ */
 export function onMcpTestConnected(listener: McpTestConnectedListener): () => void {
   const listeners = testConnectedListeners();
   listeners.add(listener);
@@ -79,6 +82,17 @@ export function onMcpTestConnected(listener: McpTestConnectedListener): () => vo
   };
 }
 
+/** Listeners held now, for tests. */
+export function mcpTestConnectedListenerCount(): number {
+  return testConnectedListeners().size;
+}
+
+/**
+ * Records the last known state of `entry` as it read `configKey`; a later
+ * record for the same entry and content replaces it. A record for other
+ * content (a writer behind the file, or ahead of the listing) is held beside
+ * it, and whichever the file holds is shown.
+ */
 export function recordMcpStatus(entry: McpStatusEntry, configKey: string, status: McpServerStatus): void {
   const map = records();
   const key = mcpStatusKey(entry);
@@ -96,6 +110,7 @@ export function recordMcpStatus(entry: McpStatusEntry, configKey: string, status
   }
   if (status.origin === "test" && status.state === "connected") {
     for (const listener of testConnectedListeners()) {
+      // One session's host failing never keeps the record from the others.
       try {
         listener(entry, configKey);
       } catch {}
