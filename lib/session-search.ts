@@ -1,4 +1,4 @@
-﻿import { createReadStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SessionInfo } from "./types";
 
@@ -99,7 +99,8 @@ export async function searchSessionContents(
           break;
         }
         // Before the boundary only the boundary line itself matters: inherited
-        // lines are neither searched nor allowed to claim a truncation.
+        // lines are dropped before parsing, so a prefix that never mentions the
+        // boundary type costs reads only.
         if (!pastBoundary && !line.includes(SIDE_BOUNDARY_MESSAGE_TYPE)) continue;
         if (line.length > MAX_LINE_CHARS) {
           response.truncated = true;

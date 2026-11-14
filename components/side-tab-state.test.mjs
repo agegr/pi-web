@@ -45,3 +45,13 @@ test("a side tab saved for a main session that is not shown comes back active wi
   });
   assert.equal(JSON.parse(appendSideTab("{", "side-a", "Side chat")).tabs.length, 1);
 });
+
+test("picking a side chat again replaces its entry instead of adding a second one", () => {
+  // A restore keeps the first entry it reads, so a stale duplicate would win:
+  // the saved tab has to carry the label the latest pick showed.
+  const raw = appendSideTab(appendSideTab(null, "side-a", "Side chat"), "side-a", "Cache sizing");
+  assert.deepEqual(JSON.parse(raw), {
+    tabs: [{ sessionId: "side-a", label: "Cache sizing", side: true }],
+    activeId: "agent:side-a", open: true,
+  });
+});

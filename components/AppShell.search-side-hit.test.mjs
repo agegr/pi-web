@@ -10,23 +10,29 @@ import { createJiti } from "jiti";
 // branches it takes, not its markup.
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const start = source.indexOf("  const handleSelectSideChat = useCallback(");
-const end = source.indexOf("  // `/side` landed (hooks/useAgentSession)", start);
-assert.ok(start !== -1 && end > start);
+assert.ok(start !== -1);
+// End at the handler's own dependency array: a neighbouring comment is not ours
+// to depend on, and the next handler starts after that array.
+const rest = source.slice(start);
+const depsAt = rest.search(/\n  \}, \[/);
+assert.ok(depsAt > 0);
+const end = start + rest.indexOf("]);", depsAt) + 3;
+assert.ok(end > start);
 const handler = stripTypeScriptTypes(source.slice(start, end));
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { sideChatHit } = await jiti.import("../lib/session-search-hit.ts");
-const { appendSideTab, sideTabsKey } = await jiti.import("./side-tab-state.ts");
+const { appendSideTab, restoreSideTabs, sideTabsKey } = await jiti.import("./side-tab-state.ts");
 
 const sessions = [
   { id: "main-a", name: "Deploy notes" },
   { id: "main-b", name: "Other work" },
-  { id: "side-a", name: "Cache sizing", relation: { kind: "side", parentSessionId: "main-a" } },
+  { id: "side-a", name: "Cache sizing", created: "2026-01-03", relation: { kind: "side", parentSessionId: "main-a" } },
 ];
 
 function run({ openParent, catalog = sessions, hit = sessions[2] } = {}) {
   const store = new Map();
-  const calls = { opened: [], selected: [], refreshed: 0 };
+  const calls = { opened: [], selected: [], refreshed: 0, catalog };
   const context = vm.createContext({
     useCallback: (callback) => callback,
     sessionCatalog: catalog,
@@ -38,6 +44,7 @@ function run({ openParent, catalog = sessions, hit = sessions[2] } = {}) {
     handleOpenSubagentTab: (sessionId, label, side) => calls.opened.push({ sessionId, label, side }),
     handleSelectSession: (session) => calls.selected.push(session.id),
     setRefreshKey: (update) => { calls.refreshed += update(0); },
+    setSessionCatalog: (update) => { calls.catalog = typeof update === "function" ? update(calls.catalog) : update; },
     window: { sessionStorage: { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) } },
   });
   vm.runInContext(`${handler}\nhandleSelectSideChat`, context)(hit);
@@ -73,4 +80,21 @@ test("a hit for an ordinary session is not handled here", () => {
   assert.deepEqual(calls.selected, []);
   assert.deepEqual(calls.opened, []);
   assert.equal(calls.refreshed, 0);
+});
+
+test("a side chat this page's list has not seen yet is added before its tab is queued", () => {
+  // The search can read a catalogue newer than the page: without the side chat
+  // in the list, the tab restore would drop the tab this pick queues.
+  const fresh = { id: "side-new", name: "Side chat", firstMessage: "q", created: "2026-01-04", relation: { kind: "side", parentSessionId: "main-a" } };
+  const { calls, store } = run({ openParent: "main-b", catalog: [sessions[0], sessions[1]], hit: fresh });
+  assert.deepEqual(calls.selected, ["main-a"]);
+  assert.equal(calls.refreshed, 1);
+  // The handler builds its array in the vm's realm: read it back through this one.
+  assert.deepEqual([...calls.catalog].map((session) => session.id), ["side-new", "main-a", "main-b"]);
+  // Counted among its parent's side chats, as the row it was picked from counts it.
+  assert.deepEqual(JSON.parse(store.get(sideTabsKey("main-a"))).tabs, [{ sessionId: "side-new", label: "Side chat 1", side: true }]);
+  // The queued tab survives the restore that follows the parent's arrival.
+  assert.deepEqual(restoreSideTabs(store.get(sideTabsKey("main-a")), "main-a", [...calls.catalog]).tabs, [
+    { sessionId: "side-new", label: "Side chat 1", side: true },
+  ]);
 });

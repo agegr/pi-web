@@ -24,7 +24,11 @@ export function sideChatHit(
   const parentSessionId = session.relation.parentSessionId;
   const parent = sessions.find((item) => item.id === parentSessionId);
   const parentTitle = parent?.name || parent?.firstMessage || undefined;
-  // Numbered among its own parent's side chats, as the Agents switcher does.
+  // Numbered among its own parent's side chats, as the Agents switcher does. The
+  // hit itself counts even when the caller's list has not listed it yet (a
+  // search can read a catalogue newer than the page), so the row and its tab
+  // carry the same number.
   const siblings = sessions.filter((item) => item.relation?.kind === "side" && item.relation.parentSessionId === parentSessionId);
-  return { parentSessionId, ...(parentTitle ? { parentTitle } : {}), label: sideChatTitle(session, untitled, siblings) };
+  const members = siblings.some((item) => item.id === session.id) ? siblings : [...siblings, session];
+  return { parentSessionId, ...(parentTitle ? { parentTitle } : {}), label: sideChatTitle(session, untitled, members) };
 }

@@ -16,10 +16,12 @@ export const sideTabsKey = (rootSessionId: string) => `pi-web:side-tabs:${rootSe
 
 /** A saved state with one more side tab, active and shown: what returning to its main session restores. */
 export function appendSideTab(raw: string | null, sessionId: string, label: string): string {
-  let tabs: unknown[] = [];
+  let tabs: { sessionId?: unknown }[] = [];
   try {
     const saved = JSON.parse(raw ?? "null");
-    if (Array.isArray(saved?.tabs)) tabs = saved.tabs;
+    // One entry per side chat: a renamed one replaces its saved label, and a
+    // second pick adds no duplicate.
+    if (Array.isArray(saved?.tabs)) tabs = saved.tabs.filter((item: { sessionId?: unknown }) => item?.sessionId !== sessionId);
   } catch { /* a broken entry is replaced */ }
   return JSON.stringify({ tabs: [...tabs, { sessionId, label, side: true }], activeId: `agent:${sessionId}`, open: true });
 }

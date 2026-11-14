@@ -1363,6 +1363,10 @@ export function AppShell() {
   // When the panel belongs to another chat, the tab is queued in the parent's
   // saved state, which the restore effect above applies as the parent arrives.
   const handleSelectSideChat = useCallback((session: SessionInfo) => {
+    // A search can read a catalogue newer than this page's list: the hit is
+    // listed before the parent is selected, since a tab restore keeps only the
+    // sessions this page can see.
+    const listed = sessionCatalog.some((item) => item.id === session.id);
     const target = sideChatHit(session, sessionCatalog, translate("agentSwitcher.sideChat"));
     if (!target) return;
     const parent = sessionCatalog.find((item) => item.id === target.parentSessionId);
@@ -1371,6 +1375,12 @@ export function AppShell() {
       // a second pick finds the parent rather than opening the side chat here.
       setRefreshKey((key) => key + 1);
       return;
+    }
+    if (!listed) {
+      // A tab restore keeps only the sessions this page can see: list the side
+      // chat before the parent is selected, or its queued tab is dropped.
+      setSessionCatalog((prev) => (prev.some((item) => item.id === session.id) ? prev : [session, ...prev]));
+      setRefreshKey((key) => key + 1);
     }
     if (sideTabOwnerRef.current === parent.id) {
       handleOpenSubagentTab(session.id, target.label, true);
