@@ -15,6 +15,15 @@ test("skill instructions omit frontmatter and preserve the Markdown body", () =>
   );
 });
 
+test("a skill file's first heading that only repeats the skill's name is dropped", () => {
+  const file = "---\nname: bird\n---\n\n# bird\n\nUse the wrapper.\n\n## bird\n";
+  assert.equal(skillInstructionsBody(file, "bird"), "Use the wrapper.\n\n## bird");
+  assert.equal(skillInstructionsBody("## Bird ##\nText", "bird"), "Text");
+  // Any other first heading, or no name (another document of the skill), stays.
+  assert.equal(skillInstructionsBody("# Bird CLI\n\nText", "bird"), "# Bird CLI\n\nText");
+  assert.equal(skillInstructionsBody(file), "# bird\n\nUse the wrapper.\n\n## bird");
+});
+
 const link = (document, anchor = "") => ({ document, anchor });
 
 for (const [name, from, cases] of [

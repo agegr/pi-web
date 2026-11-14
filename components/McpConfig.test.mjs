@@ -315,6 +315,23 @@ test("MCP being off, a refused project folder, and file problems are said above 
   assert.doesNotMatch(shown, /No MCP servers yet/);
 });
 
+test("MCP being off is said once, above the list: the server's pane points at that notice", () => {
+  const html = view({
+    selected: "global\0web",
+    load: { state: "loaded", data: overview({
+      mcp: { available: false, reason: "internals-unavailable", error: "x", detail: "cannot find module" },
+      servers: [server({ name: "web", transport: "http", url: "https://x/mcp", usesOAuth: true, signedIn: false, validated: false })],
+    }) },
+  });
+  const shown = text(html);
+  assert.equal(shown.match(/MCP is off:/g)?.length, 1);
+  assert.match(shown, /Servers cannot be changed here while MCP is off\./);
+  assert.doesNotMatch(shown, /MCP is off on this Pi Web server/);
+  assert.doesNotMatch(shown, /Listed unchecked/);
+  const noticeId = noticeIdOf(html, "MCP is off");
+  assert.ok(decode(html).split(`aria-describedby="${noticeId}"`).length - 1 >= 3, "Test, Remove and Sign in point at the notice");
+});
+
 test("a dangling project link needs no trust, so only the footer speaks of it", () => {
   const dangling = { ...projectFile, problems: [{ reason: "link-dangling", error: "a symbolic link to nothing" }] };
   const html = view({
@@ -777,13 +794,20 @@ test("the exposure dropdown waits like a switch, and points at why it cannot be 
   assert.match(decode(saving), /<span class="mcp-exposure-choice"><select[^>]*>[\s\S]*?<\/select><span role="status" class="mcp-config-line is-dim">Saving…<\/span><\/span>/);
   assert.match(exposureSelect(validated({ view: { busy: "switch:global\0pw" } })).tag, /disabled=""/);
   assert.doesNotMatch(exposureSelect(validated()).tag, /disabled/);
-  // Where no change may be written, it points at the note that says why.
+  // Where no change may be written, it points at the notice that says why.
   const html = validated({ data: { mcp: { available: false, reason: "operator-disabled", error: "x" } } });
   const select = exposureSelect(html);
   assert.match(select.tag, /disabled=""/);
-  const { noteId } = detailControls(html);
-  assert.match(select.tag, new RegExp(`aria-describedby="[^"]* ${noteId}"`));
+  assert.equal(detailControls(html).note, undefined, "the notice above the list says it");
+  assert.match(select.tag, new RegExp(`aria-describedby="[^"]* ${noticeIdOf(html, "MCP is off")}"`));
 });
+
+/** The id of the notice above the list that starts with `start`. */
+function noticeIdOf(html, start) {
+  const id = decode(html).match(new RegExp(`<div id="([^"]+)" role="status" class="config-notice[^"]*">(?:<[^>]+>)*${start}`))?.[1];
+  assert.ok(id, `a notice starts with ${start}`);
+  return id;
+}
 
 /** The opening tags of the selected server's Remove button and switch, and the note under them. */
 function detailControls(html) {
@@ -827,28 +851,32 @@ test("a server's detail switches it and removes it, with no note while both work
   assert.match(off.toggle, /aria-checked="false" aria-label="Turn docs on"/);
 });
 
-test("why a server cannot be changed is the visible note its controls point at", () => {
-  // An untrusted project: neither control works, and the note says why.
-  const untrustedProject = detailControls(writeView({
+test("why a server cannot be changed is visible text its controls point at, said once", () => {
+  // An untrusted project: neither control works; the trust notice above the list says why, and no note repeats it.
+  const untrustedHtml = writeView({
     data: { project: { cwd: "/Users/me/repo", trust: untrusted } },
     view: { selected: "project\0repo" },
-  }));
-  assert.equal(untrustedProject.note, "This project is not trusted, so Pi Web does not change its .pi/mcp.json.");
+  });
+  const untrustedProject = detailControls(untrustedHtml);
+  assert.equal(untrustedProject.note, undefined);
+  assert.match(text(untrustedHtml), /Pi Web does not change them until the project is trusted\./);
+  const trustId = noticeIdOf(untrustedHtml, "This project is not trusted");
   assert.match(untrustedProject.toggle, /disabled=""/);
-  assert.match(untrustedProject.remove[0], new RegExp(`disabled="" aria-describedby="${untrustedProject.noteId}"`));
+  assert.match(untrustedProject.toggle, new RegExp(`aria-describedby="${trustId}"`));
+  assert.match(untrustedProject.remove[0], new RegExp(`disabled="" aria-describedby="${trustId}"`));
   // ...while the global servers beside it can still be changed.
   assert.doesNotMatch(detailControls(writeView({ data: { project: { cwd: "/Users/me/repo", trust: untrusted } } })).toggle, /disabled/);
-  // An unreadable trust store blocks the project the same way, with its own reason.
-  assert.equal(
-    detailControls(writeView({ data: { project: { cwd: "/Users/me/repo", trustError: "locked" } }, view: { selected: "project\0repo" } })).note,
-    "Pi Web cannot read the trust store (trust.json), or another program has it locked.",
-  );
+  // An unreadable trust store blocks the project the same way, its own reason said above the list.
+  const unreadable = writeView({ data: { project: { cwd: "/Users/me/repo", trustError: "locked" } }, view: { selected: "project\0repo" } });
+  assert.equal(detailControls(unreadable).note, undefined);
+  assert.match(text(unreadable), /Pi Web does not change them until it can read the trust store\./);
 
   // MCP off on the server: everything is read-only, and the banner says so too.
   const offHtml = writeView({ data: { mcp: { available: false, reason: "operator-disabled", error: "x" } } });
   const mcpOff = detailControls(offHtml);
-  assert.equal(mcpOff.note, "MCP is off on this Pi Web server, so it changes no server.");
+  assert.equal(mcpOff.note, undefined);
   assert.match(mcpOff.toggle, /disabled=""/);
+  assert.match(mcpOff.toggle, new RegExp(`aria-describedby="${noticeIdOf(offHtml, "MCP is off")}"`));
   assert.match(text(offHtml), /MCP is off: PI_WEB_DISABLE_MCP is set where Pi Web runs\. The servers are listed, but no session connects them\. Servers cannot be changed here while MCP is off\./);
   const offSwitch = decode(offHtml).match(/<span class="config-sidebar-group-count">1\/2<\/span>(<button[^>]*>)/)[1];
   const bannerId = offSwitch.match(/aria-describedby="([^"]+)"/)?.[1];
@@ -1156,14 +1184,15 @@ test("Test is disabled where the route would refuse it, and points at the visibl
   };
   const untrusted = { cwd: "/Users/me/repo", trust: { requiresTrust: true, trusted: false, decision: null, inherited: false } };
   const projectServer = { scope: "project", sourcePath: "/Users/me/repo/.pi/mcp.json", transport: "stdio", url: undefined, command: "node" };
-  assert.equal(
-    reason(testView(projectServer, { data: { files: [globalFile, projectFile], project: untrusted }, view: { cwd: "/Users/me/repo" } })),
-    "This project is not trusted, so Pi Web does not start its servers.",
-  );
-  assert.equal(
-    reason(testView({}, { data: { mcp: { available: false, reason: "operator-disabled", error: "x" } } })),
-    "MCP is off on this Pi Web server, so it tests no server.",
-  );
+  // A reason the notice above the list already says: Test points at that notice, and the Status row stays quiet.
+  const saidAbove = (html, start) => {
+    const { value, button } = statusRow(html);
+    assert.match(button.attributes, /disabled=""/);
+    assert.match(button.attributes, new RegExp(`aria-describedby="${noticeIdOf(html, start)}"`));
+    assert.doesNotMatch(text(value), /does not start|tests no server/);
+  };
+  saidAbove(testView(projectServer, { data: { files: [globalFile, projectFile], project: untrusted }, view: { cwd: "/Users/me/repo" } }), "This project is not trusted");
+  saidAbove(testView({}, { data: { mcp: { available: false, reason: "operator-disabled", error: "x" } } }), "MCP is off");
   // A refused entry's own line says why, so Test points at it rather than a second line saying it again.
   const invalid = testView({ invalidError: "legacy SSE" });
   assert.equal(reason(invalid), "Pi refuses this entry, so it never connects: legacy SSE");
@@ -1358,8 +1387,8 @@ test("an OAuth server's pane signs in from its Sign-in row, under the Status row
   assert.match(waiting.value, /<a href="https:\/\/auth\.example\/authorize\?state=s" target="_blank" rel="noopener noreferrer">/);
   assert.match(waiting.value, /class="oauth-paste-input"/);
 
-  // A project nobody trusted: no sign-in, and the reason is visible.
-  const blocked = signInRow(view({
+  // A project nobody trusted: no sign-in, and Sign in points at the trust notice above the list, which says why.
+  const blockedHtml = view({
     cwd: "/Users/me/repo",
     load: { state: "loaded", data: overview({
       files: [globalFile, projectFile],
@@ -1367,11 +1396,11 @@ test("an OAuth server's pane signs in from its Sign-in row, under the Status row
       project: { cwd: "/Users/me/repo", trust: untrusted },
     }) },
     selected: mcpServerKey({ scope: "project", name: "docs" }),
-  }));
+  });
+  const blocked = signInRow(blockedHtml);
   const id = blocked.value.match(/<button type="button" disabled="" aria-describedby="([^"]+)" class="config-button config-button-primary config-button-small">Sign in<\/button>/)?.[1];
-  assert.ok(id, "Sign in is disabled and points at the reason");
-  assert.match(blocked.value, new RegExp(`<span id="${id}" class="mcp-config-line is-dim">This project is not trusted`));
-  assert.match(blocked.text, /This project is not trusted, so Pi Web does not sign in to or out of its servers\./);
+  assert.equal(id, noticeIdOf(blockedHtml, "This project is not trusted"), "Sign in is disabled and points at the reason");
+  assert.doesNotMatch(blocked.text, /does not sign in/);
 });
 
 test("the connection a sign-in made is summed up as a sign-in's in the Status row", () => {

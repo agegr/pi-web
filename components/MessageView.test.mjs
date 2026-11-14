@@ -1070,7 +1070,8 @@ test("collapses the compaction summary to its title and token count, as pi's TUI
     null,
     React.createElement(CompactionSummaryDetails, { summary }),
   ));
-  assert.match(details, /following summary/);
+  // The header already says it was compacted; the summary follows with no sentence restating that.
+  assert.doesNotMatch(details, /following summary/);
   assert.match(details, /Ship the parser fix/);
   assert.match(details, /File context: 1 read, 1 modified/);
   assert.match(details, /lib\/read\.ts/);
