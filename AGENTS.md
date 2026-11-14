@@ -160,6 +160,8 @@ lib/
   default-cwd.ts            dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   worktree.ts               project/worktree resolution and git worktree operations
   draft-store.ts            local draft persistence
+  browser-flag.ts           a per-browser on/off choice in localStorage, off by default (the minimap's and the Agents strip's locks)
+  agent-strip-lock.ts       per-browser lock of the Agents strip: locked, it shows on the main agent too
   extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
   extension-ui-theme.ts     the pi Theme extension panels, widgets and statuses get: pi's system theme for a terminal reporting no colors (ANSI palette), plain text until it loads
   favicon-badge.ts          the tab's favicon badge: awaiting and unread counts drawn over the stock icon
@@ -220,6 +222,7 @@ components/
   CodemodeToolView.tsx     codemode card: the tool calls its script made
   BranchNavigator.tsx      in-session branch switcher
   ChatMinimap.tsx          scroll minimap beside the message list
+  LockToggle.tsx           padlock toggle button (open and dim, closed and gold): the minimap's preview lock, the Agents strip's lock
   MarkdownBody.tsx         markdown renderer
   SvgBlock.tsx             a ```svg fence: preview only as an <img> data URL, source toggle, zoom, download (MermaidBlock's pieces)
   ModelsConfig.tsx         Settings › Models: models.json editor
@@ -229,6 +232,7 @@ components/
   ProjectTrustDialog.tsx   trust confirmation listing the project's MCP servers
   AgentsConfig.tsx         built-in subagent toggle + agent profile editor
   SessionChatPanel.tsx     right-panel tab of a subagent or side chat: a ChatWindow for that session
+  AgentMiniStrip.tsx       Agents strip under the chat toolbar while the main chat shows a subagent or side chat (locked: on the main agent too): chips to the main agent and each member, the padlock
   DebugPanel.tsx           Debug top panel (toolbar, left of the stats): page and server state, its own tick and poll, error boundary
   debug-panel-state.ts     pure helpers of DebugPanel: formatting, server clock, poller, issues, session grouping, poll samples
   PluginsConfig.tsx        Settings › Plugins: installed package plugins
@@ -254,6 +258,7 @@ hooks/
   useFilesPlacement.ts     per-browser choice: the desktop sidebar's file browser below the sessions or in its own tab
   useGroupDrag.ts          dragging a sidebar project group: mouse threshold, touch/pen long-press, auto-scroll, drop
   useIsMobile.ts           responsive breakpoint
+  useHorizontalStrip.ts    a sideways-scrolling row with a hidden scrollbar: vertical wheel, current item kept in view (TabBar, Agents strip)
   usePageHidden.ts         HIDDEN_PAGE_GRACE_MS; true once the page has been hidden that long (file watches pause)
   useSessionUiState.ts     sidebar pins, archive, project order: optimistic writes in order, refetch on revision change
   useSidebarMotion.ts      the sidebar's fold and archive-view motion: phase, end fallback, reduced motion, what shows meanwhile
@@ -280,7 +285,7 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read every
 - [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the directory picker's typed path, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, the sandboxed HTML preview's storage shim, the source view's languages by extension, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/file-version.ts`, `lib/html-sandbox-polyfill.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`, `components/DirectoryPicker.tsx`.
 - [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
 - [side-sessions.md](docs/agents/side-sessions.md): side chats (ADR 0007): the Fork copy with a `pi-web:side` entry inside the bounded head read, the `side` relation kind and family fold, the parent's session minus tools (an allow-list of exactly its tools), the hidden boundary message and where each provider's request puts the tool change, `/side`, the tab shared with subagents, usage that skips inherited entries. Files: `lib/side-session.ts`, `lib/session-fork.ts`, `lib/session-family.ts`, `lib/session-delete.ts`, `lib/session-reader.ts`, side handling in `lib/rpc-manager.ts`, `app/api/sessions/[id]/fork/route.ts`, `app/api/sessions/stats/route.ts`, `components/SessionChatPanel.tsx`, `components/TabBar.tsx`, `components/AgentSessionPanel.tsx`, `components/ChatInput.tsx`, `hooks/useAgentSession.ts`, `lib/side-chat-client.ts`, side handling in `components/AppShell.tsx`.
-- [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent tab. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SessionChatPanel.tsx`.
+- [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent tab, the Agents strip. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SessionChatPanel.tsx`, `components/AgentMiniStrip.tsx`, `lib/agent-strip-lock.ts`, `components/LockToggle.tsx`.
 - [client-platform.md](docs/agents/client-platform.md): the global shortcuts (Ctrl+Alt+N on macOS's dead-key Option+N and Windows AltGr, Esc stacking), mobile software keyboard and viewport height, the terminal's shell (PowerShell first on Windows), the terminal's extra keys, its own dark/light theme and its font size following the chat's, completion sound, the launcher opening the browser only after the first page is served. Files: `hooks/useKeyboardShortcuts.ts`, `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `terminalShell()` in `lib/terminal-manager.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, `terminalFontSize()` in `hooks/useChatAppearance.ts`, the keyboard-open CSS, `bin/browser-opener.js`, the browser opening in `bin/pi-web.js`.
 
 ---

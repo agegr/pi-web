@@ -68,6 +68,8 @@ export async function POST(req: Request) {
     allowFileRoot(cwd);
     invalidateSessionListCache();
 
+    // Answers before session_start has finished when it waits on an extension dialog (#1678):
+    // the page opens the event stream that shows the dialog only once this reply names the id.
     const state = await session.send({ type: "get_state" }) as {
       model?: { id: string; provider: string };
       thinkingLevel?: string;

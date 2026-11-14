@@ -71,6 +71,8 @@ function hook({ commands = [], pending = null, getCommands = async () => ({ comm
       return getCommands();
     },
     setIsCompacting: () => {},
+    // The stream a fresh composer holds meanwhile is session-start-dialog.test.mjs's.
+    withSessionStartStream: (_sid, request) => request(),
     console: { error: (...args) => calls.errors.push(args) },
   };
   for (const name of CALLBACKS) scope[name] = compiled[name](scope);
