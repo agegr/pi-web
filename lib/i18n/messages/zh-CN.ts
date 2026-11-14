@@ -213,6 +213,8 @@ export const zhCNLocale: LocalePlugin = {
     "agentSwitcher.noMatches": "没有匹配的 Agent",
     "agentSwitcher.strip": "此会话的 Agents",
     "agentSwitcher.backToMain": "回到主 Agent",
+    "agentSwitcher.lockStrip": "锁定：主 Agent 上也显示这一条",
+    "agentSwitcher.unlockStrip": "解锁：只在子 Agent 或侧聊里显示这一条",
     "agentSwitcher.status.starting": "正在启动",
     "agentSwitcher.status.queued": "排队中",
     "agentSwitcher.status.running": "运行中",
