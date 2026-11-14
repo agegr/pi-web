@@ -213,6 +213,8 @@ export const enLocale: LocalePlugin = {
     "agentSwitcher.noMatches": "No matching agents",
     "agentSwitcher.strip": "Agents in this session",
     "agentSwitcher.backToMain": "Back to the main agent",
+    "agentSwitcher.lockStrip": "Lock: show this strip on the main agent too",
+    "agentSwitcher.unlockStrip": "Unlock: show this strip only in a subagent or side chat",
     "agentSwitcher.status.starting": "Starting",
     "agentSwitcher.status.queued": "Queued",
     "agentSwitcher.status.running": "Running",

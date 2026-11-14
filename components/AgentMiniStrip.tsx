@@ -6,6 +6,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { sideChatTitle } from "@/lib/session-family";
 import type { SessionInfo } from "@/lib/types";
 import { AgentKindIcon, StatusIcon, subagentTitle } from "./AgentSessionPanel";
+import { LockToggle } from "./LockToggle";
 
 interface Props {
   rootSession: SessionInfo;
@@ -15,23 +16,31 @@ interface Props {
   runningSessionIds: ReadonlySet<string>;
   /** What a row of the Agents switcher does on a click. */
   onSelectSession: (session: SessionInfo) => void;
+  /** Locked, the strip also shows on the main agent (`lib/agent-strip-lock.ts`). */
+  locked: boolean;
+  onToggleLock: () => void;
 }
+
+/** The lock button's key in the roving tab stop, which no session id can take. */
+const LOCK_FOCUS_KEY = "\0lock";
 
 /**
  * One row under the chat toolbar while the main chat shows a subagent or a side chat (#1658):
  * the way back to the main agent and every other member, so typing into a child never looks
- * like talking to the parent. The Agents button swaps it for the full switcher and back.
+ * like talking to the parent. The Agents button swaps it for the full switcher and back. The
+ * lock at its right end (the minimap's padlock) keeps it on the main agent as well.
  */
-export function AgentMiniStrip({ rootSession, members, selectedSessionId, runningSessionIds, onSelectSession }: Props) {
+export function AgentMiniStrip({ rootSession, members, selectedSessionId, runningSessionIds, onSelectSession, locked, onToggleLock }: Props) {
   const { t } = useI18n();
   const toolbarRef = useRef<HTMLDivElement>(null);
   // Only the members scroll (hidden scrollbar, wheel, current chip kept in view): the way back stays put.
   const scrollerRef = useHorizontalStrip<HTMLDivElement>('[aria-current="true"]', `${members.length}\n${selectedSessionId}`);
   // Roving tab stop: one Tab stop for the row, on the chip last focused, else the current one.
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const tabStopId = focusedId && (focusedId === rootSession.id || members.some((session) => session.id === focusedId))
+  const tabStopId = focusedId && (focusedId === rootSession.id || focusedId === LOCK_FOCUS_KEY || members.some((session) => session.id === focusedId))
     ? focusedId
     : selectedSessionId;
+  const onMain = selectedSessionId === rootSession.id;
 
   // A toolbar's arrow keys: Left and Right move between chips, Home and End to the ends.
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -70,10 +79,11 @@ export function AgentMiniStrip({ rootSession, members, selectedSessionId, runnin
     >
       <Chip
         label={t("agentSwitcher.main")}
-        title={t("agentSwitcher.backToMain")}
-        current={false}
+        title={onMain ? t("agentSwitcher.main") : t("agentSwitcher.backToMain")}
+        current={onMain}
         tabStop={tabStopId === rootSession.id}
-        icon={rootRunning ? <StatusIcon status="running" /> : (
+        // On a member it reads as the way back; locked on the main agent, as the agent shown.
+        icon={rootRunning ? <StatusIcon status="running" /> : onMain ? <AgentKindIcon kind="main" size={12} /> : (
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M19 12H5M11 6l-6 6 6 6" />
           </svg>
@@ -118,6 +128,17 @@ export function AgentMiniStrip({ rootSession, members, selectedSessionId, runnin
           );
         })}
       </div>
+      <span aria-hidden="true" style={{ width: 1, height: 16, flexShrink: 0, background: "var(--border)" }} />
+      <LockToggle
+        locked={locked}
+        iconSize={14}
+        onClick={onToggleLock}
+        onFocus={() => setFocusedId(LOCK_FOCUS_KEY)}
+        aria-label={t("agentSwitcher.lockStrip")}
+        title={locked ? t("agentSwitcher.unlockStrip") : t("agentSwitcher.lockStrip")}
+        tabIndex={tabStopId === LOCK_FOCUS_KEY ? 0 : -1}
+        style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6 }}
+      />
     </div>
   );
 }

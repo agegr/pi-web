@@ -83,6 +83,7 @@ import { sideChatHit } from "@/lib/session-search-hit";
 import { getAgentStripMembers, getAgentsBadge, getSessionFamily, isHiddenRelation, sideChatTitle } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 import { focusIfLost } from "@/lib/stacked-dialog";
+import { loadAgentStripLocked, saveAgentStripLocked } from "@/lib/agent-strip-lock";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -196,12 +197,24 @@ export function AppShell() {
     ? translate("agentSwitcher.titleRunning", { count: agentsBadge.count })
     : translate("agentSwitcher.title");
   // A subagent or side chat in the main chat gets the Agents strip under the toolbar (#1658).
-  // It takes no state of its own: it shows whenever the full switcher is closed, so the Agents
-  // button swaps the two there, and opens and closes the switcher as before on the main agent.
+  // It shows whenever the full switcher is closed, so the Agents button swaps the two there.
+  // On the main agent only while this browser has it locked (the strip's own padlock);
+  // otherwise the button opens and closes the switcher there as before.
+  const [agentStripLocked, setAgentStripLocked] = useState(loadAgentStripLocked);
   const agentStripMembers = useMemo(
-    () => getAgentStripMembers(activeSessionFamily, selectedSession?.id),
-    [activeSessionFamily, selectedSession?.id],
+    () => getAgentStripMembers(activeSessionFamily, selectedSession?.id, agentStripLocked),
+    [activeSessionFamily, selectedSession?.id, agentStripLocked],
   );
+  // The Agents button on screen (one of its places at a time): focus goes back to it when the
+  // switcher closes on a pick or the strip leaves under the keyboard.
+  const agentsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const handleToggleAgentStripLock = useCallback(() => {
+    const next = !agentStripLocked;
+    setAgentStripLocked(next);
+    saveAgentStripLocked(next);
+    // Unlocked on the main agent, the strip and its padlock leave the page.
+    if (!next) requestAnimationFrame(() => focusIfLost(document, agentsButtonRef.current));
+  }, [agentStripLocked]);
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
@@ -1814,6 +1827,7 @@ export function AppShell() {
   // folding it into that menu: the bar has the room, and the badge stays in sight.
   const renderAgentsButton = (mobile: boolean) => (
     <button
+      ref={agentsButtonRef}
       type="button"
       // On a narrow phone it sits outside the More menu, so it leaves that menu as it is.
       onClick={() => toggleTopPanel("agents", mobile && !isNarrowMobile)}
@@ -2631,7 +2645,12 @@ export function AppShell() {
                   subagents={activeSessionFamily.subagents}
                   selectedSessionId={selectedSession.id}
                   runningSessionIds={runningSessionIds}
-                  onSelectSession={handleSelectSession}
+                  // A pick closes the switcher, so the strip (where it shows) takes over at once.
+                  onSelectSession={(session) => {
+                    setActiveTopPanel(null);
+                    handleSelectSession(session);
+                    requestAnimationFrame(() => focusIfLost(document, agentsButtonRef.current));
+                  }}
                   openSubagentTabIds={openSubagentTabIds}
                   onToggleSubagentTab={handleToggleSubagentTab}
                   onNewSideChat={() => handleNewSideChat(activeSessionFamily.root.id)}
@@ -2868,6 +2887,8 @@ export function AppShell() {
             selectedSessionId={selectedSession.id}
             runningSessionIds={runningSessionIds}
             onSelectSession={handleSelectSession}
+            locked={agentStripLocked}
+            onToggleLock={handleToggleAgentStripLock}
           />
         )}
         {isMobile && renderProjectTrustWarning(true)}
