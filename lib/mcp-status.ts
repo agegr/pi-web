@@ -57,6 +57,36 @@ export function mcpStatusKey(entry: McpStatusEntry): string {
   return `${entry.scope}\0${entry.sourcePath}\0${entry.name}`;
 }
 
+// Who hears that a test connected: the MCP hosts of open sessions, which connect
+// the tested entry again when they hold it as failed (`lib/mcp-host.ts`). On
+// globalThis like the records: the route that tests and the sessions may be
+// bundled apart.
+const TEST_CONNECTED_LISTENERS_KEY: symbol = Symbol.for("pi-web:mcp-test-connected-listeners");
+type McpTestConnectedListener = (entry: McpStatusEntry, configKey: string) => void;
+
+function testConnectedListeners(): Set<McpTestConnectedListener> {
+  const store = globalThis as Record<symbol, Set<McpTestConnectedListener> | undefined>;
+  return (store[TEST_CONNECTED_LISTENERS_KEY] ??= new Set());
+}
+
+/**
+ * Calls `listener` whenever a test's `connected` is recorded (a Settings › MCP
+ * Test, a sign-in's connection), with the entry and content it was recorded
+ * for. Returns the unsubscribe; a listener is held until it is called.
+ */
+export function onMcpTestConnected(listener: McpTestConnectedListener): () => void {
+  const listeners = testConnectedListeners();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Listeners held now, for tests. */
+export function mcpTestConnectedListenerCount(): number {
+  return testConnectedListeners().size;
+}
+
 /**
  * Records the last known state of `entry` as it read `configKey`; a later
  * record for the same entry and content replaces it. A record for other
@@ -77,6 +107,14 @@ export function recordMcpStatus(entry: McpStatusEntry, configKey: string, status
     const [oldestKey, oldest] = map.entries().next().value as [string, Map<string, McpServerStatus>];
     oldest.delete(oldest.keys().next().value as string);
     if (oldest.size === 0) map.delete(oldestKey);
+  }
+  if (status.origin === "test" && status.state === "connected") {
+    for (const listener of testConnectedListeners()) {
+      // One session's host failing never keeps the record from the others.
+      try {
+        listener(entry, configKey);
+      } catch {}
+    }
   }
 }
 

@@ -911,6 +911,7 @@ export const zhCNLocale: LocalePlugin = {
     "chatMinimap.earlierTurns": "更早的 {count} 轮还没加载，点击加载",
     "chatMinimap.locateAssistant": "定位助手消息",
     "chatMinimap.toolCalls": "本轮 {count} 次工具调用",
+    "chatMinimap.extensionTurn": "由扩展发起（{type}）",
     "chatMinimap.lockPreview": "锁定：悬停时不展开预览",
     "chatMinimap.unlockPreview": "解锁悬停预览",
     "i18n.close": "关闭",

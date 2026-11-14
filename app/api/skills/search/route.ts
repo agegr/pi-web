@@ -100,7 +100,6 @@ export async function POST(req: Request) {
     } catch {
       const { stdout, stderr } = await runNpx(["skills", "find", query.trim()], {
         timeout: 20000,
-        env: { ...process.env, FORCE_COLOR: "0" },
       });
 
       const results = parseSearchOutput(stdout + stderr).slice(0, limit);

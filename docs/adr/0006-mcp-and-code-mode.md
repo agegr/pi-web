@@ -99,7 +99,9 @@ registers the servers it wants through the public `pi.registerMcpServer()` /
   run has an abort signal: Stop ends the wait and rejects the message unsent,
   which returns it to the composer. A server that outlasts one full wait is
   not waited for again, and a failed server whose entry is unchanged is not
-  retried; only the extension's own reconnects change its state. A change
+  retried by a prompt; only the extension's own reconnects change its state,
+  and a Test of that entry in Settings that connects, after which a session
+  holding it as failed registers it again. A change
   therefore reaches every open session on its next message, including changes
   made outside Pi Web (`pi mcp add`, a manual edit, `git pull`), and there is
   no Reload button. A sign-in made elsewhere needs no re-registration: at the
