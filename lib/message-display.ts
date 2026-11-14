@@ -110,8 +110,11 @@ function isConversationMessage(message: TurnAnchorMessage): boolean {
  * continued in the same run, and so is one an error ended, so their stretches
  * stay inside the turn. The stretch's last shown custom message is the
  * anchor; without one its last custom message, which shows nothing (`display:
- * false`), so the turn starts at its process details or answer. A stretch
- * holding an anchor of its own is left as it is.
+ * false`), so the turn starts at its process details or answer. A `!` command
+ * after the last shown message stays above the anchor, which is then the
+ * hidden message after it: between a turn's anchor and its answer the chat
+ * renders only replies and custom messages, so the command's card would be
+ * gone. A stretch holding an anchor of its own is left as it is.
  *
  * `openTail`: a run is under way, so a stretch at the end opens the turn it
  * answers. The server counts turns with the same function (`countTurnsBefore()`).
@@ -133,7 +136,11 @@ export function getTurnAnchors(
     if (answered && endsRun(messages[start - 1]) && !anchors.slice(start, end).includes(true)) {
       let anchor = -1;
       for (let idx = end - 1; idx >= start; idx--) {
-        if (messages[idx].role !== "custom") continue;
+        if (messages[idx].role !== "custom") {
+          // A `!` command: a hidden message below it opens the turn, so its card stays shown.
+          if (anchor !== -1) break;
+          continue;
+        }
         if (anchor === -1) anchor = idx;
         if (!isHiddenCustomMessage(messages[idx])) {
           anchor = idx;
