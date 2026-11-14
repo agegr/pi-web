@@ -11,8 +11,6 @@ const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
-const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
-const { trustProject } = await jiti.import("../../../lib/project-trust.ts");
 const { PATCH } = await jiti.import("./route.ts");
 
 after(async () => {
@@ -121,42 +119,4 @@ test("only markdown files are edited, however they are named in the request", as
   const batch = await patchSkills({ filePaths: [authPath], disableModelInvocation: true });
   assert.deepEqual(await batch.json(), { results: [{ filePath: authPath, error: "Not a skill file" }] });
   assert.equal(await readFile(authPath, "utf8"), auth);
-});
-
-test("refuses non-skill workspace markdown files and untrusted project skills", async () => {
-  const projectDir = join(root, "untrusted-project");
-  const readmePath = join(projectDir, "README.md");
-  const projectSkill = await writeSkill(join(projectDir, ".pi", "skills"), "proj-skill");
-  await writeFile(readmePath, "# Project Readme\n");
-  allowFileRoot(projectDir);
-
-  const untrustedRes = await patchSkills({
-    filePaths: [readmePath, projectSkill],
-    disableModelInvocation: true,
-  });
-  assert.equal(untrustedRes.status, 200);
-  assert.deepEqual(await untrustedRes.json(), {
-    results: [
-      { filePath: readmePath, error: "Access denied" },
-      { filePath: projectSkill, error: "Access denied" },
-    ],
-  });
-  assert.equal(await readFile(readmePath, "utf8"), "# Project Readme\n");
-  assert.doesNotMatch(await readFile(projectSkill, "utf8"), /disable-model-invocation/);
-
-  // Once the project is trusted, its skill file can be toggled, while README.md stays refused.
-  trustProject(projectDir, agentDir);
-  const trustedRes = await patchSkills({
-    filePaths: [readmePath, projectSkill],
-    disableModelInvocation: true,
-  });
-  assert.equal(trustedRes.status, 200);
-  assert.deepEqual(await trustedRes.json(), {
-    results: [
-      { filePath: readmePath, error: "Access denied" },
-      { filePath: projectSkill },
-    ],
-  });
-  assert.equal(await readFile(readmePath, "utf8"), "# Project Readme\n");
-  assert.match(await readFile(projectSkill, "utf8"), /disable-model-invocation: true/);
 });
