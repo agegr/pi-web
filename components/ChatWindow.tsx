@@ -37,6 +37,7 @@ import type { SettingsSection } from "@/lib/settings-navigation";
 import { getTranscriptNotices, summarizeCacheMisses, type CacheMissSummary } from "@/lib/transcript-notices";
 import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR, TranscriptNoticeLines } from "@/components/TranscriptNotices";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { claimDoneChime, DONE_CHIME_SAME_EVENT_MS } from "@/lib/done-chime";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -272,10 +273,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const wrappedOnAgentEnd = useCallback((end: AgentEndInfo) => {
     // A run someone stopped did not finish anything, and one whose subagents still work did not finish the task.
     if (completionNotificationsEnabled && soundEnabledRef.current && !end.aborted && !end.subagentsActive) {
-      playDoneSoundRef.current();
+      // Another page showing this session got the same agent_end (#1688).
+      const sid = sessionIdRef.current ?? session?.id;
+      if (!sid || claimDoneChime([sid], Date.now() - DONE_CHIME_SAME_EVENT_MS)) playDoneSoundRef.current();
     }
     onAgentEnd?.(end);
-  }, [completionNotificationsEnabled, onAgentEnd]);
+  // sessionIdRef is useAgentSession's ref, declared below: a dependency would read it before then.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completionNotificationsEnabled, onAgentEnd, session?.id]);
 
   const initialScrollPositionRef = useRef(searchTarget ? null : initialScrollPosition ?? null);
   const [pendingScrollRestore, setPendingScrollRestore] = useState<Extract<ChatScrollPosition, { atBottom: false }> | null>(() => {
