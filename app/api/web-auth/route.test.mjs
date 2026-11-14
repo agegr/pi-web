@@ -69,6 +69,20 @@ test("blocks further attempts after a failure, even with the right password", as
   assert.ok(body.retryAfterMs > 0 && body.retryAfterMs <= 1000);
 });
 
+test("attempts sent together get one password check, not one each", async () => {
+  // Each request's body is read before the check, so the whole burst is in
+  // flight before the first failure could be recorded.
+  const responses = await Promise.all([
+    ...Array.from({ length: 20 }, (_, index) => POST(request("POST", { password: `guess-${index}` }))),
+    POST(request("POST", { password: "correct horse battery staple" })),
+  ]);
+  const statuses = responses.map((response) => response.status);
+
+  assert.equal(statuses.filter((status) => status === 401).length, 1, statuses.join(","));
+  assert.equal(statuses.filter((status) => status === 429).length, 20, statuses.join(","));
+  assert.ok(responses.every((response) => !response.headers.has("set-cookie")));
+});
+
 test("logout clears the session cookie", async () => {
   const response = await DELETE(request("DELETE"));
   assert.equal(response.status, 200);
