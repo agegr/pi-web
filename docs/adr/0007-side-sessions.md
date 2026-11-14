@@ -77,8 +77,9 @@ task or losing the parent's context.
    another matter. One session has one chat: opening it in the main chat closes its tab.
 
    The boundary message draws a line in the chat, since the two histories look alike. The first prompt names the side chat, so rows and tabs tell them apart
-   without a model call. Side chats are quiet like subagent runs. Search skips them,
-   since they copy their parent's text. Usage counts only entries newer than
+   without a model call. Side chats are quiet like subagent runs. Search reads only
+   what they added after the boundary, since the rest copies their parent's text, and a hit opens
+   the parent with the side chat's tab (#1638). Usage counts only entries newer than
    `createdAt`, or the parent's would count again.
 
 7. **Refusals.** `not_found`, `unsaved`, `empty`, `subagent`, `side` (no nesting). A

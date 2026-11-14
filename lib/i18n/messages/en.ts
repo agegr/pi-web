@@ -577,6 +577,7 @@ export const enLocale: LocalePlugin = {
     "sidebar.sessionSearching": "Searching...",
     "sidebar.sessionSearchEmpty": "No matching conversations",
     "sidebar.sessionSearchCount": "{count} matching conversations",
+    "sidebar.sideChatOf": "Side chat of {name}",
     "sidebar.sessionSearchPartial": "Search limit reached. Results may be incomplete.",
     "sidebar.sessionSearchFailed": "Could not search conversations",
     "sidebar.changedFiles": "{count} changed files",

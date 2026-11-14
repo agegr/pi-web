@@ -577,6 +577,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.sessionSearching": "搜尋中...",
     "sidebar.sessionSearchEmpty": "找不到相符的對話",
     "sidebar.sessionSearchCount": "{count} 個相符的對話",
+    "sidebar.sideChatOf": "「{name}」的側聊",
     "sidebar.sessionSearchPartial": "已達搜尋上限，結果可能不完整。",
     "sidebar.sessionSearchFailed": "無法搜尋對話",
     "sidebar.changedFiles": "{count} 個已變更檔案",
