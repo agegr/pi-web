@@ -2,8 +2,8 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SessionInfo } from "./types";
 
-// Kept as literals so this module stays dependency-free (it is imported by
-// standalone benchmark scripts). Canonical definitions: session-family.ts.
+// Kept as literals: this module imports nothing at run time, so its test loads
+// it with Node's type stripping alone. Canonical definitions: session-family.ts.
 const SIDE_BOUNDARY_MESSAGE_TYPE = "pi-web:side-boundary";
 const SIDE_SESSION_NAME = "Side chat";
 
