@@ -41,7 +41,6 @@ export async function POST(req: Request) {
     const { stdout, stderr } = await runNpx(buildSkillUpdateArgs(skill.install), {
       timeout: 60_000,
       cwd: scope === "project" ? cwd : undefined,
-      env: { ...process.env, FORCE_COLOR: "0" },
     });
 
     const refreshed = await loadSkillsWithInstallInfo(cwd);
