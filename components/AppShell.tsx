@@ -79,6 +79,7 @@ import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { createSideChat, deleteSideChat } from "@/lib/side-chat-client";
+import { sideChatHit } from "@/lib/session-search-hit";
 import { getAgentStripMembers, getAgentsBadge, getSessionFamily, isHiddenRelation, sideChatTitle } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 import { focusIfLost } from "@/lib/stacked-dialog";
@@ -1357,6 +1358,31 @@ export function AppShell() {
     handleOpenSubagentTab(sessionId, label, side);
   };
 
+  // A side chat is never the main chat (ADR 0007): a search hit opens its parent
+  // and then the side chat's right-panel tab, the way the Agents switcher does.
+  // When the panel belongs to another chat, the tab is queued in the parent's
+  // saved state, which the restore effect above applies as the parent arrives.
+  const handleSelectSideChat = useCallback((session: SessionInfo) => {
+    const target = sideChatHit(session, sessionCatalog, translate("agentSwitcher.sideChat"));
+    if (!target) return;
+    const parent = sessionCatalog.find((item) => item.id === target.parentSessionId);
+    if (!parent) {
+      // The search read a catalogue newer than this page's list: list again, so
+      // a second pick finds the parent rather than opening the side chat here.
+      setRefreshKey((key) => key + 1);
+      return;
+    }
+    if (sideTabOwnerRef.current === parent.id) {
+      handleOpenSubagentTab(session.id, target.label, true);
+      return;
+    }
+    try {
+      const key = sideTabsKey(parent.id);
+      window.sessionStorage.setItem(key, appendSideTab(window.sessionStorage.getItem(key), session.id, target.label));
+    } catch { /* storage is optional */ }
+    handleSelectSession(parent);
+  }, [handleOpenSubagentTab, handleSelectSession, sessionCatalog, translate]);
+
   // `/side` landed (hooks/useAgentSession): open the forked chat's tab, seed
   // its composer when the command carried a prompt, and refresh the list so
   // the family's badge folds the new member in.
@@ -1618,6 +1644,7 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
+        onSelectSideChat={handleSelectSideChat}
         onNewSession={handleNewSession}
         controlRef={sidebarControlRef}
         onNewSessionContextChange={handleSidebarNewSessionContext}
