@@ -20,7 +20,7 @@ Typecheck: `node_modules/.bin/tsc --noEmit` · Lint: `npm run lint`
 
 ### Upgrading pi
 
-pi's packages up to 1.2.0 depend on each other with `^` ranges (1.3.0 pins them exactly), and the published pi-web's dependencies resolve afresh on install (no lockfile ships). Install every `@earendil-works/*` package the tree holds, the SDK's own dependencies included (`pi-codemode`, `pi-mcp`, `pi-telemetry`, …), with `npm install --save-exact`, so npm reuses those exact versions for the SDK's ranges. `lib/pi-packages.test.mjs` fails on any pi package that is not pinned that way; pi-web 0.12.0 pinned four, and installs after pi 1.2.0 paired pi-coding-agent 1.1.0 with pi-codemode 1.2.0.
+The published pi-web ships no lockfile, so its dependencies resolve afresh on install, and pi up to 1.2.0 linked its own packages with `^` ranges. Install every `@earendil-works/*` package the tree holds, the SDK's own dependencies included (`pi-codemode`, `pi-mcp`, `pi-telemetry`, …), with `npm install --save-exact`, so npm reuses those exact versions for the SDK's ranges. `lib/pi-packages.test.mjs` fails on any pi package that is not pinned that way.
 
 ---
 
@@ -32,9 +32,19 @@ pi's packages up to 1.2.0 depend on each other with `^` ranges (1.3.0 pins them 
 - **Product scope**: a light web wrapper around pi, not an IDE or a platform of its own. Before adding a feature, check the out-of-scope list in [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Extension compatibility (principle)**: extensions written for the pi CLI must behave the same here. Fix display problems in the web client; never add pi-web-only options or fields to the extension API (`ctx.ui.*` options, `extension_ui_request`). pi's TUI (`node_modules/@earendil-works/pi-tui`) is the reference for what an extension asking for something means.
 
+## UI Copy
+
+Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+
+## Bug Fixes
+
+Fix a bug at its cause, reasoning from first principles and established best practice. Do not patch over the symptom.
+
 ---
 
-## File Map
+## API Routes
+
+Each route's methods and parameters; code elsewhere is found by name (`ls lib components hooks`) and through the topic notes' file lists.
 
 ```
 app/api/
@@ -98,178 +108,6 @@ app/api/
   push/config/route.ts             GET VAPID public key
   push/subscribe/route.ts          POST register a push subscription
   app-update/route.ts              GET current vs latest published pi-web version
-
-lib/
-  agent-client.ts           typed fetch helper for /api/agent commands
-  missing-cwd.ts            client-safe `reason: "cwd-missing"` refusal of a folder that no longer exists: error class, body fields, parsing
-  debug-types.ts            client-safe shapes of the Debug panel: GET /api/agent/debug and the page's own snapshot
-  debug-snapshot.ts         buildDebugSnapshot(): the debug route's synchronous field reads, each source guarded
-  stream-client.ts          an event stream's reported address and "Chrome · macOS" label, for the Debug panel's connected pages and SSE titles only
-  page-stream-registry.ts   open terminal and file-watch streams with their page (`?holder=`) and client, for the Debug panel's connected pages
-  page-debug.ts             client: the page's id (`?holder=` of its streams), EventSources, visibility history, protocol and running-poll record (Debug panel)
-  file-watch-registry.ts    open ?type=watch streams, counted on globalThis for the Debug panel
-  startup-issues.ts         client-safe: what pi's TUI prints as a session starts (extension load errors and conflicts, warnings, session_start errors), as notices; the page shows each id once
-  rpc-manager.ts            AgentSessionWrapper, registry, startRpcSession
-  side-chat-client.ts       client: ask the fork route for a side chat, refusals as translated notices
-  session-reader.ts         SessionManager wrappers, path cache, buildSessionContext adapter
-  session-fork.ts           forkSessionBranch(): the sidebar's Fork, a leaf-branch copy on a fresh SessionManager named after its source, typed refusals; createSideSession(): the same copy as a side chat
-  side-session.ts           a side chat's metadata entry, allowed tools, hidden boundary message, own entries for usage
-  session-fork-name.ts      client-safe Fork naming: source title + " · " + 4 hex; splitting the suffix off for the row and toast
-  session-delete.ts         deleteSessions(): session files with their subagents, re-parenting what stays, wrapper shutdown, pins/archive cleanup
-  session-tree.ts           sidebar row model: pinned section, project groups and their order, archived predicate, virtual rows, drop targets
-  session-ui-state.ts       pi-web-session-state.json (pins, archive, project order and names, read times): lock, atomic write, revision, corrupt backup
-  session-ui-state-shared.ts client-safe types and rules of that state: request parsing, apply, undo snapshot
-  unread-markers.ts         client-safe: this browser's unread markers dated on the server's clock, cleared by shared reads (readAt), the server-clock estimate
-  user-attention.ts         client: whether someone is at the page (visible, focused, an input within 2 min; no pointer moves), and when that starts again
-  sidebar-prefs.ts          per-browser sidebar tab, group expand choices, archive folds, pinned-section collapse, files-section fold, changed files as list or tree, folders found outside git
-  sidebar-actions.ts        session row menu entries, a project group's name entries and rename request, fork refusal messages, delete-all requests
-  session-search.ts         the session search's scan: literal terms over user and assistant text, the title fallback, a side chat's own part only (after its boundary); file, row and time limits
-  session-search-hit.ts     client-safe: where a side chat's search hit goes: its parent, own title and numbered tab label
-  session-links.ts          same-instance links: a session's (?session=<id>), a fresh composer's (?cwd=<dir>); the plain-click rule the sidebar keeps in the page
-  new-session-context.ts    client-safe: what the project/worktree pickers show (project, worktrees, project list), lag-safe contextForCwd, the directory a group's + and Open in new tab use
-  normalize.ts              normalizeToolCalls(): file-format vs our toolCall field names
-  message-keys.ts           client-safe React keys of chat messages: a run's messages keep theirs when the file is read again
-  idle-message-read.ts      reads for messages an extension sends while idle: one at a time after the reads under way; a tail read's entries after the window
-  types.ts                  shared TypeScript types
-  pi-types.ts               local structural types for pi SDK objects
-  pi-sdk-internals.ts       loader for SDK modules the package does not export (MCP connection, config, OAuth)
-  tool-presets.ts           PRESET_NONE/READ_ONLY/DEFAULT/FULL + getPresetFromTools()
-  tool-preset-preference.ts browser-persisted default preset for fresh sessions
-  tool-fields.ts            a tool call's arguments as flat rows: all of them or no table
-  builtin-extensions.ts     codemode / tool-search / mcp built-ins, sandbox self-test, -builtin: switches
-  codemode-settings.ts      Code mode automatic/always (+codemode in global defaultTools), codemode.mode and inlineBudget; project overrides
-  codemode-view.ts          display helpers for codemode cards
-  global-settings-file.ts   locked read-modify-write of global settings.json (SettingsManager's lock)
-  regular-file.ts           readRegularFileText(): non-blocking read of a regular file only, optional size cap
-  default-preferences.ts    write defaultModel/defaultThinkingLevel; detect project shadowing
-  deferred-provider-models.ts models of providers an extension registers only at session_start, re-added to listings
-  enabled-models.ts         pure minimal-edit engine for the enabledModels pattern list
-  enabled-models-runtime.ts SDK adapter for enabledModels: pattern resolution, provider kinds, settings IO
-  model-context.ts          client-safe: managed models' contextWindow overrides in the models.json draft, the Save check
-  model-image-limits.ts     client-safe: a custom model's inputLimits.images.resize.maxBytes in the draft, the Save check
-  model-provider-check.ts   client-safe: Save refuses a models.json provider entry pi rejects on its own (Add provider's empty stub, oauth without a Base URL)
-  subagent-settings.ts      read/write ~/.pi/agent/agents/settings.json
-  file-access.ts            allowed file roots for /api/files and worktrees
-  file-upload-client.ts     browser upload to /api/files ?type=upload, shared by the explorer and chat drops
-  linked-directory.ts       directory links leading outside the allowed roots + the allow-link check
-  file-paths.ts             client/server path encoding helpers
-  file-version.ts           a watched file's size+mtime version: viewers skip reloading an unchanged file on reconnect
-  html-sandbox-polyfill.ts  in-memory localStorage/sessionStorage shim injected into the sandboxed HTML preview's srcDoc
-  delimited-table.ts        client-safe CSV/TSV parsing (RFC 4180, delimiter detection, file line per record) and table layout
-  file-tree-visibility.ts   which entries the file tree lists (git check-ignore, name-list fallback)
-  file-tree-expansion.ts    the file tree's open directories per cwd: page-memory LRU of 20 folders
-  display-path.ts           display-only ~ / ./ path shortening for settings panels
-  default-cwd.ts            dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
-  worktree.ts               project/worktree resolution and git worktree operations
-  draft-store.ts            local draft persistence
-  browser-flag.ts           a per-browser on/off choice in localStorage, off by default (the minimap's and the Agents strip's locks)
-  agent-strip-lock.ts       per-browser lock of the Agents strip: locked, it shows on the main agent too
-  extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id; isBlockingExtensionUiRequest() (which method a run waits on)
-  extension-ui-theme.ts     the pi Theme extension panels, widgets and statuses get: pi's system theme for a terminal reporting no colors (ANSI palette), plain text until it loads
-  favicon-badge.ts          the tab's favicon badge: awaiting and unread counts drawn over the stock icon
-  done-chime.ts             client: one completion chime per browser: localStorage claims by session id and time (#1688)
-  session-stats-format.ts   client-safe compact counts, costs and active durations of the stats toolbar and agent switcher
-  turn-duration.ts          getTurnDurationMs() / formatTurnDuration(): a finished turn's length from its anchor to its last response's end, on pi's timestamps
-  tool-clock.ts             client-safe: a tool card's time before its result message: live elapsed from the start event (a replay's elapsedMs), then pi's durationMs
-  transcript-notices.ts     client-safe: showCacheMissNotices notices on chat messages, TUI number formats, a fold's cache-miss sum
-  transcript-notices-server.ts the notices derived from session entries (cache-stats port), live ones for message_end, the setting
-  markdown.ts               shared markdown helpers
-  markdown-blocks.ts        splitMarkdownBlocks(): where a streaming reply may be cut into blocks parsed apart
-  highlight-queue.ts        code fences past a task's highlight budget get their colors in idle slices
-  prism-languages.ts        loadPrismLanguages(): every Prism language in a chunk of its own, loaded when a highlighter first needs it
-  gfm-autolink-email-loader.cjs  bundler loader: remark-gfm's email regex without a lookbehind literal
-  node-cli.ts               locate bundled npm-cli.js / npx-cli.js to spawn npm/npx without a shell (Windows)
-  npx.ts                    npx runner for skill install
-  plugin-updates.ts         npm view update checks for /api/plugins/check
-  jsonc.ts                  JSON with comments and trailing commas (models.json is read through it)
-  shell-words.ts            split a pasted command line into words without a shell; refuses | && ; redirects $(…)
-  key-serializer.ts         serializeByKey(): one globalThis promise chain per key
-  stacked-dialog.ts         Escape and focus handling for Settings and dialogs stacked above it
-  project-trust.ts          project trust status and decisions; fresh-folder trust-and-write
-  mcp-host.ts               per-session MCP host: registers mcp.json servers before prompts, reports status
-  mcp-transport.ts          MCP transport factory; stdio gets a sanitized env, never PI_WEB_PASSWORD
-  mcp-command.ts            client-safe: who owns /mcp (built-in or another extension)
-  mcp-read-only-policy.ts   read-only sessions block MCP tools without readOnlyHint (nested calls too)
-  mcp-config-key.ts         canonicalJson() and mcpConfigKey(), the per-process HMAC statuses are keyed by
-  mcp-config-values.ts      client-safe: the values pi resolves and the PI_WEB_PASSWORD rule
-  mcp-config-read.ts        Settings › MCP reads of both mcp.json files; nothing resolved or run
-  mcp-config-file.ts        the mcp.json writer: SDK editor's bytes, lock, atomic write, typed refusals
-  mcp-override.ts           project overrides of global servers: the SDK's isOverride() and loader refusals
-  mcp-json-error.ts         JSON.parse error messages that never quote the source
-  mcp-undo.ts               removed mcp.json entries kept 60 s for undo; only a token reaches the browser
-  mcp-status.ts             last known connection state per mcp.json entry (tests and sessions)
-  mcp-test.ts               Settings › MCP Test: one bounded, masked SDK connection (sign-in reuses its steps)
-  mcp-entry-request.ts      route checks before connecting one mcp.json entry (Test, sign-in); guards /api/mcp and /api/project-trust share
-  mcp-sign-in.ts            Settings › MCP OAuth sign-in flows (as pi mcp login), polled by id
-  mcp-sign-out.ts           OAuth store keys (name + URL); guard barring token writes by runs started before a sign-out
-  mcp-secrets.ts            pure secret classification and masking for MCP config values
-  mcp-add.ts                POST /api/mcp add's checks before it writes
-  mcp-import.ts             pure paste importer (+ mcp-import-core/json/cli/links.ts)
-  mcp-server-display.ts     client-safe display helpers for McpServerInfo (hidden-character escapes, labels)
-  mcp-tool-display.ts       server/tool label of an mcp__ call from its result details, never the name
-
-components/
-  AppShell.tsx             layout, URL state, tab management
-  SessionSidebar.tsx       toolbar row (Sessions | Files tabs, or the Pi Web brand with the files below them; new, search): tree, archive, menus, toast; files section (resizable, foldable; one header row with the file keys and changed-files count, the picker's row) or tab (picker boxes + file buttons), FileExplorer
-  PiWebTitle.tsx           the sidebar's "Pi Web" brand (files below the sessions only): a click scrambles it into the versions
-  SessionTree.tsx          virtualized rows of the session tree and the archive view
-  SidebarMenu.tsx          sidebar popup menu (bottom sheet on phones), portaled to body: filter field, item secondary actions, the files tab's classic look
-  ProjectWorktreePicker.tsx project and worktree boxes + menus: the files' (one row below the sessions, stacked in the tab) and the new-session bar's
-  NewSessionContextBar.tsx the picker in its own row under the brand, right above the empty new-session composer; moves go through the sidebar
-  WorktreeCreateForm.tsx   "New worktree…" form, a SidebarMenu body
-  SidebarToast.tsx         sidebar one-line toast: archive Undo/View, failed saves
-  SidebarIcons.tsx         sidebar stroke icons
-  ChatWindow.tsx           chat composition + completion sound
-  ChatInput.tsx            input bar + model/thinking/tools/compact controls
-  MessageView.tsx          one message (user/assistant/toolCall/toolResult)
-  CodemodeToolView.tsx     codemode card: the tool calls its script made
-  BranchNavigator.tsx      in-session branch switcher
-  ChatMinimap.tsx          scroll minimap beside the message list
-  LockToggle.tsx           padlock toggle button (open and dim, closed and gold): the minimap's preview lock, the Agents strip's lock
-  MarkdownBody.tsx         markdown renderer
-  SvgBlock.tsx             a ```svg fence: preview only as an <img> data URL, source toggle, zoom, download (MermaidBlock's pieces)
-  ModelsConfig.tsx         Settings › Models: models.json editor
-  EnabledModelsSection.tsx model switches inside ModelsConfig (enabledModels)
-  ModelContextWindow.tsx   a managed model row's context-window field (blank: no override)
-  OAuthPastePanel.tsx      paste box for a sign-in's redirected address or code (Models, MCP)
-  ProjectTrustDialog.tsx   trust confirmation listing the project's MCP servers
-  AgentsConfig.tsx         built-in subagent toggle + agent profile editor
-  SessionChatPanel.tsx     right-panel tab of a subagent or side chat: a ChatWindow for that session
-  AgentMiniStrip.tsx       Agents strip under the chat toolbar while the main chat shows a subagent or side chat (locked: on the main agent too): chips to the main agent and each member, the padlock
-  DebugPanel.tsx           Debug top panel (toolbar, left of the stats): page and server state, its own tick and poll, error boundary
-  debug-panel-state.ts     pure helpers of DebugPanel: formatting, server clock, poller, issues, session grouping, poll samples
-  PluginsConfig.tsx        Settings › Plugins: installed package plugins
-  SkillsConfig.tsx         Settings › Skills: loaded, search, install
-  McpConfig.tsx            Settings › MCP: servers, switches, exposure, remove/undo, Test, sign-in, Code mode, trust
-  mcp-config-helpers.ts    pure helpers and requests for McpConfig
-  McpSignIn.tsx            a server's Sign-in row in Settings › MCP
-  mcp-sign-in-helpers.ts   pure helpers and requests for McpSignIn
-  McpAddServer.tsx         Settings › MCP add pane: paste, preview, values, name, scope
-  mcp-add-helpers.ts       pure helpers and the add request for McpAddServer
-  FileExplorer.tsx         file tree in the sidebar
-  FileIcons.tsx            file icon helpers
-  FileViewer.tsx           file content in a tab
-  DelimitedTable.tsx       a CSV/TSV file's Preview: virtualized table, gutter of file lines
-  TabBar.tsx               file panel tab bar (file, terminal and subagent tabs)
-  TranscriptNotices.tsx    a message's cache and cost notice lines, the fold header's cache-miss text
-
-hooks/
-  useAgentSession.ts       messages, streaming, SSE, fork/navigate, reconciliation; built-in slash commands (/session, bare /mcp)
-  useStreamingSelector.ts  one value of the streaming store (lib/streaming-message.ts): a chunk re-renders only its subscribers
-  useAudio.ts              completion sound + AudioContext unlock
-  useDragDrop.ts           chat drop zone: dropped files, folders marked
-  useFilesPlacement.ts     per-browser choice: the desktop sidebar's file browser below the sessions or in its own tab
-  useGroupDrag.ts          dragging a sidebar project group: mouse threshold, touch/pen long-press, auto-scroll, drop
-  useIsMobile.ts           responsive breakpoint
-  useHorizontalStrip.ts    a sideways-scrolling row with a hidden scrollbar: vertical wheel, current item kept in view (TabBar, Agents strip)
-  usePageHidden.ts         HIDDEN_PAGE_GRACE_MS; true once the page has been hidden that long (file watches pause)
-  useSessionUiState.ts     sidebar pins, archive, project order: optimistic writes in order, refetch on revision change
-  useSidebarMotion.ts      the sidebar's fold and archive-view motion: phase, end fallback, reduced motion, what shows meanwhile
-  useKeyboardShortcuts.ts  Esc stops the running agent unless a field or nearer handler took it; Ctrl+Alt+N
-  useResizablePanel.ts     drag/keyboard panel size kept per key; persistClamp: false never saves a short window's clamp
-  usePrismLanguages.ts     true once the Prism languages are loaded; starts the load for a highlighter
-  useTheme.ts              theme state
-  useTerminalTheme.ts      the terminal's own dark/light choice (localStorage), apart from the app theme
 ```
 
 ---
@@ -278,18 +116,18 @@ hooks/
 
 Design decisions and traps live in `docs/agents/`, one note per area. Read every note whose files a change touches before making it. Add new notes to the area's file, not here.
 
-- [sessions.md](docs/agents/sessions.md): AgentSession lifecycle and shutdown, fork vs in-session branching, the sidebar's on-disk Fork, session file rewrites, toolCall normalization, a run's message keys across the file read, SSE reconnect and tool events, a tool card's flat arguments as rows, transcript system / usage / context-edit entries, running-state polling, custom-message collapsing, streamed chunks re-rendering only the reply, streaming markdown block by block, hand-written anchors in rendered Markdown landing after the sanitizer's id prefix, Windows drive-letter Markdown links becoming `file:///` before sanitizing, user messages' raw HTML shown as text, ```svg fences previewed only as an `<img>`, display math's Copy button, long thinking rendered in pieces, a finished turn's duration, history caches (tool-result images, subagent runs, session views) and deferred code highlighting with Prism languages loaded on demand, a patch shown in one column or two, the session sidebar (toolbar row and its brand, project groups, their order and display names, pins, archive, new-session project adoption, the files below the sessions or in a tab), the project/worktree bar above a fresh composer (the header: brand, then the bar) and what it carries across the remount, exported HTML, the extension status bar and its `command:` buttons, extension UI colors (pi's palette theme, the page's light/dark ANSI palette), cache and cost notices (`showCacheMissNotices`), the read-only Debug panel (connections, server state, sessions the server holds). Files: `lib/rpc-manager.ts`, `lib/startup-issues.ts`, `lib/session-reader.ts`, `lib/session-fork*.ts`, `lib/session-delete.ts`, `lib/normalize.ts`, `lib/message-keys.ts`, `lib/idle-message-read.ts`, `lib/session-tree.ts`, `lib/session-ui-state*.ts`, `lib/unread-markers.ts`, `lib/user-attention.ts`, `lib/sidebar-prefs.ts`, `lib/sidebar-actions.ts`, `lib/session-links.ts`, `lib/session-search*.ts`, `lib/favicon-badge.ts`, `lib/new-session-context.ts`, `hooks/useAgentSession.ts`, `hooks/useSessionUiState.ts`, `hooks/useSidebarMotion.ts`, `hooks/useGroupDrag.ts`, `hooks/useFilesPlacement.ts`, `hooks/useResizablePanel.ts`, `app/api/agent/**`, `app/api/sessions/**`, `components/SessionSidebar.tsx`, `components/PiWebTitle.tsx`, `components/SessionTree.tsx`, `components/SidebarMenu.tsx`, `components/SidebarToast.tsx`, `components/SidebarIcons.tsx`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/WorktreeCreateForm.tsx`, `handleNewSession`, `handleSelectSession` and the bar's handlers in `components/AppShell.tsx`, `components/BranchNavigator.tsx`, `components/MessageView.tsx`, `lib/message-display.ts`, `lib/patch.ts`, `components/FileViewer.tsx`, `components/MarkdownBody.tsx`, `lib/markdown.ts`, `lib/markdown-blocks.ts`, `lib/streaming-message.ts`, `hooks/useStreamingSelector.ts`, `lib/turn-duration.ts`, `lib/tool-clock.ts`, `components/MermaidBlock.tsx`, `components/SvgBlock.tsx`, `lib/highlight-queue.ts`, `lib/prism-languages.ts`, `hooks/usePrismLanguages.ts`, `lib/session-view-cache.ts`, `components/CodemodeToolView.tsx`, `components/ExtensionStatusBar.tsx`, `components/ExtensionWidgets.tsx`, `lib/extension-ui-theme.ts`, `components/AnsiText.tsx`, `lib/transcript-notices*.ts`, `components/TranscriptNotices.tsx`, `app/api/cache-miss-notices/**`, `lib/tool-fields.ts`, `lib/debug-*.ts`, `lib/stream-client.ts`, `lib/page-stream-registry.ts`, `lib/page-debug.ts`, `lib/file-watch-registry.ts`, `components/DebugPanel.tsx`, `components/debug-panel-state.ts`.
-- [tools.md](docs/agents/tools.md): tool presets and Chat only, exact system prompts, tool exposure, the codemode / tool-search / mcp built-ins, the read-only MCP policy, the Code mode and PowerShell `defaultTools` switches. Files: `lib/tool-presets.ts`, `lib/tool-preset-preference.ts`, `lib/chat-only.ts`, `lib/exact-system-prompt.ts`, `lib/builtin-extensions.ts`, `lib/mcp-read-only-policy.ts`, `lib/codemode-settings.ts`, `lib/powershell-settings.ts`, `lib/global-settings-file.ts`, `app/api/agent/new/route.ts`, `app/api/tools/settings/route.ts`, tool selection in `lib/rpc-manager.ts`.
-- [mcp-runtime.md](docs/agents/mcp-runtime.md): the per-session MCP host (when servers register and connect, reported states, trust read on every sync, idle release); `/mcp` in the composer. Files: `lib/mcp-host.ts`, `lib/mcp-transport.ts`, `lib/mcp-status.ts`, `lib/mcp-command.ts`, `lib/mcp-config-key.ts`, MCP wiring in `lib/rpc-manager.ts` and `lib/builtin-extensions.ts`, `/mcp` handling in `hooks/useAgentSession.ts`.
-- [mcp-settings.md](docs/agents/mcp-settings.md): Settings › MCP reads without running anything, masking, the trust dialog's server list, row states, notices, Code mode choice, trust from Settings, Escape stacking, every `mcp.json` write and undo. Files: `app/api/mcp/route.ts`, `app/api/project-trust/route.ts`, `lib/mcp-config-read.ts`, `lib/mcp-config-file.ts`, `lib/mcp-override.ts`, `lib/mcp-undo.ts`, `lib/mcp-secrets.ts`, `lib/mcp-server-display.ts`, `lib/mcp-json-error.ts`, `lib/project-trust.ts`, `lib/regular-file.ts`, `lib/stacked-dialog.ts`, `lib/settings-navigation.ts`, `components/McpConfig.tsx`, `components/mcp-config-helpers.ts`, `components/ProjectTrustDialog.tsx`, `components/SettingsPanel.tsx`.
-- [mcp-test-sign-in.md](docs/agents/mcp-test-sign-in.md): Settings › MCP Test (route checks, bounded connection, `!command` queue, redaction, status store) and OAuth sign-in / sign-out. Files: `app/api/mcp/test/**`, `app/api/mcp/sign-in/**`, `lib/mcp-test.ts`, `lib/mcp-entry-request.ts`, `lib/mcp-status.ts`, `lib/mcp-sign-in.ts`, `lib/mcp-sign-out.ts`, `components/McpSignIn.tsx`, `components/mcp-sign-in-helpers.ts`, `components/OAuthPastePanel.tsx`.
-- [mcp-add.md](docs/agents/mcp-add.md): Settings › MCP add (paste re-parsed on the server, host-variable confirmation, literal secrets kept global, fresh-folder trust, the add pane) and the paste importer's escaping and grammars. Files: `lib/mcp-add.ts`, `lib/mcp-import*.ts`, `lib/shell-words.ts`, fresh-folder trust in `lib/project-trust.ts`, `components/McpAddServer.tsx`, `components/mcp-add-helpers.ts`, the `add` action of `app/api/mcp/route.ts`.
-- [models.md](docs/agents/models.md): default model and reasoning level, providers registered at session_start, mid-run reasoning changes, remote provider catalogs, `enabledModels` scoping and minimal edits, managed models' context-window overrides, provider auth listing and credentials, the extension-loaded runtime those routes share. Files: `app/api/models/**`, `app/api/models-config/**`, `app/api/auth/**`, `lib/model-runtime.ts`, `lib/default-preferences.ts`, `lib/model-scope.ts`, `lib/enabled-models*.ts`, `lib/model-context.ts`, `lib/model-image-limits.ts`, `lib/model-provider-check.ts`, `lib/model-catalog-refresh.ts`, `lib/deferred-provider-models.ts`, `lib/provider-listing*.ts`, `components/ModelsConfig.tsx`, `components/EnabledModelsSection.tsx`, `components/ModelContextWindow.tsx`, `components/ModelSelector.tsx`, `components/SelectorRow.tsx`.
-- [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the directory picker's typed path, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, the sandboxed HTML preview's storage shim, the source view's languages by extension, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/file-version.ts`, `lib/html-sandbox-polyfill.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`, `components/DirectoryPicker.tsx`.
-- [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
-- [side-sessions.md](docs/agents/side-sessions.md): side chats (ADR 0007): the Fork copy with a `pi-web:side` entry inside the bounded head read, the `side` relation kind and family fold, the parent's session minus tools (an allow-list of exactly its tools), the hidden boundary message and where each provider's request puts the tool change, `/side`, the tab shared with subagents, usage that skips inherited entries. Files: `lib/side-session.ts`, `lib/session-fork.ts`, `lib/session-family.ts`, `lib/session-delete.ts`, `lib/session-reader.ts`, side handling in `lib/rpc-manager.ts`, `app/api/sessions/[id]/fork/route.ts`, `app/api/sessions/stats/route.ts`, `components/SessionChatPanel.tsx`, `components/TabBar.tsx`, `components/AgentSessionPanel.tsx`, `components/ChatInput.tsx`, `hooks/useAgentSession.ts`, `lib/side-chat-client.ts`, side handling in `components/AppShell.tsx`.
-- [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent tab, the Agents strip. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SessionChatPanel.tsx`, `components/AgentMiniStrip.tsx`, `lib/agent-strip-lock.ts`, `components/LockToggle.tsx`.
-- [client-platform.md](docs/agents/client-platform.md): the global shortcuts (Ctrl+Alt+N on macOS's dead-key Option+N and Windows AltGr, Esc stacking), mobile software keyboard and viewport height, the terminal's shell (PowerShell first on Windows), the terminal's extra keys, its own dark/light theme and its font size following the chat's, completion sound (one chime per completion across a browser's pages), the launcher opening the browser only after the first page is served. Files: `hooks/useKeyboardShortcuts.ts`, `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `lib/done-chime.ts`, `terminalShell()` in `lib/terminal-manager.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, `terminalFontSize()` in `hooks/useChatAppearance.ts`, the keyboard-open CSS, `bin/browser-opener.js`, the browser opening in `bin/pi-web.js`.
+- [sessions.md](docs/agents/sessions.md): AgentSession lifecycle, session file reads and rewrites, SSE and running state, the chat transcript's rendering (messages, tool cards, Markdown, code, notices), the session sidebar and new-session bar, the Debug panel. Files: `lib/rpc-manager.ts`, `lib/startup-issues.ts`, `lib/session-reader.ts`, `lib/session-fork*.ts`, `lib/session-delete.ts`, `lib/normalize.ts`, `lib/message-keys.ts`, `lib/idle-message-read.ts`, `lib/session-tree.ts`, `lib/session-ui-state*.ts`, `lib/unread-markers.ts`, `lib/user-attention.ts`, `lib/sidebar-prefs.ts`, `lib/sidebar-actions.ts`, `lib/session-links.ts`, `lib/session-search*.ts`, `lib/favicon-badge.ts`, `lib/new-session-context.ts`, `hooks/useAgentSession.ts`, `hooks/useSessionUiState.ts`, `hooks/useSidebarMotion.ts`, `hooks/useGroupDrag.ts`, `hooks/useFilesPlacement.ts`, `hooks/useResizablePanel.ts`, `app/api/agent/**`, `app/api/sessions/**`, `components/SessionSidebar.tsx`, `components/PiWebTitle.tsx`, `components/SessionTree.tsx`, `components/SidebarMenu.tsx`, `components/SidebarToast.tsx`, `components/SidebarIcons.tsx`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/WorktreeCreateForm.tsx`, `handleNewSession`, `handleSelectSession` and the bar's handlers in `components/AppShell.tsx`, `components/BranchNavigator.tsx`, `components/MessageView.tsx`, `lib/message-display.ts`, `lib/patch.ts`, `components/FileViewer.tsx`, `components/MarkdownBody.tsx`, `lib/markdown.ts`, `lib/markdown-blocks.ts`, `lib/streaming-message.ts`, `hooks/useStreamingSelector.ts`, `lib/turn-duration.ts`, `lib/tool-clock.ts`, `components/MermaidBlock.tsx`, `components/SvgBlock.tsx`, `lib/highlight-queue.ts`, `lib/prism-languages.ts`, `hooks/usePrismLanguages.ts`, `lib/session-view-cache.ts`, `components/CodemodeToolView.tsx`, `components/ExtensionStatusBar.tsx`, `components/ExtensionWidgets.tsx`, `lib/extension-ui-theme.ts`, `components/AnsiText.tsx`, `lib/transcript-notices*.ts`, `components/TranscriptNotices.tsx`, `app/api/cache-miss-notices/**`, `lib/tool-fields.ts`, `lib/debug-*.ts`, `lib/stream-client.ts`, `lib/page-stream-registry.ts`, `lib/page-debug.ts`, `lib/file-watch-registry.ts`, `components/DebugPanel.tsx`, `components/debug-panel-state.ts`.
+- [tools.md](docs/agents/tools.md): tool presets and Chat only, exact system prompts, tool exposure, the codemode / tool-search / mcp built-ins, the read-only MCP policy, the Code mode and PowerShell switches. Files: `lib/tool-presets.ts`, `lib/tool-preset-preference.ts`, `lib/chat-only.ts`, `lib/exact-system-prompt.ts`, `lib/builtin-extensions.ts`, `lib/mcp-read-only-policy.ts`, `lib/codemode-settings.ts`, `lib/powershell-settings.ts`, `lib/global-settings-file.ts`, `app/api/agent/new/route.ts`, `app/api/tools/settings/route.ts`, tool selection in `lib/rpc-manager.ts`.
+- [mcp-runtime.md](docs/agents/mcp-runtime.md): the per-session MCP host and `/mcp` in the composer. Files: `lib/mcp-host.ts`, `lib/mcp-transport.ts`, `lib/mcp-status.ts`, `lib/mcp-command.ts`, `lib/mcp-config-key.ts`, MCP wiring in `lib/rpc-manager.ts` and `lib/builtin-extensions.ts`, `/mcp` handling in `hooks/useAgentSession.ts`.
+- [mcp-settings.md](docs/agents/mcp-settings.md): Settings › MCP: reads that run nothing, masking, row states and notices, the Code mode choice, trust, every `mcp.json` write and undo. Files: `app/api/mcp/route.ts`, `app/api/project-trust/route.ts`, `lib/mcp-config-read.ts`, `lib/mcp-config-file.ts`, `lib/mcp-override.ts`, `lib/mcp-undo.ts`, `lib/mcp-secrets.ts`, `lib/mcp-server-display.ts`, `lib/mcp-json-error.ts`, `lib/project-trust.ts`, `lib/regular-file.ts`, `lib/stacked-dialog.ts`, `lib/settings-navigation.ts`, `components/McpConfig.tsx`, `components/mcp-config-helpers.ts`, `components/ProjectTrustDialog.tsx`, `components/SettingsPanel.tsx`.
+- [mcp-test-sign-in.md](docs/agents/mcp-test-sign-in.md): Settings › MCP Test and OAuth sign-in / sign-out. Files: `app/api/mcp/test/**`, `app/api/mcp/sign-in/**`, `lib/mcp-test.ts`, `lib/mcp-entry-request.ts`, `lib/mcp-status.ts`, `lib/mcp-sign-in.ts`, `lib/mcp-sign-out.ts`, `components/McpSignIn.tsx`, `components/mcp-sign-in-helpers.ts`, `components/OAuthPastePanel.tsx`.
+- [mcp-add.md](docs/agents/mcp-add.md): Settings › MCP add pane and the paste importer. Files: `lib/mcp-add.ts`, `lib/mcp-import*.ts`, `lib/shell-words.ts`, fresh-folder trust in `lib/project-trust.ts`, `components/McpAddServer.tsx`, `components/mcp-add-helpers.ts`, the `add` action of `app/api/mcp/route.ts`.
+- [models.md](docs/agents/models.md): default model and reasoning level, provider catalogs and credentials, `enabledModels`, the models.json editor. Files: `app/api/models/**`, `app/api/models-config/**`, `app/api/auth/**`, `lib/model-runtime.ts`, `lib/default-preferences.ts`, `lib/model-scope.ts`, `lib/enabled-models*.ts`, `lib/model-context.ts`, `lib/model-image-limits.ts`, `lib/model-provider-check.ts`, `lib/model-catalog-refresh.ts`, `lib/deferred-provider-models.ts`, `lib/provider-listing*.ts`, `components/ModelsConfig.tsx`, `components/EnabledModelsSection.tsx`, `components/ModelContextWindow.tsx`, `components/ModelSelector.tsx`, `components/SelectorRow.tsx`.
+- [files-and-access.md](docs/agents/files-and-access.md): the `/api/files` allow-list (the security boundary), worktrees and project grouping, the file tree, uploads and chat drops, file previews, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/file-version.ts`, `lib/html-sandbox-polyfill.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`, `components/DirectoryPicker.tsx`.
+- [settings-ui.md](docs/agents/settings-ui.md): General settings, the Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
+- [side-sessions.md](docs/agents/side-sessions.md): side chats (ADR 0007): the fork copy, the tool allow-list, the hidden boundary message, the shared tab, usage. Files: `lib/side-session.ts`, `lib/session-fork.ts`, `lib/session-family.ts`, `lib/session-delete.ts`, `lib/session-reader.ts`, side handling in `lib/rpc-manager.ts`, `app/api/sessions/[id]/fork/route.ts`, `app/api/sessions/stats/route.ts`, `components/SessionChatPanel.tsx`, `components/TabBar.tsx`, `components/AgentSessionPanel.tsx`, `components/ChatInput.tsx`, `hooks/useAgentSession.ts`, `lib/side-chat-client.ts`, side handling in `components/AppShell.tsx`.
+- [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles, run status, completion notifications, the subagent tab, the Agents strip. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SessionChatPanel.tsx`, `components/AgentMiniStrip.tsx`, `lib/agent-strip-lock.ts`, `components/LockToggle.tsx`.
+- [client-platform.md](docs/agents/client-platform.md): global shortcuts, the mobile keyboard and viewport, the terminal (shell, keys, theme, font size), the completion sound, the launcher. Files: `hooks/useKeyboardShortcuts.ts`, `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `lib/done-chime.ts`, `terminalShell()` in `lib/terminal-manager.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, `terminalFontSize()` in `hooks/useChatAppearance.ts`, the keyboard-open CSS, `bin/browser-opener.js`, the browser opening in `bin/pi-web.js`.
 
 ---
 
