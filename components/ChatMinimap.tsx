@@ -12,6 +12,7 @@ import { loadMinimapPreviewLocked, saveMinimapPreviewLocked } from "@/lib/minima
 import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
+import { LockToggle } from "./LockToggle";
 
 interface Props {
   messages: AgentMessage[];
@@ -724,11 +725,10 @@ export const ChatMinimap = memo(function ChatMinimap({
         );
       })}
 
-      <button
-        type="button"
+      <LockToggle
+        locked={locked}
         className={styles.lock}
         data-minimap-lock={locked ? "on" : "off"}
-        aria-pressed={locked}
         title={t(locked ? "chatMinimap.unlockPreview" : "chatMinimap.lockPreview")}
         aria-label={t("chatMinimap.lockPreview")}
         onMouseDown={(event) => event.stopPropagation()}
@@ -736,26 +736,7 @@ export const ChatMinimap = memo(function ChatMinimap({
           event.stopPropagation();
           toggleLock();
         }}
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <rect x="4" y="11" width="16" height="10" rx="2" />
-          {locked ? (
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-          ) : (
-            <path d="M8 11V7a4 4 0 0 1 7.9-.9" />
-          )}
-        </svg>
-      </button>
+      />
 
       {minimapHovered && allNodes.length > 0 && (
         <div
