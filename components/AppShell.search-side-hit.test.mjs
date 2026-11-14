@@ -68,7 +68,7 @@ test("a hit whose parent is not listed asks for a fresh list instead of selectin
   assert.equal(calls.refreshed, 1);
 });
 
-test("a hit for an ordinary session leaves the main-chat selection to the row", () => {
+test("a hit for an ordinary session is not handled here", () => {
   const { calls } = run({ hit: sessions[0] });
   assert.deepEqual(calls.selected, []);
   assert.deepEqual(calls.opened, []);

@@ -1,10 +1,11 @@
-import { createReadStream } from "node:fs";
+﻿import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SessionInfo } from "./types";
 
-// Kept as a literal so this module stays dependency-free (it is imported by
-// standalone benchmark scripts). Canonical definition: session-family.ts.
+// Kept as literals so this module stays dependency-free (it is imported by
+// standalone benchmark scripts). Canonical definitions: session-family.ts.
 const SIDE_BOUNDARY_MESSAGE_TYPE = "pi-web:side-boundary";
+const SIDE_SESSION_NAME = "Side chat";
 
 const MAX_FILES = 500;
 const MAX_RESULTS = 30;
@@ -69,8 +70,12 @@ export async function searchSessionContents(
   const deadline = Date.now() + TIME_BUDGET_MS;
   const timeout = AbortSignal.timeout(TIME_BUDGET_MS);
   const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout;
+  const sessionIds = new Set(sessions.map((session) => session.id));
   const candidates = sessions
     .filter((session) => !session.transient && session.path)
+    // A side chat whose parent is gone has no family row in the sidebar either:
+    // a hit here could not be opened.
+    .filter((session) => session.relation?.kind !== "side" || sessionIds.has(session.relation.parentSessionId))
     .sort((a, b) => b.modified.localeCompare(a.modified));
 
   for (const [index, session] of candidates.entries()) {
@@ -93,6 +98,9 @@ export async function searchSessionContents(
           response.truncated = true;
           break;
         }
+        // Before the boundary only the boundary line itself matters: inherited
+        // lines are neither searched nor allowed to claim a truncation.
+        if (!pastBoundary && !line.includes(SIDE_BOUNDARY_MESSAGE_TYPE)) continue;
         if (line.length > MAX_LINE_CHARS) {
           response.truncated = true;
           continue;
@@ -150,10 +158,12 @@ export async function searchSessionContents(
     // Preserve message navigation when both body and title match. The catalogue
     // already carries the displayed name (including session_info names), so a
     // title hit is a fallback only when the transcript has no match.
-    if (!found && !signal.aborted && Date.now() < deadline) {
-    // A side chat's firstMessage is its inherited first question, so only its own
-    // name may stand in for a title hit; the parent's row already covers the rest.
-    const title = session.relation?.kind === "side" ? session.name || "" : session.name || session.firstMessage || "";
+    if (!found && pastBoundary && !signal.aborted && Date.now() < deadline) {
+      // A side chat's firstMessage is its inherited first question, and its name
+      // may still be the app's placeholder: neither stands in for a title hit.
+      const title = session.relation?.kind === "side"
+        ? (session.name && session.name !== SIDE_SESSION_NAME ? session.name : "")
+        : session.name || session.firstMessage || "";
       // Every term has to be in the title too: half the terms there and half in the body is no hit.
       const titleHit = matchers.every((matcher) => matcher.test(title)) ? matchers[0].exec(title) : null;
       if (titleHit) {

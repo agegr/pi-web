@@ -16,9 +16,9 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, entryId?: string, blockIndex?: number) => void;
   /** Picking a side chat's hit: its parent's chat opens, then the side chat's tab. */
-  onSelectSideChat?: (session: SessionInfo) => void;
+  onSelectSideChat: (session: SessionInfo) => void;
   /** Every listed session: a side chat's hit names the parent it belongs to. */
-  sessions?: readonly SessionInfo[];
+  sessions: readonly SessionInfo[];
   /** Ids of every session in an archived family: their results are tagged, not hidden. */
   archivedSessionIds?: ReadonlySet<string>;
   /** The sidebar's project display names, by project key: a hit names its project like the tree's groups do. */
@@ -72,16 +72,18 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
       )}
       {response?.results.map(({ session, entryId, blockIndex, titleMatch, before, match, after }) => {
         const side = session.relation?.kind === "side" ? session.relation : null;
-        const parent = side ? sessions?.find((item) => item.id === side.parentSessionId) : undefined;
-        const parentTitle = parent?.name || parent?.firstMessage || undefined;
         // A side chat's own title: its first message is the parent's question.
-        const sideLabel = side && sessions ? sideChatHit(session, sessions, t("agentSwitcher.sideChat"))?.label : null;
-        const title = sideLabel ?? session.name ?? session.firstMessage;
+        const sideHit = side ? sideChatHit(session, sessions, t("agentSwitcher.sideChat")) : null;
+        const title = sideHit ? sideHit.label : session.name || session.firstMessage;
         return (
           <button
             key={session.id}
             type="button"
-            onClick={() => side && onSelectSideChat ? onSelectSideChat(session) : onSelectSession(session, entryId, blockIndex)}
+            onClick={() => {
+              // Side chats never open as the main chat (ADR 0007).
+              if (side) { onSelectSideChat(session); return; }
+              onSelectSession(session, entryId, blockIndex);
+            }}
             aria-current={session.id === selectedSessionId ? "true" : undefined}
             className={`block w-full cursor-pointer border-b border-border px-3 py-2 text-left hover:bg-bg-hover focus-visible:outline-2 focus-visible:outline-accent ${session.id === selectedSessionId ? "bg-bg-selected" : ""}`}
           >
@@ -93,9 +95,9 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
                 <span className="shrink-0 rounded-[4px] border border-border px-1 text-[10px] leading-[14px] text-text-dim">{t("sidebar.archived")}</span>
               )}
             </span>
-            {side && (
-              <span className="mt-1 block truncate text-[10px] text-text-dim" title={parentTitle}>
-                {parentTitle ? t("sidebar.sideChatOf", { name: parentTitle }) : t("agentSwitcher.sideChat")}
+            {sideHit && (
+              <span className="mt-1 block truncate text-[10px] text-text-dim" title={sideHit.parentTitle}>
+                {sideHit.parentTitle ? t("sidebar.sideChatOf", { name: sideHit.parentTitle }) : t("agentSwitcher.sideChat")}
               </span>
             )}
             <span className="mt-1 flex min-w-0 gap-2 text-[10px] text-text-dim">

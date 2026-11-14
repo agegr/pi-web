@@ -218,7 +218,7 @@ interface Props {
   selectedSessionId: string | null;
   onSelectSession: (session: SessionInfo, isRestore?: boolean, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => void;
   /** A side chat's search hit: its parent opens, then the side chat's tab. */
-  onSelectSideChat?: (session: SessionInfo) => void;
+  onSelectSideChat: (session: SessionInfo) => void;
   /** projectKey: the target's project identity when it is known (a group's "+", the composer's bar). */
   onNewSession?: (sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => void;
   /** What the bar above a fresh composer moves through (`SessionSidebarControl`). */
