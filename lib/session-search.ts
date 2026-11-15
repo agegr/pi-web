@@ -69,7 +69,7 @@ let cachedBytes = 0;
 
 function entryBytes(entries: readonly SearchableEntry[]): number {
   let bytes = 0;
-  for (const entry of entries) bytes += entry.text.length;
+  for (const entry of entries) bytes += Buffer.byteLength(entry.text, "utf8");
   return bytes;
 }
 
