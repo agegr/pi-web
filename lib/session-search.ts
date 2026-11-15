@@ -300,16 +300,18 @@ export async function searchSessionContents(
         // Parsed once and kept only if the read ran to the end: a scan that stopped at a
         // hit, the deadline or the byte cap says nothing about the rest of the file.
         const collected: SearchableEntry[] = [];
-        let drained = false;
+        let drained = true;
+        let earlyExit = false;
         try {
           for await (const entry of streamEntries(session.path, isSide, signal, deadline, stats)) {
             collected.push(entry);
-            if (consider(entry)) break;
+            if (consider(entry)) { earlyExit = true; break; }
           }
-          drained = true;
         } catch {
+          drained = false;
           response.truncated = true;
         }
+        if (earlyExit || signal.aborted || Date.now() >= deadline) drained = false;
         sawBoundary = stats.sawBoundary;
         if (drained && !stats.overlong && !stats.overCap && !signal.aborted && Date.now() < deadline) {
           remember(session.path, size, mtimeMs, isSide, collected, stats.sawBoundary);
