@@ -18,6 +18,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { AgentCommandError, agentStatusUrl, EXTENSION_REPORTED_CODE, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
+import { forkFailureMessage } from "@/lib/sidebar-actions";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -240,7 +241,8 @@ export interface UseAgentSessionOptions {
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
-  onSessionForked?: (newSessionId: string) => void;
+  /** A fork to open. `session` is its row when it may belong to another project (a fork into another folder). */
+  onSessionForked?: (newSessionId: string, session?: SessionInfo) => void;
   /** `/side`: a side chat was forked from this session; open its tab. The
    *  prompt argument, if any, seeds the new chat's composer. */
   onSideSession?: (session: SessionInfo, prompt: string | null) => void;
@@ -480,6 +482,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelsMissingCwd, setModelsMissingCwd] = useState<string | null>(null);
   const [promptMissingCwd, setPromptMissingCwd] = useState<string | null>(null);
   const missingCwd = promptMissingCwd ?? modelsMissingCwd;
+  const [forkingMissingCwd, setForkingMissingCwd] = useState(false);
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [isModelScopeActive, setIsModelScopeActive] = useState(false);
   // Every available model, fetched only when the selector switches to "all" or the
@@ -2553,6 +2556,42 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, onSessionForked]);
 
+  /**
+   * pi's Fork for a session whose folder is gone (pi 1.5.2): the whole session
+   * copied into `cwd`, a folder that exists (POST /api/sessions/[id]/fork
+   * `{ cwd }`), then opened. The draft goes along, as the refused prompt was
+   * given back to it. Resolves to an error to show, or null.
+   */
+  const forkIntoCwd = useCallback(async (cwd: string): Promise<string | null> => {
+    const sid = sessionIdRef.current;
+    if (!sid) return translate("sidebar.forkNotFound");
+    setForkingMissingCwd(true);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd }),
+      });
+      const data = await res.json().catch(() => ({})) as { sessionId?: string; session?: SessionInfo; code?: string; error?: string };
+      if (!res.ok || !data.sessionId || !data.session) {
+        if (data.code === "cwd-invalid") return data.error ?? `HTTP ${res.status}`;
+        const { key, params } = forkFailureMessage(data.code, data.error ?? `HTTP ${res.status}`);
+        return translate(key, params);
+      }
+      const input = opts.chatInputRef?.current;
+      if (input) input.rekeyDraft(sid, data.sessionId);
+      else rekeyDraft(sid, data.sessionId);
+      onSessionForked?.(data.sessionId, data.session);
+      return null;
+    } catch (e) {
+      return translate("sidebar.forkFailed", { error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setForkingMissingCwd(false);
+    }
+  }, [onSessionForked, opts.chatInputRef, translate]);
+  const canForkMissingCwd = Boolean(missingCwd) && !isNew && Boolean(session?.id)
+    && session?.relation?.kind !== "subagent" && session?.relation?.kind !== "side";
+
   const handleNavigate = useCallback(async (entryId: string): Promise<boolean> => {
     if (bashRunningRef.current) return false;
     const sid = sessionIdRef.current;
@@ -3611,7 +3650,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, toolClocks, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, forkingMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -3629,7 +3668,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, startSideChat, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, startSideChat, handleFork, forkIntoCwd, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,

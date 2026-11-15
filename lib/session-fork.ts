@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "crypto";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { forkSessionName, sessionDisplayTitle } from "./session-fork-name";
 import { scanSessionFileInfo } from "./session-list-scanner";
@@ -16,7 +16,7 @@ import type { SessionEntry } from "./types";
  * named: the source's title plus a short random suffix (session-fork-name.ts).
  */
 
-export type SessionForkRefusal = "not_found" | "unsaved" | "empty" | "subagent" | "side";
+export type SessionForkRefusal = "not_found" | "unsaved" | "empty" | "subagent" | "side" | "cwd-invalid" | "cwd-exists";
 
 export class SessionForkError extends Error {
   constructor(readonly code: SessionForkRefusal, message: string) {
@@ -100,6 +100,46 @@ export function createSideSession(
   const added = [...(pin ? [pin] : []), boundary].map((entry) => JSON.stringify(entry));
   writeFileSync(copy.path, [header, JSON.stringify(metadata), JSON.stringify(firstEntry), ...rest, ...added].join("\n") + "\n", { encoding: "utf8" });
   return { sessionId: copy.sessionId, path: copy.path };
+}
+
+/**
+ * pi's Fork for a session whose folder is gone (pi 1.5.2, `switchToForkedSession()`):
+ * `SessionManager.forkFrom()` copies the whole file, every branch and its
+ * `session_info` names, into a new session of `targetCwd`, filed under that
+ * folder's session directory, header `parentSession` = the source. The source
+ * stays as it was. Like the sidebar's Fork, it runs on disk with no runtime,
+ * and refuses what that refuses: a subagent's or side chat's metadata would
+ * fold the copy into a family it no longer belongs to. Offered only where pi
+ * offers it: a source whose own folder still exists is refused (`cwd-exists`).
+ */
+export function forkSessionIntoCwd(sourcePath: string, targetCwd: string): { sessionId: string; path: string } {
+  if (!existsSync(sourcePath)) throw new SessionForkError("not_found", "Session not found");
+  let isDirectory = false;
+  try {
+    isDirectory = statSync(targetCwd).isDirectory();
+  } catch {
+    // Missing or unreadable: refused below.
+  }
+  if (!isDirectory) throw new SessionForkError("cwd-invalid", `Directory does not exist: ${targetCwd}`);
+
+  const source = SessionManager.open(sourcePath);
+  const sourceCwd = source.getCwd();
+  if (sourceCwd && existsSync(sourceCwd)) {
+    throw new SessionForkError("cwd-exists", `The session's folder still exists: ${sourceCwd}`);
+  }
+  const entries = source.getEntries() as unknown as SessionEntry[];
+  if (readSubagentRun(entries, "", sourcePath)) {
+    throw new SessionForkError("subagent", "A subagent session cannot be forked");
+  }
+  if (readSideRelation(entries)) throw new SessionForkError("side", "A side chat cannot be forked");
+  if (!entries.some((entry) => entry.type === "message")) {
+    throw new SessionForkError("empty", "Nothing to fork: the session has no messages");
+  }
+
+  const fork = SessionManager.forkFrom(sourcePath, targetCwd);
+  const path = fork.getSessionFile();
+  if (!path || !existsSync(path)) throw new Error("Failed to fork the session");
+  return { sessionId: fork.getSessionId(), path };
 }
 
 function copySessionBranch(

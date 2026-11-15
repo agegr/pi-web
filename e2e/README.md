@@ -71,6 +71,10 @@ Coverage:
   collapse/expand draft preservation, countdown display, server-side expiry,
   and that `setEditorText` replaces the composer's draft while `pasteToEditor`
   inserts at the caret.
+- A session whose folder is gone shows the "Project folder not found" banner
+  with Fork into another folder…; the directory picker's choice forks it there
+  (pi 1.5.2's Fork), the copy opens with the refused prompt still in its
+  composer, and the source stays (`missing-cwd-fork.mjs`, 1280 and 390px).
 - The production assistant header keeps its height and numeric columns when streaming metrics appear, update and disappear. Static component renders cover digit boundaries with proportional and monospace fonts, without a live model. Run this check alone with `node e2e/streaming-metrics.mjs` (1280, 390 and 320px).
 
 Model prompts, live model streaming, and agent execution are outside this suite.

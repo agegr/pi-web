@@ -1354,9 +1354,10 @@ export class AgentSessionWrapper {
       }
       // A session whose folder was deleted outside pi-web stays readable, but a
       // run there would reach the model only for its tools to fail (and `write`
-      // to recreate the folder). The pi CLI does not resume such a session
-      // either; refuse as /api/agent/new does. (A `!` command already refuses.)
-      // Typed, so the route names the folder for the composer (#1422).
+      // to recreate the folder). The pi CLI asks to continue elsewhere or fork
+      // instead; refuse as /api/agent/new does, and the composer offers the fork.
+      // (A `!` command already refuses.) Typed, so the route names the folder for
+      // the composer (#1422).
       if (type === "prompt" && !existsSync(this.cwd)) {
         throw cwdMissingError(this.cwd);
       }
