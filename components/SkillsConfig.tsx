@@ -104,8 +104,16 @@ function shortVersion(version: string | undefined, unknown: string): string {
   return version ? version.slice(0, 8) : unknown;
 }
 
-export function skillInstructionsBody(content: string): string {
-  return parseFrontmatter(content).rest.trim();
+/**
+ * The Markdown under a skill's frontmatter. Given the skill's name, a first
+ * heading that only repeats it is dropped: the pane already shows the name.
+ */
+export function skillInstructionsBody(content: string, name?: string): string {
+  const body = parseFrontmatter(content).rest.trim();
+  if (!name) return body;
+  const firstLine = body.match(/^#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*(?:\r?\n|$)/);
+  if (!firstLine || firstLine[1].trim().toLowerCase() !== name.trim().toLowerCase()) return body;
+  return body.slice(firstLine[0].length).trim();
 }
 
 /**
@@ -196,7 +204,7 @@ function SkillDetail({
         if (!response.ok || data.error || typeof data.content !== "string") {
           throw new Error(data.error ?? `HTTP ${response.status}`);
         }
-        setInstructions(skillInstructionsBody(data.content));
+        setInstructions(skillInstructionsBody(data.content, documentPath === rootDocument ? skill.name : undefined));
       } catch (error) {
         if (controller.signal.aborted) return;
         setInstructionsError(error instanceof Error ? error.message : String(error));
@@ -205,7 +213,7 @@ function SkillDetail({
 
     void load();
     return () => controller.abort();
-  }, [cwd, skill.filePath, documentPath, rootDocument]);
+  }, [cwd, skill.filePath, skill.name, documentPath, rootDocument]);
 
   return (
     <ConfigDetailStack>

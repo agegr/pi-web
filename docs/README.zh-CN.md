@@ -158,7 +158,7 @@ docs/            面向用户和贡献者的专题文档
 demo/            发布到 GitHub Pages 的静态演示站（见 demo/README.md）
 ```
 
-架构说明和详细文件地图见 [AGENTS.md](../AGENTS.md)。
+架构说明、API 路由和专题笔记见 [AGENTS.md](../AGENTS.md)。
 
 ## 许可证
 

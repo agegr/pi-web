@@ -2072,11 +2072,17 @@
   width: 100%;
   max-width: 420px;
   min-height: 44px;
-  padding: 0 10px;
+  padding: 8px 10px;
   border-radius: 5px;
   background: var(--bg-panel);
   color: var(--text);
   font-size: 12px;
+  line-height: 1.5;
+}
+
+/* A row whose text wraps keeps its control whole. */
+.settings-shell-option > button {
+  flex-shrink: 0;
 }
 
 .settings-general-error {

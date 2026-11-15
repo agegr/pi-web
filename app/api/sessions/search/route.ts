@@ -19,9 +19,9 @@ export async function GET(request: Request) {
     // seconds is not searched yet; the stale read schedules the rebuild, so the
     // next search sees it.
     const sessions = query && !request.signal.aborted ? await listAllSessions({ allowStale: true }) : [];
-    // A side chat copies its parent's whole text and never opens as the main chat.
-    const searchable = sessions.filter((session) => session.relation?.kind !== "side");
-    return NextResponse.json(await searchSessionContents(searchable, query, request.signal), { headers });
+    // Side chats stay in the search: lib/session-search.ts only reads what follows
+    // their boundary message, so inherited history is not duplicated from the parent.
+    return NextResponse.json(await searchSessionContents(sessions, query, request.signal), { headers });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500, headers });
   }

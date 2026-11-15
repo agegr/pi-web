@@ -1960,9 +1960,6 @@ export function CompactionSummaryDetails({ summary }: { summary: string }) {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ marginBottom: 10, color: "var(--text)", fontSize: "calc(14px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
-         {t("i18n.compactionDescription")}
-      </div>
       {parsedSummary.body ? (
         <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
       ) : (

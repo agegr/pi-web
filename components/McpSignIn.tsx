@@ -49,6 +49,8 @@ export function McpSignInRow({
   run,
   block,
   signOutBlock,
+  blockSaidBy,
+  signOutBlockSaidBy,
   controlsBusy,
   signingOut,
   onSignIn,
@@ -63,6 +65,10 @@ export function McpSignInRow({
   block: McpTestBlock | undefined;
   /** Why Sign out cannot be used. */
   signOutBlock: McpTestBlock | undefined;
+  /** The id of a notice above the list that already says `block`: no line repeats it here. */
+  blockSaidBy?: string;
+  /** Likewise for `signOutBlock`. */
+  signOutBlockSaidBy?: string;
   /** A change of the panel is on its way; Sign out is one. */
   controlsBusy: boolean;
   signingOut: boolean;
@@ -165,8 +171,8 @@ export function McpSignInRow({
             {t(run.signedOut.removed ? "mcp.signIn.signedOutDone" : "mcp.signIn.signedOutNothing")}
           </span>
         )}
-        {block && <span id={blockId} className="mcp-config-line is-dim">{t(MCP_SIGN_IN_BLOCK_KEYS[block])}</span>}
-        {!block && signOutBlock && offersSignOut && !active && (
+        {block && !blockSaidBy && <span id={blockId} className="mcp-config-line is-dim">{t(MCP_SIGN_IN_BLOCK_KEYS[block])}</span>}
+        {!block && signOutBlock && !signOutBlockSaidBy && offersSignOut && !active && (
           <span id={signOutBlockId} className="mcp-config-line is-dim">{t(MCP_SIGN_IN_BLOCK_KEYS[signOutBlock])}</span>
         )}
         <div className="mcp-sign-in-actions">
@@ -188,7 +194,7 @@ export function McpSignInRow({
               variant="primary"
               disabled={signInDisabled}
               aria-busy={starting || undefined}
-              aria-describedby={block ? blockId : undefined}
+              aria-describedby={block ? (blockSaidBy ?? blockId) : undefined}
               onClick={() => onSignIn(server)}
             >
               {starting ? t("mcp.signIn.starting") : t("mcp.signIn.button")}
@@ -199,7 +205,7 @@ export function McpSignInRow({
               size="small"
               disabled={signOutDisabled}
               aria-busy={signingOut || undefined}
-              aria-describedby={signOutBlock ? (block ? blockId : signOutBlockId) : undefined}
+              aria-describedby={signOutBlock ? (block ? (blockSaidBy ?? blockId) : (signOutBlockSaidBy ?? signOutBlockId)) : undefined}
               onClick={() => onSignOut(server)}
             >
               {signingOut ? t("mcp.signIn.signingOut") : t("mcp.signIn.signOut")}
