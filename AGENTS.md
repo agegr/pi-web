@@ -10,12 +10,18 @@ Typecheck: `node_modules/.bin/tsc --noEmit` · Lint: `npm run lint`
 
 **Never run `next build` during dev**: it pollutes `.next/` and breaks `npm run dev`.
 
+### Before creating a PR
+
+`origin` is my fork (`ball6847/pi-web`), `upstream` is `agegr/pi-web`. The lane rule wants a PR **inside my fork** (`--repo ball6847/pi-web --base kanban`). Open one only after checking which remote the base branch lives on: `gh api repos/<owner>/<repo>/branches/kanban --jq .commit.sha` returns 404 for a branch that does not exist there.
+
+Never force-push a shared integration branch to make a PR possible. Put the change on a topic branch and let the PR own the branch diff.
+
 ### Dev server troubleshooting
 
 - First run `lsof -nP -iTCP:30141 -sTCP:LISTEN` and reuse a healthy Pi Web process. A second `next dev` on another port is no workaround: both contend for `.next/dev/lock`.
-- A browser-only `Module ... factory is not available` overlay usually means that tab has a stale Turbopack/HMR graph, not a broken server or source. Use the browser's explicit reload, then compare the server log and a direct HTTP/API request.
-- Restart only when the failure reproduces from a fresh page and the server-side checks fail too: stop that exact dev process gracefully, move `.next` into a `mktemp -d` backup, restart with `npm run dev`.
 - Never fall back to `next dev --webpack`: the dev graph can fail on `undici` imports such as `node:console`. Development uses Turbopack.
+- `node_modules` is not committed: a fresh worktree has none. Never symlink it to a sibling worktree, which breaks Turbopack's resolution (`Could not find the Next.js package`); run `npm install --save-exact` then `npm run postinstall`.
+- A browser-only `Module ... factory is not available` overlay usually means that tab has a stale Turbopack/HMR graph, not a broken server or source. Use the browser's explicit reload, then compare the server log and a direct HTTP/API request.
 - `next dev` may append a generated `BEGIN:nextjs-agent-rules` block to `AGENTS.md`. It is tooling output: check `git status` and keep it out of unrelated commits.
 
 ### Upgrading pi
