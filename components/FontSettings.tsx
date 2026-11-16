@@ -2,7 +2,8 @@
 
 import { useI18n } from "@/hooks/useI18n";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
-import { FONT_FAMILY_MAX_LENGTH, FONT_WEIGHT_DEFAULT, FONT_WEIGHT_OPTIONS } from "@/lib/font-preferences";
+import { FONT_WEIGHT_DEFAULT, FONT_WEIGHT_OPTIONS } from "@/lib/font-preferences";
+import { FontFamilyField } from "./FontFamilyField";
 import { ConfigButton } from "./SettingsUi";
 
 const FONT_FIELDS = [
@@ -13,7 +14,8 @@ const FONT_FIELDS = [
 /**
  * Rows for the Fonts & layout section, shaped like the size and width rows below:
  * label, name field, weight name (Light, Regular, …) and reset in the header line, the weight slider under it.
- * The name field is drawn in the font it names, so it doubles as the preview.
+ * The name field is drawn in the font it names, so it doubles as the preview, and
+ * its picker lists the families installed on the machine running pi-web.
  */
 export function FontSettings() {
   const { t } = useI18n();
@@ -27,19 +29,12 @@ export function FontSettings() {
       <div key={kind} className="settings-chat-option settings-chat-range-option settings-font-row">
         <div className="settings-chat-range-header settings-font-header">
           <label htmlFor={`settings-font-${kind}`}>{t(label)}</label>
-          <input
-            id={`settings-font-${kind}`}
-            className={`settings-font-input${kind === "mono" ? " is-mono" : ""}`}
-            type="text"
+          <FontFamilyField
+            kind={kind}
             value={fonts[kind]}
             placeholder={t(placeholder)}
-            maxLength={FONT_FAMILY_MAX_LENGTH}
-            aria-describedby="settings-typography-description"
-            autoComplete="off"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            onChange={(event) => fonts.setFontPreference(kind, event.target.value)}
+            describedBy="settings-typography-description"
+            onChange={(value) => fonts.setFontPreference(kind, value)}
           />
           <output htmlFor={`settings-font-${kind}-weight`} title={`${t(weightLabel)}: ${weight}`}>{t(FONT_WEIGHT_OPTIONS[weightIndex].label)}</output>
           <ConfigButton

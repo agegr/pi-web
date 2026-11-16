@@ -1890,6 +1890,116 @@
   outline-offset: 1px;
 }
 
+/* The name field and the picker that fills it: the toggle sits inside the field's right edge. */
+.settings-font-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.settings-chat-range-option .settings-font-field .settings-font-input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 26px;
+}
+
+.settings-font-toggle {
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.settings-font-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-font-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Row chrome stays in the interface font; only a row's name is drawn in the font it offers. */
+.settings-font-filter {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-weight: var(--font-ui-weight);
+  font-size: 12px;
+}
+
+.settings-font-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.settings-font-option[data-active] {
+  background: var(--bg-hover);
+}
+
+.settings-font-option[aria-selected="true"] {
+  background: var(--bg-selected);
+}
+
+.settings-font-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-font-option-alias {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.settings-font-option-tag {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
+.settings-font-note {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
 @media (max-width: 640px) {
   /* Phones get 16px form text (no focus zoom), so the name field needs the height. */
   .settings-chat-range-option .settings-font-input {

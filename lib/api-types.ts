@@ -903,3 +903,17 @@ export interface PluginToggleResult {
 export interface PluginsBulkResponse extends PluginsResponse {
   results: PluginToggleResult[];
 }
+
+/** One font family installed on the machine running pi-web, for the typography picker. */
+export interface InstalledFontInfo {
+  /** The name a CSS font-family resolves, in its English spelling when the font has one. */
+  family: string;
+  /** The same family's other names (localized ones), for search and display. */
+  aliases: string[];
+  /** The font declares a fixed pitch, so it can back code and the terminal. */
+  monospace: boolean;
+}
+
+export interface InstalledFontsResponse {
+  fonts: InstalledFontInfo[];
+}

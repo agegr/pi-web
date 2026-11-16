@@ -76,6 +76,7 @@ app/api/
   open-in-explorer/route.ts        GET availability | POST open a cwd in the OS file manager (loopback only)
   files/[...path]/route.ts         GET ?type=list|read|download|meta|preview|watch | POST ?type=upload|upload-check|allow-link
   file-index/route.ts              GET file list for @-mentions
+  fonts/route.ts                   GET font families installed on the machine running pi-web, for the typography pickers
   git/status/route.ts              GET changed files for a cwd
   git/diff/route.ts                GET diff of one changed file
   worktrees/route.ts               GET/POST/DELETE git worktrees
