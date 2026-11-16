@@ -12,6 +12,10 @@ const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
   variable: "--font-noto-mono",
   display: "swap",
+  // The generated Arial fallback is proportional. Keep tree branches one
+  // terminal column wide when the web font does not contain their glyphs.
+  adjustFontFallback: false,
+  fallback: ["Terminal Drawing", "Terminal Drawing Windows"],
 });
 
 export const metadata: Metadata = {
