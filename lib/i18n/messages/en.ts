@@ -1910,7 +1910,7 @@ export const enLocale: LocalePlugin = {
     "kanban.configureNote": "The first lane is always the backlog: its cards have a title and a description only, never a session. Drag a card anywhere in any lane — between two cards, or to the top — to reorder it or move it on; the card menu's Move up / Move down and Move to {lane} do the same from the keyboard. Only the backlog boundary is closed: a sessionless card only rests there, and a card with a session never enters. The model advances a card when it decides the stage is done. Drag a lane — here or on the board — to reorder it. A lane with cards can't be removed.",
     "kanban.configureAdd": "Add lane",
     "kanban.configureNamePlaceholder": "Lane name",
-    "kanban.configureInstructionsPlaceholder": "Instructions for the model — injected when a card enters this lane (ctrl+enter saves)",
+    "kanban.configureInstructionsPlaceholder": "Instructions for the model — sent to cards in this lane and the lanes before it (ctrl+enter saves)",
     "kanban.configureLaneCount": "{count} cards",
     "kanban.configureRemove": "Remove lane",
     "kanban.configureRemoveBlocked": "Remove its {count} cards first",

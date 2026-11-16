@@ -293,8 +293,8 @@ const laneCardCounts = (board: KanbanBoard): Map<string, number> => {
 /**
  * The cheap entry point: lanes with their counts, the board total, and this
  * session's own card in full. No other card body is sent, whatever the board
- * size — and no lane instructions either: those are injected when the card
- * enters a lane, not listed on every read.
+ * size — and no lane instructions either: those are injected with the card's
+ * notice (its lane and the lanes ahead of it), not listed on every read.
  */
 export function kanbanToolOverview(board: KanbanBoard, revision: number, sessionId: string): KanbanToolResult {
   const counts = laneCardCounts(board);

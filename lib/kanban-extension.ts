@@ -6,7 +6,7 @@ import { readSessionDelegatedFrom } from "./session-reader";
 import { KanbanToolOutputSchema, KanbanToolParameters } from "./kanban-tool-schema";
 import { isReadOnlySelection } from "./mcp-read-only-policy";
 import { readSessionToolSelection } from "./session-tool-selection";
-import { KANBAN_LANE_INSTRUCTIONS_MAX, KANBAN_NOTICE_LANE_LIMIT } from "./kanban-tool-limits";
+import { KANBAN_LANE_INSTRUCTIONS_MAX, KANBAN_LANE_INSTRUCTIONS_TOTAL_MAX, KANBAN_NOTICE_LANE_LIMIT } from "./kanban-tool-limits";
 import { kanbanCardKey, type KanbanCard, type KanbanLane } from "./kanban-types";
 import type { SessionEntry } from "./types";
 
@@ -31,7 +31,7 @@ export const KANBAN_NO_LANE_INSTRUCTIONS = "none";
 /** What "the built-in card line" hashes to: a board that stored no template. */
 export const KANBAN_NO_TEMPLATE = "none";
 
-/** The dismiss line after the card leaves an instructed lane (or its instructions are cleared). */
+/** The dismiss line once no lane on the card's runway carries instructions (it left them behind, or they were cleared). */
 export const KANBAN_LANE_INSTRUCTIONS_DROPPED = "Kanban: the lane instructions given earlier no longer apply.";
 
 /**
@@ -43,7 +43,7 @@ export interface KanbanNoticeState {
   card: string;
   /** The board's lanes: id, name and the fixed flag, in board order. */
   lanes: string;
-  /** The card's lane instructions: `laneId#hash(text)`; `KANBAN_NO_LANE_INSTRUCTIONS` when there are none. */
+  /** The card's lane instructions: `laneId#hash(text)` per lane of its runway, in board order; `KANBAN_NO_LANE_INSTRUCTIONS` when none applies. */
   laneInstr: string;
   /**
    * The board's notice template: `hash(text)`, or `KANBAN_NO_TEMPLATE` for the
@@ -99,33 +99,83 @@ export function kanbanTemplateSignature(template = ""): string {
 }
 
 /**
- * The lane-instructions identity of a card's position: the lane id plus a hash
- * of its instructions, so entering an instructed lane, and editing those
- * instructions, are each one transition — while a card move or a lane rename
- * that leaves the text alone is not.
+ * The lanes whose instructions a card still has to meet: its own lane first,
+ * then every instructed lane after it in board order. The whole way ahead is
+ * what a run needs to plan its steps — the lane it sits in is the only one it
+ * can reach on its own, and waiting for the move to learn the next lane's text
+ * arrives too late to shape the work that produces it.
  */
-export function kanbanLaneInstructionSignature(lanes: KanbanLane[], card: KanbanCard | null): string {
-  const lane = card ? lanes.find((entry) => entry.id === card.laneId) ?? null : null;
-  const text = lane?.instructions?.trim() ?? "";
-  return text ? `${lane!.id}#${hashText(text)}` : KANBAN_NO_LANE_INSTRUCTIONS;
+function laneInstructionRunway(lanes: KanbanLane[], card: KanbanCard | null) {
+  if (!card) return [];
+  const from = lanes.findIndex((lane) => lane.id === card.laneId);
+  if (from < 0) return [];
+  return lanes.slice(from)
+    .map((lane, offset) => ({ lane, now: offset === 0, text: (lane.instructions ?? "").trim() }))
+    .filter((entry) => entry.text !== "");
 }
 
 /**
- * The injection block, bounded so one lane cannot blow the context; empty when
- * there is nothing to say. The lane's current name rides along with its id, so
- * a renamed default lane (id `lane-deploy`, now "Review") reads right in the
- * transcript — the id stays the stable handle the model updates with.
+ * The lane-instructions identity of a card's position: how far along the board
+ * the card sits, then each lane of its runway with a hash of that lane's text.
+ * So entering an instructed lane, editing any instruction the card has yet to
+ * meet, and a lane joining or leaving that runway are each one transition —
+ * while a lane rename that leaves the text alone is not. The position is in it
+ * because the block marks the card's own lane `[now]` and counts the steps: a
+ * card moving out of an uninstructed lane into an instructed one moves from
+ * "ahead of me" to "mine" without any text changing.
  */
-export function kanbanLaneInstructionsText(lanes: KanbanLane[], card: KanbanCard | null): string {
-  const lane = card ? lanes.find((entry) => entry.id === card.laneId) ?? null : null;
-  const text = lane?.instructions?.trim() ?? "";
-  if (!text) return "";
+export function kanbanLaneInstructionSignature(lanes: KanbanLane[], card: KanbanCard | null): string {
+  const runway = laneInstructionRunway(lanes, card);
+  // Nothing to say: no card, no lane, or no instruction anywhere ahead.
+  if (!card || runway.length === 0) return KANBAN_NO_LANE_INSTRUCTIONS;
+  const from = lanes.findIndex((lane) => lane.id === card.laneId);
+  return [String(from), ...runway.map((entry) => `${entry.lane.id}#${hashText(entry.text)}`)].join(">");
+}
+
+/** A lane's current name rides with its id: a renamed default lane (id `lane-deploy`, now "Review") reads right in the transcript. */
+function laneLabel(lane: KanbanLane): string {
+  return `${lane.name.replace(/\s+/g, " ").trim() || lane.id} (${lane.id})`;
+}
+
+/** One lane's text as injected: bounded, because a hand-edited file can hold more than the route's cap. */
+function boundedLaneText(text: string): string {
   const points = [...text];
-  const bounded = points.length > KANBAN_LANE_INSTRUCTIONS_MAX
+  return points.length > KANBAN_LANE_INSTRUCTIONS_MAX
     ? `${points.slice(0, KANBAN_LANE_INSTRUCTIONS_MAX).join("")}\n…[truncated]`
     : text;
-  const name = lane!.name.replace(/\s+/g, " ").trim() || lane!.id;
-  return `Kanban lane instructions for ${name} (${lane!.id}):\n${bounded}`;
+}
+
+/**
+ * The injection block: the card's lane marked `[now]` and the instructed lanes
+ * after it in board order, so a run knows every step ahead instead of one at a
+ * time. Empty when nothing on the runway carries instructions. Bounded twice —
+ * per lane and over the whole block (`KANBAN_LANE_INSTRUCTIONS_TOTAL_MAX`) —
+ * and a lane past the block's budget is named so the model knows it exists and
+ * that its text arrives when the card reaches it.
+ */
+export function kanbanLaneInstructionsText(lanes: KanbanLane[], card: KanbanCard | null): string {
+  const runway = laneInstructionRunway(lanes, card);
+  if (!card || runway.length === 0) return "";
+  const from = lanes.findIndex((lane) => lane.id === card.laneId);
+  const lines = [
+    `Kanban lane instructions — step ${from + 1} of ${lanes.length}, ${laneLabel(lanes[from])}; these apply in board order as the card moves:`,
+  ];
+  let used = lines[0].length;
+  const omitted: string[] = [];
+  for (const entry of runway) {
+    const section = `${entry.now ? "[now] " : ""}${laneLabel(entry.lane)}:\n${boundedLaneText(entry.text)}`;
+    // The card's own lane is never the one dropped: it is the instruction that
+    // applies to the work in hand, and the per-lane cap already keeps it inside
+    // the total. Lanes further along are what waits for their turn.
+    if (!entry.now && used + section.length > KANBAN_LANE_INSTRUCTIONS_TOTAL_MAX) {
+      omitted.push(laneLabel(entry.lane));
+      continue;
+    }
+    lines.push(section);
+    used += section.length + 1;
+  }
+  if (omitted.length > 0) lines.push(`[… ${omitted.join(", ")} — beyond what fits here; their instructions arrive when the card reaches them]`);
+  return lines.join("\n");
 }
 
 /**

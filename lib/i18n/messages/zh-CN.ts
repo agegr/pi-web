@@ -1909,7 +1909,7 @@ export const zhCNLocale: LocalePlugin = {
     "kanban.configureNote": "第一个泳道始终是待办区（Backlog）：其中的卡片只有标题和描述，不关联会话。卡片可以拖到任意泳道的任意位置（两张卡片之间或最上方）来排序或流转；卡片菜单里的「上移」「下移」和「移动到「{lane}」」提供了键盘操作的等价方式。只封闭待办区的边界：没有会话的卡片只留在待办区，有关联会话的卡片不会进入。模型判断阶段完成时会流转卡片。在这里或看板上拖拽泳道即可调整顺序。包含卡片的泳道无法删除。",
     "kanban.configureAdd": "添加泳道",
     "kanban.configureNamePlaceholder": "泳道名称",
-    "kanban.configureInstructionsPlaceholder": "给模型的指令——卡片进入该泳道时注入（ctrl+enter 保存）",
+    "kanban.configureInstructionsPlaceholder": "给模型的指令——卡片在该泳道或其之前的泳道时注入（ctrl+enter 保存）",
     "kanban.configureLaneCount": "{count} 张卡片",
     "kanban.configureRemove": "删除泳道",
     "kanban.configureRemoveBlocked": "请先移除其中 {count} 张卡片",

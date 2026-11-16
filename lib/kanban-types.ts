@@ -12,8 +12,9 @@ export interface KanbanLane {
   description: string;
   /**
    * Model-facing "how to work here" text, injected as one custom message when
-   * a session's card enters this lane (`lib/kanban-extension.ts`). Absent or
-   * blank means none; capped at `KANBAN_LANE_INSTRUCTIONS_MAX` characters.
+   * a session's card is in this lane or short of it — a card still in Todo
+   * hears Plan's text before it gets there (`lib/kanban-extension.ts`). Absent
+   * or blank means none; capped at `KANBAN_LANE_INSTRUCTIONS_MAX` characters.
    */
   instructions?: string;
   /** The first lane, "backlog": never renamed, moved or removed. */

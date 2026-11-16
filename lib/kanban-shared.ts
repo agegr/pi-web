@@ -385,7 +385,7 @@ export function renameLane(board: KanbanBoard, laneId: string, name: string): Ka
 
 /**
  * A work lane's text: `description` (UI text) and/or `instructions`
- * (model-facing, injected when a card enters the lane). An empty string
+ * (model-facing, injected while the card is in it or in a lane before it). An empty string
  * clears; omitted fields stay as they are. Refused (null) for an unknown lane
  * or the fixed backlog; a patch that changes nothing returns the SAME board.
  */
