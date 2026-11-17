@@ -1192,7 +1192,9 @@ button.extension-widget-trigger:focus-visible {
 
 :root {
   --font-ui-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono-default: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  /* The drawing faces come before the web font: its generated fallback is
+     Arial, which would otherwise take the box drawing it lacks. */
+  --font-mono-default: "Terminal Drawing", "Terminal Drawing Windows", var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
   --font-ui: var(--font-ui-default);
   --font-mono: var(--font-mono-default);
   --font-ui-weight: 400;
