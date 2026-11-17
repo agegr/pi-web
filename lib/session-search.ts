@@ -46,6 +46,8 @@ interface CachedSession {
   modified: string;
   textChars: number;
   messages: SessionMessage[];
+  /** Read as a side chat, so only what follows the boundary was kept. */
+  side: boolean;
   /** Whether the file holds the side-chat boundary: without it no title may match. */
   pastBoundary: boolean;
   /** The file is larger than MAX_FILE_BYTES: its tail was never searched. */
@@ -78,12 +80,16 @@ function pruneCache(live: ReadonlySet<string>) {
   for (const path of cache.sessions.keys()) if (!live.has(path)) dropCached(path);
 }
 
-/** A cached session whose file still holds the bytes that were read. */
-async function cachedScan(path: string): Promise<CachedSession | undefined> {
+/**
+ * A cached session whose file still holds the bytes that were read, read the way this
+ * listing asks: a session listed once without its side relation (a failed relation
+ * read) kept its inherited history, which the side chat must not match.
+ */
+async function cachedScan(path: string, side: boolean): Promise<CachedSession | undefined> {
   const entry = cache.sessions.get(path);
   if (!entry) return undefined;
   const stamp = await fileStamp(path);
-  if (!stamp || stamp.mtimeMs !== entry.mtimeMs || stamp.size !== entry.size) {
+  if (!stamp || stamp.mtimeMs !== entry.mtimeMs || stamp.size !== entry.size || entry.side !== side) {
     dropCached(path);
     return undefined;
   }
@@ -99,7 +105,7 @@ async function fileStamp(path: string) {
   }
 }
 
-function rememberMessages(path: string, stamp: { mtimeMs: number; size: number }, modified: string, messages: SessionMessage[], flags: ScanFlags) {
+function rememberMessages(path: string, stamp: { mtimeMs: number; size: number }, modified: string, side: boolean, messages: SessionMessage[], flags: ScanFlags) {
   // Text plus what each message and block costs to hold, so a file of one-word
   // messages cannot hide its overhead behind a small character count.
   const textChars = messages.reduce(
@@ -127,7 +133,7 @@ function rememberMessages(path: string, stamp: { mtimeMs: number; size: number }
     for (let index = 0; index < count; index++) dropCached(older[index][0]);
   }
   dropCached(path);
-  cache.sessions.set(path, { mtimeMs: stamp.mtimeMs, size: stamp.size, modified, textChars, messages, pastBoundary: flags.pastBoundary, capped: flags.capped });
+  cache.sessions.set(path, { mtimeMs: stamp.mtimeMs, size: stamp.size, modified, textChars, messages, side, pastBoundary: flags.pastBoundary, capped: flags.capped });
   cache.textChars += textChars;
 }
 
@@ -293,10 +299,11 @@ export async function searchSessionContents(
       break;
     }
     const matcher = sessionMatcher(session, matchers);
-    const cached = await cachedScan(session.path);
+    const side = session.relation?.kind === "side";
+    const cached = await cachedScan(session.path, side);
     let found = false;
     let tailUnread = false;
-    let pastBoundary = session.relation?.kind !== "side";
+    let pastBoundary = !side;
 
     if (cached) {
       tailUnread = cached.capped;
@@ -329,7 +336,7 @@ export async function searchSessionContents(
       pastBoundary = flags.pastBoundary;
       // Only a read that reached the end of the file and skipped no line is worth
       // keeping: a partial scan would report hits the next query should not miss.
-      if (before && !found && !flags.truncated) rememberMessages(session.path, before, session.modified, collected, flags);
+      if (before && !found && !flags.truncated) rememberMessages(session.path, before, session.modified, side, collected, flags);
     }
 
     const hit = found ? matcher.result() : undefined;
