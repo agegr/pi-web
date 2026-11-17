@@ -31,6 +31,12 @@ interface Props {
   onCloseError: () => void;
 }
 
+function shouldAutofocusTerminal() {
+  // On touch devices, let a real tap focus xterm and open the software keyboard.
+  // Programmatic focus can leave iOS focused without showing its keyboard.
+  return window.matchMedia("(pointer: fine)").matches;
+}
+
 export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }: Props) {
   const { t } = useI18n();
   const { id, cwd, restored } = tab;
@@ -179,7 +185,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
         setStatus("ready");
         fitAndResize();
         writer.resize(Math.max(2, terminal.cols), Math.max(2, terminal.rows));
-        if (container.offsetWidth && container.offsetHeight) terminal.focus();
+        if (shouldAutofocusTerminal() && container.offsetWidth && container.offsetHeight) terminal.focus();
       };
       events.onerror = () => {
         if (disposed || exited) return;
@@ -250,7 +256,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   }, [fontSize]);
 
   useEffect(() => {
-    if (active) terminalRef.current?.focus();
+    if (active && shouldAutofocusTerminal()) terminalRef.current?.focus();
   }, [active]);
 
   useEffect(() => {
