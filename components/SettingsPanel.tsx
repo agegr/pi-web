@@ -16,6 +16,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { useFirstTokenLatencyMode, setFirstTokenLatencyMode } from "@/hooks/useFirstTokenLatencyMode";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import { SETTINGS_BUILTIN_TOOLS } from "@/lib/tool-presets";
@@ -84,6 +85,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const filesPlacement = useFilesPlacement();
+  const firstTokenLatencyMode = useFirstTokenLatencyMode();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -394,6 +396,50 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               </label>
             </div>
           </div>
+          <div
+            className="settings-chat-option settings-chat-switch-option"
+            role="radiogroup"
+            aria-label={t("settings.firstTokenLatency")}
+            aria-describedby="settings-first-token-latency-description"
+          >
+            <span>{t("settings.firstTokenLatency")}</span>
+            <div className="settings-send-mode-options">
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="first-token-latency"
+                  value="ttft"
+                  checked={firstTokenLatencyMode === "ttft"}
+                  onChange={() => setFirstTokenLatencyMode("ttft")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.firstTokenLatencyTtft")}</span>
+              </label>
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="first-token-latency"
+                  value="ttfa"
+                  checked={firstTokenLatencyMode === "ttfa"}
+                  onChange={() => setFirstTokenLatencyMode("ttfa")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.firstTokenLatencyTtfa")}</span>
+              </label>
+              <label className="settings-send-mode-option">
+                <input
+                  type="radio"
+                  name="first-token-latency"
+                  value="off"
+                  checked={firstTokenLatencyMode === "off"}
+                  onChange={() => setFirstTokenLatencyMode("off")}
+                  className="sr-only"
+                />
+                <span className="settings-send-mode-label">{t("settings.firstTokenLatencyOff")}</span>
+              </label>
+            </div>
+          </div>
+          <p id="settings-first-token-latency-description" className="settings-general-description">{t("settings.firstTokenLatencyDescription")}</p>
           <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.cacheMissNotices")}</span>
             <ConfigSwitch

@@ -1722,6 +1722,10 @@
   margin: 6px 0 0;
 }
 
+.settings-chat-options .settings-general-description {
+  margin: -6px 0 0;
+}
+
 /* Fifteen columns: System spans the first row; then five light themes and five dark ones
    (three columns each), and a row of three wide tiles (five columns each). */
 .settings-theme-options {

@@ -16,6 +16,7 @@ const {
   MessageView,
   PatchDiffFiles,
   ThinkingBlock,
+  formatFirstTokenLatency,
   formatToolDuration,
   getModelDisplayName,
   getTokenEstimateText,
@@ -23,6 +24,7 @@ const {
   replaceUserMessageText,
 } = await jiti.import("./MessageView.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+const { resetFirstTokenLatencyModeForTests, setFirstTokenLatencyMode } = await jiti.import("@/hooks/useFirstTokenLatencyMode");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 const { clearExpandedToolCalls, setToolCallExpanded } = await jiti.import("@/lib/tool-call-expansion");
 const { parseUnifiedPatch } = await jiti.import("@/lib/patch");
@@ -524,6 +526,40 @@ test("a reply's usage line reads like pi's TUI footer, then the turn's time", ()
     usage: { input: 12_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
   });
   assert.match(bare.replace(/<svg[\s\S]*?<\/svg>/g, "").replace(/<span style="font-size:0">([^<]*)<\/span>/g, "$1"), /<span>↑12M<\/span><\/div>/);
+});
+
+test("a reply's usage line shows TTFT by default, switches to TTFA, and hides when off", (t) => {
+  t.after(() => resetFirstTokenLatencyModeForTests());
+  const usage = { input: 1_200, output: 567, cacheRead: 0, cacheWrite: 0, cost: { total: 0.0036 } };
+  const message = {
+    role: "assistant",
+    provider: "anthropic",
+    model: "claude-test",
+    content: [{ type: "thinking", thinking: "Step 1" }, { type: "text", text: "Done." }],
+    stopReason: "stop",
+    ttftMs: 1_200,
+    ttfaMs: 3_400,
+    durationMs: 9_000,
+    usage,
+  };
+  const usageLineOf = (msg, props = { turnDurationMs: 10_000 }) =>
+    renderMessage(msg, props).replace(/<svg[\s\S]*?<\/svg>/g, "").replace(/<span style="font-size:0">([^<]*)<\/span>/g, "$1");
+
+  assert.equal(formatFirstTokenLatency(50), "0.05s");
+  assert.equal(formatFirstTokenLatency(1_200), "1.2s");
+  assert.equal(formatFirstTokenLatency(125_000), "2m 5s");
+
+  const defaultLine = usageLineOf(message);
+  assert.match(defaultLine, /<span>↑1\.2k<\/span> <span>↓567<\/span> <span>\$0\.0036<\/span> <span>TTFT 1\.2s<\/span> <span>·<\/span> <span>took 10s<\/span>/);
+  // Thinking block uses ttfaMs - ttftMs (2.2s -> 2s) instead of the whole 9s response duration.
+  assert.match(defaultLine, /Thinking[\s\S]*?>2s<\/span>/);
+
+  setFirstTokenLatencyMode("ttfa");
+  assert.match(usageLineOf(message), /<span>TTFA 3\.4s<\/span> <span>·<\/span> <span>took 10s<\/span>/);
+  assert.match(usageLineOf({ ...message, ttfaMs: undefined }), /<span>TTFT 1\.2s<\/span> <span>·<\/span> <span>took 10s<\/span>/);
+
+  setFirstTokenLatencyMode("off");
+  assert.doesNotMatch(usageLineOf(message), /TTFT|TTFA/);
 });
 
 test("renders a provider error when the assistant message has no content", () => {

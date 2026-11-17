@@ -80,6 +80,10 @@ export interface AssistantMessage {
   timestamp?: number;
   /** From `timestamp` until the response ended, measured by pi (pi 1.1); absent for older messages. */
   durationMs?: number;
+  /** From `timestamp` until the first token arrived (`thinking`, `text`, or `toolCall`), measured by pi. */
+  ttftMs?: number;
+  /** From `timestamp` until the first answer token arrived (`text` or `toolCall`), measured by pi. */
+  ttfaMs?: number;
   usage?: AgentUsage;
 }
 

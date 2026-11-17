@@ -8,6 +8,7 @@ import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useFirstTokenLatencyMode } from "@/hooks/useFirstTokenLatencyMode";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantAborted, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { formatTurnDuration } from "@/lib/turn-duration";
@@ -722,6 +723,7 @@ function AssistantMessageView({
   compactError?: string | null;
 }) {
   const { t } = useI18n();
+  const firstTokenLatencyMode = useFirstTokenLatencyMode();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
@@ -765,16 +767,20 @@ function AssistantMessageView({
   const blockStartTimesRef = useRef<Map<number, number>>(new Map());
   const [streamingDurations, setStreamingDurations] = useState<Map<number, number>>(new Map());
 
-  // Thinking duration of a completed message: the whole response's generation time, which pi
-  // records since 1.1 (`durationMs`, from the request's start). Older messages only have
-  // timestamps: the time since the previous message.
+  // Thinking duration of a completed message: `ttfaMs - ttftMs` when pi recorded both, else the
+  // whole response's generation time (`durationMs`, since pi 1.1) or the time since the previous
+  // message for older messages.
   const messageDurationMs = message.role === "assistant" ? recordedDurationMs(message.durationMs) : undefined;
+  const messageTtftMs = message.role === "assistant" ? recordedDurationMs(message.ttftMs) : undefined;
+  const messageTtfaMs = message.role === "assistant" ? recordedDurationMs(message.ttfaMs) : undefined;
   const thinkingDurationFromFile = useMemo<number | undefined>(() => {
-    const ms = messageDurationMs ?? (message.timestamp && prevTimestamp ? message.timestamp - prevTimestamp : undefined);
+    const ms = messageTtftMs !== undefined && messageTtfaMs !== undefined && messageTtfaMs >= messageTtftMs
+      ? messageTtfaMs - messageTtftMs
+      : messageDurationMs ?? (message.timestamp && prevTimestamp ? message.timestamp - prevTimestamp : undefined);
     if (ms === undefined) return undefined;
     const secs = Math.round(ms / 1000);
     return secs > 0 ? secs : undefined;
-  }, [messageDurationMs, message.timestamp, prevTimestamp]);
+  }, [messageDurationMs, messageTtfaMs, messageTtftMs, message.timestamp, prevTimestamp]);
 
   // Tool call durations in milliseconds: the execution time pi records on each result since 1.1,
   // as the pi CLI's "Took" shows it. An older result only has timestamps, the result's minus this
@@ -796,6 +802,15 @@ function AssistantMessageView({
     .join("\n");
 
   const stats = message.usage ? formatUsage(message.usage) : [];
+  if (firstTokenLatencyMode !== "off") {
+    const latencyMs = firstTokenLatencyMode === "ttfa"
+      ? (messageTtfaMs ?? messageTtftMs)
+      : messageTtftMs;
+    if (latencyMs !== undefined) {
+      const label = firstTokenLatencyMode === "ttfa" && messageTtfaMs !== undefined ? "TTFA" : "TTFT";
+      stats.push({ text: `${label} ${formatFirstTokenLatency(latencyMs)}` });
+    }
+  }
   // A stop leads the line it ended on: "Stopped · ↑1.2k ↓567 · 12s".
   if (aborted) stats.unshift({ text: t("chat.operationAborted") }, ...(stats.length > 0 ? [{ text: "·" }] : []));
   if (turnDurationMs !== undefined) {
@@ -1181,6 +1196,17 @@ function recordedDurationMs(value: unknown): number | undefined {
 
 /** Below this a tool card shows no time: it would read 0.0s on every quick read or search. */
 const TOOL_DURATION_MIN_MS = 100;
+
+export function formatFirstTokenLatency(ms: number): string {
+  const seconds = ms / 1000;
+  if (seconds < 0.1) return `${seconds.toFixed(2)}s`;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m ${remainder}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
+}
 
 /** A tool's run time as the pi CLI's "Took" writes it: 2.4s, then 3m 5s, then 1h 2m 5s. */
 export function formatToolDuration(ms: number): string {

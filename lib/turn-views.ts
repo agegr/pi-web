@@ -17,7 +17,11 @@ function withAssistantBlocks(
   options: { omitUsage?: boolean; omitStop?: boolean } = {},
 ): AssistantMessage {
   const next = { ...message, content };
-  if (options.omitUsage) next.usage = undefined;
+  if (options.omitUsage) {
+    next.usage = undefined;
+    next.ttftMs = undefined;
+    next.ttfaMs = undefined;
+  }
   // How the message ended is said once, under the answer.
   if (options.omitStop) {
     next.stopReason = undefined;
