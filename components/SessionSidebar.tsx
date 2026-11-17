@@ -2,6 +2,7 @@
 
 import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type Ref, type RefObject, type UIEvent as ReactUIEvent } from "react";
 import type { SessionInfo } from "@/lib/types";
+import { copyText } from "@/lib/clipboard";
 import { listSessionFamilies, type SessionFamily, isHiddenRelation } from "@/lib/session-family";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
@@ -113,6 +114,7 @@ import {
   ChangesIcon,
   CheckIcon,
   ChevronIcon,
+  CopyIcon,
   DotIcon,
   DotOutlineIcon,
   EyeIcon,
@@ -351,6 +353,7 @@ const SIDEBAR_HEADER_HEIGHT = 36;
 
 const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
   "open-new-tab": "sidebar.openInNewTab",
+  "copy-session-id": "sidebar.copySessionId",
   pin: "sidebar.pin",
   unpin: "sidebar.unpin",
   rename: "sidebar.rename",
@@ -365,6 +368,7 @@ const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
 function sessionActionIcon(id: SessionMenuActionId): ReactNode {
   switch (id) {
     case "open-new-tab": return <OpenInNewTabIcon />;
+    case "copy-session-id": return <CopyIcon />;
     case "pin": return <PinIcon />;
     case "unpin": return <PinOffIcon />;
     case "rename": return <PencilIcon />;
@@ -2217,6 +2221,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     const { family } = row;
     switch (id) {
       case "open-new-tab": openFamilyInNewTab(family); break;
+      case "copy-session-id":
+        void copyText(family.root.id).then(
+          () => showToast(t("sidebar.sessionIdCopied")),
+          () => showToast(t("sidebar.copySessionIdFailed")),
+        );
+        break;
       case "pin": setFamilyPinned(family, true); break;
       case "unpin": setFamilyPinned(family, false); break;
       case "rename": startRename(family); break;
