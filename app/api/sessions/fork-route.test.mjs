@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, unlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,8 +191,7 @@ test("{ cwd } forks a session whose folder is gone into that folder, as pi 1.5.2
   const body = await response.json();
   source.forked.push(body.sessionId);
   assert.notEqual(body.sessionId, source.id);
-  // The folder's real path (a linked temp dir on macOS), as the picker gives it.
-  assert.equal(body.session.cwd, realpathSync(moved));
+  assert.equal(body.session.cwd, moved);
   assert.deepEqual(body.session.relation, { kind: "fork", originSessionId: source.id });
   // The whole session, every branch, with no name of its own: it keeps the source's title.
   assert.deepEqual(assistantTexts(body.session.path), ["first", "second"]);

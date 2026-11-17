@@ -292,7 +292,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const {
     loading, error, messages, activeToolResults, toolClocks, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, forkingMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -343,6 +343,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   } | null>(null);
   // The folder picker of the missing-folder banner's Fork, and its refusal.
   const [forkPickerOpen, setForkPickerOpen] = useState(false);
+  const [forkPickerBusy, setForkPickerBusy] = useState(false);
   const [forkPickerError, setForkPickerError] = useState<string | null>(null);
   const openForkPicker = useCallback(() => {
     setForkPickerError(null);
@@ -350,7 +351,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, []);
   const handleForkPick = useCallback(async (cwd: string) => {
     setForkPickerError(null);
+    setForkPickerBusy(true);
     const error = await forkIntoCwd(cwd);
+    setForkPickerBusy(false);
     if (error) setForkPickerError(error);
     else setForkPickerOpen(false);
   }, [forkIntoCwd]);
@@ -991,7 +994,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       modelError={modelError}
       missingCwd={missingCwd}
       onForkMissingCwd={canForkMissingCwd ? openForkPicker : undefined}
-      forkingMissingCwd={forkingMissingCwd}
       modelScopeWarnings={modelScopeWarnings}
       allModelList={allModelList}
       onLoadAllModels={isModelScopeActive ? loadAllModels : undefined}
@@ -1572,7 +1574,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       {isEmptyNew && <div className="min-h-0 flex-1" />}
       {forkPickerOpen && (
         <DirectoryPicker
-          busy={forkingMissingCwd}
+          busy={forkPickerBusy}
           error={forkPickerError}
           onCancel={() => {
             setForkPickerOpen(false);

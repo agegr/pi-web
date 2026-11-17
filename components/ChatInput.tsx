@@ -65,7 +65,6 @@ interface Props {
   missingCwd?: string | null;
   /** Fork the session into another folder: offered while `missingCwd` is shown and the session can be forked. */
   onForkMissingCwd?: () => void;
-  forkingMissingCwd?: boolean;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
   /** Every available model, once loaded for the selector's "all" scope. */
@@ -688,16 +687,15 @@ function ModelNoticeBanner({ tone, title, body, onClose, children }: { tone: "er
  * The session's folder no longer exists: nothing was sent, and no model was asked (#1422).
  * `onFork` offers pi's Fork (pi 1.5.2): the session copied into a folder that exists.
  */
-export function MissingCwdBanner({ cwd, onFork, forking = false }: { cwd?: string | null; onFork?: () => void; forking?: boolean }) {
+export function MissingCwdBanner({ cwd, onFork }: { cwd?: string | null; onFork?: () => void }) {
   const { t } = useI18n();
   if (!cwd) return null;
   return (
-    <ModelNoticeBanner tone="error" title={t("chat.cwdMissingTitle")} body={t(onFork ? "chat.cwdMissingForkBody" : "chat.cwdMissingBody", { cwd })}>
+    <ModelNoticeBanner tone="error" title={t("chat.cwdMissingTitle")} body={t("chat.cwdMissingBody", { cwd })}>
       {onFork && (
         <button
           type="button"
           onClick={onFork}
-          disabled={forking}
           style={{
             display: "block",
             marginTop: 6,
@@ -706,7 +704,7 @@ export function MissingCwdBanner({ cwd, onFork, forking = false }: { cwd?: strin
             borderRadius: 5,
             background: "transparent",
             color: "inherit",
-            cursor: forking ? "default" : "pointer",
+            cursor: "pointer",
             font: "inherit",
           }}
         >
@@ -750,7 +748,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onSideChat, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, missingCwd, onForkMissingCwd, forkingMissingCwd, modelScopeWarnings, allModelList, onLoadAllModels, onModelChange, modelSwitching,
+  onSend, onAbort, onSteer, onSideChat, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, missingCwd, onForkMissingCwd, modelScopeWarnings, allModelList, onLoadAllModels, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1923,7 +1921,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         onChange={handleFilePick}
       />}
       <div style={{ ...(compact ? undefined : { display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }), maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
-        <MissingCwdBanner cwd={missingCwd} onFork={onForkMissingCwd} forking={forkingMissingCwd} />
+        <MissingCwdBanner cwd={missingCwd} onFork={onForkMissingCwd} />
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {showImageUnsupportedWarning && (() => {

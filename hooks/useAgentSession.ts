@@ -482,7 +482,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelsMissingCwd, setModelsMissingCwd] = useState<string | null>(null);
   const [promptMissingCwd, setPromptMissingCwd] = useState<string | null>(null);
   const missingCwd = promptMissingCwd ?? modelsMissingCwd;
-  const [forkingMissingCwd, setForkingMissingCwd] = useState(false);
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [isModelScopeActive, setIsModelScopeActive] = useState(false);
   // Every available model, fetched only when the selector switches to "all" or the
@@ -2565,7 +2564,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const forkIntoCwd = useCallback(async (cwd: string): Promise<string | null> => {
     const sid = sessionIdRef.current;
     if (!sid) return translate("sidebar.forkNotFound");
-    setForkingMissingCwd(true);
     try {
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/fork`, {
         method: "POST",
@@ -2574,7 +2572,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       const data = await res.json().catch(() => ({})) as { sessionId?: string; session?: SessionInfo; code?: string; error?: string };
       if (!res.ok || !data.sessionId || !data.session) {
-        if (data.code === "cwd-invalid") return data.error ?? `HTTP ${res.status}`;
         const { key, params } = forkFailureMessage(data.code, data.error ?? `HTTP ${res.status}`);
         return translate(key, params);
       }
@@ -2585,8 +2582,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return null;
     } catch (e) {
       return translate("sidebar.forkFailed", { error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setForkingMissingCwd(false);
     }
   }, [onSessionForked, opts.chatInputRef, translate]);
   const canForkMissingCwd = Boolean(missingCwd) && !isNew && Boolean(session?.id)
@@ -3650,7 +3645,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, toolClocks, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, forkingMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { realpathSync } from "fs";
 import { isAbsolute } from "path";
 import { allowFileRoot } from "@/lib/file-access";
 import { getRpcSession } from "@/lib/rpc-manager";
@@ -93,22 +92,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     };
     return NextResponse.json({ sessionId: fork.sessionId, session } satisfies SessionForkResponse, { headers: NO_STORE });
   } catch (error) {
-    return forkFailure(id, error);
+    if (error instanceof SessionForkError) {
+      if (error.code === "not_found") {
+        // Deleted behind the cached path (the pi CLI, another window): the
+        // list drops it on the next load.
+        invalidateSessionPathCache(id);
+        invalidateSessionListCache();
+        return refusal(404, error.code, error.message);
+      }
+      if (error.code === "cwd-invalid") return refusal(400, error.code, error.message);
+      return refusal(409, error.code, error.message);
+    }
+    return refusal(500, "failed", error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
- * pi's Fork into another folder (`forkSessionIntoCwd()`): the copy takes the
- * folder's real path, as the directory picker and pi's process.cwd() give it,
- * and keeps the source's name and history, so it needs no name of its own.
+ * pi's Fork into another folder (`forkSessionIntoCwd()`): the copy keeps the
+ * source's name and history, so it needs no name of its own.
  */
-async function forkIntoCwd(id: string, sourcePath: string, targetCwd: string) {
-  let cwd = targetCwd;
-  try {
-    cwd = realpathSync(targetCwd);
-  } catch {
-    // Missing: forkSessionIntoCwd() refuses it with the typed path.
-  }
+async function forkIntoCwd(id: string, sourcePath: string, cwd: string) {
   const fork = forkSessionIntoCwd(sourcePath, cwd);
   cacheSessionPath(fork.sessionId, fork.path);
   invalidateSessionListCache();
@@ -119,19 +122,4 @@ async function forkIntoCwd(id: string, sourcePath: string, targetCwd: string) {
   if (!info) throw new Error("The forked session could not be read");
   const session: SessionInfo = { ...info, parentSessionId: id, relation: { kind: "fork", originSessionId: id } };
   return NextResponse.json({ sessionId: fork.sessionId, session } satisfies SessionForkResponse, { headers: NO_STORE });
-}
-
-function forkFailure(id: string, error: unknown) {
-  if (error instanceof SessionForkError) {
-    if (error.code === "not_found") {
-      // Deleted behind the cached path (the pi CLI, another window): the
-      // list drops it on the next load.
-      invalidateSessionPathCache(id);
-      invalidateSessionListCache();
-      return refusal(404, error.code, error.message);
-    }
-    if (error.code === "cwd-invalid") return refusal(400, error.code, error.message);
-    return refusal(409, error.code, error.message);
-  }
-  return refusal(500, "failed", error instanceof Error ? error.message : String(error));
 }
