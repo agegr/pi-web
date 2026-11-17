@@ -77,12 +77,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Password authentication is disabled" }, { status: 404 });
   }
 
+  const body = await request.json().catch(() => null) as { password?: unknown } | null;
+  // Checked after the body is read: from here to recordAuthFailure() nothing
+  // awaits, so attempts sent together cannot all pass the check before the
+  // first failure is recorded.
   const retryAfterMs = getAuthRetryAfterMs();
   if (retryAfterMs > 0) {
     return tooManyAttempts(retryAfterMs);
   }
-
-  const body = await request.json().catch(() => null) as { password?: unknown } | null;
   if (!body || typeof body.password !== "string" || !isValidWebPassword(body.password, password)) {
     const delayMs = recordAuthFailure();
     console.warn(`[web-auth] Password authentication failed; next attempt blocked for ${delayMs}ms`);
