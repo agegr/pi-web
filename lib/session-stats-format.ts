@@ -5,7 +5,8 @@ import type { TranslationParams } from "./i18n/types";
 
 /** 950 · 18k · 1.2M */
 export function formatCompactCount(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  // 999_500 rounds to 1000k, which reads as 1.0M.
+  if (value >= 999_500) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1000) return `${(value / 1000).toFixed(0)}k`;
   return String(value);
 }
