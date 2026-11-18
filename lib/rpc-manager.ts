@@ -1115,6 +1115,22 @@ export class AgentSessionWrapper {
     return { cancelled: false };
   }
 
+  /**
+   * Before a prompt starts a run, make the branch record the model the session runs on. A
+   * `model_change` made on a branch that an edit-and-resend or a tree move then left stays
+   * on that dead branch, and a side chat or a reopened session reads the model from the
+   * branch's latest `model_change` (#1715). pi records only virtual selections itself: its
+   * own resume also falls back to the latest response's model, which pi-web does not.
+   */
+  private recordModelOnBranch(): void {
+    const model = this.inner.model;
+    if (!model) return;
+    const manager = this.inner.sessionManager;
+    const recorded = getLatestModelChange(manager.getBranch() as unknown as SessionEntry[]);
+    if (!recorded || (recorded.provider === model.provider && recorded.modelId === model.id)) return;
+    manager.appendModelChange(model.provider, model.id);
+  }
+
   /** The first prompt names a side chat that still has the name it started with. */
   private nameSideChat(message: unknown): void {
     if (this.inner.sessionManager.getSessionName() !== SIDE_SESSION_NAME || typeof message !== "string") return;
@@ -1378,6 +1394,7 @@ export class AgentSessionWrapper {
           if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
           }
+          if (!this.inner.isStreaming) this.recordModelOnBranch();
           this.renewExtensionUiStop();
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
