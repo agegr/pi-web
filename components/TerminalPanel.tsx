@@ -90,6 +90,12 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     let connected = false;
     let exited = false;
     let inputFailed = false;
+    // Each connection's first output is history: what the shell printed before this page
+    // connected. xterm answers the questions in it again (cursor position, colours, device
+    // attributes) and the programs that asked have gone, so the shell would take the answers
+    // as typing. Nothing xterm emits is sent while history is being drawn.
+    let awaitingHistory = false;
+    let drawingHistory = 0;
     setStatus("connecting");
     setError(null);
     setExitCode(null);
@@ -133,7 +139,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     });
     writerRef.current = writer;
     const onData = terminal.onData((data) => {
-      if (connected && !exited && !inputFailed) writer.write(applyTerminalModifiers(data, consumeModifiers()));
+      if (connected && !exited && !inputFailed && !drawingHistory) writer.write(applyTerminalModifiers(data, consumeModifiers()));
     });
     const fitAndResize = () => {
       if (!container.offsetWidth || !container.offsetHeight) return;
@@ -165,9 +171,16 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       events.onmessage = (message) => {
         const event = JSON.parse(message.data) as TerminalEvent;
         if (event.type === "output") {
+          const history = awaitingHistory;
+          awaitingHistory = false;
           if (event.reset) terminal.reset();
           else if (offset !== undefined && event.offset <= offset) return;
-          terminal.write(event.data);
+          if (history && event.data) {
+            drawingHistory += 1;
+            terminal.write(event.data, () => { drawingHistory -= 1; });
+          } else {
+            terminal.write(event.data);
+          }
           offset = event.offset;
         } else {
           exited = true;
@@ -179,6 +192,8 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
         }
       };
       events.onopen = () => {
+        // Also runs when the browser reconnects the stream by itself.
+        awaitingHistory = true;
         connected = true;
         if (inputFailed) return;
         terminal.options.disableStdin = false;
