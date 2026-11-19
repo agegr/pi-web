@@ -44,7 +44,7 @@ import type { DebugClientSession } from "@/lib/debug-types";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
-import { getDraft, parkedNewSessionDraftKey, rekeyDraft } from "@/lib/draft-store";
+import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
   type NewSessionContext,
@@ -1486,6 +1486,7 @@ export function AppShell() {
   const handleDeleteSideChat = useCallback(async (sessionId: string, root: SessionInfo): Promise<string | null> => {
     const result = await deleteSideChat(sessionId);
     if (result) return result.error;
+    clearDraft(sessionId);
     handleCloseFileTab(`agent:${sessionId}`);
     if (selectedSessionRef.current?.id === sessionId) {
       handleSelectSession(root);

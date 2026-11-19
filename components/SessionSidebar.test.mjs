@@ -113,6 +113,30 @@ test("subagents fold into their main session row, which carries their running, u
   assert.deepEqual(sessionRows[0].status, { running: true, awaiting: false, unread: true, selected: true, transient: false });
 });
 
+test("a deleted family's stored drafts go with it, only once the server deleted it", async () => {
+  const code = ts.transpileModule(`(${callbackBody("performDelete").replace(/^const performDelete = /, "").replace(/;\s*$/, "")})`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  for (const ok of [true, false]) {
+    const cleared = [];
+    const deleted = [];
+    const performDelete = vm.runInNewContext(code, {
+      useCallback: (callback) => callback,
+      encodeURIComponent,
+      fetch: async () => ({ ok }),
+      clearDraft: (id) => cleared.push(id),
+      onSessionDeleted: (id) => deleted.push(id),
+      setConfirmDeleteRootId() {},
+      loadSessions: async () => {},
+    });
+    await performDelete({ root: session("main"), subagents: [session("side"), session("worker")] });
+    assert.deepEqual(cleared, ok ? ["main", "side", "worker"] : []);
+    assert.deepEqual(deleted, ["main"]);
+  }
+  // A project's Delete all sessions clears what the server says it deleted.
+  assert.match(callbackBody("deleteFamilyIds"), /for \(const id of outcome\.deleted\) \{\s*clearDraft\(id\);/);
+});
+
 test("only Shift skips the session deletion confirmation", () => {
   assert.match(
     callbackBody("requestDelete"),

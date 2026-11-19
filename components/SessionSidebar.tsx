@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type Ref, type RefObject, type UIEvent as ReactUIEvent } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, type SessionFamily, isHiddenRelation } from "@/lib/session-family";
+import { clearDraft } from "@/lib/draft-store";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { newSessionDeepLink, sessionDeepLink } from "@/lib/session-links";
 import { getProjectActivity, getRecentProjects } from "@/lib/project-groups";
@@ -2036,7 +2037,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     setConfirmDeleteRootId((current) => (current === session.id ? null : current));
     try {
       // The server deletes the family's subagent sessions with it.
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      // Drafts are kept in this browser's storage: they go with their sessions.
+      if (res.ok) [session, ...family.subagents].forEach((member) => clearDraft(member.id));
       onSessionDeleted?.(session.id);
       void loadSessions();
     } catch {
@@ -2310,7 +2313,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     showToast(t("sidebar.deletingSessions"));
     try {
       const outcome = await deleteProjectSessions(ids, fetch);
-      for (const id of outcome.deleted) onSessionDeleted?.(id);
+      for (const id of outcome.deleted) {
+        clearDraft(id);
+        onSessionDeleted?.(id);
+      }
       // A group goes with its last session (in the tree, unless it is
       // current or pinned): focus that fell to the page with it moves on.
       void loadSessions().then(() => focusAfterCommit(focusTarget));

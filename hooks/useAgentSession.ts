@@ -25,7 +25,7 @@ import {
   setSessionViewSnapshot,
   snapshotCoversLoadedEntries,
 } from "@/lib/session-view-cache";
-import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
+import { clearDraft, getDraft, holdStoredDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -290,6 +290,20 @@ function asConcreteThinkingLevel(value?: string | null): ConcreteThinkingLevel |
 // Session id -> user entry being edited. ChatWindow remounts per session, so a
 // pending edit lives here as long as that session's in-memory draft does.
 const pendingHistoryEdits = new Map<string, string>();
+// The target lives only in this page, so its draft text is never stored: after
+// a reload the rewritten message would join the branch instead of forking it.
+const historyEditDraftHolds = new Map<string, () => void>();
+
+function setPendingHistoryEdit(sessionId: string, entryId: string | null): void {
+  if (entryId) {
+    pendingHistoryEdits.set(sessionId, entryId);
+    if (!historyEditDraftHolds.has(sessionId)) historyEditDraftHolds.set(sessionId, holdStoredDraft(sessionId));
+    return;
+  }
+  pendingHistoryEdits.delete(sessionId);
+  historyEditDraftHolds.get(sessionId)?.();
+  historyEditDraftHolds.delete(sessionId);
+}
 
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
@@ -751,13 +765,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // so cancelling or reloading never hides the rest of the conversation.
   const [editEntryId, setEditEntryId] = useState(() => {
     const sid = session?.id;
-    if (sid && !getDraft(sid)) pendingHistoryEdits.delete(sid);
+    if (sid && !getDraft(sid)) setPendingHistoryEdit(sid, null);
     return (sid && pendingHistoryEdits.get(sid)) || null;
   });
   const setEdit = useCallback((entryId: string | null) => {
     if (!session?.id) return;
-    if (entryId) pendingHistoryEdits.set(session.id, entryId);
-    else pendingHistoryEdits.delete(session.id);
+    setPendingHistoryEdit(session.id, entryId);
     setEditEntryId(entryId);
   }, [session?.id]);
   const handleEditContent = useCallback((message: UserMessage, entryId: string) => {

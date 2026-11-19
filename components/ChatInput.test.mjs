@@ -723,16 +723,24 @@ test("locks built-in command submission until it settles", async () => {
     onBuiltinCommand: async () => new Promise((resolve) => { callback.resolve = resolve; }),
     setBuiltinCommandPending(value) { callback.pendingStates.push(value); },
     valueRef: { current: "/reload" },
+    draftKeyRef: { current: "session-a" },
+    holdStoredDraft(key) {
+      callback.holds.push(key);
+      return () => callback.holds.push(`released ${key}`);
+    },
   });
   callback.pendingStates = [];
+  callback.holds = [];
 
   const first = callback("/reload");
   assert.deepEqual(callback.pendingStates, [true]);
   assert.equal(await callback("/reload"), true);
   assert.deepEqual(callback.pendingStates, [true]);
+  assert.deepEqual(callback.holds, ["session-a"], "a second press takes no second hold");
   callback.resolve({ handled: true });
   assert.equal(await first, true);
   assert.deepEqual(callback.pendingStates, [true, false]);
+  assert.deepEqual(callback.holds, ["session-a", "released session-a"]);
 });
 
 test("keeps only read-only built-ins available while a run is active", () => {

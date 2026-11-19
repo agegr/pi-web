@@ -17,6 +17,7 @@ import {
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
 import { sendAgentCommand } from "@/lib/agent-client";
+import { clearStoredDrafts } from "@/lib/draft-store";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import { SETTINGS_BUILTIN_TOOLS } from "@/lib/tool-presets";
 import {
@@ -113,6 +114,8 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     try {
       const response = await fetch("/api/web-auth", { method: "DELETE" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      // Unsent text stays in this browser's storage otherwise.
+      clearStoredDrafts();
       window.location.replace("/login");
     } catch {
       setLogoutError(t("auth.logoutFailed"));
