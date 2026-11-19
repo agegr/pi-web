@@ -144,6 +144,57 @@ function lastAssistantStop(sessionManager: { getEntries?: () => unknown }): { ab
   return undefined;
 }
 
+type RunMessage = { role?: unknown; stopReason?: unknown; content?: unknown };
+
+function messageText(message: RunMessage): string {
+  if (!Array.isArray(message.content)) return typeof message.content === "string" ? message.content.trim() : "";
+  return message.content
+    .map((block: { type?: unknown; text?: unknown }) => (block?.type === "text" && typeof block.text === "string" ? block.text : ""))
+    .join("").trim();
+}
+
+type RunEntry = { type?: unknown; id?: unknown; targetId?: unknown; replacement?: { content?: unknown } | null; message?: RunMessage };
+
+/**
+ * A run's report: the text of every assistant message the run appended (entries from `from` on)
+ * that ended its turn without tool calls, in order. A steer that reaches the child while it writes
+ * its answer starts another turn after it, and that turn's reply (often a short acknowledgement)
+ * alone would replace the report (#1726). Messages are read as pi projects them for the model: a
+ * `context_edit` with no replacement drops one (pi's own recovery omits a provider error before
+ * its retry and a `length`-truncated draft before its compaction retry), and one with a
+ * replacement rewrites its content, the latest edit winning. The run's last message counts
+ * however it ended, as `getLastAssistantText()` reads it, so a stopped or limited run keeps its
+ * partial output. The session's entries are append-only, so compaction during the run keeps
+ * earlier answers, and a resumed run never reports an earlier run's text.
+ */
+function runResultText(sessionManager: { getEntries?: () => unknown }, from: number): string | undefined {
+  const entries = sessionManager.getEntries?.();
+  if (!Array.isArray(entries)) return undefined;
+  const runEntries = (entries as RunEntry[]).slice(from);
+  // An edit always follows its target, so the run's own range holds every edit of its messages.
+  const edits = new Map<unknown, RunEntry["replacement"]>();
+  for (const entry of runEntries) if (entry?.type === "context_edit") edits.set(entry.targetId, entry.replacement);
+  const messages = runEntries.flatMap((entry): RunMessage[] => {
+    if (entry?.type !== "message" || entry.message?.role !== "assistant") return [];
+    if (!edits.has(entry.id)) return [entry.message];
+    const replacement = edits.get(entry.id);
+    if (!replacement) return [];
+    const content = typeof replacement.content === "string" ? [{ type: "text", text: replacement.content }] : replacement.content;
+    return [{ ...entry.message, content }];
+  });
+  let last = messages.length - 1;
+  // `getLastAssistantText()` passes over a request stopped before any output.
+  while (last >= 0 && messages[last].stopReason === "aborted" && Array.isArray(messages[last].content) &&
+    (messages[last].content as unknown[]).length === 0) last -= 1;
+  const texts = messages.flatMap((message, index) => {
+    const answer = index === last || (message.stopReason !== "error" && message.stopReason !== "aborted" &&
+      !(Array.isArray(message.content) && message.content.some((block: { type?: unknown }) => block?.type === "toolCall")));
+    const text = answer ? messageText(message) : "";
+    return text ? [text] : [];
+  });
+  return texts.length ? texts.join("\n\n") : undefined;
+}
+
 function turnLimitError(turnLimit: number, undelivered: readonly string[]): string {
   const error = `Subagent reached its turn limit (${turnLimit}) without completing the task.`;
   if (undelivered.length === 0) return error;
@@ -771,11 +822,12 @@ export function createSubagentController(
           };
         }
         let result: SubagentRunInfo;
+        const runStart = sessionManager.getEntries().length;
         try {
           if (childSession && !childSession.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
           await prepareChildMcp(childSession, stored);
           await inner.prompt(delegatedTask, { source: "rpc" });
-          const text = inner.getLastAssistantText()?.trim();
+          const text = runResultText(sessionManager, runStart);
           const stop = stored.abortRequested ? undefined : lastAssistantStop(sessionManager);
           const aborted = stored.abortRequested || stop?.aborted === true;
           const errorMessage = aborted ? undefined : stop?.error ??
@@ -788,7 +840,7 @@ export function createSubagentController(
             ...(errorMessage ? { error: errorMessage } : {}),
           };
         } catch (error) {
-          const text = inner.getLastAssistantText()?.trim();
+          const text = runResultText(sessionManager, runStart);
           const aborted = stored.abortRequested || request.signal?.aborted;
           result = {
             ...initialRun,
@@ -951,11 +1003,13 @@ export function createSubagentController(
       manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
       request.onUpdate?.(stored.run);
       let result: SubagentRunInfo;
+      // Earlier runs' messages are on the same branch; only this run's answers are its result.
+      const runStart = manager.getEntries().length;
       try {
         if (!wrapper!.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
         await prepareChildMcp(wrapper, stored);
         await wrapper!.inner.prompt(request.task, { source: "rpc" });
-        const text = wrapper!.inner.getLastAssistantText()?.trim();
+        const text = runResultText(manager, runStart);
         const stop = stored.abortRequested ? undefined : lastAssistantStop(manager);
         const aborted = stored.abortRequested || stop?.aborted === true;
         const providerError = aborted ? undefined : stop?.error;
@@ -967,10 +1021,12 @@ export function createSubagentController(
           ...(providerError ? { error: providerError } : {}),
         };
       } catch (error) {
+        const text = runResultText(manager, runStart);
         result = {
           ...initialRun,
           status: stored.abortRequested || request.signal?.aborted ? "aborted" : "failed",
           completedAt: new Date().toISOString(),
+          ...(text ? { result: text } : {}),
           ...(!stored.abortRequested && !request.signal?.aborted ? { error: error instanceof Error ? error.message : String(error) } : {}),
         };
       } finally {
