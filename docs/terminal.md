@@ -34,6 +34,14 @@ an older cursor triggers a terminal reset and bounded history replay. This is
 bounded output history, not a serialized full-screen terminal snapshot. Slow
 SSE consumers are disconnected once their response queue fills.
 
+The first output event of every connection is history: output from before the
+connection. It can hold questions that programs asked the terminal, such as
+vim's requests for the cursor position, the colours and the device attributes.
+xterm.js answers them again when it draws them, and the programs that asked
+have gone, so the browser sends nothing xterm.js emits while it draws that
+event. Otherwise the answers arrive at the shell prompt as typed text such as
+`0;276;0c`. Keys pressed in those few milliseconds are dropped too.
+
 Input and resizes are serialized. Pending adjacent input is batched so remote
 connections do not require one round trip per keystroke; large pastes are split
 without splitting Unicode characters. Failed input is not retried because its

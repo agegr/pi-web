@@ -164,6 +164,10 @@ try {
       await run("printf '\\nTHEME:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`THEME:alive:${pid}`);
 
+      // A program that asks the terminal a question and reads the answer, as vim does when it starts.
+      await run("printf '\\033[>c'; read -rs -d c -t 5; printf '\\nQUERY:%s\\n' done");
+      await waitOutput("QUERY:done");
+
       await page.reload();
       await ready();
       await expectFontWeight(600);
@@ -173,7 +177,10 @@ try {
       assert.equal(await terminalBackground(), "rgb(17, 19, 24)");
       assert.equal(await page.evaluate(() => localStorage.getItem("pi-web:terminal-theme")), "dark");
       await run("printf '\\nREFRESH:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
+      // The history drawn after the reload holds the question asked above. Its answer typed at
+      // the prompt would have joined this command, which then never prints its line.
       await waitOutput(`REFRESH:alive:${pid}`);
+      assert.doesNotMatch(await text(), /0;276;0c/, "replayed history must not type terminal answers at the prompt");
       assert.equal(created.size, 1, "refresh must reconnect, not create");
 
       await context.setOffline(true);
