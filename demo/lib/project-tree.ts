@@ -116,7 +116,9 @@ function previewForEntry(entry: ProjectableEntry): BranchPreview | undefined {
   }
 
   if (text.length > MAX_BRANCH_PREVIEW_LENGTH) {
-    text = text.slice(0, MAX_BRANCH_PREVIEW_LENGTH) + "…";
+    // Do not cut a surrogate pair in half.
+    const last = text.charCodeAt(MAX_BRANCH_PREVIEW_LENGTH - 1);
+    text = text.slice(0, last >= 0xd800 && last <= 0xdbff ? MAX_BRANCH_PREVIEW_LENGTH - 1 : MAX_BRANCH_PREVIEW_LENGTH) + "…";
   } else if (!text) {
     text = hasImage
       ? "[image]"
