@@ -6,7 +6,7 @@ import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import {
@@ -27,6 +27,8 @@ import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } 
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { PlantUmlBlock } from "./PlantUmlBlock";
+import { isPlantUmlLang } from "@/lib/plantuml";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
@@ -1382,6 +1384,8 @@ function TextFileViewer({
   const [htmlFull, setHtmlFull] = useState<{ text?: string; error?: string } | null>(null);
 
   onStateChangeRef.current = onStateChange;
+  const onOpenFileRef = useRef(onOpenFile);
+  onOpenFileRef.current = onOpenFile;
 
   const updateDisplayMode = useCallback((nextDisplayMode: DisplayMode) => {
     viewerStateRef.current.displayMode = nextDisplayMode;
@@ -1797,6 +1801,72 @@ function TextFileViewer({
     requestedInitialDisplayMode,
   ]);
 
+  // One renderer set per file: a new object each render would remount every
+  // block of the preview (a rendered diagram back to its source) whenever
+  // the shell re-renders, since onOpenFile is a new function each time.
+  const hasOpenFile = !!onOpenFile;
+  const markdownComponents = useMemo<Components>(() => {
+    const markdownDirectory = getFileDirectory(filePath);
+    return {
+      code({ className, children, ...props }) {
+        const lang = className?.replace("language-", "").toLowerCase() ?? "";
+        const raw = String(children);
+        const isBlock = className?.includes("language-") || raw.includes("\n");
+        if (isBlock) {
+          if (lang === "mermaid") {
+            return <MermaidBlock code={raw.replace(/\n$/, "")} defaultPreview />;
+          }
+          if (isPlantUmlLang(lang)) {
+            return <PlantUmlBlock code={raw.replace(/\n$/, "")} lang={lang} />;
+          }
+          return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
+        }
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        );
+      },
+      pre({ children }) {
+        // Render the code block directly — CodeBlock provides its own wrapping.
+        // For non-mermaid blocks, pass through to default pre rendering.
+        return <>{children}</>;
+      },
+      a({ href, children, ...props }) {
+        delete props.node;
+        const linkedFile = hasOpenFile
+          ? resolveLocalFileHref(href, markdownDirectory, cwd ?? markdownDirectory)
+          : null;
+        if (!linkedFile || !hasOpenFile) {
+          // Like chat links: a web or app link must not replace Pi Web.
+          return isExternalMarkdownHref(href)
+            ? <a href={href} {...props} target="_blank" rel="noopener noreferrer">{children}</a>
+            : <a href={href} {...props} onClick={jumpToMarkdownFragment}>{children}</a>;
+        }
+
+        const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+          if (!shouldOpenLocalFileInApp(event)) return;
+          event.preventDefault();
+          onOpenFileRef.current?.(linkedFile, parsePdfPageFragment(href) ?? undefined);
+        };
+
+        return <a href={href} {...props} onClick={handleClick}>{children}</a>;
+      },
+      img({ src, alt, ...props }) {
+        delete props.node;
+        const imagePath = typeof src === "string"
+          ? resolveLocalFileHref(src, markdownDirectory, cwd ?? markdownDirectory)
+          : null;
+        const imageSrc = imagePath
+          ? getFileApiUrl(imagePath, "read", sourceSessionId)
+          : src;
+        // Dynamic local paths are served directly by the file API.
+        // eslint-disable-next-line @next/next/no-img-element
+        return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+      },
+    };
+  }, [cwd, filePath, hasOpenFile, sourceSessionId]);
+
   if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
@@ -1816,7 +1886,6 @@ function TextFileViewer({
   if (!data && !isDeletedDiff) return null;
 
   const content = viewerContent;
-  const markdownDirectory = getFileDirectory(filePath);
   const lines = sourceLines;
   const displayModes: DisplayMode[] = isDeletedDiff
     ? ["diff"]
@@ -2014,61 +2083,7 @@ function TextFileViewer({
               remarkPlugins={markdownPreviewRemarkPlugins}
               rehypePlugins={markdownPreviewRehypePlugins}
               urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
-              components={{
-                code({ className, children, ...props }) {
-                  const lang = className?.replace("language-", "").toLowerCase() ?? "";
-                  const raw = String(children);
-                  const isBlock = className?.includes("language-") || raw.includes("\n");
-                  if (isBlock) {
-                    if (lang === "mermaid") {
-                      return <MermaidBlock code={raw.replace(/\n$/, "")} defaultPreview />;
-                    }
-                    return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
-                  }
-                  return (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-                pre({ children }) {
-                  // Render the code block directly — CodeBlock provides its own wrapping.
-                  // For non-mermaid blocks, pass through to default pre rendering.
-                  return <>{children}</>;
-                },
-                a({ href, children, ...props }) {
-                  delete props.node;
-                  const linkedFile = onOpenFile
-                    ? resolveLocalFileHref(href, markdownDirectory, cwd ?? markdownDirectory)
-                    : null;
-                  if (!linkedFile || !onOpenFile) {
-                    // Like chat links: a web or app link must not replace Pi Web.
-                    return isExternalMarkdownHref(href)
-                      ? <a href={href} {...props} target="_blank" rel="noopener noreferrer">{children}</a>
-                      : <a href={href} {...props} onClick={jumpToMarkdownFragment}>{children}</a>;
-                  }
-
-                  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-                    if (!shouldOpenLocalFileInApp(event)) return;
-                    event.preventDefault();
-                    onOpenFile(linkedFile, parsePdfPageFragment(href) ?? undefined);
-                  };
-
-                  return <a href={href} {...props} onClick={handleClick}>{children}</a>;
-                },
-                img({ src, alt, ...props }) {
-                  delete props.node;
-                  const imagePath = typeof src === "string"
-                    ? resolveLocalFileHref(src, markdownDirectory, cwd ?? markdownDirectory)
-                    : null;
-                  const imageSrc = imagePath
-                    ? getFileApiUrl(imagePath, "read", sourceSessionId)
-                    : src;
-                  // Dynamic local paths are served directly by the file API.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
-                },
-              }}
+              components={markdownComponents}
             >
               {markdownPreview}
             </ReactMarkdown>

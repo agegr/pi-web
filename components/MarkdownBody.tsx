@@ -9,8 +9,10 @@ import { encodeFilePathForApi } from "@/lib/file-paths";
 import { isAudioPath, isVideoPath } from "@/lib/file-types";
 import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownTextLayoutRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { parseFenceBlock, splitMarkdownBlocks } from "@/lib/markdown-blocks";
+import { isPlantUmlLang } from "@/lib/plantuml";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { PlantUmlBlock } from "./PlantUmlBlock";
 import { SvgBlock } from "./SvgBlock";
 
 const MarkdownLinkContext = createContext(false);
@@ -111,10 +113,11 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
   );
 });
 
-/** A fenced block: a diagram's block for mermaid and svg, else a code block. */
+/** A fenced block: a diagram's block for mermaid, svg and plantuml, else a code block. */
 function renderFence(lang: string, code: string, isStreaming: boolean | undefined) {
   if (lang === "mermaid") return <MermaidBlock code={code} isStreaming={isStreaming} defaultPreview />;
   if (lang === "svg") return <SvgBlock code={code} isStreaming={isStreaming} />;
+  if (isPlantUmlLang(lang)) return <PlantUmlBlock code={code} lang={lang} isStreaming={isStreaming} />;
   return <CodeBlock code={code} lang={lang} isStreaming={isStreaming} />;
 }
 
