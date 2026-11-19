@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { PlantUmlBlock } = await jiti.import("./PlantUmlBlock.tsx");
+const { PlantUmlBlock, PlantUmlPreviewBody, approvePlantUmlSource } = await jiti.import("./PlantUmlBlock.tsx");
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
@@ -43,4 +43,45 @@ test("```plantuml and ```puml fences render through PlantUmlBlock; others do not
   for (const lang of ["uml", "text", "mermaid"]) {
     assert.doesNotMatch(markdown(lang), /plantuml\.com/, lang);
   }
+});
+
+test("an empty fence offers no render", () => {
+  for (const code of ["", "  \n\t"]) {
+    const html = render(React.createElement(PlantUmlBlock, { code, lang: "plantuml" }));
+    assert.doesNotMatch(html, /plantuml\.com/);
+    assert.match(html, />Copy</);
+  }
+});
+
+test("a source approved on this page mounts as its preview; any other source as code", () => {
+  const approved = "@startuml\nCarol -> Dave: approved\n@enduml";
+  approvePlantUmlSource(approved);
+  const html = render(React.createElement(PlantUmlBlock, { code: approved, lang: "plantuml" }));
+  assert.match(html, />Source</);
+  assert.match(html, /mermaid-block-loading[^>]*aria-label="Rendering PlantUML diagram"/);
+  assert.doesNotMatch(html, /Carol -&gt; Dave/);
+  // Not while it streams, and not for a source nobody approved.
+  const streaming = render(React.createElement(PlantUmlBlock, { code: approved, lang: "plantuml", isStreaming: true }));
+  assert.match(streaming, /Carol -&gt; Dave/);
+  const other = render(React.createElement(PlantUmlBlock, { code: `${approved}\n`, lang: "plantuml" }));
+  assert.match(other, />Render on plantuml.com</);
+});
+
+test("the preview is an <img> of the server's SVG with no referrer, shown once loaded", () => {
+  const url = "https://www.plantuml.com/plantuml/svg/SyfFKj2rKt3CoKnELR1Io4ZDoSa70000";
+  const html = render(React.createElement(PlantUmlPreviewBody, { result: { code: "x", status: "ready", url } }));
+  assert.match(html, /aria-label="Rendering PlantUML diagram"/);
+  assert.match(html, /<button[^>]*hidden=""[^>]*><img /);
+  const img = html.match(/<img [^>]*>/)[0];
+  assert.ok(img.includes(`src="${url}"`), img);
+  assert.match(img, /referrerPolicy="no-referrer"/i);
+  assert.match(img, /alt="PlantUML diagram"/);
+});
+
+test("the preview says why there is no picture", () => {
+  const body = (result) => render(React.createElement(PlantUmlPreviewBody, { result }));
+  assert.match(body(undefined), /mermaid-block-loading/);
+  assert.match(body({ code: "x", status: "tooLong" }), /mermaid-block-error">Too long for plantuml.com</);
+  assert.match(body({ code: "x", status: "failed" }), /mermaid-block-error">Couldn&#x27;t load from plantuml.com</);
+  assert.doesNotMatch(body({ code: "x", status: "tooLong" }), /<img/);
 });

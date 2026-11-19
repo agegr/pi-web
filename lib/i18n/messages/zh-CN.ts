@@ -1566,6 +1566,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.plantUmlDiagram": "PlantUML 图表",
     "i18n.plantUmlLoadFailed": "无法从 plantuml.com 加载",
     "i18n.plantUmlTooLong": "过长，plantuml.com 无法渲染",
+    "i18n.renderingPlantUml": "正在渲染 PlantUML 图表",
     "i18n.zoomOut": "缩小",
     "i18n.zoomIn": "放大",
     "i18n.fitToWidth": "适应宽度",

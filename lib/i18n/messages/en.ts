@@ -1566,6 +1566,7 @@ export const enLocale: LocalePlugin = {
     "i18n.plantUmlDiagram": "PlantUML diagram",
     "i18n.plantUmlLoadFailed": "Couldn't load from plantuml.com",
     "i18n.plantUmlTooLong": "Too long for plantuml.com",
+    "i18n.renderingPlantUml": "Rendering PlantUML diagram",
     "i18n.zoomOut": "Zoom out",
     "i18n.zoomIn": "Zoom in",
     "i18n.fitToWidth": "Fit to width",
