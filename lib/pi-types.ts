@@ -178,6 +178,10 @@ export interface AgentSessionLike {
       /** The declared tools, with the descriptions `prepareLoadout` hooks set for the model. */
       readonly tools?: readonly { readonly name: string; readonly description: string }[];
     };
+    /** Steers and follow-ups pi has queued, its custom messages included (`getSteeringMessages()` lists texts only). */
+    hasQueuedMessages(): boolean;
+    /** The current run's abort signal; Stop aborts it. */
+    readonly signal?: AbortSignal;
   };
   readonly extensionRunner: ExtensionRunnerLike;
   readonly promptTemplates: readonly PromptTemplateLike[];

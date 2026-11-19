@@ -79,7 +79,8 @@ export interface TurnAnchorMessage {
 /**
  * The turn anchors that need no context: a user message, the compaction summary,
  * and a background subagent completion, pi-web's own and @tintinweb/pi-subagents'
- * (a follow-up that triggers a turn). getTurnAnchors() adds the extension
+ * (a follow-up that triggers a turn; pi-web's is steered into a parent's running
+ * run, where it opens a turn as a user's steer does). getTurnAnchors() adds the extension
  * messages that started a run of their own, which only the order shows.
  */
 export function isMessageGroupAnchor(message: TurnAnchorMessage): boolean {

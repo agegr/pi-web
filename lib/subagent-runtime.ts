@@ -184,8 +184,9 @@ function dropSubagentRun(sessionId: string, stored: StoredSubagentExecution): bo
 
 /**
  * Runs whose completion `notifyParent()` is still delivering: the run has left the
- * run map, but the parent's turn starts only once the parent is ready and idle. An entry leaves
- * as soon as that turn starts, since the parent is running from then on.
+ * run map, but the report reaches the parent only at its next turn boundary, or once it is ready
+ * and idle. An entry leaves as soon as a parent run has taken the report (steered in) or the turn
+ * it starts is under way, since that run then stands for it.
  */
 function getParentNotifications(): Set<ParentNotification> {
   globalThis.__piSubagentParentNotifications ??= new Set();
@@ -208,8 +209,8 @@ function unsettledSubagentRuns(): ParentNotification[] {
 /**
  * Whether a subagent run under this session, at any depth, is still unsettled: its end can
  * start a turn there (`notifyParent()`, `triggerTurn`). A run counts from dispatch until its
- * result is written (the run map), then until the turn its parent notification triggers starts,
- * or the delivery is dropped or fails. A hidden page keeps the session's event stream while this
+ * result is written (the run map), then until its parent notification is steered into a running
+ * parent or starts a turn there, or the delivery is dropped or fails. A hidden page keeps the session's event stream while this
  * holds (#1283), and a main session's run that ends meanwhile announces no completion: the
  * turn a report starts decides that (#1434).
  */
@@ -305,6 +306,39 @@ function takeResultConsumed(run: SubagentRunIdentity): boolean {
   if (!run.completedAt || consumed.get(run.sessionId) !== run.completedAt) return false;
   consumed.delete(run.sessionId);
   return true;
+}
+
+const PARENT_NOTIFICATION_TYPE = "pi-web:subagent-notification";
+
+function parentNotificationMessage(run: SubagentRunInfo) {
+  return {
+    customType: PARENT_NOTIFICATION_TYPE,
+    content: subagentNotificationText(run),
+    display: true,
+    details: subagentToolDetails(run),
+  };
+}
+
+/** The parent's copy of this run's notification: the details name the run, as the consumed mark does. */
+function isParentNotificationFor(message: unknown, run: SubagentRunIdentity): boolean {
+  const candidate = message as { role?: unknown; customType?: unknown; details?: { sessionId?: unknown; completedAt?: unknown } } | undefined;
+  return candidate?.role === "custom" && candidate.customType === PARENT_NOTIFICATION_TYPE
+    && candidate.details?.sessionId === run.sessionId && candidate.details.completedAt === run.completedAt;
+}
+
+/**
+ * Whether pi takes a steer queued at this `turn_end` before the parent's next model call. It
+ * does not after an error or aborted response, which end the run, or once Stop aborted it; nor
+ * after the turn limit of a parent that is itself a subagent ended its run (`end`), where a
+ * queued message would make AgentSession run it again. An earlier queued message goes first in
+ * the `one-at-a-time` steering mode, so the report waits for a turn whose queue is empty.
+ */
+function canSteerAfterTurn(parent: HostSession, parentSessionId: string, message: unknown): boolean {
+  const stopReason = (message as { stopReason?: unknown } | undefined)?.stopReason;
+  if (stopReason === "error" || stopReason === "aborted") return false;
+  if (parent.inner.agent.signal?.aborted) return false;
+  if (parent.inner.agent.hasQueuedMessages()) return false;
+  return getSubagentRuns().get(parentSessionId)?.turnLimitReached !== true;
 }
 
 /**
@@ -1025,26 +1059,57 @@ export function createSubagentController(
       parent = await dependencies.reopenSession(run.parentSessionId, sessionFile);
     }
     await parent.waitUntilReady();
-    // The parent may still be inside the `get_subagent_result` call that collects this result,
-    // and `deliverAs: "followUp"` would only queue the message until that turn ends anyway.
-    // Hold the notification until the parent is idle and re-check the mark, so a result the
-    // parent already consumed never triggers a duplicate turn.
+    // A running parent takes the report into its current run (`steerIntoRun()`); one whose run
+    // ends before the report got in is woken below once idle, as an idle parent is at once.
     while (parent.isAlive() && parent.isRunning()) {
-      if (takeResultConsumed(run)) return;
-      await new Promise<void>((resolve) => { setTimeout(resolve, PARENT_IDLE_POLL_MS); });
+      const outcome = await steerIntoRun(parent, run);
+      if (outcome === "consumed") return;
+      // The parent's run stands for this result from here: its end must not see it as pending.
+      if (outcome === "delivered") return onTurnStarted();
     }
     if (takeResultConsumed(run)) return;
     if (!parent.isAlive()) throw new Error(`Parent session is no longer available: ${run.parentSessionId}`);
-    const delivery = parent.inner.sendCustomMessage({
-      customType: "pi-web:subagent-notification",
-      content: subagentNotificationText(run),
-      display: true,
-      details: subagentToolDetails(run),
-    }, { deliverAs: "followUp", triggerTurn: true });
+    const delivery = parent.inner.sendCustomMessage(parentNotificationMessage(run), { deliverAs: "followUp", triggerTurn: true });
     // pi starts the turn before its first await, and resolves only once that turn settled. From
     // here the parent's own run stands for this result: its end must not see the result as pending.
     if (parent.isRunning()) onTurnStarted();
     await delivery;
+  }
+
+  /**
+   * Hand the report to a running parent as a steer, so its next model call in this run sees it.
+   * The steer is queued only at a turn boundary (`turn_end`, after the tool batch), when pi polls
+   * steering right away: a `get_subagent_result` call in that batch has returned and marked the
+   * result consumed by then, so the parent never gets the report twice, and no Stop or
+   * `clear_queue` can drop the queued message unseen. It is a custom message, which pi keeps out of
+   * the composer's queue rows (they list steer texts), so it is never recalled as the user's text.
+   * Resolves `delivered` once pi put it into the parent's context, `consumed` when the parent
+   * collected the result itself, and `idle` when the run ended before the report got in (Stop,
+   * an error, the report arriving after the run's last turn): the caller then wakes the parent.
+   */
+  function steerIntoRun(parent: HostSession, run: SubagentRunInfo): Promise<"delivered" | "consumed" | "idle"> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (outcome: "delivered" | "consumed" | "idle") => {
+        if (settled) return;
+        settled = true;
+        clearInterval(idleCheck);
+        unsubscribe();
+        resolve(outcome);
+      };
+      const unsubscribe = parent.inner.subscribe((event) => {
+        if (event.type === "message_end" && isParentNotificationFor(event.message, run)) return finish("delivered");
+        if (event.type !== "turn_end") return;
+        if (takeResultConsumed(run)) return finish("consumed");
+        if (!canSteerAfterTurn(parent, run.parentSessionId, event.message)) return;
+        parent.inner.sendCustomMessage(parentNotificationMessage(run), { deliverAs: "steer" }).catch((error) => {
+          console.error("[pi-web] failed to steer subagent completion:", error instanceof Error ? error.message : error);
+        });
+      });
+      const idleCheck = setInterval(() => {
+        if (!parent.isAlive() || !parent.isRunning()) finish("idle");
+      }, PARENT_IDLE_POLL_MS);
+    });
   }
 
   async function abort(sessionId: string): Promise<void> {
