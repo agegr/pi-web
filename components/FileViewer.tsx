@@ -27,6 +27,8 @@ import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } 
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { PlantUmlBlock } from "./PlantUmlBlock";
+import { isPlantUmlLang } from "@/lib/plantuml";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
@@ -2022,6 +2024,9 @@ function TextFileViewer({
                   if (isBlock) {
                     if (lang === "mermaid") {
                       return <MermaidBlock code={raw.replace(/\n$/, "")} defaultPreview />;
+                    }
+                    if (isPlantUmlLang(lang)) {
+                      return <PlantUmlBlock code={raw.replace(/\n$/, "")} lang={lang} />;
                     }
                     return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} />;
                   }
