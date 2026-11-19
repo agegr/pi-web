@@ -95,3 +95,26 @@ test("a delete completing while the user is still on it falls back to the empty 
   assert.equal(state.sessionKey, 1, "chat remounts as a fresh composer");
   assert.equal(state.routerReplaced, `?cwd=${encodeURIComponent("/project-a")}`);
 });
+
+test("a side chat's stored draft goes only once its delete succeeded", async () => {
+  const start = source.indexOf("  const handleDeleteSideChat = useCallback");
+  const end = source.indexOf("\n  }, [", start);
+  assert.notEqual(start, -1, "handleDeleteSideChat callback not found");
+  for (const refusal of [null, { error: "HTTP 500" }]) {
+    const cleared = [];
+    const context = vm.createContext({
+      useCallback: (callback) => callback,
+      deleteSideChat: async () => refusal,
+      clearDraft: (id) => cleared.push(id),
+      handleCloseFileTab() {},
+      selectedSessionRef: { current: null },
+      handleSelectSession() {},
+      setRefreshKey() {},
+      handleSessionDeleted() {},
+    });
+    const handleDeleteSideChat = vm.runInContext(stripTypeScriptTypes(`${source.slice(start, end)}\n  }, []);\nhandleDeleteSideChat`), context);
+    const error = await handleDeleteSideChat("side-chat", { id: "main" });
+    assert.equal(error, refusal?.error ?? null);
+    assert.deepEqual(cleared, refusal ? [] : ["side-chat"]);
+  }
+});

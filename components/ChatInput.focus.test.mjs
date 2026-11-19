@@ -57,6 +57,13 @@ function composer({ focused = true } = {}) {
     builtinCommandPendingRef: { current: false },
     builtinCommandFocusRef: { current: null },
     valueRef: { current: "/compact" },
+    draftKeyRef: { current: "session-a" },
+    storedDraftHolds: [],
+    holdStoredDraft(key) {
+      const hold = { key, released: false };
+      scope.storedDraftHolds.push(hold);
+      return () => { hold.released = true; };
+    },
     canClearBuiltinCommandInput: (value, count, submitted) => value === submitted && count === 0,
     clearInput() { scope.valueRef.current = ""; },
     onBuiltinCommand: () => new Promise((done, fail) => { resolve = done; reject = fail; }),
@@ -132,5 +139,21 @@ for (const scenario of ["other control", "outside text", "modal", "unmounted", "
     c.commit();
     assert.equal(c.document.activeElement, active);
     assert.equal(c.focusCount(), 0);
+  });
+}
+
+for (const [name, settle] of [
+  ["a finished command", (c) => c.finish()],
+  ["a refused command", (c) => c.finish({ handled: true, error: "No active session" })],
+  ["a throwing command", (c) => c.fail(new Error("failed"))],
+]) {
+  test(`${name} keeps its text out of stored drafts only while it runs`, async () => {
+    const c = composer();
+    const pending = c.run("/compact");
+    // Issued once: a reload while it runs must not bring the command back.
+    assert.deepEqual(c.scope.storedDraftHolds, [{ key: "session-a", released: false }]);
+    settle(c);
+    await pending.catch(() => {});
+    assert.deepEqual(c.scope.storedDraftHolds, [{ key: "session-a", released: true }]);
   });
 }

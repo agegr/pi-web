@@ -38,7 +38,8 @@ export const MAX_STORED_DRAFTS = 50;
  * grants an origin, which pi-web's other stored preferences share.
  */
 export const MAX_STORED_DRAFT_LENGTH = 20_000;
-const STORE_DELAY_MS = 300;
+/** Changed drafts are written at most this often while typing goes on. */
+const STORE_INTERVAL_MS = 300;
 
 interface DraftStorage {
   readonly length: number;
@@ -51,6 +52,8 @@ interface DraftStorage {
 /** Keys whose stored copy this page has read or replaced. */
 const seededKeys = new Set<string>();
 const pendingStores = new Set<string>();
+/** Keys kept out of storage, with how many holds each has. */
+const storeHolds = new Map<string, number>();
 let storeTimer: ReturnType<typeof setTimeout> | null = null;
 let flushListenersAdded = false;
 
@@ -96,12 +99,17 @@ function storedDraftTime(storage: DraftStorage, storageKey: string): number {
   }
 }
 
-function evictOldStoredDrafts(storage: DraftStorage): void {
+function storedDraftKeys(storage: DraftStorage): string[] {
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
     if (key?.startsWith(STORAGE_PREFIX)) keys.push(key);
   }
+  return keys;
+}
+
+function evictOldStoredDrafts(storage: DraftStorage): void {
+  const keys = storedDraftKeys(storage);
   if (keys.length <= MAX_STORED_DRAFTS) return;
   keys
     .map((key) => ({ key, at: storedDraftTime(storage, key) }))
@@ -147,14 +155,15 @@ function flushWhenHidden(): void {
 }
 
 function scheduleStoredDraft(key: string): void {
-  if (!isStoredDraftKey(key) || !getBrowserStorage()) return;
+  if (!isStoredDraftKey(key) || storeHolds.has(key) || !getBrowserStorage()) return;
   pendingStores.add(key);
   if (!flushListenersAdded) {
     flushListenersAdded = true;
     window.addEventListener("pagehide", flushStoredDrafts);
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", flushWhenHidden);
   }
-  if (storeTimer === null) storeTimer = setTimeout(flushStoredDrafts, STORE_DELAY_MS);
+  // Not reset by later changes: typing that goes on still gets written.
+  if (storeTimer === null) storeTimer = setTimeout(flushStoredDrafts, STORE_INTERVAL_MS);
 }
 
 /** Written at once: a reload right after a send must not bring the text back. */
@@ -165,6 +174,41 @@ function removeStoredDraft(key: string): void {
   if (!storage) return;
   try {
     storage.removeItem(STORAGE_PREFIX + key);
+  } catch {
+    // Storage is best-effort.
+  }
+}
+
+/**
+ * Keeps a key's draft out of storage, its stored copy removed at once, until
+ * the returned release runs: for text whose meaning a reload would lose (a
+ * history edit's target, a command already running). Memory keeps the draft,
+ * and the release stores it again.
+ */
+export function holdStoredDraft(key: string): () => void {
+  storeHolds.set(key, (storeHolds.get(key) ?? 0) + 1);
+  removeStoredDraft(key);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const holds = (storeHolds.get(key) ?? 1) - 1;
+    if (holds > 0) {
+      storeHolds.set(key, holds);
+      return;
+    }
+    storeHolds.delete(key);
+    if (drafts.get(key)?.value) scheduleStoredDraft(key);
+  };
+}
+
+/** Removes every stored draft (signing out); drafts in this page's memory stay. */
+export function clearStoredDrafts(): void {
+  pendingStores.clear();
+  const storage = getBrowserStorage();
+  if (!storage) return;
+  try {
+    storedDraftKeys(storage).forEach((key) => storage.removeItem(key));
   } catch {
     // Storage is best-effort.
   }

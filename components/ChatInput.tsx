@@ -7,6 +7,7 @@ import type { TextContent, UserMessage } from "@/lib/types";
 import {
   clearDraft,
   getDraft,
+  holdStoredDraft,
   mergeRestoredSubmissionDraft,
   mergeRestoredSubmissionText,
   rekeyDraft as rekeyStoredDraft,
@@ -1221,12 +1222,16 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     builtinCommandFocusRef.current = document.activeElement === textareaRef.current ? textareaRef.current : null;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
+    // The command stays in the composer while it runs, but it was already
+    // issued: a reload meanwhile must not bring it back to be run again.
+    const releaseStoredDraft = draftKeyRef.current ? holdStoredDraft(draftKeyRef.current) : null;
     try {
       const result = await onBuiltinCommand(msg);
       if (!result.handled) return false;
       if (!result.error && canClearBuiltinCommandInput(valueRef.current, attachedImagesRef.current.length, msg)) clearInput();
       return true;
     } finally {
+      releaseStoredDraft?.();
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
