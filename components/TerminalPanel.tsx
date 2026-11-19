@@ -93,7 +93,9 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     // Each connection's first output is history: what the shell printed before this page
     // connected. xterm answers the questions in it again (cursor position, colours, device
     // attributes) and the programs that asked have gone, so the shell would take the answers
-    // as typing. Nothing xterm emits is sent while history is being drawn.
+    // as typing. Nothing xterm emits is sent while history is being drawn. A shell this panel
+    // just started has had no page yet: it may still be waiting for the answer (fish 4.1+ asks
+    // for the device attributes at startup), so its first output is answered.
     let awaitingHistory = false;
     let drawingHistory = 0;
     setStatus("connecting");
@@ -193,7 +195,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       };
       events.onopen = () => {
         // Also runs when the browser reconnects the stream by itself.
-        awaitingHistory = true;
+        awaitingHistory = restored || reconnectKey > 0 || offset !== undefined;
         connected = true;
         if (inputFailed) return;
         terminal.options.disableStdin = false;

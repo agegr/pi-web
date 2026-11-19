@@ -40,7 +40,10 @@ vim's requests for the cursor position, the colours and the device attributes.
 xterm.js answers them again when it draws them, and the programs that asked
 have gone, so the browser sends nothing xterm.js emits while it draws that
 event. Otherwise the answers arrive at the shell prompt as typed text such as
-`0;276;0c`. Keys pressed in those few milliseconds are dropped too.
+`0;276;0c`. Keys pressed in those few milliseconds are dropped too. The first
+connection to a shell the panel just created is the exception: no page has
+answered that output yet, and a shell such as fish 4.1+ waits at startup for
+the device attributes.
 
 Input and resizes are serialized. Pending adjacent input is batched so remote
 connections do not require one round trip per keystroke; large pastes are split
