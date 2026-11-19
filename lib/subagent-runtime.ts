@@ -874,6 +874,12 @@ export function createSubagentController(
       resumed: true,
     };
     const manager = wrapper.inner.sessionManager;
+    // A spawn names the child after its description; a resume with a new one renames it (#1735),
+    // through `setSessionName()` as pi's `/name` does, since the wrapper holds the session.
+    const resumedDescription = request.description.trim();
+    if (resumedDescription && resumedDescription !== manager.getSessionName()) {
+      wrapper.inner.setSessionName(resumedDescription);
+    }
     let resolveCompletion!: (run: SubagentRunInfo) => void;
     const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
     const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false, dispatchedAt: Date.now() };
