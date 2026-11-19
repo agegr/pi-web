@@ -144,6 +144,43 @@ function lastAssistantStop(sessionManager: { getEntries?: () => unknown }): { ab
   return undefined;
 }
 
+type RunMessage = { role?: unknown; stopReason?: unknown; content?: unknown };
+
+function messageText(message: RunMessage): string {
+  if (!Array.isArray(message.content)) return typeof message.content === "string" ? message.content.trim() : "";
+  return message.content
+    .map((block: { type?: unknown; text?: unknown }) => (block?.type === "text" && typeof block.text === "string" ? block.text : ""))
+    .join("").trim();
+}
+
+/**
+ * A run's report: the text of every assistant message the run appended (entries from `from` on)
+ * that ended its turn without tool calls, in order. A steer that reaches the child while it writes
+ * its answer starts another turn after it, and that turn's reply (often a short acknowledgement)
+ * alone would replace the report (#1726). The run's last message counts however it ended, as
+ * `getLastAssistantText()` reads it, so a stopped or limited run keeps its partial output; failed
+ * attempts a retry replaced do not. The session's entries are append-only, so compaction during
+ * the run keeps earlier answers, and a resumed run never reports an earlier run's text.
+ */
+function runResultText(sessionManager: { getEntries?: () => unknown }, from: number): string | undefined {
+  const entries = sessionManager.getEntries?.();
+  if (!Array.isArray(entries)) return undefined;
+  const messages = entries.slice(from)
+    .map((entry: { type?: unknown; message?: RunMessage }) => (entry?.type === "message" ? entry.message : undefined))
+    .filter((message): message is RunMessage => message?.role === "assistant");
+  let last = messages.length - 1;
+  // `getLastAssistantText()` passes over a request stopped before any output.
+  while (last >= 0 && messages[last].stopReason === "aborted" && Array.isArray(messages[last].content) &&
+    (messages[last].content as unknown[]).length === 0) last -= 1;
+  const texts = messages.flatMap((message, index) => {
+    const answer = index === last || (message.stopReason !== "error" && message.stopReason !== "aborted" &&
+      !(Array.isArray(message.content) && message.content.some((block: { type?: unknown }) => block?.type === "toolCall")));
+    const text = answer ? messageText(message) : "";
+    return text ? [text] : [];
+  });
+  return texts.length ? texts.join("\n\n") : undefined;
+}
+
 function turnLimitError(turnLimit: number, undelivered: readonly string[]): string {
   const error = `Subagent reached its turn limit (${turnLimit}) without completing the task.`;
   if (undelivered.length === 0) return error;
@@ -771,11 +808,12 @@ export function createSubagentController(
           };
         }
         let result: SubagentRunInfo;
+        const runStart = sessionManager.getEntries().length;
         try {
           if (childSession && !childSession.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
           await prepareChildMcp(childSession, stored);
           await inner.prompt(delegatedTask, { source: "rpc" });
-          const text = inner.getLastAssistantText()?.trim();
+          const text = runResultText(sessionManager, runStart);
           const stop = stored.abortRequested ? undefined : lastAssistantStop(sessionManager);
           const aborted = stored.abortRequested || stop?.aborted === true;
           const errorMessage = aborted ? undefined : stop?.error ??
@@ -788,7 +826,7 @@ export function createSubagentController(
             ...(errorMessage ? { error: errorMessage } : {}),
           };
         } catch (error) {
-          const text = inner.getLastAssistantText()?.trim();
+          const text = runResultText(sessionManager, runStart);
           const aborted = stored.abortRequested || request.signal?.aborted;
           result = {
             ...initialRun,
@@ -951,11 +989,13 @@ export function createSubagentController(
       manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
       request.onUpdate?.(stored.run);
       let result: SubagentRunInfo;
+      // Earlier runs' messages are on the same branch; only this run's answers are its result.
+      const runStart = manager.getEntries().length;
       try {
         if (!wrapper!.isAlive()) throw new Error(CLOSED_BEFORE_RUN);
         await prepareChildMcp(wrapper, stored);
         await wrapper!.inner.prompt(request.task, { source: "rpc" });
-        const text = wrapper!.inner.getLastAssistantText()?.trim();
+        const text = runResultText(manager, runStart);
         const stop = stored.abortRequested ? undefined : lastAssistantStop(manager);
         const aborted = stored.abortRequested || stop?.aborted === true;
         const providerError = aborted ? undefined : stop?.error;
