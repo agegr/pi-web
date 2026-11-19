@@ -338,7 +338,16 @@ try {
     assert.deepEqual(rendered.filter((value) => value !== text(0)),
       Array.from({ length: 5000 - oldest }, (_, i) => text(oldest + i)), "Missing, reordered, or duplicate chat messages");
     if (viewport.width > 600) {
-      assert.deepEqual(await readMinimapTurn("minimap-turns-paged.png"), {
+      // The minimap lists the turns again a moment after a page lands (its
+      // measure is throttled), while `turnsBefore` changes with the page: read
+      // too soon, the last page's turns are numbered from the new count.
+      let paged;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        paged = await readMinimapTurn("minimap-turns-paged.png");
+        if (paged.number === "2500") break;
+        await page.waitForTimeout(100);
+      }
+      assert.deepEqual(paged, {
         number: "2500",
         earlier: `Earlier turns not loaded: ${oldest / 2}. Click to load`,
       }, "Loading older pages must not renumber minimap turns");

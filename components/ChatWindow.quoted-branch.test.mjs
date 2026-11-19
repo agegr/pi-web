@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("keeps the selection toolbar above the session sidebar", async () => {
-  const chatSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
+  const popoverSource = await readFile(new URL("./QuoteSelectionPopover.tsx", import.meta.url), "utf8");
   const shellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 
-  const toolbar = chatSource.match(/role=\{quoteInputOpen \? "dialog" : "toolbar"\}[\s\S]*?zIndex:\s*(\d+)/);
+  const toolbar = popoverSource.match(/role=\{quoteInputOpen \? "dialog" : "toolbar"\}[\s\S]*?zIndex:\s*(\d+)/);
   const sidebar = shellSource.match(/id="session-sidebar"[\s\S]*?zIndex:\s*(\d+)/);
 
   assert.ok(toolbar, "expected quote toolbar z-index");
