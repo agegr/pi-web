@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, readFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,9 +58,9 @@ async function scratchSession(t) {
 
 const JSON_HEADERS = { host: "localhost", "Content-Type": "application/json" };
 
-function post(id, headers = JSON_HEADERS) {
+function post(id, headers = JSON_HEADERS, body = {}) {
   return forkSession(
-    new Request(`http://localhost/api/sessions/${id}/fork`, { method: "POST", headers, body: "{}" }),
+    new Request(`http://localhost/api/sessions/${id}/fork`, { method: "POST", headers, body: JSON.stringify(body) }),
     { params: Promise.resolve({ id }) },
   );
 }
@@ -177,6 +177,54 @@ test("a source deleted behind its cached path is not found, forgotten and droppe
   assert.equal((await response.json()).code, "not_found");
   assert.equal(globalThis.__piSessionPathCache.has(source.id), false, "the dead path is not served again");
   assert.ok(getSessionListVersion() > versionBefore, "the next list load drops its row");
+});
+
+test("{ cwd } forks a session whose folder is gone into that folder, as pi 1.5.2's Fork does", async (t) => {
+  const source = await scratchSession(t);
+  // The fixture's project folder was never made: it is the folder that is gone.
+  const moved = join(source.dir, "moved");
+  mkdirSync(moved);
+  const versionBefore = getSessionListVersion();
+
+  const response = await post(source.id, JSON_HEADERS, { cwd: moved });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  source.forked.push(body.sessionId);
+  assert.notEqual(body.sessionId, source.id);
+  assert.equal(body.session.cwd, moved);
+  assert.deepEqual(body.session.relation, { kind: "fork", originSessionId: source.id });
+  // The whole session, every branch, with no name of its own: it keeps the source's title.
+  assert.deepEqual(assistantTexts(body.session.path), ["first", "second"]);
+  assert.equal(body.session.name, undefined);
+  assert.equal(body.session.firstMessage, "Fork me");
+  assert.ok(getSessionListVersion() > versionBefore);
+  assert.equal(globalThis.__piSessions?.has(source.id) ?? false, false, "no AgentSession was started");
+  const list = await (await getSessionList(new Request("http://localhost/api/sessions"))).json();
+  assert.ok(list.sessions.some((session) => session.id === body.sessionId && session.cwd === body.session.cwd));
+});
+
+test("{ cwd } refusals: a relative or missing folder, a source whose folder still exists", async (t) => {
+  const source = await scratchSession(t);
+  const target = join(source.dir, "target");
+  mkdirSync(target);
+  mkdirSync(join(source.dir, "project"));
+  const exists = await post(source.id, JSON_HEADERS, { cwd: target });
+  assert.equal(exists.status, 409);
+  assert.equal((await exists.json()).code, "cwd-exists");
+
+  rmSync(join(source.dir, "project"), { recursive: true, force: true });
+  for (const cwd of ["", "relative/folder", null, 42]) {
+    const invalid = await post(source.id, JSON_HEADERS, { cwd });
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).code, "cwd-invalid");
+  }
+  const missing = await post(source.id, JSON_HEADERS, { cwd: join(target, "nowhere") });
+  assert.equal(missing.status, 400);
+  const refusal = await missing.json();
+  assert.equal(refusal.code, "cwd-invalid");
+  assert.match(refusal.error, /Directory does not exist: .*nowhere/);
+  const side = await post(source.id, JSON_HEADERS, { cwd: target, side: true });
+  assert.equal(side.status, 400);
 });
 
 test("the route refuses cross-origin requests itself", () => {

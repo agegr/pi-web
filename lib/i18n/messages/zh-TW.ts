@@ -807,6 +807,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.modelError": "模型錯誤",
     "chat.cwdMissingTitle": "找不到專案資料夾",
     "chat.cwdMissingBody": "{cwd} 已不存在。如果專案已移動或重新命名，請在新位置建立新的工作階段。",
+    "chat.cwdMissingFork": "分叉到其他資料夾…",
     "chat.modelScopeWarning": "模型範圍警告",
     "chat.modelScopeWarnings": "模型範圍警告",
     "chat.send": "傳送",

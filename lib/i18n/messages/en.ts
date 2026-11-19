@@ -807,6 +807,7 @@ export const enLocale: LocalePlugin = {
     "chat.modelError": "Model error",
     "chat.cwdMissingTitle": "Project folder not found",
     "chat.cwdMissingBody": "{cwd} no longer exists. If the project was moved or renamed, start a new session in its new location.",
+    "chat.cwdMissingFork": "Fork into another folder…",
     "chat.modelScopeWarning": "Model scope warning",
     "chat.modelScopeWarnings": "Model scope warnings",
     "chat.send": "Send",

@@ -52,7 +52,7 @@ app/api/
   sessions/[id]/route.ts           GET/PATCH/DELETE a session
   sessions/[id]/context/route.ts   GET ?leafId=&tail=&before= a page of a leaf's context (tail defaults to 50; before pages upward; leafId defaults to pi's leaf, named in the reply)
   sessions/[id]/export/route.ts    GET exported HTML
-  sessions/[id]/fork/route.ts      POST copy the session's current branch into a new session, or { side: true } a side chat (never starts an AgentSession)
+  sessions/[id]/fork/route.ts      POST copy the session's current branch into a new session, { side: true } a side chat, or { cwd } a session whose folder is gone into that folder (never starts an AgentSession)
   sessions/delete/route.ts         POST { ids } delete sessions and their subagents (a project's Delete all sessions); running ones kept
   sessions/stats/route.ts          POST { ids } each session's tokens, cost, tool calls, active time (the agent switcher's rows)
   sessions/[id]/state/route.ts     GET live wrapper state while running

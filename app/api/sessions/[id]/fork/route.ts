@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { isAbsolute } from "path";
+import { allowFileRoot } from "@/lib/file-access";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { sideChatNameFromText } from "@/lib/session-family";
-import { createSideSession, forkSessionBranch, readForkSourceTitle, SessionForkError } from "@/lib/session-fork";
+import { createSideSession, forkSessionBranch, forkSessionIntoCwd, readForkSourceTitle, SessionForkError } from "@/lib/session-fork";
 import {
   cacheSessionPath,
   invalidateSessionListCache,
@@ -33,16 +35,23 @@ function refusal(status: number, code: string, error: string) {
   return NextResponse.json({ error, code }, { status, headers: NO_STORE });
 }
 
-// POST /api/sessions/[id]/fork - body {}, or { side: true, name? } for a side
-// chat (`/side`, ADR 0007); answers with the new session.
+// POST /api/sessions/[id]/fork - body {}, { side: true, name? } for a side
+// chat (`/side`, ADR 0007), or { cwd } for pi's Fork of a session whose folder
+// is gone (pi 1.5.2): the whole file copied into a new session of `cwd`.
+// Answers with the new session.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   if (!hasJsonContentType(req)) return refusal(415, "request-denied", "Content-Type must be application/json");
   const { id } = await params;
 
   try {
-    const body = await req.json().catch(() => null) as { side?: unknown; name?: unknown } | null;
+    const body = await req.json().catch(() => null) as { side?: unknown; name?: unknown; cwd?: unknown } | null;
     const side = body?.side === true;
+    const hasTargetCwd = body !== null && typeof body === "object" && Object.hasOwn(body, "cwd");
+    const targetCwd = typeof body?.cwd === "string" ? body.cwd.trim() : undefined;
+    if (hasTargetCwd && (side || !targetCwd || !isAbsolute(targetCwd))) {
+      return refusal(400, "cwd-invalid", "cwd must be an absolute path");
+    }
     const sideName = typeof body?.name === "string" ? sideChatNameFromText(body.name) ?? undefined : undefined;
     const opened = getRpcSession(id);
     const sourcePath = (opened?.isAlive() ? opened.sessionFile : "") || await resolveSessionPath(id);
@@ -50,6 +59,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       invalidateSessionListCache();
       return refusal(404, "not_found", "Session not found");
     }
+    if (targetCwd !== undefined) return await forkIntoCwd(id, sourcePath, targetCwd);
     // The title the sidebar shows for the source, which the copy's name
     // starts with (null: the source has none, the copy stays unnamed). Read
     // first: the copy below allows no await.
@@ -90,8 +100,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         invalidateSessionListCache();
         return refusal(404, error.code, error.message);
       }
+      if (error.code === "cwd-invalid") return refusal(400, error.code, error.message);
       return refusal(409, error.code, error.message);
     }
     return refusal(500, "failed", error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * pi's Fork into another folder (`forkSessionIntoCwd()`): the copy keeps the
+ * source's name and history, so it needs no name of its own.
+ */
+async function forkIntoCwd(id: string, sourcePath: string, cwd: string) {
+  const fork = forkSessionIntoCwd(sourcePath, cwd);
+  cacheSessionPath(fork.sessionId, fork.path);
+  invalidateSessionListCache();
+  // The copy's folder is a project the file routes may serve, as a new
+  // session's is (POST /api/agent/new).
+  allowFileRoot(cwd);
+  const info = await readSessionInfo(fork.path);
+  if (!info) throw new Error("The forked session could not be read");
+  const session: SessionInfo = { ...info, parentSessionId: id, relation: { kind: "fork", originSessionId: id } };
+  return NextResponse.json({ sessionId: fork.sessionId, session } satisfies SessionForkResponse, { headers: NO_STORE });
 }
