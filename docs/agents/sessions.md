@@ -52,6 +52,9 @@ pi's `navigateTree()` refuses while streaming or compacting: the file has one le
 ## Session files can be fully rewritten
 `parentSession` in the header is **display metadata only**, so rewriting the whole file with `writeFileSync` is safe (pi does it in migrations); cascade-reparenting children on delete relies on this.
 
+## Route responses are compressed by Next, never by the handler
+Route handlers return plain bodies (`NextResponse.json`). From Next 16.4.6, `next start` and `next dev` alike gzip route handler responses themselves (the `compression` middleware in `router-server.js`, for any compressible `Content-Type`, `text/*` included, and any size, since the length is gone before the first write), and from 16.4.5 Next drops a handler's own `Content-Encoding`, `Content-Length` and `Transfer-Encoding` (GHSA-pc58-hwjq-p385), so file responses go out chunked with no length; so a body the handler gzips goes out gzipped twice under one header and `/api/sessions` fails to parse (#1729). SSE routes send `Cache-Control: no-cache, no-transform`, which the middleware honours; one without it (`/api/auth/login/[provider]`) is gzipped but still arrives event by event, since Next's `pipeToNodeResponse()` calls `res.flush()` after every write. `/api/files` file responses send `no-transform` too, so a range of an SVG is never a range of its gzip.
+
 ## ToolCall field normalization
 Pi stores `{type:"toolCall", id, name, arguments}`; `ToolCallContent` uses `{toolCallId, toolName, input}`. `normalizeToolCalls()` (`lib/normalize.ts`) converts in both `session-reader.ts` (file load) and `handleAgentEvent` (`hooks/useAgentSession.ts`, streaming).
 

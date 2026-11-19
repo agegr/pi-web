@@ -324,7 +324,9 @@ function getContentDisposition(filePath: string, asDownload = false): string {
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
   const headers: Record<string, string> = {
     "Content-Type": contentType,
-    "Cache-Control": "no-cache",
+    // no-transform: Next gzips compressible route responses (SVG among them), a 206 included,
+    // which turns a byte range into the range of a different body; file bytes go out as stored.
+    "Cache-Control": "no-cache, no-transform",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
     "X-Content-Type-Options": "nosniff",
