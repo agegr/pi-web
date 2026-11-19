@@ -89,6 +89,11 @@ type StoredSubagentExecution = {
   abortRequested: boolean;
   /** Set once the turn limit ends the run; later steering is refused instead of starting another turn. */
   turnLimitReached?: boolean;
+  /**
+   * Set once the run has used its turns (`turnCount >= max_turns`): a report steered in from here
+   * would buy a turn past the limit, and the limiter could then fail a run that had finished.
+   */
+  turnsUsed?: boolean;
   cancelQueued?: () => boolean;
   /** Ends the wait for the child's MCP servers before its prompt (`prepareChildMcp()`). */
   mcpWait?: AbortController;
@@ -329,8 +334,9 @@ function isParentNotificationFor(message: unknown, run: SubagentRunIdentity): bo
 /**
  * Whether pi takes a steer queued at this `turn_end` before the parent's next model call. It
  * does not after an error or aborted response, which end the run, or once Stop aborted it; nor
- * after the turn limit of a parent that is itself a subagent ended its run (`end`), where a
- * queued message would make AgentSession run it again. An earlier queued message goes first in
+ * into a parent that is itself a subagent and has used its turns (`max_turns`): a steer there
+ * would start a turn past the limit, or make AgentSession run again after the limiter's `end`,
+ * and a run that answered could end as failed. An earlier queued message goes first in
  * the `one-at-a-time` steering mode, so the report waits for a turn whose queue is empty.
  */
 function canSteerAfterTurn(parent: HostSession, parentSessionId: string, message: unknown): boolean {
@@ -338,7 +344,8 @@ function canSteerAfterTurn(parent: HostSession, parentSessionId: string, message
   if (stopReason === "error" || stopReason === "aborted") return false;
   if (parent.inner.agent.signal?.aborted) return false;
   if (parent.inner.agent.hasQueuedMessages()) return false;
-  return getSubagentRuns().get(parentSessionId)?.turnLimitReached !== true;
+  const stored = getSubagentRuns().get(parentSessionId);
+  return stored?.turnLimitReached !== true && stored?.turnsUsed !== true;
 }
 
 /**
@@ -741,6 +748,7 @@ export function createSubagentController(
             const toolsContinue = turn.toolResults.some((message) => !terminatingTools.has(message.toolCallId));
             terminatingTools.clear();
             turnCount += 1;
+            if (turnCount >= turnLimit) stored.turnsUsed = true;
             if (signal?.aborted || decision?.action === "end" ||
               turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return decision;
             const needsAnotherTurn = toolsContinue || decision?.action === "continue" || inner.agent.hasQueuedMessages();
@@ -1094,10 +1102,13 @@ export function createSubagentController(
         if (settled) return;
         settled = true;
         clearInterval(idleCheck);
-        unsubscribe();
+        // pi's emit loop walks its listener array, which unsubscribing splices: leaving inside the
+        // handler would make the next listener (another child's report) miss this event.
+        queueMicrotask(unsubscribe);
         resolve(outcome);
       };
       const unsubscribe = parent.inner.subscribe((event) => {
+        if (settled) return;
         if (event.type === "message_end" && isParentNotificationFor(event.message, run)) return finish("delivered");
         if (event.type !== "turn_end") return;
         if (takeResultConsumed(run)) return finish("consumed");
