@@ -153,21 +153,35 @@ function messageText(message: RunMessage): string {
     .join("").trim();
 }
 
+type RunEntry = { type?: unknown; id?: unknown; targetId?: unknown; replacement?: { content?: unknown } | null; message?: RunMessage };
+
 /**
  * A run's report: the text of every assistant message the run appended (entries from `from` on)
  * that ended its turn without tool calls, in order. A steer that reaches the child while it writes
  * its answer starts another turn after it, and that turn's reply (often a short acknowledgement)
- * alone would replace the report (#1726). The run's last message counts however it ended, as
- * `getLastAssistantText()` reads it, so a stopped or limited run keeps its partial output; failed
- * attempts a retry replaced do not. The session's entries are append-only, so compaction during
- * the run keeps earlier answers, and a resumed run never reports an earlier run's text.
+ * alone would replace the report (#1726). Messages are read as pi projects them for the model: a
+ * `context_edit` with no replacement drops one (pi's own recovery omits a provider error before
+ * its retry and a `length`-truncated draft before its compaction retry), and one with a
+ * replacement rewrites its content, the latest edit winning. The run's last message counts
+ * however it ended, as `getLastAssistantText()` reads it, so a stopped or limited run keeps its
+ * partial output. The session's entries are append-only, so compaction during the run keeps
+ * earlier answers, and a resumed run never reports an earlier run's text.
  */
 function runResultText(sessionManager: { getEntries?: () => unknown }, from: number): string | undefined {
   const entries = sessionManager.getEntries?.();
   if (!Array.isArray(entries)) return undefined;
-  const messages = entries.slice(from)
-    .map((entry: { type?: unknown; message?: RunMessage }) => (entry?.type === "message" ? entry.message : undefined))
-    .filter((message): message is RunMessage => message?.role === "assistant");
+  const runEntries = (entries as RunEntry[]).slice(from);
+  // An edit always follows its target, so the run's own range holds every edit of its messages.
+  const edits = new Map<unknown, RunEntry["replacement"]>();
+  for (const entry of runEntries) if (entry?.type === "context_edit") edits.set(entry.targetId, entry.replacement);
+  const messages = runEntries.flatMap((entry): RunMessage[] => {
+    if (entry?.type !== "message" || entry.message?.role !== "assistant") return [];
+    if (!edits.has(entry.id)) return [entry.message];
+    const replacement = edits.get(entry.id);
+    if (!replacement) return [];
+    const content = typeof replacement.content === "string" ? [{ type: "text", text: replacement.content }] : replacement.content;
+    return [{ ...entry.message, content }];
+  });
   let last = messages.length - 1;
   // `getLastAssistantText()` passes over a request stopped before any output.
   while (last >= 0 && messages[last].stopReason === "aborted" && Array.isArray(messages[last].content) &&
@@ -1007,10 +1021,12 @@ export function createSubagentController(
           ...(providerError ? { error: providerError } : {}),
         };
       } catch (error) {
+        const text = runResultText(manager, runStart);
         result = {
           ...initialRun,
           status: stored.abortRequested || request.signal?.aborted ? "aborted" : "failed",
           completedAt: new Date().toISOString(),
+          ...(text ? { result: text } : {}),
           ...(!stored.abortRequested && !request.signal?.aborted ? { error: error instanceof Error ? error.message : String(error) } : {}),
         };
       } finally {
