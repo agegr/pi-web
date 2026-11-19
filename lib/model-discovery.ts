@@ -143,9 +143,10 @@ export function parseDiscoveredModels(value: unknown): DiscoveredModel[] {
   }));
 }
 
-// A base URL's own API version (`/v1`, `/v1beta`, `/v1alpha`, `/v1beta1`): pi
-// sends requests under it as given, so the model list is there too.
-const API_VERSION_SEGMENT = /\/v\d+(?:(?:alpha|beta)\d*)?$/i;
+// A Google base URL's own API version (`/v1`, `/v1beta`, `/v1alpha`, `/v1beta1`):
+// pi sends Google requests under the base URL as given (apiVersion ""), so the
+// model list is there too. Anthropic's SDK adds `/v1` to its base URL itself.
+const GOOGLE_API_VERSION_SEGMENT = /\/v\d+(?:(?:alpha|beta)\d*)?$/i;
 
 export function buildModelsListUrl(baseUrl: string, api: string): URL {
   const url = new URL(baseUrl.trim());
@@ -153,8 +154,8 @@ export function buildModelsListUrl(baseUrl: string, api: string): URL {
 
   if (!/\/models$/i.test(trimmedPath)) {
     let path = trimmedPath;
-    if (api === "anthropic-messages" && !API_VERSION_SEGMENT.test(path)) path += "/v1";
-    if (api === "google-generative-ai" && !API_VERSION_SEGMENT.test(path)) path += "/v1beta";
+    if (api === "anthropic-messages" && !/\/v\d+(?:beta)?$/i.test(path)) path += "/v1";
+    if (api === "google-generative-ai" && !GOOGLE_API_VERSION_SEGMENT.test(path)) path += "/v1beta";
     url.pathname = `${path}/models`.replace(/\/+/g, "/");
   }
 
