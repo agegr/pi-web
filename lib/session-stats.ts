@@ -16,6 +16,9 @@ export interface SessionFileStats {
   cost: number;
 }
 
+/** Most session ids one POST /api/sessions/stats takes; the agent switcher sends a larger family in batches. */
+export const MAX_SESSION_STATS_IDS = 200;
+
 /** One session's totals for the agent switcher (POST /api/sessions/stats). */
 export interface SessionUsageSummary {
   tokens: SessionFileStats["tokens"];
