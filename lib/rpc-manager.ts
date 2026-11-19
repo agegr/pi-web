@@ -371,6 +371,7 @@ export class AgentSessionWrapper {
   // next stream miss that same event.
   private listeners = new Set<EventListener>();
   private activeToolEvents = new Map<string, ActiveToolEvents>();
+  private completedToolEvents = new Map<string, AgentEvent>();
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
@@ -666,6 +667,7 @@ export class AgentSessionWrapper {
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
         this.activeToolEvents.clear();
+        this.completedToolEvents.clear();
       }
       // A name from setSessionName(), an extension's included: a title generated
       // in the background lands after the run's agent_end, a command's with no
@@ -714,13 +716,18 @@ export class AgentSessionWrapper {
   }
 
   /**
-   * Keep the start and the latest update of each running tool call for onEvent()
+   * Keep running calls and completed calls awaiting their result message for onEvent()
    * to replay. Calls a tool makes itself (a codemode script's, which carry
    * `parentToolCallId`) are left out: a reconnecting client would show each as a
    * top-level tool, and the parent's own update already reports them. A nested
    * end can still arrive after its parent's, and is ignored like the rest.
    */
   private trackActiveToolEvent(event: AgentEvent): void {
+    if (event.type === "message_end") {
+      const message = event.message as { role?: string; toolCallId?: string } | undefined;
+      if (message?.role === "toolResult" && message.toolCallId) this.completedToolEvents.delete(message.toolCallId);
+      return;
+    }
     const toolCallId = event.toolCallId;
     if (typeof toolCallId !== "string" || isNestedToolExecutionEvent(event)) return;
     if (event.type === "tool_execution_start") {
@@ -729,6 +736,7 @@ export class AgentSessionWrapper {
       const active = this.activeToolEvents.get(toolCallId);
       if (active) active.update = event;
     } else if (event.type === "tool_execution_end") {
+      if (event.result) this.completedToolEvents.set(toolCallId, event);
       this.activeToolEvents.delete(toolCallId);
       const nestedPrefix = `${toolCallId}/`;
       for (const id of this.activeToolEvents.keys()) {
@@ -1275,6 +1283,7 @@ export class AgentSessionWrapper {
       listener({ ...start, elapsedMs: Math.max(0, Math.round(now - startedAt)) });
       if (update) listener(update);
     }
+    for (const event of this.completedToolEvents.values()) listener(event);
     for (const event of this.startupNotices ?? []) listener(event);
     return () => {
       this.listeners.delete(listener);
@@ -2054,6 +2063,7 @@ export class AgentSessionWrapper {
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
     this.activeToolEvents.clear();
+    this.completedToolEvents.clear();
     this.clearExtensionWidgets(false);
 
     const finishDispose = () => {

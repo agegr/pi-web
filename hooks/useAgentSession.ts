@@ -46,7 +46,7 @@ import { HIDDEN_PAGE_GRACE_MS } from "@/hooks/usePageHidden";
 import type { DebugClientLease, DebugClientSession, DebugEventConnectionSnapshot, DebugStreamCloseReason } from "@/lib/debug-types";
 import { pageId, peekPageId, trackEventSource } from "@/lib/page-debug";
 import type { TranslationParams } from "@/lib/i18n/types";
-import { AGENT_EVENT_HEARTBEAT_MS, isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
+import { AGENT_EVENT_HEARTBEAT_MS, isNestedToolExecutionEvent, isSystemMessageEvent, toolResultFromExecutionEnd } from "@/lib/agent-event-wire";
 import { runStatePhase } from "@/lib/chat-phase-label";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
@@ -1942,6 +1942,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         // The replay that follows brings each running call's start with its elapsed time.
         setToolClocks(endedToolClocks);
+        setActiveToolResults(new Map());
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
           sdkAgentActiveRef.current = true;
@@ -2128,6 +2129,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (completed.role === "toolResult") {
             const callId = (completed as ToolResultMessage).toolCallId;
             setToolClocks((prev) => withoutToolClock(prev, callId));
+            setActiveToolResults((prev) => {
+              if (!prev.has(callId)) return prev;
+              const next = new Map(prev);
+              next.delete(callId);
+              return next;
+            });
           }
           if (completed.role === "assistant") {
             const sid = sessionIdRef.current;
@@ -2199,10 +2206,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         onToolEnd?.(event.toolName as string);
         const endedAt = performance.now();
         setToolClocks((prev) => applyToolClockEvent(prev, event, endedAt));
+        const result = toolResultFromExecutionEnd(event);
         setActiveToolResults((prev) => {
-          if (!prev.has(id)) return prev;
+          if (!result && !prev.has(id)) return prev;
           const next = new Map(prev);
-          next.delete(id);
+          if (result) next.set(id, result);
+          else next.delete(id);
           return next;
         });
         setAgentPhase((prev) => {

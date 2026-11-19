@@ -1,4 +1,5 @@
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { ToolResultMessage } from "./types";
 import { withoutContentSignatures, withoutMessageSignatures } from "./message-signatures";
 
 export interface AgentEventLike {
@@ -81,12 +82,23 @@ function truncateCodemodeSnapshot(partialResult: unknown): unknown {
   };
 }
 
-/**
- * Nested calls travel as a slim start and end, and their progress updates are
- * dropped. A `tool_execution_end` never carries `result`: the browser only
- * reads its ids and time and renders the tool result message that follows, while the
- * raw result can hold up to 1 MiB of bash output in `structuredContent`.
- */
+export function toolResultFromExecutionEnd(event: AgentEventLike): ToolResultMessage | undefined {
+  if (event.type !== "tool_execution_end" || isNestedToolExecutionEvent(event)
+    || typeof event.toolCallId !== "string" || !isObject(event.result)
+    || !Array.isArray(event.result.content)) return undefined;
+  return {
+    role: "toolResult",
+    toolCallId: event.toolCallId,
+    toolName: typeof event.toolName === "string" ? event.toolName : undefined,
+    content: event.result.content as ToolResultMessage["content"],
+    details: event.result.details,
+    usage: event.result.usage as ToolResultMessage["usage"],
+    isError: event.isError === true,
+    ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
+  };
+}
+
+/** Top-level completions carry display fields, never the raw structuredContent. Nested calls stay slim. */
 function toClientToolExecutionEvent(event: AgentEventLike): AgentEventLike | null {
   const nested = isNestedToolExecutionEvent(event);
   if (event.type === "tool_execution_start") {
@@ -114,6 +126,11 @@ function toClientToolExecutionEvent(event: AgentEventLike): AgentEventLike | nul
     toolCallId: event.toolCallId,
     toolName: event.toolName,
     isError: event.isError,
+    ...(!nested && isObject(event.result) ? { result: {
+      content: event.result.content,
+      details: event.result.details,
+      usage: event.result.usage,
+    } } : {}),
     // pi's measured run time: a card shows it before the result message, which
     // a parallel batch sends only once its last call ends.
     ...(!nested && typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
