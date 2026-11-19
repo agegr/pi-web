@@ -277,6 +277,8 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
         if (closed) return;
         try {
           controller.enqueue(new Uint8Array(chunk));
+          // A client slower than the disk must not make the whole file pile up in memory.
+          if ((controller.desiredSize ?? 1) <= 0) fileStream.pause();
         } catch {
           closed = true;
           fileStream.destroy();
@@ -300,6 +302,9 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
           // The response was already abandoned by the client.
         }
       });
+    },
+    pull() {
+      if (!closed) fileStream.resume();
     },
     cancel() {
       closed = true;
