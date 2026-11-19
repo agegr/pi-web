@@ -858,6 +858,7 @@ export class AgentSessionWrapper {
         streamingBehavior: entry.streamingBehavior ?? "steer",
         preflightResult: (result) => {
           disposition = result;
+          if (result === "started") this.recordModelOnBranch();
           release();
         },
       });
@@ -1116,11 +1117,12 @@ export class AgentSessionWrapper {
   }
 
   /**
-   * Before a prompt starts a run, make the branch record the model the session runs on. A
+   * When a prompt starts a run, make the branch record the model the session runs on. A
    * `model_change` made on a branch that an edit-and-resend or a tree move then left stays
    * on that dead branch, and a side chat or a reopened session reads the model from the
-   * branch's latest `model_change` (#1715). pi records only virtual selections itself: its
-   * own resume also falls back to the latest response's model, which pi-web does not.
+   * branch's latest `model_change` (#1715). Called from pi's `preflightResult("started")`,
+   * right before pi's own `_recordSelection()`, which records only virtual selections
+   * because its resume also reads the latest response's model, which pi-web does not.
    */
   private recordModelOnBranch(): void {
     const model = this.inner.model;
@@ -1394,7 +1396,6 @@ export class AgentSessionWrapper {
           if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
           }
-          if (!this.inner.isStreaming) this.recordModelOnBranch();
           this.renewExtensionUiStop();
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
@@ -1476,7 +1477,10 @@ export class AgentSessionWrapper {
               // validation and extension preflight have accepted the submission.
               // Every disposition (handled, queued, started) is an acceptance; a
               // rejected prompt never calls this and rejects `prompt` instead.
-              preflightResult: () => acceptPreflight(),
+              preflightResult: (disposition) => {
+                if (disposition === "started") this.recordModelOnBranch();
+                acceptPreflight();
+              },
             });
           } catch (error) {
             finishPrompt();
