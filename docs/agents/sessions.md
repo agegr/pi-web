@@ -109,6 +109,8 @@ A side chat's hit never picks it as the main chat (ADR 0007): `sideChatHit()` (`
 ## Streaming token rate
 The streaming reply's `t/s` counts estimated tokens from when its first ones showed. That start lives in `lib/stream-token-rate.ts`, keyed by the reply (provider, model and request `timestamp`), not in `MessageView`: switching sessions remounts the chat, and a start taken at the remount divided every token streamed so far by a fraction of a second. A reply joined with no record (a reload) counts only the tokens that follow.
 
+`StreamingReply` keys its `MessageView` with that reply identity. A reconnect can batch `connected` ending the old stream with a new reply's snapshot, without committing an empty stream in between. The key gives a different reply fresh timing refs in the view; chunks and reconnects for the same reply keep their key and rate start.
+
 The assistant's model/streaming header (`AssistantMessageHeader`, `components/MessageView.tsx`) reserves its line height plus the TPS badge's 2px vertical padding even when metrics are absent. Its numeric fields use tabular digits. The count takes its natural width (a minimum left a wide gap on desktop, #1566; it only grows, so the badge shifts a few times per reply). The speed badge has a minimum width for `99.9 t/s` plus a pixel for per-glyph rounding, not a fixed width that would clip larger values; it centers its text, and 100 t/s or more widens it. `e2e/streaming-metrics.mjs` checks the production component's layout across metric states, fonts and phone widths without a live model; ordinary markup tests cannot catch these shifts.
 
 ## Auto-retry banner
