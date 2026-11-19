@@ -139,10 +139,13 @@ export function sessionTitle(session: SessionInfo): string {
   return session.name || session.firstMessage || session.id.slice(0, 12);
 }
 
-/** A subagent row's first line: the task it was given, else the session's title. */
+/**
+ * A subagent row's first line: the session's name, which a spawn sets to the task's description
+ * and a resume with a new description renames (#1735), else that first description.
+ */
 export function subagentTitle(session: SessionInfo): string {
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
-  return relation?.description || sessionTitle(session);
+  return session.name || relation?.description || sessionTitle(session);
 }
 
 /** A row's icon: a person for the main agent, a bubble for a side chat, a robot for a subagent. */
@@ -584,7 +587,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
                   onToggleSubagentTab(session.id, t("sideChat.title"), true);
                   return;
                 }
-                onToggleSubagentTab(session.id, relation?.description || relation?.profile || sessionTitle(session));
+                onToggleSubagentTab(session.id, session.name || relation?.description || relation?.profile || sessionTitle(session));
               }}
               onDelete={session.relation?.kind === "side" ? () => setConfirmDeleteSideChatId(session.id) : undefined}
               confirming={confirmDeleteSideChatId === session.id}
