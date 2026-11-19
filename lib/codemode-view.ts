@@ -123,8 +123,13 @@ export function getCodemodeProgress(partialResult: unknown): string | null {
   const { calls } = codemodeCalls(partialResult.details);
   const call = calls.findLast((candidate) => candidate.status === "running") ?? calls.at(-1);
   if (!call) return null;
-  const args = call.args.length > PROGRESS_ARGS_LENGTH
-    ? `${call.args.slice(0, PROGRESS_ARGS_LENGTH - 3)}...`
-    : call.args;
+  let args = call.args;
+  if (args.length > PROGRESS_ARGS_LENGTH) {
+    let end = PROGRESS_ARGS_LENGTH - 3;
+    // Do not cut a surrogate pair in half.
+    const last = args.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end--;
+    args = `${args.slice(0, end)}...`;
+  }
   return args ? `${call.name} ${args}` : call.name;
 }
