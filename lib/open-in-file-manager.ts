@@ -12,6 +12,35 @@ export function isFileManagerSupported(platform: string): boolean {
   return FILE_MANAGER_BY_PLATFORM.has(platform);
 }
 
+/** The distro name WSL puts in the environment of every process it starts; "" off WSL. */
+export function wslDistroName(env: NodeJS.ProcessEnv = process.env): string {
+  return env.WSL_DISTRO_NAME?.trim() ?? "";
+}
+
+/**
+ * Whose file manager answers on this platform. Inside WSL `process.platform` is
+ * "linux", but `xdg-open` is usually not installed there; Windows' Explorer is,
+ * through WSL's interop PATH.
+ */
+export function fileManagerPlatform(
+  platform: string = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return platform === "linux" && wslDistroName(env) ? "win32" : platform;
+}
+
+/**
+ * The Windows name of a path inside WSL: `/mnt/c/dev` is `C:\dev`, and the
+ * rest of the distro is reached through `\\wsl$\<distro>`, which Windows 10
+ * and 11 both serve.
+ */
+export function windowsPathForWsl(posixPath: string, distro: string): string {
+  const trimmed = posixPath.replace(/\/+$/, "") || "/";
+  const mount = /^\/mnt\/([a-zA-Z])(?:\/(.*))?$/.exec(trimmed);
+  if (mount) return `${mount[1].toUpperCase()}:\\${(mount[2] ?? "").replaceAll("/", "\\")}`;
+  return `\\\\wsl$\\${distro}${trimmed === "/" ? "\\" : trimmed.replaceAll("/", "\\")}`;
+}
+
 /**
  * Builds the command that opens a directory in the OS file manager.
  * @param platform A Node `process.platform` value
@@ -56,13 +85,18 @@ export function isLoopbackHost(host: string | null | undefined): boolean {
  * should only pass project directories such as the explorer root.
  * @param target The directory to open (the caller checks access)
  * @param platform A Node `process.platform` value
+ * @param env The environment that tells WSL apart from other Linux
  * @returns Resolves once the command has started
  */
 export function launchFileManager(
   target: string,
   platform: string = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const spec = fileManagerCommand(platform, target);
+  const distro = platform === "linux" ? wslDistroName(env) : "";
+  const spec = distro
+    ? fileManagerCommand("win32", windowsPathForWsl(target, distro))
+    : fileManagerCommand(platform, target);
   if (!spec) return Promise.reject(new Error(`Unsupported platform: ${platform}`));
   return new Promise((resolve, reject) => {
     const child = spawn(spec.command, spec.args, { detached: true, stdio: "ignore" });
