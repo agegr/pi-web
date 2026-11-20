@@ -38,6 +38,7 @@ import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigDetailNavigationContext, ConfigSwitch, type ConfigDetailNavigation } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
+import { readJsonOrThrow } from "@/lib/fetch-json";
 
 interface Props {
   cwd: string | null;
@@ -128,8 +129,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     let cancelled = false;
     void fetch("/api/tools/settings")
       .then(async (response) => {
-        const data = await response.json() as ToolSettingsResponse & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        const data = await readJsonOrThrow<ToolSettingsResponse>(response);
         if (!cancelled) setShellSettings(data);
       })
       .catch((cause) => {
@@ -142,8 +142,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     let cancelled = false;
     void fetch("/api/cache-miss-notices")
       .then(async (response) => {
-        const data = await response.json() as { enabled?: boolean; error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        const data = await readJsonOrThrow<{ enabled?: boolean }>(response);
         if (!cancelled) setCacheMissNotices(data.enabled === true);
       })
       .catch((cause) => {
@@ -162,8 +161,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
       });
-      const data = await response.json() as { enabled?: boolean; error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = await readJsonOrThrow<{ enabled?: boolean }>(response);
       setCacheMissNotices(data.enabled === true);
       if (sessionId) onSessionReloaded();
     } catch (cause) {
@@ -182,8 +180,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled }),
       });
-      const data = await response.json() as ToolSettingsResponse & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = await readJsonOrThrow<ToolSettingsResponse>(response);
       setShellSettings(data);
       if (sessionId) {
         await sendAgentCommand(sessionId, { type: "reload" });
@@ -208,8 +205,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ builtinTools }),
       });
-      const data = await response.json() as ToolSettingsResponse & { error?: string };
-      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = await readJsonOrThrow<ToolSettingsResponse>(response);
       setShellSettings(data);
     } catch (cause) {
       setBuiltinToolsError(cause instanceof Error ? cause.message : String(cause));
