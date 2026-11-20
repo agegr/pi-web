@@ -2,6 +2,7 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { cwdMissingBody } from "@/lib/missing-cwd";
 import { createTerminal } from "@/lib/terminal-manager";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "cwd required" }, { status: 400 });
     }
     const cwd = resolve(body.cwd);
-    if (!(await stat(cwd)).isDirectory()) {
+    let cwdStat;
+    try {
+      cwdStat = await stat(cwd);
+    } catch (error) {
+      // A project folder deleted or moved outside pi-web: the typed refusal the
+      // other routes give, not a 500 with the OS error text (#1422).
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") return NextResponse.json(cwdMissingBody(cwd), { status: 400 });
+      throw error;
+    }
+    if (!cwdStat.isDirectory()) {
       return NextResponse.json({ error: "cwd must be a directory" }, { status: 400 });
     }
     const roots = await getAllowedFileRoots();
