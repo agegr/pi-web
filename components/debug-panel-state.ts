@@ -18,6 +18,7 @@ import { projectNameOf } from "@/lib/session-tree";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { MCP_SESSION_STATE_KEYS } from "./mcp-config-helpers";
+import type { Translate } from "@/lib/i18n/types";
 
 /**
  * The debug panel's pure parts (components/DebugPanel.tsx): what it reads of the page each second,
@@ -26,8 +27,6 @@ import { MCP_SESSION_STATE_KEYS } from "./mcp-config-helpers";
  * reference to the page's tracked stream objects stays here, so the component never names them.
  * Nothing here opens, renews or reconnects anything.
  */
-
-export type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /** The page's own state is read this often while the panel is open. */
 export const DEBUG_TICK_MS = 1000;

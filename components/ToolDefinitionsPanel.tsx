@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ToolEntry } from "@/lib/tool-presets";
-
-type Translate = (key: string, params?: Record<string, string | number>) => string;
+import type { Translate } from "@/lib/i18n/types";
 
 interface Props {
   loading: boolean;

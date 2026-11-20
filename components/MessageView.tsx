@@ -11,7 +11,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantAborted, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { stripAnsi } from "@/lib/ansi";
-import { formatTurnDuration } from "@/lib/turn-duration";
+import { formatTurnDuration, recordedMs } from "@/lib/turn-duration";
 import { toolClockMs, type ToolClock, type ToolClocks } from "@/lib/tool-clock";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { editPreviewFile } from "@/lib/edit-preview";
@@ -773,7 +773,7 @@ function AssistantMessageView({
   // Thinking duration of a completed message: the whole response's generation time, which pi
   // records since 1.1 (`durationMs`, from the request's start). Older messages only have
   // timestamps: the time since the previous message.
-  const messageDurationMs = message.role === "assistant" ? recordedDurationMs(message.durationMs) : undefined;
+  const messageDurationMs = message.role === "assistant" ? recordedMs(message.durationMs) : undefined;
   const thinkingDurationFromFile = useMemo<number | undefined>(() => {
     const ms = messageDurationMs ?? (message.timestamp && prevTimestamp ? message.timestamp - prevTimestamp : undefined);
     if (ms === undefined) return undefined;
@@ -788,7 +788,7 @@ function AssistantMessageView({
     const map = new Map<string, number>();
     if (!toolResults) return map;
     for (const [callId, result] of toolResults) {
-      const ms = recordedDurationMs(result.durationMs)
+      const ms = recordedMs(result.durationMs)
         ?? (result.timestamp && message.timestamp ? result.timestamp - message.timestamp : undefined);
       if (ms !== undefined && ms >= TOOL_DURATION_MIN_MS) map.set(callId, ms);
     }
@@ -1184,10 +1184,6 @@ function isSubagentToolDetails(value: unknown): value is SubagentToolDetails {
 }
 
 /** A duration pi recorded on a message, or undefined when there is none to trust. */
-function recordedDurationMs(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
 /** Below this a tool card shows no time: it would read 0.0s on every quick read or search. */
 const TOOL_DURATION_MIN_MS = 100;
 

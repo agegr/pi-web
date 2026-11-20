@@ -1,4 +1,5 @@
 import type { ProjectTrustStatus } from "@/lib/api-types";
+import type { Translate } from "@/lib/i18n/types";
 
 /**
  * The rows a group switch would change: those not already in the requested
@@ -25,4 +26,9 @@ export function itemsToSwitch<T>(
 export function projectTrustReloadKey(trust: ProjectTrustStatus | null | undefined): string {
   if (!trust) return "";
   return JSON.stringify([trust.requiresTrust, trust.trusted, trust.decision, trust.decisionPath ?? null, trust.inherited]);
+}
+
+/** A global or project scope's label, as Settings shows it. */
+export function scopeLabel(scope: "global" | "project", t: Translate): string {
+  return scope === "project" ? t("skills.scope.project") : t("skills.scope.global");
 }

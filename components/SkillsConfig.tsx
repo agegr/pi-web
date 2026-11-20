@@ -47,10 +47,9 @@ import {
 } from "./SettingsUi";
 import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
 import { MarkdownBody } from "./MarkdownBody";
+import type { Translate } from "@/lib/i18n/types";
 
 type SkillScope = "global" | "project" | "path";
-type Translate = ReturnType<typeof useI18n>["t"];
-
 function sourceLabel(skill: Skill): SkillScope {
   const src = skill.sourceInfo?.source;
   const scope = skill.sourceInfo?.scope;

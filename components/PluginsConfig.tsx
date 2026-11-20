@@ -47,12 +47,11 @@ import {
   ConfigSwitch,
   ConfigTrustNotice,
 } from "./SettingsUi";
-import { itemsToSwitch, projectTrustReloadKey } from "./settings-ui-helpers";
+import { itemsToSwitch, projectTrustReloadKey, scopeLabel } from "./settings-ui-helpers";
+import type { Translate } from "@/lib/i18n/types";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
-type Translate = ReturnType<typeof useI18n>["t"];
-
 const PLUGIN_SOURCE_EXAMPLES = ["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"];
 
 function normalizePluginSourceInput(value: string): string {
@@ -87,10 +86,6 @@ export function filteredPackagesKeptOn<T extends Pick<PluginPackageInfo, "disabl
 
 function extensionKey(extension: PluginStandaloneExtensionInfo): string {
   return `extension\0${extension.path}`;
-}
-
-function scopeLabel(scope: PluginScope, t: Translate): string {
-  return scope === "project" ? t("skills.scope.project") : t("skills.scope.global");
 }
 
 /** A package status as shown; English keeps the lower-case API value. */
