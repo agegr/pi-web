@@ -14,6 +14,7 @@ import {
   type SessionUiStateRefusalReason,
   type SessionUiStateResponse,
 } from "@/lib/session-ui-state-shared";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ state } satisfies SessionUiStateResponse, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof SessionUiStateLockedError) return refusal(409, "locked", error.message);
-    return refusal(500, "internal", error instanceof Error ? error.message : String(error));
+    return refusal(500, "internal", errorMessage(error));
   }
 }

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { useI18n } from "@/hooks/useI18n";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import { errorMessage } from "@/lib/errors";
 
 interface Props {
   /** The transcript a selection must sit in for the popover to offer it. */
@@ -137,7 +138,7 @@ export function QuoteSelectionPopover({ rootRef, chatInputRef, startSideChat }: 
       setQuoteError(refusal);
     } catch (error) {
       quoteChatInputRef.current?.restoreSubmission(prompt);
-      setQuoteError(error instanceof Error ? error.message : String(error));
+      setQuoteError(errorMessage(error));
     } finally {
       setQuoteSubmitting(false);
     }

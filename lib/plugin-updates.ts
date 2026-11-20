@@ -13,6 +13,7 @@ import { nodeCliInvocation } from "./node-cli";
 import { parseNpmSource } from "./npm-source";
 import { sanitizeProjectCommandEnvironment } from "./project-command-env";
 import { getProjectTrustStatus } from "./project-trust";
+import { errorMessage } from "./errors";
 
 const execFileAsync = promisify(execFile);
 
@@ -216,7 +217,7 @@ export async function checkPluginUpdates(
         ? await checkNpmPackage(pkg, cwd, npmCommand, runner)
         : await checkGitPackage(pkg, runner);
     } catch (error) {
-      return result(pkg, "error", error instanceof Error ? error.message : String(error));
+      return result(pkg, "error", errorMessage(error));
     }
   }));
 }

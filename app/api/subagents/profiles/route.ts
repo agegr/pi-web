@@ -9,6 +9,7 @@ import {
   type SubagentWritableScope,
 } from "@/lib/subagents";
 import { writeDisabledBuiltInSubagent } from "@/lib/subagent-settings";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
     const cwd = await validateCwd(new URL(req.url).searchParams.get("cwd"));
     return NextResponse.json({ profiles: listSubagentProfileSources(cwd) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
   }
 }
@@ -54,7 +55,7 @@ export async function PUT(req: Request) {
     }
     return NextResponse.json({ profile: saveSubagentProfile(cwd, scope, body.profile) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
   }
 }
@@ -102,7 +103,7 @@ export async function PATCH(req: Request) {
     };
     return NextResponse.json({ profile: saveSubagentProfile(cwd, scope, { ...profile, enabled: body.enabled }) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
   }
 }
@@ -116,7 +117,7 @@ export async function DELETE(req: Request) {
     deleteSubagentProfile(cwd, scope, body.name);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return NextResponse.json({ error: message }, { status: message === "Access denied" ? 403 : 400 });
   }
 }

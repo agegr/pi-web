@@ -3,6 +3,7 @@
 import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
+import { errorMessage } from "@/lib/errors";
 
 interface DirectoryEntry {
   name: string;
@@ -148,7 +149,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       setDrives(data.drives ?? null);
       return nextPath;
     } catch (cause) {
-      setLoadError(cause instanceof Error ? cause.message : String(cause));
+      setLoadError(errorMessage(cause));
       return null;
     } finally {
       setLoading(false);
@@ -199,7 +200,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       setDirectoryName("");
       await navigateTo(createdPath);
     } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : String(cause));
+      setCreateError(errorMessage(cause));
     } finally {
       setCreating(false);
     }

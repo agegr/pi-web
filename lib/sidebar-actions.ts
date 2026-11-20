@@ -14,6 +14,7 @@
 
 import { projectNameOf, type SidebarFamilyStatus, type SidebarProject, type SidebarRow } from "./session-tree";
 import type { SessionUiStateRequest } from "./session-ui-state-shared";
+import { errorMessage } from "./errors";
 
 export type SessionMenuActionId =
   | "open-new-tab"
@@ -172,7 +173,7 @@ export async function deleteProjectSessions(
       outcome.deletedRoots.push(...part.filter((id) => deleted.has(id)));
       outcome.running.push(...(data.running ?? []));
     } catch (error) {
-      outcome.error = error instanceof Error ? error.message : String(error);
+      outcome.error = errorMessage(error);
       break;
     }
   }

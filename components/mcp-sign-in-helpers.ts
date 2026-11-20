@@ -16,6 +16,7 @@ import {
   type McpActionFailure,
   type McpTestBlock,
 } from "./mcp-config-helpers";
+import { errorMessage } from "@/lib/errors";
 
 // Pure helpers and requests for Settings › MCP's sign-in (components/McpSignIn.tsx):
 // what a flow says at each phase, why Sign in or Sign out cannot be used, and
@@ -294,7 +295,7 @@ async function requestSignIn(url: string, init: RequestInit, fetchImpl: FetchLik
   try {
     response = await fetchImpl(url, { ...init, cache: "no-store", signal });
   } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+    return { ok: false, error: { error: errorMessage(error) } };
   }
   let data: unknown;
   try {

@@ -49,6 +49,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { errorMessage } from "@/lib/errors";
 
 interface Props {
   session: SessionInfo | null;
@@ -360,7 +361,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     try {
       refusal = await startSideChat(message);
     } catch (error) {
-      refusal = error instanceof Error ? error.message : String(error);
+      refusal = errorMessage(error);
     }
     if (!refusal) return;
     chatInputRef?.current?.restoreSubmission(message);
@@ -696,7 +697,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         addNotice({ type: "error", message: t("chat.dropFailed", { message: `${failure.name}: ${failure.error}` }) });
       }
     } catch (uploadError) {
-      addNotice({ type: "error", message: t("chat.dropFailed", { message: uploadError instanceof Error ? uploadError.message : String(uploadError) }) });
+      addNotice({ type: "error", message: t("chat.dropFailed", { message: errorMessage(uploadError) }) });
     }
   }, [addNotice, chatInputRef, newSessionCwd, onFilesUploaded, session?.cwd, t]);
 

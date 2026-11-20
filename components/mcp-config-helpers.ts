@@ -28,6 +28,7 @@ import type {
 } from "@/lib/api-types";
 import type { McpImportFieldValue, McpImportNote } from "@/lib/mcp-import";
 import { itemsToSwitch } from "./settings-ui-helpers";
+import { errorMessage } from "@/lib/errors";
 
 // Pure helpers for Settings › MCP (components/McpConfig.tsx): what each row
 // shows, how the groups are built, and how the overview is loaded. Client-safe:
@@ -843,7 +844,7 @@ async function requestMcpOverview(cwd: string | null, fetchImpl: FetchLike, sign
   try {
     response = await fetchImpl(mcpOverviewUrl(cwd), { cache: "no-store", signal });
   } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+    return { ok: false, error: { error: errorMessage(error) } };
   }
   let data: unknown;
   try {
@@ -944,7 +945,7 @@ async function requestToolSettingsChange<T>(
       signal,
     });
   } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+    return { ok: false, error: { error: errorMessage(error) } };
   }
   let data: unknown;
   try {
@@ -1206,7 +1207,7 @@ async function requestMcpAction(body: Record<string, unknown>, fetchImpl: FetchL
       signal,
     });
   } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+    return { ok: false, error: { error: errorMessage(error) } };
   }
   let data: unknown;
   try {
@@ -1478,7 +1479,7 @@ async function requestMcpTest(body: Record<string, unknown>, fetchImpl: FetchLik
       signal,
     });
   } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+    return { ok: false, error: { error: errorMessage(error) } };
   }
   let data: unknown;
   try {

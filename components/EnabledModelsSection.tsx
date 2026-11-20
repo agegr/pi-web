@@ -12,6 +12,7 @@ import {
 } from "./enabled-models-helpers";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { ModelContextWindow, type ModelContextSettings } from "./ModelContextWindow";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Model switches backed by pi's `enabledModels` setting.
@@ -98,7 +99,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        setFailure({ message: error instanceof Error ? error.message : String(error) });
+        setFailure({ message: errorMessage(error) });
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -131,7 +132,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
         }
         setView(data);
       } catch (error) {
-        setFailure({ message: error instanceof Error ? error.message : String(error) });
+        setFailure({ message: errorMessage(error) });
       } finally {
         pendingRef.current = null;
         setPending(null);

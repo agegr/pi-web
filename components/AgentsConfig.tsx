@@ -38,6 +38,7 @@ import {
 } from "./SettingsUi";
 import { ModelSelector } from "./ModelSelector";
 import { projectTrustReloadKey } from "./settings-ui-helpers";
+import { errorMessage } from "@/lib/errors";
 
 const TOOL_OPTIONS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const THINKING_OPTIONS = ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -232,7 +233,7 @@ export function AgentsConfig({
         if (isWritableScope(chosen.scope)) setTargetScope(chosen.scope);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
@@ -260,7 +261,7 @@ export function AgentsConfig({
         if (typeof data.maxConcurrent === "number") setMaxConcurrent(data.maxConcurrent);
       } catch (cause) {
         if (controller.signal.aborted) return;
-        setSettingsError(cause instanceof Error ? cause.message : String(cause));
+        setSettingsError(errorMessage(cause));
       } finally {
         if (!controller.signal.aborted) setSettingsLoading(false);
       }
@@ -291,7 +292,7 @@ export function AgentsConfig({
         setModelsError(data.modelError ?? null);
       } catch (cause) {
         if (controller.signal.aborted) return;
-        setModelsError(cause instanceof Error ? cause.message : String(cause));
+        setModelsError(errorMessage(cause));
       } finally {
         if (!controller.signal.aborted) setModelsLoading(false);
       }
@@ -348,7 +349,7 @@ export function AgentsConfig({
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2000);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setSaving(false);
     }
@@ -369,7 +370,7 @@ export function AgentsConfig({
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
       await loadProfiles();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setSaving(false);
     }
@@ -427,7 +428,7 @@ export function AgentsConfig({
       setProfiles((current) => current.map((profile) => profileKey(profile) === profileKey(saved) ? saved : profile));
       setDraft((current) => ({ ...current, enabled: saved.enabled }));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
     } finally {
       setToggling(false);
     }
@@ -449,7 +450,7 @@ export function AgentsConfig({
       setBuiltInEnabled(data.enabled);
       setReloadNeeded(Boolean(sessionId));
     } catch (cause) {
-      setSettingsError(cause instanceof Error ? cause.message : String(cause));
+      setSettingsError(errorMessage(cause));
     } finally {
       setSettingsSaving(false);
     }
@@ -468,7 +469,7 @@ export function AgentsConfig({
       if (!response.ok || data.error || typeof data.maxConcurrent !== "number") throw new Error(data.error ?? `HTTP ${response.status}`);
       setMaxConcurrent(data.maxConcurrent);
     } catch (cause) {
-      setSettingsError(cause instanceof Error ? cause.message : String(cause));
+      setSettingsError(errorMessage(cause));
     }
   };
 
@@ -481,7 +482,7 @@ export function AgentsConfig({
       setReloadNeeded(false);
       onReloaded?.();
     } catch (cause) {
-      setSettingsError(cause instanceof Error ? cause.message : String(cause));
+      setSettingsError(errorMessage(cause));
     } finally {
       setReloading(false);
     }

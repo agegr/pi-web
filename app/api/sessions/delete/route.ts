@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { deleteSessions, MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,6 @@ export async function POST(req: Request) {
     const result = await deleteSessions(ids as string[], { keepRunning: true });
     return NextResponse.json(result satisfies SessionDeleteResult, { headers: NO_STORE });
   } catch (error) {
-    return refusal(500, error instanceof Error ? error.message : String(error));
+    return refusal(500, errorMessage(error));
   }
 }
