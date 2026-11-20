@@ -2548,7 +2548,6 @@ export class AgentSessionWrapper {
     // As pi's TUI (`opts.timeout > 0`, counted down in seconds): only a positive number is a
     // deadline, and a huge one (Infinity, Number.MAX_SAFE_INTEGER) waits for the person.
     const timeout = typeof rawTimeout === "number" && rawTimeout > 0 && Number.isFinite(rawTimeout) ? rawTimeout : undefined;
-    delete request.timeout;
     // Past destroy() nobody can answer: a session_start the shutdown deadline cut short goes on,
     // and is refused at once, as after Stop. A cancelled answer would let a handler that asks
     // until it is answered spin the server forever.
@@ -2607,28 +2606,28 @@ export class AgentSessionWrapper {
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
       select: (title, options, opts) => this.requestExtensionUi(
-        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "select", title, options },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       confirm: (title, message, opts) => this.requestExtensionUi(
-        { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "confirm", title, message },
         false,
         (response) => "confirmed" in response ? response.confirmed : false,
         opts?.timeout,
         opts?.signal,
       ),
       input: (title, placeholder, opts) => this.requestExtensionUi(
-        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       editor: (title, prefill, opts) => this.requestExtensionUi(
-        { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
