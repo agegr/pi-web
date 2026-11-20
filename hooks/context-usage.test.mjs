@@ -106,33 +106,34 @@ test("failed reads preserve usage and a subsequent read can recover", async () =
   assert.deepEqual(state.writes, [null]);
 });
 
-function usageReads(clause) {
-  return nodes.filter((node) => ts.isCallExpression(node) && node.expression.getText(source) === "refreshContextUsage"
-    && node.pos >= clause.pos && node.end <= clause.end);
-}
-
-function guardingConditions(node, clause) {
-  const conditions = [];
-  for (let child = node, parent = node.parent; parent && parent !== clause; child = parent, parent = parent.parent) {
-    if (ts.isIfStatement(parent) && parent.thenStatement === child) conditions.push(parent.expression.getText(source));
-  }
-  return conditions;
-}
-
 test("only completed assistant messages trigger an immediate usage read", () => {
   const messageEnd = nodes.find((node) => ts.isCaseClause(node) && node.expression.getText(source) === '"message_end"');
-  const reads = usageReads(messageEnd);
-  assert.equal(reads.length, 1);
-  const conditions = guardingConditions(reads[0], messageEnd);
-  assert.ok(conditions.includes('completed.role === "assistant"'));
-  assert.ok(conditions.includes("sid"));
-  assert.equal(reads[0].arguments[0].getText(source), "sid");
+  const script = new Script(ts.transpileModule(`(() => { switch(event.type) { ${messageEnd.getText(source)} } })()`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
+  for (const role of ["assistant", "toolResult", "user", "system"]) {
+    const reads = [];
+    script.runInNewContext({
+      event: { type: "message_end", message: { role, content: [] } },
+      agentRunningRef: { current: true }, sessionIdRef: { current: "a" }, optimisticUserMessageKeyRef: { current: null },
+      isSystemMessageEvent: (event) => event.message.role === "system",
+      normalizeToolCalls: (message) => message, userMessageKey: () => "user", setMessages() {}, dispatch() {}, setAgentPhase() {},
+      setToolClocks() {}, withoutToolClock: (clocks) => clocks, setActiveToolResults() {},
+      refreshContextUsage: (sid) => reads.push(sid),
+    });
+    assert.deepEqual(reads, role === "assistant" ? ["a"] : []);
+  }
 });
 
 test("each event stream connection reads usage, since connecting resumes an idle-reaped session", () => {
   const connected = nodes.find((node) => ts.isCaseClause(node) && node.expression.getText(source) === '"connected"');
-  const reads = usageReads(connected);
-  assert.equal(reads.length, 1);
-  assert.deepEqual(guardingConditions(reads[0], connected), ["sessionIdRef.current"]);
-  assert.equal(reads[0].arguments[0].getText(source), "sessionIdRef.current");
+  const script = new Script(ts.transpileModule(`(() => { switch(event.type) { ${connected.getText(source)} } })()`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
+  for (const [sid, isStreaming] of [["a", false], ["a", true], [null, false]]) {
+    const reads = [];
+    script.runInNewContext({
+      event: { type: "connected", sessionId: sid ?? "pending", isStreaming },
+      sessionIdRef: { current: sid }, sdkAgentActiveRef: { current: false }, agentRunningRef: { current: false },
+      dispatch() {}, cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {}, setToolClocks() {}, endedToolClocks: (clocks) => clocks, NO_TOOL_CLOCKS: new Map(),
+      refreshContextUsage: (id) => reads.push(id),
+    });
+    assert.deepEqual(reads, sid ? [sid] : []);
+  }
 });

@@ -1942,7 +1942,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         // The replay that follows brings each running call's start with its elapsed time.
         setToolClocks(endedToolClocks);
-        setActiveToolResults(new Map());
         if (event.isStreaming === true) {
           cancelEventStreamGrace();
           sdkAgentActiveRef.current = true;
