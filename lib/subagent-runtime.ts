@@ -417,7 +417,10 @@ export function getLiveSubagentStatus(sessionId: string): SubagentRunInfo["statu
 
 function findSubagentModel(runtime: ModelRuntime, reference: string) {
   const slash = reference.indexOf("/");
-  if (slash > 0) return runtime.getModel(reference.slice(0, slash), reference.slice(slash + 1));
+  // `provider/modelId` is a hint, as in pi's `--model`: the whole text may also be one provider's
+  // own id that contains a slash (`zai/glm-5` on a gateway, OpenRouter's `anthropic/...` ids).
+  const named = slash > 0 ? runtime.getModel(reference.slice(0, slash), reference.slice(slash + 1)) : undefined;
+  if (named) return named;
   const matches = runtime.getModels().filter((model) => model.id === reference);
   if (matches.length > 1) throw new Error(`Subagent model is ambiguous; use provider/modelId: ${reference}`);
   return matches[0];
@@ -428,7 +431,7 @@ function findSubagentModel(runtime: ModelRuntime, reference: string) {
  * followed by `:<thinking level>`. The whole reference is tried first, so an id that itself
  * contains a colon (`qwen3:8b`) still matches; a suffix that is no thinking level never matches.
  */
-function parseSubagentModel(runtime: ModelRuntime, value: string | undefined) {
+export function parseSubagentModel(runtime: ModelRuntime, value: string | undefined) {
   if (!value?.trim()) return undefined;
   const requested = value.trim();
   const exact = findSubagentModel(runtime, requested);
