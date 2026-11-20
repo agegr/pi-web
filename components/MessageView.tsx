@@ -44,6 +44,7 @@ import type {
   ToolCallContent,
   ThinkingContent,
 } from "@/lib/types";
+import { isRecord } from "@/lib/is-record";
 
 // CJK chars ~1 token each (GLM/DeepSeek/GPT-o200k); other chars ~4 chars/token.
 const CJK_PATTERN = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\uac00-\ud7af]/u;
@@ -1797,10 +1798,6 @@ function singlePatchPath(text: string | undefined): string | null {
   if (!text) return null;
   const files = parseUnifiedPatch(text);
   return files?.length === 1 ? stackedFilePath(files[0]) || null : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function ResultImages({ images, isError }: { images: ImageContent[]; isError: boolean }) {

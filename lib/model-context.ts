@@ -1,10 +1,7 @@
+import { isRecord } from "./is-record";
 /** Client/server helpers for the model directory's context-window overrides. */
 export interface ModelContextConfig {
   providers?: Record<string, { modelOverrides?: Record<string, unknown> }>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function withContextWindowOverride<T extends ModelContextConfig>(

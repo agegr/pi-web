@@ -29,6 +29,7 @@
  */
 
 import type { SplitDiffCell, SplitDiffFile, SplitDiffRow } from "./patch";
+import { isRecord } from "./is-record";
 
 export interface ApplyPatchPreviewFile {
   filePath?: string;
@@ -54,10 +55,6 @@ export function getApplyPatchInputText(input: unknown, rawInput?: string): strin
     if (typeof value === "string" && value.length > 0) return value;
   }
   return typeof rawInput === "string" ? rawInput : "";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

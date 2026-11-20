@@ -31,6 +31,9 @@ import { createTestRedactor, maskStatusError, maskStatusStderr } from "./mcp-tes
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
 import type { McpTransport, PiSdkInternals } from "./pi-sdk-internals";
 import { mayReadProjectConfigNow } from "./project-trust";
+import { cancellableDelay } from "./cancellable-delay";
+import { errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 export { canonicalJson };
 
@@ -87,14 +90,6 @@ export function resolveMcpIdleMs(rawValue: string | undefined = process.env.PI_W
     console.warn(`[pi-web] invalid PI_WEB_MCP_IDLE_MS "${rawValue}", falling back to 10 minutes`);
   }
   return DEFAULT_MCP_IDLE_MS;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 // Hot reload re-evaluates this module; globalThis keeps one log line per error per process.
@@ -505,15 +500,6 @@ function sessionIdOf(ctx: ExtensionContext): string {
   }
 }
 
-function delay(ms: number): { promise: Promise<void>; cancel: () => void } {
-  let timer: NodeJS.Timeout | undefined;
-  const promise = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
-  return { promise, cancel: () => clearTimeout(timer) };
-}
-
 function aborted(signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
@@ -734,7 +720,7 @@ class HostInstance {
     const connecting = [...this.attempts.values()].filter((attempt) =>
       (attempt.declaresTools || attempt.restoreTools !== undefined) && !attempt.settled && !attempt.waited);
     if (connecting.length === 0) return;
-    const deadline = delay(this.options.promptWaitMs);
+    const deadline = cancellableDelay(this.options.promptWaitMs);
     const timedOut = await Promise.race([
       Promise.all(connecting.map((attempt) => attempt.whenSettled())).then(() => false),
       deadline.promise.then(() => true),
@@ -1101,7 +1087,7 @@ class HostInstance {
   private async unregister(name: string, options: { keepLoadedTools?: boolean } = {}): Promise<void> {
     const attempt = this.attempts.get(name);
     if (attempt && !attempt.started) {
-      const deadline = delay(this.options.replaceWaitMs);
+      const deadline = cancellableDelay(this.options.replaceWaitMs);
       await Promise.race([attempt.whenStarted(), deadline.promise]);
       deadline.cancel();
     }

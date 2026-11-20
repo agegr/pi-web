@@ -46,6 +46,8 @@ import type { PiSdkInternals } from "@/lib/pi-sdk-internals";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { freshFolderTrustBreadth, getProjectTrustStatus, trustFreshFolderAndWrite } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { errorMessage } from "@/lib/errors";
+import { isRecord } from "@/lib/is-record";
 
 export const dynamic = "force-dynamic";
 
@@ -63,14 +65,6 @@ export const dynamic = "force-dynamic";
 // (`lib/mcp-add.ts`), and for a fresh folder trusts it in the same step.
 
 type Project = { cwd: string; allowedRoots: Set<string> };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 type RefusalParams = Omit<McpErrorResponse, "error" | "reason">;
 

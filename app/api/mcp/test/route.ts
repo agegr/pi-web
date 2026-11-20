@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpTestResponse } from "@/lib/api-types";
 import { isMcpEntryRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
 import { testMcpServer } from "@/lib/mcp-test";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +16,6 @@ export const dynamic = "force-dynamic";
 // entry's folder is allowed and trusted. A global stdio server runs in the
 // panel's project when it has one (checked like any cwd), else in the home
 // folder, which the answer names.
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 // POST /api/mcp/test body: { scope, name, cwd? }
 // `cwd` is the panel's project: required for a project server, and the
