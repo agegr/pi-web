@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { chmodSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { chmodSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 
 /**
@@ -7,7 +7,7 @@ import { basename, dirname, join } from "path";
  * renamed onto the destination, so a process killed mid-write leaves the old
  * file whole. The caller must create the parent directory first.
  */
-function writeFileAtomicSync(path: string, contents: string, mode: number): void {
+function writeFileAtomicSync(path: string, contents: string, mode: number, exactMode = false): void {
   const dir = dirname(path);
   const tempPath = join(dir, `.${basename(path)}-${randomUUID()}.tmp`);
   let operationFailed = false;
@@ -19,6 +19,8 @@ function writeFileAtomicSync(path: string, contents: string, mode: number): void
       mode,
       flush: true,
     });
+    // The umask masked `mode`; a replaced file gets its exact bits back before it takes the name.
+    if (exactMode) chmodSync(tempPath, mode);
     renameSync(tempPath, path);
   } catch (error) {
     operationFailed = true;
@@ -47,8 +49,10 @@ export function writePrivateFileAtomicSync(path: string, contents: string): void
  * (a new file takes pi's 0644 default through the umask, never the private 0600).
  */
 export function writeSessionFileAtomicSync(path: string, contents: string): void {
-  const existingMode = statSync(path, { throwIfNoEntry: false })?.mode;
-  writeFileAtomicSync(path, contents, existingMode === undefined ? 0o644 : existingMode & 0o777);
-  // The temp file's mode was masked by the umask; restore the exact bits.
-  if (existingMode !== undefined) chmodSync(path, existingMode & 0o777);
+  // A symlinked session file keeps its link: the bytes replace the file it points at.
+  let target = path;
+  try { target = realpathSync(path); } catch { /* a new file */ }
+  const existingMode = statSync(target, { throwIfNoEntry: false })?.mode;
+  if (existingMode === undefined) writeFileAtomicSync(target, contents, 0o644);
+  else writeFileAtomicSync(target, contents, existingMode & 0o777, true);
 }

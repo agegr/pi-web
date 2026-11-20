@@ -328,6 +328,8 @@ type ArchiveDeleteScope = "all" | "old";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
 const RUNNING_SESSIONS_POLL_MS = 2500;
 const SESSION_DETAILS_HYDRATION_DELAY_MS = 750;
+// How long the running poll leaves an unknown list version to the first summary (a cold disk).
+const INITIAL_SUMMARY_WAIT_MS = 15_000;
 /** "Archive sessions older than 7 days" in a project's menu. */
 const ARCHIVE_OLDER_THAN_MS = 7 * 24 * 60 * 60 * 1000;
 /** The archive bar's "Delete archived over 30 days ago", by archive time. */
@@ -526,7 +528,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   const sessionLoadIdRef = useRef(0);
   // While the first summary list is in flight, the running poll must not take the
   // unknown list version for an invalidation and supersede it with a full scan.
-  const initialSummaryPendingRef = useRef(false);
+  // Bounded: a summary request that stalls (a dropped phone connection) must not
+  // keep the poll from loading the list forever.
+  const initialSummaryStartedAtRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
   // The first paint lists summary rows (their time is the file's mtime); the
   // project order is first saved from the full details.
@@ -909,9 +913,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       // sidebar. Hydrate exact counts, names, and first messages once the
       // selected chat has had a chance to start loading, and only when the
       // summary has rows a full scan still owes.
-      initialSummaryPendingRef.current = true;
+      initialSummaryStartedAtRef.current = Date.now();
       void loadSessions(true, false, true).then((needsDetails) => {
-        initialSummaryPendingRef.current = false;
+        initialSummaryStartedAtRef.current = null;
         if (!active || !needsDetails) return;
         detailsHydrationTimerRef.current = setTimeout(() => {
           detailsHydrationTimerRef.current = null;
@@ -1067,7 +1071,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         noteUiRevision(data.sessionUiStateRevision);
         // The first summary may still be in flight (a cold disk): its version is
         // unknown, not stale, so a full scan must not supersede it.
-        if (!initialSummaryPendingRef.current && data.sessionListVersion !== sessionListVersionRef.current) {
+        const summaryStartedAt = initialSummaryStartedAtRef.current;
+        const summaryInFlight = summaryStartedAt !== null && Date.now() - summaryStartedAt < INITIAL_SUMMARY_WAIT_MS;
+        if (!summaryInFlight && data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
         }

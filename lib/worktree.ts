@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync } from "fs";
-import { access, realpath } from "fs/promises";
+import { existsSync, mkdirSync, readFileSync, realpath, realpathSync } from "fs";
+import { access } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
@@ -120,8 +120,13 @@ function pathExists(filePath: string): Promise<boolean> {
   return access(filePath).then(() => true, () => false);
 }
 
+const realpathAsync = promisify(realpath);
+
+// Node's JS realpath, as `realpathSync`: `fs/promises.realpath` is the OS one, which on macOS
+// rewrites a cwd's letter case and on Windows resolves `subst` drives, so a project would
+// group differently from the sync path.
 function realPathOrSelfAsync(filePath: string): Promise<string> {
-  return realpath(filePath).catch(() => filePath);
+  return realpathAsync(filePath).catch(() => filePath);
 }
 
 const inferredRepoChecks = new Map<string, Promise<string | null>>();
