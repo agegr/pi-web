@@ -227,8 +227,8 @@ const inputStyle = {
   boxSizing: "border-box" as const,
 };
 
-function TextInput({ value, onChange, placeholder, mono }: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
-  return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+function TextInput({ value, onChange, placeholder, mono, inputMode }: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean; inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"] }) {
+  return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} inputMode={inputMode}
     style={{ ...inputStyle, fontFamily: mono ? "var(--font-mono)" : "inherit" }} />;
 }
 
@@ -240,6 +240,7 @@ function SecretTextInput({
   onKeyDown,
   autoComplete = "off",
   spellCheck = false,
+  enterKeyHint,
   style,
 }: {
   value: string;
@@ -249,6 +250,7 @@ function SecretTextInput({
   onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
   autoComplete?: string;
   spellCheck?: boolean;
+  enterKeyHint?: React.HTMLAttributes<HTMLInputElement>["enterKeyHint"];
   style?: React.CSSProperties;
 }) {
   const [visible, setVisible] = useState(false);
@@ -269,6 +271,7 @@ function SecretTextInput({
         style={{ ...inputStyle, paddingRight: 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
+        enterKeyHint={enterKeyHint}
       />
       <button
         type="button"
@@ -463,7 +466,7 @@ function ProviderDetail({ name, editingName, fallbackLabel, provider, onChange, 
 
       <Field label="Base URL">
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
-          placeholder="https://api.example.com/v1" mono />
+          placeholder="https://api.example.com/v1" inputMode="url" mono />
       </Field>
 
       <Field label="API Key">
@@ -1296,7 +1299,7 @@ function ModelDetail({
           <div id="model-advanced-settings" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0 16px" }}>
             <Field label={t("models.baseUrlOverride")}>
               <TextInput value={model.baseUrl ?? ""} onChange={(v) => set("baseUrl", v.trim() || undefined)}
-                placeholder={provider.baseUrl ?? t("models.providerDefaults")} mono />
+                placeholder={provider.baseUrl ?? t("models.providerDefaults")} inputMode="url" mono />
             </Field>
 
             <Field label={t("models.apiOverride")}>
@@ -1752,7 +1755,11 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         <SecretTextInput
           value={apiKey}
           onChange={setApiKey}
-          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "Enter") handleSave();
+          }}
+          enterKeyHint="done"
           placeholder={llama ? t("models.optionalApiKey") : provider.configured ? t("models.replaceApiKey") : "sk-…"}
           style={{ flex: 1 }}
           autoComplete="off"
