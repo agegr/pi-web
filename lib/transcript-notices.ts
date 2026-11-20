@@ -10,8 +10,11 @@ export type TranscriptNotice =
   | { kind: "cache_warm"; cost: number; note?: string }
   /** What a compaction or branch summary billed. */
   | { kind: "summary_cost"; source: "compaction" | "branch_summary"; tokens: number; cost: number }
-  /** Anthropic dropped thinking blocks from the request (pi's `thinking_dropped` input transformation). */
-  | { kind: "thinking_dropped"; count: number };
+  /**
+   * A provider dropped reasoning from the request: Anthropic thinking blocks (`thinking_dropped`)
+   * or OpenAI reasoning items (`reasoning`), with the reasons it gave.
+   */
+  | { kind: "reasoning_dropped"; provider: "anthropic" | "openai"; count: number; reasons?: string[] };
 
 /** The property a chat message carries its notices in; never part of pi's message. */
 export const TRANSCRIPT_NOTICES_KEY = "transcriptNotices";

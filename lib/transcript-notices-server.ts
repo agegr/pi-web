@@ -158,22 +158,53 @@ function cacheMissNotice(miss: CacheMiss): TranscriptNotice | undefined {
   };
 }
 
-/** Thinking blocks Anthropic dropped from the request that produced `message`. */
-export function countDroppedThinkingBlocks(message: unknown): number {
-  if (!isRecord(message) || !Array.isArray(message.diagnostics)) return 0;
-  let count = 0;
-  for (const diagnostic of message.diagnostics) {
-    if (!isRecord(diagnostic) || diagnostic.type !== "anthropic_input_transformations") continue;
-    const transformations = isRecord(diagnostic.details) ? diagnostic.details.transformations : undefined;
-    if (!Array.isArray(transformations)) continue;
-    count += transformations.filter((t) => isRecord(t) && t.type === "thinking_dropped").length;
-  }
-  return count;
+type ReasoningDropProvider = Extract<TranscriptNotice, { kind: "reasoning_dropped" }>["provider"];
+
+/** pi's TUI `REASONING_DROP_DIAGNOSTICS`: the assistant diagnostics that list reasoning a provider withheld from the model. */
+const REASONING_DROP_DIAGNOSTICS = new Map<string, { provider: ReasoningDropProvider; droppedType: string }>([
+  ["anthropic_input_transformations", { provider: "anthropic", droppedType: "thinking_dropped" }],
+  ["openai_input_transformations", { provider: "openai", droppedType: "reasoning" }],
+]);
+
+interface DroppedReasoning {
+  provider: ReasoningDropProvider;
+  count: number;
+  reasons: string[];
 }
 
-/** Shown only when more were dropped than for the previous response, as the TUI does. */
-function thinkingDroppedNotice(dropped: number, previousDropped: number): TranscriptNotice | undefined {
-  return dropped > previousDropped ? { kind: "thinking_dropped", count: dropped } : undefined;
+/**
+ * The reasoning a provider reported withheld from the request that produced `message`, as the
+ * TUI's `getDroppedReasoning()` reads it: the first diagnostic that lists any.
+ */
+export function getDroppedReasoning(message: unknown): DroppedReasoning | undefined {
+  if (!isRecord(message) || !Array.isArray(message.diagnostics)) return undefined;
+  for (const diagnostic of message.diagnostics) {
+    if (!isRecord(diagnostic) || typeof diagnostic.type !== "string") continue;
+    const kind = REASONING_DROP_DIAGNOSTICS.get(diagnostic.type);
+    if (!kind) continue;
+    const transformations = isRecord(diagnostic.details) ? diagnostic.details.transformations : undefined;
+    if (!Array.isArray(transformations)) continue;
+    const dropped = transformations.filter((t): t is Record<string, unknown> => isRecord(t) && t.type === kind.droppedType);
+    if (dropped.length === 0) continue;
+    const reasons = new Set<string>();
+    for (const t of dropped) if (typeof t.reason === "string") reasons.add(t.reason);
+    return { provider: kind.provider, count: dropped.length, reasons: [...reasons] };
+  }
+  return undefined;
+}
+
+/**
+ * Providers report a withheld block again on every later request that replays it, so the TUI
+ * shows a drop only when the previous response's was another provider's or fewer.
+ */
+function reasoningDroppedNotice(dropped: DroppedReasoning, previous: DroppedReasoning | undefined): TranscriptNotice | undefined {
+  if (previous?.provider === dropped.provider && dropped.count <= previous.count) return undefined;
+  return {
+    kind: "reasoning_dropped",
+    provider: dropped.provider,
+    count: dropped.count,
+    ...(dropped.reasons.length > 0 ? { reasons: dropped.reasons } : {}),
+  };
 }
 
 function summaryCostNotice(source: "compaction" | "branch_summary", usage: unknown): TranscriptNotice | undefined {
@@ -249,11 +280,11 @@ export function collectTranscriptNotices(
         if (!message || message.stopReason === "aborted" || message.stopReason === "error") break;
         const miss = misses.get(entry.id);
         if (miss) pushNotice(notices, entry.id, cacheMissNotice(miss));
-        const dropped = countDroppedThinkingBlocks(message);
-        if (dropped > 0) {
+        const dropped = getDroppedReasoning(message);
+        if (dropped) {
           const previous = ancestor(entry, (candidate) => Boolean(assistantMessageOf(candidate)));
-          const previousDropped = previous?.type === "message" ? countDroppedThinkingBlocks(previous.message) : 0;
-          pushNotice(notices, entry.id, thinkingDroppedNotice(dropped, previousDropped));
+          const previousDropped = previous?.type === "message" ? getDroppedReasoning(previous.message) : undefined;
+          pushNotice(notices, entry.id, reasoningDroppedNotice(dropped, previousDropped));
         }
         break;
       }
@@ -309,16 +340,16 @@ export function collectLiveAssistantNotices(
   const missNotice = miss ? cacheMissNotice(miss) : undefined;
   if (missNotice) notices.push(missNotice);
 
-  const dropped = countDroppedThinkingBlocks(message);
-  if (dropped > 0) {
-    let previousDropped = 0;
+  const dropped = getDroppedReasoning(message);
+  if (dropped) {
+    let previousDropped: DroppedReasoning | undefined;
     for (let i = branch.length - 1; i >= 0; i--) {
       const entry = branch[i];
       if (isThis(entry) || !assistantMessageOf(entry) || entry.type !== "message") continue;
-      previousDropped = countDroppedThinkingBlocks(entry.message);
+      previousDropped = getDroppedReasoning(entry.message);
       break;
     }
-    const droppedNotice = thinkingDroppedNotice(dropped, previousDropped);
+    const droppedNotice = reasoningDroppedNotice(dropped, previousDropped);
     if (droppedNotice) notices.push(droppedNotice);
   }
   return notices;
