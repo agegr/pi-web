@@ -1,11 +1,16 @@
+import { stripAnsi } from "./ansi";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
 
 interface DisplayOptions {
   isStreaming?: boolean;
 }
 
+const THINKING_PREVIEW_SOURCE_CHARS = 4_000;
+
+/** The thinking's first line, without the terminal escapes a model may write (#1753). */
 export function getThinkingPreview(thinking: string): string {
-  return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
+  const head = stripAnsi(thinking.trimStart().slice(0, THINKING_PREVIEW_SOURCE_CHARS)).trimStart();
+  return head.match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
 }
 
 export const THINKING_PIECE_CHARS = 8_000;

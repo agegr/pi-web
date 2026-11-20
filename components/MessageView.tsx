@@ -10,6 +10,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantAborted, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
+import { stripAnsi } from "@/lib/ansi";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { toolClockMs, type ToolClock, type ToolClocks } from "@/lib/tool-clock";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
@@ -811,7 +812,7 @@ function AssistantMessageView({
   const copyContent = () => {
     // A refused copy is silent: no "Copied", and the rejection is handled
     // so it never surfaces as an unhandled one (lib/clipboard.ts).
-    copyText(textContent).then(() => {
+    copyText(stripAnsi(textContent)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     }, () => {});
@@ -1031,14 +1032,18 @@ function BlockView({ block, searchTarget, toolResults, toolsNotRun, isStreaming,
 }
 
 function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void }) {
-  return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
+  // pi's TUI hands the text to the terminal, which draws a model's escape sequences as styling;
+  // a browser would show them as raw "[38;5;5m" (#1753).
+  return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{stripAnsi(block.text)}</SafeMarkdownBody>;
 }
 
 // A model looping in its thinking can write megabytes. As one text node, every
 // streamed chunk laid all of it out again (the prompt anchor reads layout after
 // each commit). As pieces, only the last one changes. Thinking that fits one
 // piece stays one text node.
-function ThinkingText({ text }: { text: string }) {
+function ThinkingText({ text: rawText }: { text: string }) {
+  // Escape sequences dropped, as in TextBlock (#1753).
+  const text = useMemo(() => stripAnsi(rawText), [rawText]);
   const pieces = useMemo(() => splitThinkingPieces(text), [text]);
   if (pieces.length === 1) return text;
   // No memo: React already skips a div whose text is unchanged, and a memo

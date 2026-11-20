@@ -129,6 +129,32 @@ test("previews the first thinking line and reveals the full text with the saved 
   }
 });
 
+test("a reply's terminal escape sequences are not shown as text (#1753)", () => {
+  const previousWindow = globalThis.window;
+  try {
+    for (const expanded of [false, true]) {
+      globalThis.window = { localStorage: { getItem: () => String(expanded) } };
+      const html = renderToStaticMarkup(React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(ThinkingBlock, {
+          block: { type: "thinking", thinking: "\x1b[38;5;5mThinking:\x1b[39m \x1b[39m\x1b[2mInteresting: a plan\nSecond\x1b[22m line" },
+          blockIndex: 0,
+        }),
+      ));
+      assert.doesNotMatch(html, /\x1b|\[\d+(?:;\d+)*m/);
+      assert.match(html, /Thinking: Interesting: a plan/);
+      assert.equal(html.includes("Second line"), expanded);
+    }
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+  const answer = renderMessage({ role: "assistant", content: [{ type: "text", text: "\x1b[1mDone\x1b[0m: **ok**" }] });
+  assert.doesNotMatch(answer, /\x1b|\[\d+m/);
+  assert.match(answer, /Done: <strong>ok<\/strong>/);
+});
+
 test("renders long expanded thinking in pieces and short thinking as one text node (#1196)", () => {
   const previousWindow = globalThis.window;
   globalThis.window = { localStorage: { getItem: () => "true" } };
