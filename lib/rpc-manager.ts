@@ -21,7 +21,8 @@ import {
   preferUserBashExtension,
   preferUserPowerShellExtension,
 } from "./project-command-env";
-import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, invalidateSessionManagerCache, invalidateSessionPathCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, invalidateSessionManagerCache, invalidateSessionPathCache, openSessionManager, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { expandSessionReferences, resolveSessionReferenceForSend } from "./session-reference";
 import { computeLiveSessionTotalActiveMs } from "./session-timing";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
@@ -1382,6 +1383,14 @@ export class AgentSessionWrapper {
 
       switch (type) {
       case "prompt": {
+        // The composer's # session references (`[title](#session:uuid)`) expand
+        // here, once: the model, a parked prompt and the transcript all see the
+        // same expanded content (lib/session-reference.ts). Protected tokens
+        // (inside code or escaped) stay as text.
+        const promptMessage = await expandSessionReferences(
+          command.message as string,
+          (id) => resolveSessionReferenceForSend(id, openSessionManager, resolveSessionPath),
+        );
         // Serialize only admission. Once the preceding prompt has either
         // passed or failed preflight, the SDK can atomically decide whether
         // this submission starts a run or joins its streaming queue.
@@ -1470,7 +1479,7 @@ export class AgentSessionWrapper {
           if (!streamingBehavior) this.lastRunAborted = false;
           let prompt: Promise<void>;
           try {
-            prompt = this.inner.prompt(command.message as string, {
+            prompt = this.inner.prompt(promptMessage, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
               source: "rpc",
@@ -1503,7 +1512,7 @@ export class AgentSessionWrapper {
             // so the wrapper cannot idle out from under it.
             if (!preflightAccepted && isCompactionInProgressError(error)) {
               this.parkDuringCompaction({
-                message: command.message as string,
+                message: promptMessage,
                 images: promptImages,
                 streamingBehavior,
                 settle: finishPrompt,

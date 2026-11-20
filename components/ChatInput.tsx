@@ -3,7 +3,7 @@
 import React, { memo, useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
-import type { TextContent, UserMessage } from "@/lib/types";
+import type { SessionInfo, TextContent, UserMessage } from "@/lib/types";
 import {
   clearDraft,
   getDraft,
@@ -23,6 +23,8 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
+import { extractHashQuery, filterSessionEntries, HASH_RESULT_LIMIT, type HashQueryMatch } from "@/lib/session-fuzzy";
+import { formatShortRelativeTime } from "@/lib/i18n/format";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { quoteSeparator } from "@/lib/quoted-selection";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
@@ -765,7 +767,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onAttachFiles,
   compact = false,
 }: Props, ref) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { fontSize } = useChatAppearance();
   const { ui: uiFontFamily, uiWeight } = useFontPreferences();
   const isMobile = useIsMobile();
@@ -789,6 +791,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [atMenuMaxHeight, setAtMenuMaxHeight] = useState<number | null>(null);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
+  // # session autocomplete: like @ for files, but the completion inserts the
+  // referenced session's transcript (GET /api/sessions/[id]/markdown).
+  const [hashQuery, setHashQuery] = useState<HashQueryMatch | null>(null);
+  const [hashMenuOpen, setHashMenuOpen] = useState(false);
+  const [hashMenuMaxHeight, setHashMenuMaxHeight] = useState<number | null>(null);
+  const [hashActiveIndex, setHashActiveIndex] = useState(0);
+  const [hashSessions, setHashSessions] = useState<SessionInfo[] | null>(null);
+  const [hashLoading, setHashLoading] = useState(false);
   const [imageWarningDismissed, setImageWarningDismissed] = useState(false);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
@@ -820,6 +830,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const atMenuRef = useRef<HTMLDivElement>(null);
   const atItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const hashMenuRef = useRef<HTMLDivElement>(null);
+  const hashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const hashFetchingRef = useRef(false);
   const historyItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileIndexMetaRef = useRef<{ cwd: string; fetchedAt: number } | null>(null);
   const fileIndexFetchingRef = useRef<string | null>(null);
@@ -843,6 +856,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       ta.setSelectionRange(0, ta.value.length);
       replaceTextareaRange(ta, 0, ta.value.length, text);
       setAtQuery(null);
+      setHashQuery(null);
       requestAnimationFrame(() => autoGrowTextarea(ta));
     },
     pasteText(text: string) {
@@ -855,6 +869,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       }
       replaceTextareaRange(ta, ta.selectionStart ?? ta.value.length, ta.selectionEnd ?? ta.value.length, text);
       setAtQuery(null);
+      setHashQuery(null);
       requestAnimationFrame(() => autoGrowTextarea(ta));
     },
     insertIfEmpty(text: string) {
@@ -864,6 +879,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       valueRef.current = text;
       setValue(text);
       setAtQuery(null);
+      setHashQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
@@ -882,6 +898,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       attachedImagesRef.current = restoredImages;
       setValue(restoredText);
       setAtQuery(null);
+      setHashQuery(null);
       setHistoryMenuOpen(false);
       setAttachedImages((prev) => {
         prev.forEach(revokeImagePreview);
@@ -904,6 +921,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       valueRef.current = combined;
       setValue(combined);
       setAtQuery(null);
+      setHashQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
         ta.focus();
@@ -942,6 +960,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         return movedImages;
       });
       setAtQuery(null);
+      setHashQuery(null);
       setHistoryMenuOpen(false);
     },
     restoreSubmission(text: string, images?: ChatDraftImage[], targetDraftKey?: string) {
@@ -988,6 +1007,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         return restored;
       });
       setAtQuery(null);
+      setHashQuery(null);
       setHistoryMenuOpen(false);
       if (images?.length) {
         setAttachedImages((current) => {
@@ -1027,6 +1047,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       const sep = before.length > 0 && !before.endsWith(" ") ? " " : "";
       replaceTextareaRange(ta, start, end, sep + text);
       setAtQuery(null);
+      setHashQuery(null);
     },
     insertQuote(text: string) {
       const ta = textareaRef.current;
@@ -1038,6 +1059,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       const end = ta.selectionEnd ?? ta.value.length;
       replaceTextareaRange(ta, start, end, quoteSeparator(ta.value.slice(0, start)) + text);
       setAtQuery(null);
+      setHashQuery(null);
     },
     addImages(files: File[]) {
       processImageFiles(files);
@@ -1104,6 +1126,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     valueRef.current = "";
     setValue("");
     setAtQuery(null);
+    setHashQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
@@ -1140,6 +1163,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     attachedImagesRef.current = nextImages;
     setValue(nextValue);
     setAtQuery(null);
+    setHashQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
@@ -1296,6 +1320,11 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setAtQuery(extractAtQuery(text.slice(0, pos)));
   }, [cwd]);
 
+  const updateHashQuery = useCallback((text: string, cursor: number | null) => {
+    const pos = cursor ?? text.length;
+    setHashQuery(extractHashQuery(text.slice(0, pos)));
+  }, []);
+
   const atQueryText = atQuery?.query ?? null;
   const atLocalMatches: FileIndexEntry[] = React.useMemo(() => (
     atQueryText !== null && fileIndex && fileIndex.cwd === cwd
@@ -1376,6 +1405,97 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       });
   }, [atTokenActive, cwd]);
 
+  // ── # session autocomplete ──────────────────────────────────────────────
+  const hashTokenKey = hashQuery === null ? null : `${hashQuery.start}:${hashQuery.query}`;
+  useEffect(() => {
+    if (hashTokenKey === null) {
+      setHashMenuOpen(false);
+      setHashActiveIndex(0);
+      return;
+    }
+    setHashMenuOpen(true);
+    setHashActiveIndex(0);
+  }, [hashTokenKey]);
+
+  // The composer's project root (from the catalogue) ranks that project's
+  // sessions first, as OpenCode ranks its @ session search.
+  const currentProjectRoot = React.useMemo(() => {
+    if (!cwd || !hashSessions) return undefined;
+    return hashSessions.find((s) => s.cwd === cwd)?.projectRoot ?? undefined;
+  }, [cwd, hashSessions]);
+
+  const hashMatches: SessionInfo[] = React.useMemo(() => (
+    hashQuery !== null && hashSessions
+      ? filterSessionEntries(hashSessions, hashQuery.query, HASH_RESULT_LIMIT, currentProjectRoot)
+      : []
+  ), [hashQuery, hashSessions, currentProjectRoot]);
+
+  // Fetch the session catalogue when the menu opens, once per component
+  // instance; the server caches its own scan.
+  useEffect(() => {
+    if (!hashMenuOpen || hashSessions !== null || hashFetchingRef.current) return;
+    hashFetchingRef.current = true;
+    setHashLoading(true);
+    fetch("/api/sessions")
+      .then((res) => {
+        if (!res.ok) throw new Error(`sessions fetch failed: ${res.status}`);
+        return res.json() as Promise<{ sessions?: SessionInfo[] }>;
+      })
+      .then((data) => setHashSessions(data.sessions ?? []))
+      .catch(() => {
+        // Leave the menu empty; the next open retries.
+      })
+      .finally(() => {
+        hashFetchingRef.current = false;
+        setHashLoading(false);
+      });
+  }, [hashMenuOpen, hashSessions]);
+
+  const applyHashCompletion = useCallback((session: SessionInfo) => {
+    if (!hashQuery) return;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // A compact self-contained token: the server expands `[title](#session:uuid)`
+    // to the session's bounded transcript when the message is sent
+    // (lib/session-reference.ts), so the composer stays readable and the
+    // reference survives drafts and restores.
+    const title = (session.name || session.firstMessage || session.id).replace(/[[\]]/g, " ");
+    const token = `[${title}](#session:${session.id})`;
+    const cursor = ta.selectionStart ?? ta.value.length;
+    replaceTextareaRange(ta, hashQuery.start, cursor, token);
+    setHashQuery(null);
+    setHashMenuOpen(false);
+    setHashActiveIndex(0);
+    requestAnimationFrame(() => autoGrowTextarea(ta));
+  }, [hashQuery]);
+
+  useEffect(() => {
+    if (hashActiveIndex >= hashMatches.length) {
+      setHashActiveIndex(Math.max(0, hashMatches.length - 1));
+    }
+  }, [hashMatches.length, hashActiveIndex]);
+
+  useEffect(() => {
+    hashItemRefs.current.length = hashMatches.length;
+  }, [hashMatches.length]);
+
+  useEffect(() => {
+    if (!hashMenuOpen || extensionUiOpen) return;
+    hashItemRefs.current[hashActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [hashActiveIndex, hashMenuOpen, extensionUiOpen]);
+
+  useLayoutEffect(() => {
+    if (!hashMenuOpen || hashQuery === null || extensionUiOpen) {
+      setHashMenuMaxHeight(null);
+      return;
+    }
+    const menu = hashMenuRef.current;
+    if (!menu) return;
+    return subscribeUpwardMenuMaxHeight(menu, (nextHeight) => {
+      setHashMenuMaxHeight((current) => current === nextHeight ? current : nextHeight);
+    });
+  }, [hashMenuOpen, hashQuery, extensionUiOpen]);
+
   const applyAtCompletion = useCallback((entry: FileIndexEntry) => {
     if (!atQuery) return;
     const ta = textareaRef.current;
@@ -1427,6 +1547,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setHistoryMenuOpen(false);
     setHistoryActiveIndex(0);
     setAtQuery(null);
+    setHashQuery(null);
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
@@ -1654,10 +1775,35 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
 
+      // # session menu — mirrors the @ file menu; skip while composing.
+      if (hashMenuOpen && hashQuery !== null && !extensionUiOpen && !isComposing) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setHashActiveIndex((i) => cycleListIndex(i, hashMatches.length, 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setHashActiveIndex((i) => cycleListIndex(i, hashMatches.length, -1));
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setHashMenuOpen(false);
+          return;
+        }
+        if ((e.key === "Tab" || acceptShortcut) && hashMatches[hashActiveIndex]) {
+          e.preventDefault();
+          void applyHashCompletion(hashMatches[hashActiveIndex]);
+          return;
+        }
+      }
+
       if (e.key === "ArrowUp" && !isComposing && !isStreaming && inputHistory.length > 0 && value.trim().length === 0) {
         e.preventDefault();
         setSlashMenuOpen(false);
         setAtMenuOpen(false);
+        setHashMenuOpen(false);
         setHistoryActiveIndex(inputHistory.length - 1);
         setHistoryMenuOpen(true);
         return;
@@ -1679,7 +1825,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, extensionUiOpen, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, extensionUiOpen, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {
@@ -1741,12 +1887,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setValue(nextValue);
     setHistoryMenuOpen(false);
     updateAtQuery(nextValue, start + markdown.length);
+    updateHashQuery(nextValue, start + markdown.length);
     requestAnimationFrame(() => {
       ta.focus();
       ta.setSelectionRange(start + markdown.length, start + markdown.length);
       scrollTextareaCaretIntoView(ta);
     });
-  }, [compact, processImageFiles, updateAtQuery]);
+  }, [compact, processImageFiles, updateAtQuery, updateHashQuery]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -2445,6 +2592,110 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             );
           })()}
+          {hashMenuOpen && hashQuery !== null && !extensionUiOpen && (() => {
+            const loading = hashLoading && hashSessions === null;
+            const matchCountLabel = hashMatches.length === 1 ? t("chat.match") : t("chat.matches", { count: hashMatches.length });
+            return (
+              <div
+                ref={hashMenuRef}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: "calc(100% + 8px)",
+                  zIndex: 120,
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
+                  overflow: "hidden",
+                  boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  maxHeight: hashMenuMaxHeight === null
+                    ? "min(48vh, 400px)"
+                    : `min(48vh, 400px, ${hashMenuMaxHeight}px)`,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "8px 10px",
+                    borderBottom: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span>
+                    {loading
+                      ? t("chat.loadingSessions")
+                      : t("chat.sessions", { label: matchCountLabel })}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
+                </div>
+                <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: 4 }}>
+                  {!loading && hashMatches.length === 0 ? (
+                    <div style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-dim)" }}>
+                      {t("chat.noMatchingSessions")}
+                    </div>
+                  ) : (
+                    hashMatches.map((session, index) => {
+                      const active = index === hashActiveIndex;
+                      const title = session.name || session.firstMessage || session.id;
+                      const cwdBase = session.cwd.split(/[\\/]/).pop() || session.cwd;
+                      return (
+                        <button
+                          key={session.id}
+                          ref={(node) => {
+                            hashItemRefs.current[index] = node;
+                          }}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            void applyHashCompletion(session);
+                          }}
+                          onMouseEnter={() => setHashActiveIndex(index)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 2,
+                            padding: "6px 8px",
+                            border: "none",
+                            borderRadius: 6,
+                            background: active ? "var(--bg-selected)" : "none",
+                            color: "var(--text)",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            fontSize: 12.5,
+                          }}
+                        >
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {title}
+                          </span>
+                          <span style={{
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            fontSize: 11,
+                            color: "var(--text-dim)",
+                            fontFamily: "var(--font-mono)",
+                          }}>
+                            {cwdBase} · {formatShortRelativeTime(session.modified, locale)}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           <div
             className={stackedComposer ? undefined : "chat-composer-row"}
             style={{
@@ -2473,10 +2724,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               setValue(e.target.value);
               setHistoryMenuOpen(false);
               updateAtQuery(e.target.value, e.target.selectionStart);
+              updateHashQuery(e.target.value, e.target.selectionStart);
             }}
             onSelect={(e) => {
               const el = e.currentTarget;
               updateAtQuery(el.value, el.selectionStart);
+              updateHashQuery(el.value, el.selectionStart);
             }}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => {
@@ -2487,6 +2740,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               lastCompositionEndAtRef.current = Date.now();
               const el = e.currentTarget;
               updateAtQuery(el.value, el.selectionStart);
+              updateHashQuery(el.value, el.selectionStart);
             }}
             onInput={handleInput}
             onPaste={handlePaste}
