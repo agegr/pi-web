@@ -692,10 +692,35 @@ export class AgentSessionWrapper {
           : liveEvent.type === "agent_settled" ? this.withSubagentsActive(liveEvent)
             : liveEvent,
       );
+      if (event.type === "message_end") this.announceUserMessageEntry(event.message);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
       this.checkExtensionShutdown();
     });
     this.resetIdleTimer();
+  }
+
+  /**
+   * `user_message_entry` with the entry id of a user message just delivered (the run's prompt,
+   * a steer, a follow-up). pi appends the message only after emitting its `message_end`, in the
+   * same synchronous step, and announces the id to no one; the chat's "New session" on that
+   * message needs it before the run's end reads the file (#1746). The entry holds the very
+   * message object the event carried. `timestamp` is the message's, for the page to match it.
+   */
+  private announceUserMessageEntry(message: unknown): void {
+    if (this.listeners.size === 0 || (message as { role?: unknown } | undefined)?.role !== "user") return;
+    queueMicrotask(() => {
+      const branch = this.inner.sessionManager.getBranch() as unknown as SessionEntry[];
+      for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i];
+        if (entry.type !== "message" || (entry as SessionMessageEntry).message !== message) continue;
+        this.emit({
+          type: "user_message_entry",
+          entryId: entry.id,
+          timestamp: (message as { timestamp?: unknown }).timestamp,
+        });
+        return;
+      }
+    });
   }
 
   /**

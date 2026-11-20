@@ -62,3 +62,27 @@ export function carryMessageKeys(
   }
   return aliases;
 }
+
+/** A user message a run delivered, until the wrapper names its entry: its timestamp and the messages the chat shows for it. */
+export type DeliveredUserMessage = { timestamp: unknown; messages: readonly AgentMessage[] };
+
+/**
+ * The entry ids of user messages sent during a run (the prompt, a steer, a
+ * follow-up), for their "New session" only (#1746): keys and turn durations
+ * still treat them as live, with no id in `entryIds`. pi announces no id, so
+ * the wrapper sends `user_message_entry` right after the message's
+ * `message_end`; `delivered` is what that `message_end` showed (the optimistic
+ * bubble it kept, and the delivered copy). An event naming another message
+ * (its `message_end` was not shown) changes nothing.
+ */
+export function withLiveUserEntryId(
+  ids: ReadonlyMap<AgentMessage, string>,
+  delivered: DeliveredUserMessage | null,
+  event: { type: string; entryId?: unknown; timestamp?: unknown },
+): ReadonlyMap<AgentMessage, string> {
+  const { entryId } = event;
+  if (!delivered || typeof entryId !== "string" || event.timestamp !== delivered.timestamp) return ids;
+  const next = new Map(ids);
+  for (const message of delivered.messages) next.set(message, entryId);
+  return next;
+}

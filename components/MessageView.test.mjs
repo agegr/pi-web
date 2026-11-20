@@ -59,6 +59,17 @@ test("on a narrow phone a message's actions drop their labels and keep their tit
   assert.match(css, /@media \(max-width: 380px\) \{\s*\.message-action-label \{\s*display: none;\s*\}\s*\}/);
 });
 
+test("a prompt sent during the run offers New session from the entry the wrapper named, not Edit (#1746)", () => {
+  const props = { forkEntryId: "live-entry", onFork: () => {}, onEditContent: () => {} };
+  const html = renderMessage({ role: "user", content: "Hi", timestamp: 1 }, props);
+  assert.ok(html.includes('title="New session — creates an independent copy from here"'));
+  assert.ok(!html.includes('title="Edit from here — branches within this session"'));
+  const without = renderMessage({ role: "user", content: "Hi", timestamp: 1 }, { onFork: () => {} });
+  assert.ok(!without.includes('title="New session — creates an independent copy from here"'));
+  const message = { role: "user", content: "Hi", timestamp: 1 };
+  assert.equal(MessageView.compare({ message, onFork: props.onFork }, { message, ...props, onEditContent: undefined }), false);
+});
+
 test("streaming headers preserve counts and speed without showing empty metrics", () => {
   const renderHeader = (props) => renderToStaticMarkup(React.createElement(
     I18nProvider, null, React.createElement(AssistantMessageHeader, { modelName: "Test Model", ...props }),

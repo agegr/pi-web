@@ -114,6 +114,7 @@ test("only completed assistant messages trigger an immediate usage read", () => 
     script.runInNewContext({
       event: { type: "message_end", message: { role, content: [] } },
       agentRunningRef: { current: true }, sessionIdRef: { current: "a" }, optimisticUserMessageKeyRef: { current: null },
+      optimisticUserMessageRef: { current: null }, deliveredUserMessageRef: { current: null },
       isSystemMessageEvent: (event) => event.message.role === "system",
       normalizeToolCalls: (message) => message, userMessageKey: () => "user", setMessages() {}, dispatch() {}, setAgentPhase() {},
       setToolClocks() {}, withoutToolClock: (clocks) => clocks, setActiveToolResults() {},
