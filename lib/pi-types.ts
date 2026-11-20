@@ -170,13 +170,14 @@ export interface AgentSessionLike {
    */
   readonly systemPrompt: string;
   readonly agent: {
+    readonly toolExecution: "parallel" | "sequential";
     state?: {
       /** Replayed from the transcript's system messages since Pi 0.86; never assign it. */
       readonly systemPrompt?: string;
       thinkingLevel?: string;
       streamingMessage?: PiAgentMessage;
       /** The declared tools, with the descriptions `prepareLoadout` hooks set for the model. */
-      readonly tools?: readonly { readonly name: string; readonly description: string }[];
+      readonly tools?: readonly { readonly name: string; readonly description: string; readonly executionMode?: "parallel" | "sequential" }[];
     };
     /** Steers and follow-ups pi has queued, its custom messages included (`getSteeringMessages()` lists texts only). */
     hasQueuedMessages(): boolean;
