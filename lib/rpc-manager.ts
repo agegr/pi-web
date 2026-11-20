@@ -152,6 +152,8 @@ type ActiveCustomUi = {
   settled: boolean;
 };
 
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
 type ExtensionUiRequestBody = Record<string, unknown> & {
   method: ExtensionUiRequest["method"];
   timeout?: number;
@@ -2539,10 +2541,13 @@ export class AgentSessionWrapper {
     request: ExtensionUiRequestBody,
     defaultValue: T,
     parseResponse: (response: ExtensionUiResponse) => T,
-    timeout?: number,
+    rawTimeout?: number,
     signal?: AbortSignal,
   ): Promise<T> {
     if (signal?.aborted) return Promise.resolve(defaultValue);
+    // As pi's TUI (`opts.timeout > 0`, counted down in seconds): only a positive number is a
+    // deadline, and a huge one (Infinity, Number.MAX_SAFE_INTEGER) waits for the person.
+    const timeout = typeof rawTimeout === "number" && rawTimeout > 0 && Number.isFinite(rawTimeout) ? rawTimeout : undefined;
     // Past destroy() nobody can answer: a session_start the shutdown deadline cut short goes on,
     // and is refused at once, as after Stop. A cancelled answer would let a handler that asks
     // until it is answered spin the server forever.
@@ -2552,11 +2557,12 @@ export class AgentSessionWrapper {
     const abortSignal = signal ? AbortSignal.any([signal, stopSignal]) : stopSignal;
 
     const id = randomUUID();
+    const deadline = Date.now() + (timeout ?? 0);
     const fullRequest = {
       type: "extension_ui_request",
       id,
       ...request,
-      ...(timeout ? { timeout, expiresAt: Date.now() + timeout } : {}),
+      ...(timeout ? { timeout, expiresAt: deadline } : {}),
     };
 
     return new Promise((resolve, reject) => {
@@ -2578,7 +2584,14 @@ export class AgentSessionWrapper {
       };
       const onAbort = () => settle(defaultValue);
 
-      if (timeout) timeoutId = setTimeout(() => settle(defaultValue), timeout);
+      // setTimeout fires after 1 ms past 2^31 - 1 ms, so a long deadline is waited in steps.
+      const armTimeout = () => {
+        const left = deadline - Date.now();
+        timeoutId = left <= MAX_TIMER_MS
+          ? setTimeout(() => settle(defaultValue), Math.max(0, left))
+          : setTimeout(armTimeout, MAX_TIMER_MS);
+      };
+      if (timeout) armTimeout();
       abortSignal.addEventListener("abort", onAbort, { once: true });
 
       this.pendingUiRequests.set(id, fullRequest as AgentEvent);
@@ -2593,28 +2606,28 @@ export class AgentSessionWrapper {
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
       select: (title, options, opts) => this.requestExtensionUi(
-        { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "select", title, options },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       confirm: (title, message, opts) => this.requestExtensionUi(
-        { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "confirm", title, message },
         false,
         (response) => "confirmed" in response ? response.confirmed : false,
         opts?.timeout,
         opts?.signal,
       ),
       input: (title, placeholder, opts) => this.requestExtensionUi(
-        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
       ),
       editor: (title, prefill, opts) => this.requestExtensionUi(
-        { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
+        { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
