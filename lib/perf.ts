@@ -20,10 +20,6 @@ export interface ServerPerf {
 
 const PERF_ENABLED = process.env.PI_WEB_PERF === "1";
 
-export function isServerPerfEnabled(): boolean {
-	return PERF_ENABLED;
-}
-
 export function startServerPerf(route: string): ServerPerf | undefined {
 	if (!PERF_ENABLED) return undefined;
 

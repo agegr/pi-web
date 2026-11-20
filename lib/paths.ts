@@ -101,3 +101,13 @@ export function resolveExistingPath(target: string): string {
     }
   }
 }
+
+/** `path` resolved, then its real path when it exists; the resolved path when it does not. */
+export function realPathOrResolved(path: string): string {
+  const resolved = resolve(path);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}

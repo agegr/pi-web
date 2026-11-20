@@ -1,5 +1,5 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { CONFIG_DIR_NAME, type McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type {
   CodemodeSandboxStatus,
@@ -40,7 +40,7 @@ import { maskArgs, maskCommand, maskUrl } from "./mcp-secrets";
 import { mcpOAuthStoreKeys } from "./mcp-sign-out";
 import { readMcpHostInactive, withMcpStatuses } from "./mcp-status";
 import { findWebPasswordField, resolvedConfigValues, WEB_PASSWORD_VARIABLE } from "./mcp-transport";
-import { samePath } from "./paths";
+import { realPathOrResolved, samePath } from "./paths";
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
 import { loadPiSdkInternals, type PiSdkInternals } from "./pi-sdk-internals";
 import { freshFolderTrustBreadth, getProjectTrustStatus, hasTrustRelevantEntries } from "./project-trust";
@@ -103,14 +103,6 @@ function errorMessage(error: unknown): string {
 
 function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;
-}
-
-function realPathOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
 }
 
 function problem(info: McpConfigFileInfo, reason: McpConfigFileProblem["reason"], error: string): void {
@@ -183,7 +175,7 @@ function readGlobalFile(agentDir: string): { info: McpConfigFileInfo; text?: str
     }
     return { info };
   }
-  if (!samePath(realPath, join(realPathOr(agentDir), "mcp.json"))) info.realPath = realPath;
+  if (!samePath(realPath, join(realPathOrResolved(agentDir), "mcp.json"))) info.realPath = realPath;
   return { info, text: readResolvedFile(realPath, info, undefined) };
 }
 
@@ -275,7 +267,7 @@ function readProjectFile(cwd: string, allowedRoots: Set<string>): { info: McpCon
   const info: McpConfigFileInfo = { scope: "project", path: location.path, exists: false, problems: [] };
   if (location.kind === "missing") return { info };
   const realPath = location.realPath;
-  if (realPath !== undefined && !samePath(realPath, join(realPathOr(cwd), CONFIG_DIR_NAME, "mcp.json"))) info.realPath = realPath;
+  if (realPath !== undefined && !samePath(realPath, join(realPathOrResolved(cwd), CONFIG_DIR_NAME, "mcp.json"))) info.realPath = realPath;
   if (location.kind === "refused") {
     info.exists = true;
     problem(info, location.reason, location.error);

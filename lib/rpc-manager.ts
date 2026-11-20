@@ -2,8 +2,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { existsSync, realpathSync, writeFileSync } from "fs";
-import { resolve } from "path";
+import { existsSync, writeFileSync } from "fs";
 import { isDeepStrictEqual } from "util";
 import { validateAgentImages } from "./image-attachments";
 import { EXTENSION_REPORTED_CODE } from "./agent-client";
@@ -23,6 +22,7 @@ import {
 } from "./project-command-env";
 import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, invalidateSessionManagerCache, invalidateSessionPathCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { computeLiveSessionTotalActiveMs } from "./session-timing";
+import { realPathOrResolved } from "./paths";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -79,6 +79,7 @@ import {
   readSessionToolSelection,
   validateSessionToolSelection,
 } from "./session-tool-selection";
+import { isThinkingLevel } from "./thinking-levels";
 
 // ============================================================================
 // Types
@@ -305,7 +306,6 @@ export interface RpcSessionStartOptions {
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
-const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 // The SDK's DEFAULT_THINKING_LEVEL (dist/core/defaults.js), which it does not export.
 const SDK_DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
@@ -3084,15 +3084,6 @@ function closingRpcSessionWait(sessionId: string): Promise<void> | null {
   return wait.done ? null : wait.promise;
 }
 
-function normalizeRpcCwd(cwd: string): string {
-  const resolvedCwd = resolve(cwd);
-  try {
-    return realpathSync(resolvedCwd);
-  } catch {
-    return resolvedCwd;
-  }
-}
-
 function getStartingSessionCwds(): Map<string, number> {
   if (!globalThis.__piStartingSessionCwds) globalThis.__piStartingSessionCwds = new Map();
   return globalThis.__piStartingSessionCwds;
@@ -3100,7 +3091,7 @@ function getStartingSessionCwds(): Map<string, number> {
 
 function trackStartingSession(cwd: string): () => void {
   const startingCwds = getStartingSessionCwds();
-  const key = normalizeRpcCwd(cwd);
+  const key = realPathOrResolved(cwd);
   startingCwds.set(key, (startingCwds.get(key) ?? 0) + 1);
   return () => {
     const remaining = (startingCwds.get(key) ?? 1) - 1;
@@ -3232,8 +3223,8 @@ export async function setRpcSessionTools(
     ...(toolNames !== undefined ? { toolNames } : {}),
     ...(model ? { initialModel: { provider: model.provider, modelId: model.id } } : {}),
     allowInitialModelFallback: true,
-    ...(currentThinkingLevel && THINKING_LEVEL_NAMES.has(currentThinkingLevel as ThinkingLevel)
-      ? { thinkingLevel: currentThinkingLevel as ThinkingLevel }
+    ...(isThinkingLevel(currentThinkingLevel)
+      ? { thinkingLevel: currentThinkingLevel }
       : {}),
   });
   return { session: started.session, sessionId: started.realSessionId, recreated: true };
@@ -3342,17 +3333,17 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
 }
 
 export function hasBusyRpcSessionForCwd(cwd: string): boolean {
-  const targetCwd = normalizeRpcCwd(cwd);
+  const targetCwd = realPathOrResolved(cwd);
   if (getStartingSessionCwds().has(targetCwd)) return true;
   return Array.from(getRegistry().values()).some(
-    (session) => normalizeRpcCwd(session.cwd) === targetCwd && session.isRunning(),
+    (session) => realPathOrResolved(session.cwd) === targetCwd && session.isRunning(),
   );
 }
 
 export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
-  const targetCwd = normalizeRpcCwd(cwd);
+  const targetCwd = realPathOrResolved(cwd);
   const sessions = Array.from(getRegistry().values()).filter(
-    (session) => normalizeRpcCwd(session.cwd) === targetCwd,
+    (session) => realPathOrResolved(session.cwd) === targetCwd,
   );
   await Promise.all(sessions.map((session) => session.shutdown()));
   return sessions.length;

@@ -34,7 +34,8 @@ type CheckOptions = {
   runCommand?: CommandRunner;
 };
 
-function toPluginScope(scope: ConfiguredPackage["scope"]): PluginScope {
+/** `project` stays `project`; anything else is a global package. */
+export function toPluginScope(scope: unknown): PluginScope {
   return scope === "project" ? "project" : "global";
 }
 
