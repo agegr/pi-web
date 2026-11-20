@@ -32,7 +32,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { formatSessionSummary } from "@/lib/session-stats-format";
 import { userMessageKey } from "@/lib/prompt-recovery";
-import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
+import { carryMessageKeys, messageRenderKeys, withLiveUserEntryId, type DeliveredUserMessage } from "@/lib/message-keys";
 import { createIdleMessageReads, entriesAfter } from "@/lib/idle-message-read";
 import { isHiddenCustomMessage } from "@/lib/message-display";
 import {
@@ -478,6 +478,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [entryIds, setEntryIds] = useState<string[]>([]);
   // Entry ids that took over a run's message keys when the file was read again (lib/message-keys.ts).
   const [messageKeyAliases, setMessageKeyAliases] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // Entry ids of user messages sent during the run, for their "New session" only (withLiveUserEntryId()).
+  const [liveUserEntryIds, setLiveUserEntryIds] = useState<ReadonlyMap<AgentMessage, string>>(() => new Map());
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [earlierTurnCount, setEarlierTurnCount] = useState(0);
@@ -610,6 +612,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const defaultThinkingLevelRef = useRef<ConcreteThinkingLevel | null>(null);
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageKeyRef = useRef<string | null>(null);
+  // The optimistic bubble itself, set with its key.
+  const optimisticUserMessageRef = useRef<AgentMessage | null>(null);
+  // The last user message_end shown, until the wrapper's user_message_entry names its entry.
+  const deliveredUserMessageRef = useRef<DeliveredUserMessage | null>(null);
   // The run whose prompt the server is known to have got: one of its events
   // (agent_start, prompt_done, queue_update, its user message) arrived, maybe
   // before its request failed. Later ones clear the unconfirmed record itself.
@@ -919,6 +925,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const previous = { messages: messagesRef.current, entryIds: entryIdsRef.current };
         const next = { messages: persistedMessages, entryIds: d.context.entryIds ?? [] };
         setMessageKeyAliases((aliases) => carryMessageKeys({ ...previous, aliases }, next));
+        // The read has their entry ids in `entryIds`.
+        setLiveUserEntryIds(new Map());
         setMessages(next.messages);
         setEntryIds(next.entryIds);
         setHistoryCursor(d.context.oldestEntryId);
@@ -2085,6 +2093,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         break;
       }
+      case "user_message_entry": {
+        // The entry pi appended for the user message_end just before (#1746).
+        const delivered = deliveredUserMessageRef.current;
+        deliveredUserMessageRef.current = null;
+        setLiveUserEntryIds((ids) => withLiveUserEntryId(ids, delivered, event));
+        break;
+      }
       case "message_end": {
         // Same late-event guard: after reconcile finished this run,
         // loadSession already loaded this message from the session file —
@@ -2110,6 +2125,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const deliveredKey = userMessageKey(delivered);
           const optimisticKey = optimisticUserMessageKeyRef.current;
           optimisticUserMessageKeyRef.current = null;
+          const bubble = optimisticKey === deliveredKey ? optimisticUserMessageRef.current : null;
+          deliveredUserMessageRef.current = { timestamp: delivered.timestamp, messages: bubble ? [bubble, delivered] : [delivered] };
           // While the run's own bubble waits, a delivered user message is its prompt.
           if (optimisticKey) markPromptLanded();
           setMessages((prev) => {
@@ -2334,6 +2351,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sameTextAfterSend = countUserMessages(messagesRef.current.slice(savedViewIds.length), userKey);
     setMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userKey;
+    optimisticUserMessageRef.current = userMsg;
     promptRunIdRef.current = promptRunId;
     agentRunningRef.current = true;
     setAgentRunning(true);
@@ -3657,7 +3675,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
-    data, loading, error, activeLeafId, messages, activeToolResults, toolClocks, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
+    data, loading, error, activeLeafId, messages, activeToolResults, toolClocks, entryIds, messageKeys, liveUserEntryIds, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
     agentRunning, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
