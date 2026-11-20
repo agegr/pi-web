@@ -524,6 +524,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
+  // While the first summary list is in flight, the running poll must not take the
+  // unknown list version for an invalidation and supersede it with a full scan.
+  const initialSummaryPendingRef = useRef(false);
   const [loading, setLoading] = useState(true);
   // The first paint lists summary rows (their time is the file's mtime); the
   // project order is first saved from the full details.
@@ -840,7 +843,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     forgetRetiredSidebarKeys();
   }, []);
 
-  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
+  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false): Promise<boolean> => {
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
@@ -855,10 +858,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
-      if (loadId !== sessionLoadIdRef.current) return;
+      if (loadId !== sessionLoadIdRef.current) return false;
       sessionListVersionRef.current = data.sessionListVersion;
       setAllSessions(data.sessions);
-      if (!summary) setSessionDetailsLoaded(true);
+      // A summary row whose file changed since the last scan is the only one
+      // without its details; the others were checked against their file's stat.
+      const needsDetails = data.sessions.some((session) => session.detailsPending === true);
+      if (!summary || !needsDetails) setSessionDetailsLoaded(true);
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
@@ -883,8 +889,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         return next.size === prev.size ? prev : next;
       });
       setError(null);
+      return needsDetails;
     } catch (e) {
       if (loadId === sessionLoadIdRef.current) setError(String(e));
+      return false;
     } finally {
       if (loadId === sessionLoadIdRef.current) setLoading(false);
     }
@@ -899,9 +907,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     if (isFirst) {
       // Header/stat metadata is enough to select the URL session and paint the
       // sidebar. Hydrate exact counts, names, and first messages once the
-      // selected chat has had a chance to start loading.
-      void loadSessions(true, false, true).then(() => {
-        if (!active) return;
+      // selected chat has had a chance to start loading, and only when the
+      // summary has rows a full scan still owes.
+      initialSummaryPendingRef.current = true;
+      void loadSessions(true, false, true).then((needsDetails) => {
+        initialSummaryPendingRef.current = false;
+        if (!active || !needsDetails) return;
         detailsHydrationTimerRef.current = setTimeout(() => {
           detailsHydrationTimerRef.current = null;
           if (active) void loadSessions(false, true);
@@ -1054,7 +1065,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         setSubagentsActiveSessionIds((previous) => sameIdsOr(previous, data.subagentsActiveSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
-        if (data.sessionListVersion !== sessionListVersionRef.current) {
+        // The first summary may still be in flight (a cold disk): its version is
+        // unknown, not stale, so a full scan must not supersede it.
+        if (!initialSummaryPendingRef.current && data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
         }
