@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { getSessionSettings, openSessionManager, resolveSessionPath } from "@/lib/session-reader";
 import { computeSessionStats, MAX_SESSION_STATS_IDS, type SessionUsageSummary } from "@/lib/session-stats";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { sideOwnEntries } from "@/lib/side-session";
-import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
+import { NO_STORE, readSessionIdsRequest } from "@/lib/session-ids-request";
 import type { SessionEntry } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +14,6 @@ export const dynamic = "force-dynamic";
 // GET /api/sessions/[id] (a live wrapper's entries, else the cached file) and
 // never starts an AgentSession. The switcher polls this while an agent runs,
 // so a summary is reused until its session gains an entry.
-
-const NO_STORE = { "Cache-Control": "no-store" };
 
 type SessionManagerLike = ReturnType<typeof openSessionManager>;
 
@@ -28,10 +25,6 @@ interface CachedSummary {
 }
 
 const summaries = new WeakMap<SessionManagerLike, CachedSummary>();
-
-function refusal(status: number, error: string) {
-  return NextResponse.json({ error }, { status, headers: NO_STORE });
-}
 
 async function readSummary(id: string): Promise<SessionUsageSummary | null> {
   const rpc = getRpcSession(id);
@@ -65,22 +58,11 @@ async function readSummary(id: string): Promise<SessionUsageSummary | null> {
 // POST /api/sessions/stats - body { ids: string[] } (at most MAX_SESSION_STATS_IDS).
 // Answers { stats: { [id]: SessionUsageSummary } }; an id not found is left out.
 export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) return refusal(403, "Untrusted API request");
-  if (!hasJsonContentType(req)) return refusal(415, "Content-Type must be application/json");
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return refusal(400, "Invalid JSON body");
-  }
-  const ids = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as { ids?: unknown }).ids : undefined;
-  if (!Array.isArray(ids) || ids.length === 0) return refusal(400, "ids must be a non-empty array");
-  if (ids.length > MAX_SESSION_STATS_IDS) return refusal(400, `ids may hold at most ${MAX_SESSION_STATS_IDS} session ids`);
-  if (!ids.every((id) => typeof id === "string" && SESSION_ID_PATTERN.test(id))) return refusal(400, "ids must be session ids");
+  const ids = await readSessionIdsRequest(req, MAX_SESSION_STATS_IDS);
+  if (ids instanceof Response) return ids;
 
   const stats: Record<string, SessionUsageSummary> = {};
-  for (const id of new Set(ids as string[])) {
+  for (const id of new Set(ids)) {
     try {
       const summary = await readSummary(id);
       if (summary) stats[id] = summary;
