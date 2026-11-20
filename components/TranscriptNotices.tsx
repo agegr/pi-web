@@ -38,8 +38,13 @@ export function transcriptNoticeText(t: Translate, notice: TranscriptNotice): st
         tokens: formatNoticeTokens(notice.tokens),
         cost: costSuffix(t, notice.cost),
       });
-    case "thinking_dropped":
-      return t(notice.count === 1 ? "transcriptNotice.thinkingDroppedOne" : "transcriptNotice.thinkingDropped", { count: notice.count });
+    case "reasoning_dropped": {
+      const noun = notice.provider === "openai" ? "reasoningItemsDropped" : "thinkingDropped";
+      return t(`transcriptNotice.${noun}${notice.count === 1 ? "One" : ""}`, {
+        count: notice.count,
+        reasons: notice.reasons?.length ? t("transcriptNotice.droppedReasons", { reasons: notice.reasons.join(", ") }) : "",
+      });
+    }
   }
 }
 
