@@ -315,6 +315,9 @@ Files: `lib/markdown.ts` (`markdownClobberPrefix`, `rehypeMatchClobberedIds`, `j
 - The pieces are plain divs, not `memo`'d: React already leaves a div whose text is unchanged alone. A memo bailout keeps the old props, and each old piece is a V8 slice pinning the whole thinking string of the chunk it last changed in: streaming 2M Chinese characters retained 995 MB until the reply ended, 9 MB without memo (React 19 in headless Chrome).
 - Expanding a finished block still lays out all of it once, as before (about 500 ms for that text at 4x). `content-visibility: auto` on the pieces would skip the ones off screen (70 ms to the first frame), but its placeholder heights, about half the real ones in the bench, change the scroll height as pieces come into view; it is not used.
 
+## A reply's terminal escapes are dropped (`stripAnsi()`, `lib/ansi.ts`, #1753)
+- A provider can put ANSI escape sequences in a reply's text or thinking (one returned `\x1b[38;5;5mThinking:\x1b[39m \x1b[2m…` as reasoning). pi stores them as they came and its TUI hands them to the terminal, which draws them as styling. A browser draws ESC as nothing and the rest as text (`[38;5;5mThinking:[39m`), so `TextBlock`, `ThinkingText` and `getThinkingPreview()` (the folded header, and the server's deferred thinking) show the text with them stripped, without colours, and the reply's Copy copies what shows. The message and the session file keep them. `stripAnsi()` returns text with no ESC as it is, before either scan, since it now runs on every streamed chunk of a reply.
+
 ## Exported session HTML
 - `/api/sessions/[id]/export` delegates to pi's export helper and returns its HTML unchanged. pi 1.5.0's template walks the tree iteratively, so very deep linear sessions no longer overflow the browser call stack; pi-web's string patch for that was removed when it stopped matching.
 
