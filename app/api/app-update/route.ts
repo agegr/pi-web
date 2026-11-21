@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { getPiWebReleaseUrl, isNewerStableVersion } from "@/lib/app-update";
 import { errorMessage } from "@/lib/errors";
+import { createRefreshingCache } from "@/lib/refreshing-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -10,20 +11,6 @@ const NPM_LATEST_URL = "https://registry.npmjs.org/@agegr%2Fpi-web/latest";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5_000;
 const SKIP_VERSION_CHECK = process.env.PI_WEB_SKIP_VERSION_CHECK === "1";
-
-interface AppUpdateCache {
-  value?: AppUpdateResponse;
-  expiresAt: number;
-  inFlight?: Promise<AppUpdateResponse>;
-}
-
-declare global {
-  var __piWebAppUpdateCache: AppUpdateCache | undefined;
-}
-
-function getCache(): AppUpdateCache {
-  return globalThis.__piWebAppUpdateCache ??= { expiresAt: 0 };
-}
 
 async function fetchLatestVersion(): Promise<AppUpdateResponse> {
   const response = await fetch(NPM_LATEST_URL, {
@@ -46,26 +33,7 @@ async function fetchLatestVersion(): Promise<AppUpdateResponse> {
   };
 }
 
-async function loadUpdateStatus(): Promise<AppUpdateResponse> {
-  const cache = getCache();
-  if (cache.value && cache.expiresAt > Date.now()) return cache.value;
-  if (!cache.inFlight) {
-    cache.inFlight = fetchLatestVersion().then((value) => {
-      cache.value = value;
-      cache.expiresAt = Date.now() + CACHE_TTL_MS;
-      return value;
-    }).finally(() => {
-      cache.inFlight = undefined;
-    });
-  }
-
-  try {
-    return await cache.inFlight;
-  } catch (error) {
-    if (cache.value) return cache.value;
-    throw error;
-  }
-}
+const loadUpdateStatus = createRefreshingCache("pi-web:app-update", CACHE_TTL_MS, fetchLatestVersion);
 
 export async function GET() {
   if (SKIP_VERSION_CHECK) {
