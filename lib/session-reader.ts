@@ -156,6 +156,7 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
 }
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
+  if (sessions.length === 0) return [];
   const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
   const projectByCwd = new Map<string, ProjectInfo>();
   await Promise.all(uniqueCwds.map(async (cwd) => {
@@ -318,7 +319,9 @@ export async function listAllSessions(options: { force?: boolean; allowStale?: b
   // every forked and subagent session, and it is triggered by ordinary agent
   // activity rather than by anything the caller did.
   if (options.allowStale && cache) {
-    void listAllSessions().catch(() => undefined);
+    if (!globalThis.__piSessionListPromise || globalThis.__piSessionListPromiseGeneration !== generation) {
+      void listAllSessions().catch(() => undefined);
+    }
     return cache.data;
   }
 
