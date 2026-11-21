@@ -10,7 +10,7 @@ import type {
 import {
   mcpTestBlock,
   mcpWriteBlock,
-  refusalFailure,
+  requestMcpJson,
   withinDeadline,
   type FetchLike,
   type McpActionFailure,
@@ -290,20 +290,7 @@ function isFlowInfo(value: unknown): value is McpSignInFlowInfo {
 }
 
 async function requestSignIn(url: string, init: RequestInit, fetchImpl: FetchLike, signal: AbortSignal): Promise<McpSignInRequestResult> {
-  let response: Awaited<ReturnType<FetchLike>>;
-  try {
-    response = await fetchImpl(url, { ...init, cache: "no-store", signal });
-  } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
-  }
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return { ok: false, error: { error: `HTTP ${response.status}` } };
-  }
-  if (response.ok && isFlowInfo(data)) return { ok: true, data };
-  return { ok: false, error: refusalFailure(data, response.status) };
+  return requestMcpJson(url, { ...init, signal }, fetchImpl, (data) => (isFlowInfo(data) ? data : undefined));
 }
 
 function signInRequest(
