@@ -525,6 +525,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
   const sessionListVersionRef = useRef<number | null>(null);
+  const sessionsEtagRef = useRef<{ summary: boolean; etag: string } | null>(null);
   const sessionLoadIdRef = useRef(0);
   // While the first summary list is in flight, the running poll must not take the
   // unknown list version for an invalidation and supersede it with a full scan.
@@ -851,10 +852,26 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
+      const headers: HeadersInit | undefined =
+        !force && sessionsEtagRef.current?.summary === summary
+          ? { "If-None-Match": sessionsEtagRef.current.etag }
+          : undefined;
       const res = await fetch(sessionListUrl(summary, force), {
         cache: "no-store",
+        ...(headers ? { headers } : {}),
       });
+      if (res.status === 304) {
+        const nextEtag = res.headers.get("etag");
+        if (nextEtag) {
+          sessionsEtagRef.current = { summary, etag: nextEtag };
+        }
+        if (loadId !== sessionLoadIdRef.current) return false;
+        setError(null);
+        return false;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const nextEtag = res.headers.get("etag");
+      sessionsEtagRef.current = nextEtag ? { summary, etag: nextEtag } : null;
       const data = await res.json() as {
         sessions: SessionInfo[];
         sessionListVersion: number;
