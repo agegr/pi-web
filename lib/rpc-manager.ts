@@ -468,6 +468,8 @@ export class AgentSessionWrapper {
     this.deferredStartupModel = options.deferredStartupModel ?? null;
     this.builtOnModel = inner.model && `${inner.model.provider}/${inner.model.id}`;
     this.builtOnThinkingLevel = inner.agent?.state?.thinkingLevel;
+    // Deliver all queued steering prompts together at the next turn boundary (#1771).
+    if (inner.agent) inner.agent.steeringMode = "all";
     this.startupNotices = options.startupIssues ? [] : null;
     for (const issue of options.startupIssues ?? []) this.notifyIssue(issue);
   }
