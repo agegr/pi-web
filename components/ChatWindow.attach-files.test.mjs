@@ -7,6 +7,7 @@ import ts from "typescript";
 
 const jiti = createJiti(import.meta.url);
 const { dropMentionText, splitDroppedItems } = await jiti.import("../lib/file-upload-client.ts");
+const { errorMessage } = await jiti.import("../lib/errors.ts");
 
 const sourceText = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const source = ts.createSourceFile("ChatWindow.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -45,6 +46,7 @@ async function attach(files, { cwd = "/project", response } = {}) {
     onFilesUploaded: () => { calls.refreshed += 1; },
     splitDroppedItems,
     dropMentionText,
+    errorMessage,
     uploadFiles: async (target, uploads, strategy) => {
       calls.uploads.push([target, uploads.map((file) => file.name), strategy]);
       return response;
