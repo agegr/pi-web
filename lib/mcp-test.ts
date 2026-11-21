@@ -131,11 +131,6 @@ function delay(ms: number): { promise: Promise<void>; cancel: () => void } {
   return { promise, cancel: () => clearTimeout(timer) };
 }
 
-function aborted(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
-}
-
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
@@ -699,4 +694,10 @@ function startTest(
     }
   };
   return Object.assign(run(), { join });
+}
+
+/** Settles when `signal` aborts, at once when it already has. */
+export function aborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 }
