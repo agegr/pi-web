@@ -2,6 +2,9 @@
 // popover, and the agent switcher's per-agent rows.
 
 import type { TranslationParams } from "./i18n/types";
+import { formatCostShort } from "./cost-format";
+
+export { formatCostShort };
 
 /** 950 · 18k · 1.2M */
 export function formatCompactCount(value: number): string {
@@ -11,11 +14,6 @@ export function formatCompactCount(value: number): string {
   return String(value);
 }
 
-/** $0.12 · <$0.01 · null when nothing was billed. */
-export function formatCostShort(cost: number): string | null {
-  if (!(cost > 0)) return null;
-  return cost >= 0.01 ? `$${cost.toFixed(2)}` : "<$0.01";
-}
 
 /** "4 messages · 18k tokens · $0.12": the one line `/session` answers with in a tab, which has no popover. */
 export function formatSessionSummary(stats: { totalMessages: number; tokens: { total: number }; cost: number } | null, t: (key: string, params?: TranslationParams) => string): string {

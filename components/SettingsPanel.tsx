@@ -4,6 +4,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  DEFAULT_USD_TO_CNY_RATE,
+  getCostDisplaySettings,
+  normalizeCostDisplaySettings,
+  setCostDisplaySettings,
+  type CostCurrency,
+  type CostDisplaySettings,
+} from "@/lib/cost-format";
 import { THEME_OPTIONS } from "@/lib/theme";
 import {
   CHAT_CONTENT_WIDTH_DEFAULT,
@@ -95,6 +103,10 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
+  const [costDisplay, setCostDisplay] = useState<CostDisplaySettings>(() => getCostDisplaySettings());
+  const [rateDraft, setRateDraft] = useState<string>(() => String(getCostDisplaySettings().usdToCnyRate));
+  const [costDisplaySaving, setCostDisplaySaving] = useState(false);
+  const [costDisplayError, setCostDisplayError] = useState<string | null>(null);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
@@ -107,7 +119,41 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       .then((response) => response.ok ? response.json() : null)
       .then((data: { enabled?: boolean } | null) => setWebAuthEnabled(data?.enabled === true))
       .catch(() => {});
+    void fetch("/api/cost-display")
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: unknown) => {
+        if (!data) return;
+        const next = normalizeCostDisplaySettings(data);
+        setCostDisplay(next);
+        setRateDraft(String(next.usdToCnyRate));
+        setCostDisplaySettings(next);
+      })
+      .catch(() => {});
   }, []);
+
+  const saveCostDisplay = async (next: CostDisplaySettings) => {
+    setCostDisplaySaving(true);
+    setCostDisplayError(null);
+    try {
+      const response = await fetch("/api/cost-display", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      const data = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(data?.error || `HTTP ${response.status}`);
+      }
+      const saved = normalizeCostDisplaySettings(data);
+      setCostDisplay(saved);
+      setRateDraft(String(saved.usdToCnyRate));
+      setCostDisplaySettings(saved);
+    } catch (error) {
+      setCostDisplayError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCostDisplaySaving(false);
+    }
+  };
 
   const logOut = async () => {
     setLoggingOut(true);
@@ -406,6 +452,70 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
+        <div className="settings-chat-options" style={{ marginTop: 12 }}>
+          <div className="settings-chat-option settings-chat-switch-option">
+            <span>{t("settings.costCurrency")}</span>
+            <select
+              aria-label={t("settings.costCurrency")}
+              value={costDisplay.costCurrency}
+              disabled={costDisplaySaving}
+              onChange={(event) => {
+                const costCurrency: CostCurrency = event.target.value === "CNY" ? "CNY" : "USD";
+                void saveCostDisplay({ ...costDisplay, costCurrency });
+              }}
+              style={{
+                background: "var(--surface)",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                padding: "4px 8px",
+                fontSize: 13,
+              }}
+            >
+              <option value="USD">{t("settings.costCurrencyUsd")}</option>
+              <option value="CNY">{t("settings.costCurrencyCny")}</option>
+            </select>
+          </div>
+          {costDisplay.costCurrency === "CNY" && (
+            <div className="settings-chat-option settings-chat-switch-option">
+              <span>{t("settings.usdToCnyRate")}</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                aria-label={t("settings.usdToCnyRate")}
+                value={rateDraft}
+                disabled={costDisplaySaving}
+                onChange={(event) => setRateDraft(event.target.value)}
+                onBlur={() => {
+                  const parsed = Number(rateDraft);
+                  if (Number.isFinite(parsed) && parsed > 0 && parsed !== costDisplay.usdToCnyRate) {
+                    void saveCostDisplay({ ...costDisplay, usdToCnyRate: parsed });
+                  } else if (!Number.isFinite(parsed) || parsed <= 0) {
+                    setRateDraft(String(costDisplay.usdToCnyRate || DEFAULT_USD_TO_CNY_RATE));
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    (event.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
+                style={{
+                  width: 84,
+                  background: "var(--surface)",
+                  color: "var(--text)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  fontSize: 13,
+                  textAlign: "right",
+                }}
+              />
+            </div>
+          )}
+        </div>
+        <p className="settings-general-description">{t("settings.costCurrencyDescription")}</p>
+        {costDisplayError && <p role="alert" className="settings-general-error">{costDisplayError}</p>}
       </section>
 
       <section className="settings-general-section">

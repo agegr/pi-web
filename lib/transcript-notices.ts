@@ -43,14 +43,18 @@ export function formatNoticeTokens(count: number): string {
   return `${Math.round(count / 1_000_000)}M`;
 }
 
+import { convertCost, getCostCurrencySymbol } from "./cost-format";
+
 /** The TUI's cost suffix: shown from a cent up, two decimals. */
 export function formatNoticeCost(cost: number): string | undefined {
-  return cost >= 0.01 ? `$${cost.toFixed(2)}` : undefined;
+  const converted = convertCost(cost);
+  return converted >= 0.01 ? `${getCostCurrencySymbol()}${converted.toFixed(2)}` : undefined;
 }
 
 /** The TUI's cache-warming cost: six decimals, trailing zeros past the third dropped. */
 export function formatCacheWarmCost(cost: number): string {
-  return `$${cost.toFixed(6).replace(/(\.\d{3}\d*?)0+$/, "$1")}`;
+  const converted = convertCost(cost);
+  return `${getCostCurrencySymbol()}${converted.toFixed(6).replace(/(\.\d{3}\d*?)0+$/, "$1")}`;
 }
 
 export interface CacheMissSummary {
