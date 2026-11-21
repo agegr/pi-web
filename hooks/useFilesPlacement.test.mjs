@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { Script } from "node:vm";
+import { createContext, Script } from "node:vm";
 import ts from "typescript";
 
-const source = readFileSync(new URL("./useFilesPlacement.ts", import.meta.url), "utf8");
-const script = new Script(ts.transpileModule(source, {
+// The hook and the store it is built on (useStoredChoice.ts), compiled to run
+// in a sandbox whose only other import is React.
+const compile = (file) => new Script(`(function (exports, require) {\n${ts.transpileModule(readFileSync(new URL(file, import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS },
-}).outputText);
+}).outputText}\n})`);
+const script = compile("./useFilesPlacement.ts");
+const storeScript = compile("./useStoredChoice.ts");
 const KEY = "pi-web:sidebar-files-placement";
 
 // A fresh module per fixture: the store caches the choice at module level. The
@@ -22,19 +25,14 @@ function fixture({ initial = {}, blocked = false, server = false } = {}) {
     getItem(key) { if (blocked) throw new Error("blocked"); return stored.get(key) ?? null; },
     setItem(key, value) { if (blocked) throw new Error("blocked"); stored.set(key, value); },
   };
-  const exports = {};
-  script.runInNewContext({
-    exports,
-    require(id) {
-      if (id !== "react") throw new Error(`Unexpected import ${id}`);
-      return {
-        useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot) {
-          if (server) return getServerSnapshot();
-          unsubscribe ??= subscribe(() => notifications++);
-          return getSnapshot();
-        },
-      };
+  const react = {
+    useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot) {
+      if (server) return getServerSnapshot();
+      unsubscribe ??= subscribe(() => notifications++);
+      return getSnapshot();
     },
+  };
+  const context = createContext({
     ...(!server && {
       window: {
         localStorage: storage,
@@ -43,6 +41,17 @@ function fixture({ initial = {}, blocked = false, server = false } = {}) {
       },
     }),
   });
+  const require = (id) => {
+    if (id === "react") return react;
+    if (id === "./useStoredChoice") return run(storeScript);
+    throw new Error(`Unexpected import ${id}`);
+  };
+  const run = (moduleScript) => {
+    const moduleExports = {};
+    moduleScript.runInContext(context)(moduleExports, require);
+    return moduleExports;
+  };
+  const exports = run(script);
   return {
     ...exports,
     stored,
