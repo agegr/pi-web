@@ -9,7 +9,7 @@ import {
   type ResolvedPaths,
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent";
-import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { cwdAccessRefusal, getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
@@ -405,14 +405,11 @@ function readScope(scope: unknown): PluginScope {
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const cwd = searchParams.get("cwd");
-  if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
+  const cwd = searchParams.get("cwd") ?? "";
 
   try {
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    const refused = await cwdAccessRefusal(cwd);
+    if (refused) return refused;
     return NextResponse.json(await readPlugins(cwd));
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
