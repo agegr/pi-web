@@ -9,6 +9,8 @@ import { useSyncExternalStore } from "react";
  */
 export function createStoredChoice<T extends string>(key: string, parse: (raw: string | null) => T, fallback: T) {
   let value: T | null = null;
+  // The browser refused the last choice: storage holds an older one, so it must not replace the page's.
+  let unsaved = false;
   const listeners = new Set<() => void>();
 
   function readStored(): T {
@@ -31,6 +33,7 @@ export function createStoredChoice<T extends string>(key: string, parse: (raw: s
   // Another tab chose; `key` is null when that tab cleared its storage.
   function onStorage(event: StorageEvent): void {
     if (event.key !== null && event.key !== key) return;
+    unsaved = false;
     const next = readStored();
     if (next === value) return;
     value = next;
@@ -41,7 +44,7 @@ export function createStoredChoice<T extends string>(key: string, parse: (raw: s
     if (listeners.size === 0) {
       window.addEventListener("storage", onStorage);
       // Nobody listened for another tab's choice meanwhile.
-      value = readStored();
+      if (!unsaved) value = readStored();
     }
     listeners.add(listener);
     return () => {
@@ -55,8 +58,10 @@ export function createStoredChoice<T extends string>(key: string, parse: (raw: s
     value = next;
     try {
       window.localStorage.setItem(key, next);
+      unsaved = false;
     } catch {
       // Applies in memory even if the browser cannot save it.
+      unsaved = true;
     }
     notify();
   }
