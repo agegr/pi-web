@@ -728,11 +728,7 @@ export function SkillsConfig({
           scope: skill?.install?.scope,
         }),
       });
-      const data = (await res.json()) as {
-        updates?: SkillUpdateResult[];
-        error?: string;
-      };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      const data = await readJsonOrThrow<{ updates?: SkillUpdateResult[] }>(res);
       setUpdateStatuses((current) => {
         const next = { ...current };
         for (const update of data.updates ?? []) {

@@ -7,7 +7,10 @@ export async function readJsonOrThrow<T>(response: Pick<Response, "ok" | "status
   let data: unknown;
   try {
     data = await response.json();
-  } catch {
+  } catch (cause) {
+    // Only a body that is not JSON becomes the status: an abort or a dropped
+    // connection keeps its own error, so a caller still recognises an AbortError.
+    if (!(cause instanceof SyntaxError)) throw cause;
     throw new Error(`HTTP ${response.status}`);
   }
   const error = data !== null && typeof data === "object" ? (data as { error?: unknown }).error : undefined;

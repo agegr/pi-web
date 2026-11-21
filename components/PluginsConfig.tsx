@@ -675,11 +675,7 @@ export function PluginsConfig({
           scope: pkg?.scope,
         }),
       });
-      const data = (await res.json()) as {
-        updates?: PluginUpdateResult[];
-        error?: string;
-      };
-      if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
+      const data = await readJsonOrThrow<{ updates?: PluginUpdateResult[] }>(res);
       setUpdateStatuses((current) => {
         const next = { ...current };
         for (const update of data.updates ?? []) {
