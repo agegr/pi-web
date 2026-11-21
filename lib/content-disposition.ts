@@ -11,6 +11,6 @@ function encodeHeaderValue(value: string): string {
  * as UTF-8 in `filename*`.
  */
 export function contentDisposition(disposition: "inline" | "attachment", fileName: string, fallback: string): string {
-  const asciiName = fileName.replace(/[^\x20-\x7E]|["\;\r\n]/g, "_") || fallback;
+  const asciiName = fileName.replace(/[^\x20-\x7E]|["\\;\r\n]/g, "_") || fallback;
   return `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
 }
