@@ -791,6 +791,39 @@ export function refusalFailure(data: unknown, status: number): McpActionFailure 
 }
 
 /**
+ * One request to an MCP route, as every Settings › MCP request makes it: never
+ * cached, the answer read as JSON and kept when `accept` takes it, else the
+ * refusal it carries, or the network error or HTTP status when it carries none.
+ */
+export async function requestMcpJson<T>(
+  url: string,
+  init: RequestInit,
+  fetchImpl: FetchLike,
+  accept: (data: unknown) => T | undefined,
+): Promise<{ ok: true; data: T } | { ok: false; error: McpActionFailure }> {
+  let response: Awaited<ReturnType<FetchLike>>;
+  try {
+    response = await fetchImpl(url, { ...init, cache: "no-store" });
+  } catch (error) {
+    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+  }
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    return { ok: false, error: { error: `HTTP ${response.status}` } };
+  }
+  const value = response.ok ? accept(data) : undefined;
+  if (value !== undefined) return { ok: true, data: value };
+  return { ok: false, error: refusalFailure(data, response.status) };
+}
+
+/** A JSON body sent with `method`. */
+function jsonRequest(method: string, body: unknown, signal?: AbortSignal): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal };
+}
+
+/**
  * Runs `run` until `timeoutMs`, then settles with `timedOut()` and aborts the
  * signal `run` was given, unless `abortAtDeadline` is false: then the request
  * goes on unanswered, for a route whose work must not stop because the panel
@@ -839,20 +872,7 @@ export function mcpOverviewUrl(cwd: string | null): string {
 }
 
 async function requestMcpOverview(cwd: string | null, fetchImpl: FetchLike, signal?: AbortSignal): Promise<McpLoadResult> {
-  let response: Awaited<ReturnType<FetchLike>>;
-  try {
-    response = await fetchImpl(mcpOverviewUrl(cwd), { cache: "no-store", signal });
-  } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
-  }
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return { ok: false, error: { error: `HTTP ${response.status}` } };
-  }
-  if (response.ok && isMcpResponse(data)) return { ok: true, data };
-  return { ok: false, error: refusalFailure(data, response.status) };
+  return requestMcpJson(mcpOverviewUrl(cwd), { signal }, fetchImpl, (data) => (isMcpResponse(data) ? data : undefined));
 }
 
 const CWD_REFUSALS = new Set<McpRefusalReason>(["cwd-invalid", "cwd-denied", "cwd-not-directory"]);
@@ -934,27 +954,10 @@ async function requestToolSettingsChange<T>(
   fetchImpl: FetchLike,
   signal: AbortSignal,
 ): Promise<{ ok: true; stored: T } | { ok: false; error: McpLoadFailure }> {
-  let response: Awaited<ReturnType<FetchLike>>;
-  try {
-    response = await fetchImpl("/api/tools/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(change),
-      cache: "no-store",
-      signal,
-    });
-  } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
-  }
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return { ok: false, error: { error: `HTTP ${response.status}` } };
-  }
-  const value = response.ok && data !== null && typeof data === "object" ? stored(data as Record<string, unknown>) : undefined;
-  if (value !== undefined) return { ok: true, stored: value };
-  return { ok: false, error: refusalFailure(data, response.status) };
+  const result = await requestMcpJson("/api/tools/settings", jsonRequest("PUT", change, signal), fetchImpl, (data) => (
+    data !== null && typeof data === "object" ? stored(data as Record<string, unknown>) : undefined
+  ));
+  return result.ok ? { ok: true, stored: result.data } : result;
 }
 
 async function requestCodemodeSave(
@@ -1196,26 +1199,7 @@ export type McpActionResult = { ok: true; data: McpActionResponse } | { ok: fals
 export const MCP_ACTION_TIMEOUT_MS = 15_000;
 
 async function requestMcpAction(body: Record<string, unknown>, fetchImpl: FetchLike, signal: AbortSignal): Promise<McpActionResult> {
-  let response: Awaited<ReturnType<FetchLike>>;
-  try {
-    response = await fetchImpl("/api/mcp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-      signal,
-    });
-  } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
-  }
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return { ok: false, error: { error: `HTTP ${response.status}` } };
-  }
-  if (response.ok && isMcpResponse(data)) return { ok: true, data: data as McpActionResponse };
-  return { ok: false, error: refusalFailure(data, response.status) };
+  return requestMcpJson("/api/mcp", jsonRequest("POST", body, signal), fetchImpl, (data) => (isMcpResponse(data) ? data as McpActionResponse : undefined));
 }
 
 /**
@@ -1468,26 +1452,7 @@ function isMcpTestResponse(value: unknown): value is McpTestResponse {
 }
 
 async function requestMcpTest(body: Record<string, unknown>, fetchImpl: FetchLike, signal: AbortSignal): Promise<McpTestRequestResult> {
-  let response: Awaited<ReturnType<FetchLike>>;
-  try {
-    response = await fetchImpl("/api/mcp/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-      signal,
-    });
-  } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
-  }
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch {
-    return { ok: false, error: { error: `HTTP ${response.status}` } };
-  }
-  if (response.ok && isMcpTestResponse(data)) return { ok: true, data };
-  return { ok: false, error: refusalFailure(data, response.status) };
+  return requestMcpJson("/api/mcp/test", jsonRequest("POST", body, signal), fetchImpl, (data) => (isMcpTestResponse(data) ? data : undefined));
 }
 
 /**
