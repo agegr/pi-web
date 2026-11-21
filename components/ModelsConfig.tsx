@@ -73,6 +73,7 @@ import { OAuthPastePanel } from "./OAuthPastePanel";
 import { ProviderIcon } from "./ProviderIcon";
 import { ProviderUsageSummary } from "./ProviderUsageSummary";
 import { errorMessage } from "@/lib/errors";
+import { readJsonOrThrow } from "@/lib/fetch-json";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -2013,11 +2014,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
 
   useEffect(() => {
     fetch("/api/models-config")
-      .then(async (r) => {
-        const d = await r.json() as ModelsJson & { error?: string };
-        if (!r.ok || d.error) throw new Error(d.error ?? `HTTP ${r.status}`);
-        return d;
-      })
+      .then((r) => readJsonOrThrow<ModelsJson>(r))
       .then((d) => {
         const normalized = d.providers ? d : { ...d, providers: {} };
         setConfig(normalized);
