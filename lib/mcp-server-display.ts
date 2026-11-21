@@ -2,7 +2,7 @@ import type { McpConfigFieldRef, McpConfigFileProblem, McpOverrideKey, McpServer
 import { shortenPath } from "./display-path";
 
 // Display helpers for MCP server descriptions (`McpServerInfo`), shared by the
-// trust dialog and Settings › MCP. Client-safe: types only, no Node imports.
+// trust dialog and Settings › MCP. Client-safe: no Node imports.
 // What they format was masked on the server already; nothing here reveals or
 // resolves a value.
 
