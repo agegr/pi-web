@@ -6,6 +6,7 @@ import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 import { cwdMissingBody } from "@/lib/missing-cwd";
+import { errorMessage } from "@/lib/errors";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     return NextResponse.json({
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
       ...(commandType === "prompt" && !promptAccepted
         ? { code: "prompt_rejected", accepted: false }
         : {}),

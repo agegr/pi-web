@@ -5,6 +5,7 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 import { isExistingPathWithinRoots } from "@/lib/path-security";
 import { readRegularFileText } from "@/lib/regular-file";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,6 @@ export async function GET(req: Request) {
   } catch (error) {
     // Node's errors name the path; a document's answer stays without one.
     if (document !== null) return NextResponse.json({ error: "Skill document could not be read" }, { status: 500 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

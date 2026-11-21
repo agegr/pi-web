@@ -16,6 +16,7 @@ import { type EntryOutcome, mapServerEntry, mapToolFilters, siblingMcpUrl, sseRe
 import { isRecord } from "./is-record";
 import { parseJsonc } from "./jsonc";
 import { literalWord, shellAssignment, type ShellWord, type ShellWordPart } from "./shell-words";
+import { errorMessage } from "./errors";
 
 // Command lines: a server's own command (`npx -y @foo/server`, with
 // `NAME=value` prefixes), and `pi | claude | codex | gemini mcp add …`, plus
@@ -609,7 +610,7 @@ function parseJsonWord(word: ShellWord): { value: Record<string, unknown> } | { 
   try {
     value = parseJsonc(text);
   } catch (error) {
-    return { error: { code: "invalid-json", params: { detail: error instanceof Error ? error.message : String(error) } } };
+    return { error: { code: "invalid-json", params: { detail: errorMessage(error) } } };
   }
   if (!isRecord(value)) return { error: { code: "no-servers-found" } };
   return { value };

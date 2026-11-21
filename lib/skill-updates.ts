@@ -7,6 +7,7 @@ import type {
   SkillInstallInfo,
   SkillUpdateResult,
 } from "@/lib/api-types";
+import { errorMessage } from "./errors";
 
 const CHECK_TIMEOUT_MS = 15_000;
 const GIT_CHECK_TIMEOUT_MS = 30_000;
@@ -234,7 +235,7 @@ export async function checkSkillUpdate(
       install,
       "error",
       undefined,
-      error instanceof Error ? error.message : String(error),
+      errorMessage(error),
     );
   }
 }

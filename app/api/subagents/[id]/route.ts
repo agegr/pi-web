@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { abortSubagent, getSubagentRun, steerSubagent } from "@/lib/rpc-manager";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export async function GET(
     if (!run) return NextResponse.json({ error: "Subagent not found" }, { status: 404 });
     return NextResponse.json({ run });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
 
@@ -36,7 +37,7 @@ export async function POST(
     }
     return NextResponse.json({ ok: true, run: await getSubagentRun(id) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return NextResponse.json({ error: message }, { status: message.includes("not running") ? 409 : 500 });
   }
 }

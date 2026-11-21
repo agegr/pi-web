@@ -6,6 +6,7 @@ import { promisify } from "util";
 import { allowFileRoot } from "./allowed-roots";
 import { projectGitEnvironment } from "./git-environment";
 import { samePath, toNativePath } from "./paths";
+import { errorMessage } from "./errors";
 
 const execFileAsync = promisify(execFile);
 
@@ -208,7 +209,7 @@ export async function resolveProject(cwd: string): Promise<ProjectInfo> {
     return await task;
   } catch (error) {
     // A transient failure must not pin a phantom project identity.
-    console.error(`[pi-web] resolveProject: git failed for ${cwd}, not cached: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`[pi-web] resolveProject: git failed for ${cwd}, not cached: ${errorMessage(error)}`);
     return projectFallback(cwd);
   }
 }
@@ -448,5 +449,5 @@ export function worktreeHasUncommittedFiles(message: string): boolean {
 function extractGitError(error: unknown): string {
   const stderr = (error as { stderr?: string }).stderr;
   if (typeof stderr === "string" && stderr.trim()) return stderr.trim();
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }

@@ -19,6 +19,7 @@ import {
   writePowerShellToolEnabled,
 } from "@/lib/powershell-settings";
 import { SETTINGS_BUILTIN_TOOLS } from "@/lib/tool-presets";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ function refusal(status: number, reason: McpRefusalReason, error: string) {
 }
 
 function errorResponse(error: unknown) {
-  return refusal(500, "internal", error instanceof Error ? error.message : String(error));
+  return refusal(500, "internal", errorMessage(error));
 }
 
 async function readToolSettings(): Promise<ToolSettingsResponse> {

@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { addWorktree, findCurrentWorktreePath, listWorktrees, removeWorktree, resolveProject, WorktreeBranchInUseError, worktreeRemovalRequiresForce } from "@/lib/worktree";
 import { allowFileRoot, getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed } from "@/lib/file-access";
 import { projectIdentityKey } from "@/lib/project-identity";
+import { errorMessage } from "@/lib/errors";
 
 /** Same gate as /api/files: only session cwds / project roots / explicitly
  *  allowed dirs may be inspected or mutated through this endpoint. */
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
     const result = await addWorktree(body.cwd, body.branch);
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (error instanceof WorktreeBranchInUseError) {
       return NextResponse.json(
         {
@@ -106,7 +107,7 @@ export async function DELETE(req: Request) {
     await removeWorktree(body.cwd, body.path, body.force === true);
     return NextResponse.json({ success: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     // Git refuses some worktree removals without --force, including worktrees
     // with submodule state. Surface that so the UI can offer confirmation.
     const dirty = worktreeRemovalRequiresForce(message);

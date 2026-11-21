@@ -10,6 +10,7 @@ import type { FreshFolderTrustBreadth, ProjectTrustStatus } from "./api-types";
 import { serializeByKey } from "./key-serializer";
 import { isPathWithinRoots } from "./path-security";
 import { samePath } from "./paths";
+import { errorMessage } from "./errors";
 
 /** The folder as `trust.json` keys it: resolved, then its real path when it exists. */
 function trustKeyPath(cwd: string): string {
@@ -60,7 +61,7 @@ export function getProjectTrustStatus(cwd: string, agentDir: string): ProjectTru
         trusted: true,
         decision: null,
         inherited: false,
-        decisionError: error instanceof Error ? error.message : String(error),
+        decisionError: errorMessage(error),
       };
     }
   }
@@ -106,7 +107,7 @@ export function mayReadProjectConfigNow(cwd: string, agentDir: string): boolean 
     return new ProjectTrustStore(agentDir).get(cwd) === true;
   } catch (error) {
     const trustPath = join(agentDir, "trust.json");
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     const store = globalThis as Record<symbol, Set<string> | undefined>;
     const warned = (store[TRUST_READ_WARNINGS_KEY] ??= new Set());
     const key = `${trustPath}\0${message}`;
@@ -359,7 +360,7 @@ function serializeForFolder<T>(key: string, task: () => Promise<T>): Promise<T> 
 }
 
 function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
 
 /**
