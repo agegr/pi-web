@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   attachSessionProjectInfo,
@@ -17,6 +18,33 @@ import { startServerPerf } from "@/lib/perf";
 
 export const dynamic = "force-dynamic";
 
+function buildSessionsEtag(
+  summary: boolean,
+  sessionListVersion: number,
+  runningSessionIds: string[],
+  awaitingInputSessionIds: string[],
+  suppressedSessionIds: string[],
+): string {
+  const payload = JSON.stringify([
+    summary ? "summary" : "full",
+    sessionListVersion,
+    [...runningSessionIds].sort(),
+    [...awaitingInputSessionIds].sort(),
+    [...suppressedSessionIds].sort(),
+  ]);
+  const hash = createHash("sha1").update(payload).digest("base64url");
+  return `"${hash}"`;
+}
+
+function matchesIfNoneMatch(header: string | null, etag: string): boolean {
+  if (!header) return false;
+  const trimmed = header.trim();
+  if (trimmed === "*") return true;
+  const normalize = (tag: string) => tag.trim().replace(/^W\//, "");
+  const target = normalize(etag);
+  return trimmed.split(",").some((part) => normalize(part) === target);
+}
+
 export async function GET(req: Request) {
   const perf = startServerPerf("GET /api/sessions");
   try {
@@ -26,36 +54,49 @@ export async function GET(req: Request) {
     // waiting for every session transcript to be parsed.
     const summary = searchParams.get("summary") === "1";
     perf?.span("start");
+    // Capture before awaiting: mutations during the scan still require a later refresh.
+    const sessionListVersion = getSessionListVersion();
+    const runningSessionIds = getRunningRpcSessionIds();
+    const awaitingInputSessionIds = getAwaitingInputRpcSessionIds();
+    const completionNotificationSuppressedSessionIds =
+      getCompletionNotificationSuppressedRpcSessionIds();
+    const etag = buildSessionsEtag(
+      summary,
+      sessionListVersion,
+      runningSessionIds,
+      awaitingInputSessionIds,
+      completionNotificationSuppressedSessionIds,
+    );
+    if (!force && matchesIfNoneMatch(req.headers.get("if-none-match"), etag)) {
+      const notModified = new NextResponse(null, {
+        status: 304,
+        headers: {
+          ETag: etag,
+          "Cache-Control": "no-store",
+        },
+      });
+      return perf?.attach(notModified) ?? notModified;
+    }
     const persistedSessionsPromise = summary
       ? listSessionSummaries()
       : listAllSessions({ force });
-    // Capture before awaiting: mutations during the scan still require a later refresh.
-    const sessionListVersion = getSessionListVersion();
     const [persistedSessions, runtimeSessions] = await Promise.all([
       persistedSessionsPromise,
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     perf?.span("scan+projects");
     const sessions = withSubagentDisplayStatus(mergeSessionLists(persistedSessions, runtimeSessions));
-    return perf?.attach(NextResponse.json(
+    const response = NextResponse.json(
       {
         sessions,
         sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
+        runningSessionIds,
+        awaitingInputSessionIds,
+        completionNotificationSuppressedSessionIds,
       },
-      { headers: { "Cache-Control": "no-store" } },
-    )) ?? NextResponse.json(
-      {
-        sessions,
-        sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
-      },
-      { headers: { "Cache-Control": "no-store" } },
+      { headers: { ETag: etag, "Cache-Control": "no-store" } },
     );
+    return perf?.attach(response) ?? response;
   } catch (error) {
     return NextResponse.json(
       { error: String(error) },
