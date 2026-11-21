@@ -331,8 +331,6 @@ function referenceNameProblem(given: unknown): "missing" | "name" {
   return typeof given === "string" && given.trim() === "" ? "missing" : "name";
 }
 
-/** An authorization scheme a header value starts with; a stored reference keeps it (`Bearer ${TOKEN}`). */
-
 /**
  * The server's config with the user's values filled in. Values typed into a
  * field pi resolves are escaped like any literal, so a password containing
