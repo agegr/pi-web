@@ -3,6 +3,7 @@ import type { McpErrorResponse, McpSignInFlowInfo } from "@/lib/api-types";
 import { isMcpDisabledByOperator } from "@/lib/builtin-extensions";
 import { isMcpEntryRefusal, mcpProjectTrustRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
 import { createMcpSignInDeps, mcpOAuthUrl, startMcpSignIn } from "@/lib/mcp-sign-in";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +15,6 @@ export const dynamic = "force-dynamic";
 // Connecting may run a `!command` value (a header, `oauth.clientSecret`), so
 // the entry passes every check a Test makes (`readConnectableMcpEntry()`),
 // and only an HTTP server without an Authorization header signs in with OAuth.
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 // POST /api/mcp/sign-in body: { scope, name, cwd? }
 export async function POST(req: Request) {

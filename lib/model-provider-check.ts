@@ -1,3 +1,4 @@
+import { isRecord } from "./is-record";
 /**
  * Client/server check of the models.json provider entries Settings › Models
  * saves. pi composes every provider when it loads models.json; an entry that
@@ -26,10 +27,6 @@ export class ProviderEntryError extends Error {
     this.provider = provider;
     this.problem = problem;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** The store drops models with a blank id before writing, so pi never sees them. */

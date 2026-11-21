@@ -44,6 +44,8 @@ import { samePath } from "./paths";
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
 import { loadPiSdkInternals, type PiSdkInternals } from "./pi-sdk-internals";
 import { freshFolderTrustBreadth, getProjectTrustStatus, hasTrustRelevantEntries } from "./project-trust";
+import { errorCode, errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 // What Settings › MCP and the trust dialog list (ADR 0006): the entries of the
 // global `mcp.json` and of a project's `.pi/mcp.json`, read from the files
@@ -92,18 +94,6 @@ export const PROJECT_MCP_CONFIG_MAX_BYTES = 1024 * 1024;
 export const MCP_PROJECT_MAX_SERVERS = 200;
 /** Windows defines neither flag; it has no FIFOs, and the real-path check still refuses a link that leads outside. */
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK || 0) | (constants.O_NOFOLLOW || 0);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
-}
 
 function realPathOr(path: string): string {
   try {
