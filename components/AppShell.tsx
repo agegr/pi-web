@@ -23,6 +23,8 @@ import { SessionChatPanel } from "./SessionChatPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { appendSideTab, restoreSideTabs, sideTabsKey } from "./side-tab-state";
+import { CommandPalette, type CommandPaletteItem } from "./CommandPalette";
+import { isCommandPaletteShortcut } from "./command-palette-helpers";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import { useI18n } from "@/hooks/useI18n";
@@ -1080,6 +1082,69 @@ export function AppShell() {
     onNewSession: (cwd: string) => handleNewSession(`kb-${Date.now()}`, cwd),
     activeCwd,
   });
+
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isCommandPaletteShortcut(e)) return;
+      e.preventDefault();
+      setCommandPaletteOpen((open) => !open);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const commandPaletteItems = useMemo<CommandPaletteItem[]>(() => {
+    const actions: CommandPaletteItem[] = [
+      {
+        id: "action-new-session",
+        label: "New Session",
+        group: "Actions",
+        keywords: "create chat",
+        onSelect: () => handleNewSession(`cmdk-${Date.now()}`, activeCwd),
+      },
+      {
+        id: "action-toggle-sidebar",
+        label: "Toggle Sidebar",
+        group: "Actions",
+        keywords: "sessions panel",
+        onSelect: () => handleSidebarToggle(),
+      },
+      {
+        id: "action-open-terminal",
+        label: "Open Terminal",
+        group: "Actions",
+        keywords: "shell bash",
+        onSelect: () => handleOpenTerminal(activeCwd),
+      },
+      {
+        id: "action-focus-composer",
+        label: "Focus Composer",
+        group: "Actions",
+        keywords: "input chat prompt",
+        onSelect: () => chatInputRef.current?.focus(),
+      },
+      {
+        id: "action-reload",
+        label: "Reload Page",
+        group: "Actions",
+        keywords: "refresh",
+        onSelect: () => window.location.reload(),
+      },
+    ];
+
+    const recentSessions: CommandPaletteItem[] = sessionCatalog.slice(0, 8).map((session) => ({
+      id: `session-${session.id}`,
+      label: session.name?.trim() || session.firstMessage?.trim() || session.id,
+      group: "Sessions",
+      detail: session.cwd,
+      keywords: `${session.id} ${session.cwd}`,
+      onSelect: () => handleSelectSession(session),
+    }));
+
+    return [...actions, ...recentSessions];
+  }, [activeCwd, handleNewSession, handleOpenTerminal, handleSelectSession, handleSidebarToggle, sessionCatalog]);
 
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectKey, which the same-project check in
@@ -3173,6 +3238,11 @@ export function AppShell() {
         onStatus={setProjectTrust}
       />
     )}
+    <CommandPalette
+      open={commandPaletteOpen}
+      onClose={() => setCommandPaletteOpen(false)}
+      items={commandPaletteItems}
+    />
     </>
   );
 }
