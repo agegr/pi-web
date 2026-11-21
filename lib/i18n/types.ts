@@ -13,3 +13,6 @@ export interface LocalePlugin {
   /** 以稳定 key 索引的翻译消息。 */
   messages: Record<string, string>;
 }
+
+/** A `t()` function: a message key and its interpolation params to the text in the current locale. */
+export type Translate = (key: string, params?: TranslationParams) => string;
