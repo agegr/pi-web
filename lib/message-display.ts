@@ -266,3 +266,15 @@ export const LIVE_OUTPUT_PREVIEW_LINES = 20;
 export function liveOutputPreview(output: string): string {
   return output.replace(/\n+$/, "").split("\n").slice(-LIVE_OUTPUT_PREVIEW_LINES).join("\n");
 }
+
+/** Sum `usage.cost.total` across all assistant messages in a turn slice, returning `undefined` when zero or absent. */
+export function sumTurnCost(messages: readonly ChatMessage[]): number | undefined {
+  let total = 0;
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      const cost = message.usage?.cost?.total;
+      if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) total += cost;
+    }
+  }
+  return total > 0 ? total : undefined;
+}
