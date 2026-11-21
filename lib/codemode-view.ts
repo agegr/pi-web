@@ -88,9 +88,12 @@ export function formatCodemodeDuration(ms: number | undefined): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+import { convertCost, getCostCurrencySymbol } from "./cost-format";
+
 /** Cents for larger amounts, two significant digits for the fractions of a cent classifier calls cost. */
 export function formatCodemodeCost(cost: number): string {
-  return `$${cost >= 0.01 ? cost.toFixed(2) : cost.toPrecision(2)}`;
+  const converted = convertCost(cost);
+  return `${getCostCurrencySymbol()}${converted >= 0.01 ? converted.toFixed(2) : converted.toPrecision(2)}`;
 }
 
 /** The total cost of the script's model calls, when more than one reported one. */

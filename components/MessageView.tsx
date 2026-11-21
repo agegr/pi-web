@@ -10,6 +10,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantAborted, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
+import { formatCost } from "@/lib/cost-format";
 import { stripAnsi } from "@/lib/ansi";
 import { formatTurnDuration } from "@/lib/turn-duration";
 import { toolClockMs, type ToolClock, type ToolClocks } from "@/lib/tool-clock";
@@ -2296,7 +2297,7 @@ function formatUsage(usage: {
   if (usage.output) parts.push({ icon: "down", before: "↓", text: formatNoticeTokens(usage.output) });
   if (usage.cacheRead) parts.push({ text: `R${formatNoticeTokens(usage.cacheRead)}` });
   if (usage.cacheWrite) parts.push({ text: `W${formatNoticeTokens(usage.cacheWrite)}` });
-  if (usage.cost?.total) parts.push({ text: `$${usage.cost.total.toFixed(4)}` });
+  if (usage.cost?.total) parts.push({ text: formatCost(usage.cost.total) });
   return parts;
 }
 

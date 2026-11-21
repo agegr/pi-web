@@ -75,6 +75,7 @@ import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { formatCost, normalizeCostDisplaySettings, setCostDisplaySettings, subscribeCostDisplaySettings } from "@/lib/cost-format";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
@@ -259,6 +260,17 @@ export function AppShell() {
     setSearchTarget((current) => current === target ? null : current);
   }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
+  const [, setCostDisplayVersion] = useState(0);
+  useEffect(() => {
+    const unsubscribe = subscribeCostDisplaySettings(() => setCostDisplayVersion((v) => v + 1));
+    void fetch("/api/cost-display")
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: unknown) => {
+        if (data) setCostDisplaySettings(normalizeCostDisplaySettings(data));
+      })
+      .catch(() => {});
+    return unsubscribe;
+  }, []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   // The plain Settings button opens a phone's Settings on its list of sections; shortcuts open theirs.
   const [settingsOpenAtHome, setSettingsOpenAtHome] = useState(false);
@@ -2143,7 +2155,7 @@ export function AppShell() {
       tooltipParts.push(`${translate("session.output")}: ${tokens.output.toLocaleString(locale)}`);
       tooltipParts.push(`${translate("session.cacheRead")}: ${tokens.cacheRead.toLocaleString(locale)}`);
       tooltipParts.push(`${translate("session.cacheWrite")}: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0) tooltipParts.push(`${translate("session.cost")}: $${cost.toFixed(4)}`);
+      if (cost > 0) tooltipParts.push(`${translate("session.cost")}: ${formatCost(cost)}`);
     }
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
@@ -2706,7 +2718,7 @@ export function AppShell() {
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const extraTokenRows = [
-                       ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
+                       ...(sessionStats.cost > 0 ? [[translate("session.cost"), formatCost(sessionStats.cost)]] : []),
                        ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompactCount(ctx.contextWindow)}`]] : []),
                        // Cache hit rate = cache reads / (input + cache writes + cache reads) — the denominator covers all input-class tokens.
                        ...(sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite > 0 && sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite + sessionStats.tokens.input > 0
