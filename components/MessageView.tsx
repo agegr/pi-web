@@ -213,7 +213,6 @@ interface Props {
   onCancelEdit?: () => void;
   isEditing?: boolean;
   showTimestamp?: boolean;
-  hideCost?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
   /**
@@ -297,12 +296,12 @@ function haveSameRelevantToolEntries<T>(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, toolClocks, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forkEntryId, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, hideCost, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, toolClocks, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forkEntryId, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forkEntryId={entryId ?? forkEntryId} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} toolClocks={toolClocks} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} hideCost={hideCost} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} toolClocks={toolClocks} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -336,7 +335,6 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.onCancelEdit === next.onCancelEdit
     && prev.isEditing === next.isEditing
     && prev.showTimestamp === next.showTimestamp
-    && prev.hideCost === next.hideCost
     && prev.prevTimestamp === next.prevTimestamp
     && prev.writtenFiles === next.writtenFiles
     && prev.turnDurationMs === next.turnDurationMs
@@ -699,7 +697,6 @@ function AssistantMessageView({
   onOpenFile,
   onOpenSubagent,
   showTimestamp,
-  hideCost,
   prevTimestamp,
   sessionId,
   entryId,
@@ -719,7 +716,6 @@ function AssistantMessageView({
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
   showTimestamp?: boolean;
-  hideCost?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
@@ -804,7 +800,7 @@ function AssistantMessageView({
     .map((b) => b.text)
     .join("\n");
 
-  const stats = message.usage ? formatUsage(message.usage, { hideCost }) : [];
+  const stats = message.usage ? formatUsage(message.usage) : [];
   // A stop leads the line it ended on: "Stopped · ↑1.2k ↓567 · 12s".
   if (aborted) stats.unshift({ text: t("chat.operationAborted") }, ...(stats.length > 0 ? [{ text: "·" }] : []));
   if (turnDurationMs !== undefined) {
@@ -2293,14 +2289,14 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}, options?: { hideCost?: boolean }): StatPart[] {
+}): StatPart[] {
   // pi's TUI footer: ↑1.2k ↓567 R8.9k W12, with its formatTokens().
   const parts: StatPart[] = [];
   if (usage.input) parts.push({ icon: "up", before: "↑", text: formatNoticeTokens(usage.input) });
   if (usage.output) parts.push({ icon: "down", before: "↓", text: formatNoticeTokens(usage.output) });
   if (usage.cacheRead) parts.push({ text: `R${formatNoticeTokens(usage.cacheRead)}` });
   if (usage.cacheWrite) parts.push({ text: `W${formatNoticeTokens(usage.cacheWrite)}` });
-  if (!options?.hideCost && usage.cost?.total) parts.push({ text: `$${usage.cost.total.toFixed(4)}` });
+  if (usage.cost?.total) parts.push({ text: `$${usage.cost.total.toFixed(4)}` });
   return parts;
 }
 

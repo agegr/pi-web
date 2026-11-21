@@ -267,14 +267,13 @@ export function liveOutputPreview(output: string): string {
   return output.replace(/\n+$/, "").split("\n").slice(-LIVE_OUTPUT_PREVIEW_LINES).join("\n");
 }
 
-/** Sum `usage.cost.total` across all assistant messages in a turn slice, returning `undefined` when zero or absent. */
-export function sumTurnCost(messages: readonly ChatMessage[]): number | undefined {
+/** The messages' summed `usage.cost.total`, as their usage lines show it; undefined when none costs anything. */
+export function sumCost(messages: readonly AgentMessage[]): number | undefined {
   let total = 0;
   for (const message of messages) {
-    if (message.role === "assistant") {
-      const cost = message.usage?.cost?.total;
-      if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) total += cost;
-    }
+    if (message.role !== "assistant") continue;
+    const cost = message.usage?.cost?.total;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) total += cost;
   }
   return total > 0 ? total : undefined;
 }
