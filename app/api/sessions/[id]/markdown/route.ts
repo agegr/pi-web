@@ -6,12 +6,12 @@ import type { SessionEntry } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 // GET /api/sessions/[id]/markdown
-// The composer's # session mention: the referenced session's active branch as
-// bounded Markdown, inserted into the composer so it reaches the agent's
-// context as text. Read-only, never starts a wrapper (the same disk path as
-// GET /api/sessions/[id]).
+// One session's active branch as the bounded transcript a # session reference
+// quotes: user messages and assistant final replies, the beginning and the
+// recent end when the caps hit. Read-only, never starts a wrapper (the same
+// disk path as GET /api/sessions/[id]).
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -31,8 +31,7 @@ export async function GET(
     return NextResponse.json({
       sessionId: id,
       title: sm.getSessionName(),
-      cwd: sm.getHeader()?.cwd ?? "",
-      messageCount: sm.getEntries().length,
+      path: filePath,
       ...result,
     });
   } catch (error) {

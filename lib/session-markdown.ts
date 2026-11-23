@@ -1,28 +1,39 @@
-// Render a session's active branch as bounded Markdown for the composer's #
-// session mention: user and assistant text, one line per tool call, a short
-// tool-result excerpt, and compaction summaries. Thinking blocks are skipped
-// (they dominate the size) and the output is capped so a long session never
-// floods the message. Read-only: entries come from a SessionManager, never a
-// running wrapper.
+// Render a session's active branch as the transcript a `#` session reference
+// quotes: the user's messages and each assistant turn's final reply. Tool
+// calls, tool results, thinking, model switches and compaction summaries stay
+// out (the rule the maintainer set in #1716): the quote is the conversation,
+// not the work log that produced it. The output is bounded — the start and the
+// recent end are kept and the middle is elided — so a long session never floods
+// the message that carries it. Read-only: entries come from a SessionManager,
+// never a running wrapper.
 
 import type { SessionEntry } from "@/lib/types";
 
 export interface SessionMarkdownResult {
+  /** The bounded transcript: `User:` / `Assistant:` messages, blank-line separated. */
   markdown: string;
-  /** True when the entry or char cap cut the branch short. */
-  truncated: boolean;
-  /** Entries actually rendered. */
-  includedEntries: number;
-  /** Entries considered (the branch capped at maxEntries). */
-  totalEntries: number;
+  /** Messages on the branch, the elided ones included. */
+  messageCount: number;
+  /** Messages left out of the middle of `markdown`; 0 when it all fits. */
+  omittedMessages: number;
 }
 
-export const SESSION_MARKDOWN_MAX_ENTRIES = 300;
-export const SESSION_MARKDOWN_MAX_CHARS = 40_000;
-const TOOL_ARG_MAX_CHARS = 120;
-const TOOL_RESULT_MAX_CHARS = 200;
+export const TRANSCRIPT_MAX_MESSAGES = 300;
+export const TRANSCRIPT_MAX_CHARS = 40_000;
 
-type ContentBlock = { type?: string; text?: unknown; thinking?: unknown } & Record<string, unknown>;
+const USER_LABEL = "User:";
+const ASSISTANT_LABEL = "Assistant:";
+
+type ContentBlock = { type?: string; text?: unknown } & Record<string, unknown>;
+
+/** What a message entry carries: text parts, or the plain string older files hold. */
+type MessageContent = string | ContentBlock[] | undefined;
+
+interface QuotedMessage {
+  /** The speaker, prefixed to the message's first line. */
+  label: string;
+  text: string;
+}
 
 /** The ancestor chain from `leafId` back to the session header, newest first. */
 function newestChain(entries: SessionEntry[], leafId: string | null): SessionEntry[] {
@@ -39,14 +50,14 @@ function newestChain(entries: SessionEntry[], leafId: string | null): SessionEnt
   return chain;
 }
 
-function messageContent(entry: SessionEntry): unknown {
+function messageContent(entry: SessionEntry): MessageContent {
   if (entry.type !== "message") return undefined;
-  // SAFETY: only user/assistant/toolResult messages carry `content`; the other
-  // roles (system, custom, bashExecution) render nothing here anyway.
-  return (entry.message as { content?: unknown }).content;
+  // SAFETY: only the message entries carry `content`; the other entry types
+  // render nothing here anyway.
+  return (entry.message as { content?: MessageContent }).content;
 }
 
-function contentBlocks(content: unknown): ContentBlock[] {
+function contentBlocks(content: MessageContent): ContentBlock[] {
   if (!Array.isArray(content)) return [];
   return content as ContentBlock[];
 }
@@ -55,93 +66,87 @@ function textOf(block: ContentBlock): string | null {
   return block.type === "text" && typeof block.text === "string" ? block.text : null;
 }
 
-function toolCallLine(block: ContentBlock): string {
-  const name = typeof block.name === "string" ? block.name : "?";
-  let args = "";
-  if (typeof block.arguments === "string") {
-    args = block.arguments;
-  } else if (block.arguments && typeof block.arguments === "object") {
-    try {
-      args = JSON.stringify(block.arguments);
-    } catch {
-      args = "";
-    }
+/** A user message's text, with images named (their bytes never enter the quote). */
+function userText(content: MessageContent): string {
+  if (typeof content === "string") return content.trim();
+  const blocks = contentBlocks(content);
+  const parts: string[] = [];
+  for (const block of blocks) {
+    const text = textOf(block);
+    if (text) parts.push(text);
   }
-  if (args.length > TOOL_ARG_MAX_CHARS) args = `${args.slice(0, TOOL_ARG_MAX_CHARS)}…`;
-  return `${name}(${args})`;
+  if (blocks.some((block) => block.type === "image")) parts.push("[image]");
+  return parts.join("\n").trim();
 }
 
-function renderEntry(entry: SessionEntry): string | null {
-  if (entry.type === "message") {
+function assistantText(content: MessageContent): string {
+  return contentBlocks(content)
+    .map(textOf)
+    .filter((part): part is string => !!part)
+    .join("\n")
+    .trim();
+}
+
+/** The quotable messages of a newest-first chain, returned oldest first: the
+ *  quote reads in the order the conversation happened. */
+function quotedMessages(chain: SessionEntry[]): QuotedMessage[] {
+  const messages: QuotedMessage[] = [];
+  for (let position = chain.length - 1; position >= 0; position -= 1) {
+    const entry = chain[position];
+    if (entry.type !== "message") continue;
     const role = entry.message?.role;
-    const blocks = contentBlocks(messageContent(entry));
     if (role === "user") {
-      const parts: string[] = [];
-      for (const block of blocks) {
-        const text = textOf(block);
-        if (text) parts.push(text);
-      }
-      if (blocks.some((block) => block.type === "image")) parts.push("[图片]");
-      return parts.filter((part) => part.trim()).join("\n") || null;
+      const text = userText(messageContent(entry));
+      if (text) messages.push({ label: USER_LABEL, text });
+    } else if (role === "assistant") {
+      // A turn that ends in a tool call is not the assistant's reply: its text
+      // only narrates the calls the quote leaves out.
+      if ((entry.message as { stopReason?: string }).stopReason === "toolUse") continue;
+      const text = assistantText(messageContent(entry));
+      if (text) messages.push({ label: ASSISTANT_LABEL, text });
     }
-    if (role === "assistant") {
-      const parts: string[] = [];
-      for (const block of blocks) {
-        const text = textOf(block);
-        if (text) {
-          parts.push(text);
-        } else if (block.type === "toolCall" || block.type === "tool_call") {
-          parts.push(`[工具调用: ${toolCallLine(block)}]`);
-        }
-      }
-      const text = parts.filter((part) => part.trim()).join("\n");
-      return text || null;
-    }
-    if (role === "toolResult") {
-      const text = blocks.map((block) => textOf(block)).filter((part): part is string => !!part).join("\n");
-      if (!text.trim()) return null;
-      const cut = text.length > TOOL_RESULT_MAX_CHARS ? `${text.slice(0, TOOL_RESULT_MAX_CHARS)}…` : text;
-      return `[工具结果: ${cut}]`;
-    }
-    return null; // system, custom, bashExecution
+    // toolResult, system, custom and bashExecution messages carry no reply.
   }
-  if (entry.type === "compaction" || entry.type === "branch_summary") {
-    const summary = typeof entry.summary === "string" ? entry.summary.trim() : "";
-    return summary ? `> 摘要: ${summary}` : null;
-  }
-  if (entry.type === "model_change") {
-    return `> 模型: ${entry.provider}/${entry.modelId}`;
-  }
-  return null;
+  return messages;
 }
 
 export function sessionToMarkdown(
   entries: SessionEntry[],
   leafId: string | null,
-  options: { maxEntries?: number; maxChars?: number } = {},
+  options: { maxMessages?: number; maxChars?: number } = {},
 ): SessionMarkdownResult {
-  const maxEntries = options.maxEntries ?? SESSION_MARKDOWN_MAX_ENTRIES;
-  const maxChars = options.maxChars ?? SESSION_MARKDOWN_MAX_CHARS;
-  const chain = newestChain(entries, leafId);
-  const considered = chain.length > maxEntries ? chain.slice(-maxEntries) : chain;
-  const lines: string[] = [];
-  let chars = 0;
-  let truncated = false;
-  for (const entry of considered) {
-    const rendered = renderEntry(entry);
-    if (!rendered) continue;
-    const nextChars = chars + rendered.length;
-    if (nextChars > maxChars) {
-      truncated = true;
-      break;
-    }
-    lines.push(rendered);
-    chars = nextChars;
+  const maxMessages = options.maxMessages ?? TRANSCRIPT_MAX_MESSAGES;
+  const maxChars = options.maxChars ?? TRANSCRIPT_MAX_CHARS;
+  const messages = quotedMessages(newestChain(entries, leafId));
+  if (!messages.length) return { markdown: "", messageCount: 0, omittedMessages: 0 };
+  const rendered = messages.map((message) => {
+    const line = `${message.label} ${message.text}`;
+    // One message may not outgrow the whole quote.
+    return line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line;
+  });
+
+  const kept = rendered.map((_, index) => index);
+  // A blank line separates the messages, so each kept message but the last
+  // carries one extra character.
+  let chars = rendered.reduce((sum, line) => sum + line.length, 0) + kept.length - 1;
+  // Drop from the middle out, so what survives is the start of the conversation
+  // and its most recent part, both caps shrinking the same way.
+  while (kept.length > 1 && (kept.length > maxMessages || chars > maxChars)) {
+    const at = Math.floor(kept.length / 2);
+    chars -= rendered[kept[at]].length + 1;
+    kept.splice(at, 1);
   }
+
+  const omitted = messages.length - kept.length;
+  let headCount = 0;
+  while (headCount < kept.length && kept[headCount] === headCount) headCount += 1;
+  const body = kept.slice(0, headCount).map((index) => rendered[index]);
+  if (omitted > 0) body.push(`… ${omitted} messages omitted …`);
+  for (const index of kept.slice(headCount)) body.push(rendered[index]);
+
   return {
-    markdown: lines.join("\n"),
-    truncated,
-    includedEntries: lines.length,
-    totalEntries: considered.length,
+    markdown: body.join("\n\n"),
+    messageCount: messages.length,
+    omittedMessages: omitted,
   };
 }
