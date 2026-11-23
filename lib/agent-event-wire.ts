@@ -36,9 +36,6 @@ export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMe
 const OMITTED_EVENT_TYPES = new Set([
   "turn_start",
   "turn_end",
-  // Carries the whole appended entry (an extension's custom entry, such as a
-  // codemode `store()` write, can be 1 MiB), and nothing in the browser reads it.
-  "entry_appended",
   // A `!` command's output per chunk: the wrapper sends `bash_output` snapshots instead.
   "bash_execution_update",
 ]);
@@ -190,6 +187,16 @@ export function toClientAgentEvent(
   event: AgentEventLike,
 ): AgentEventLike | ClientMessageUpdateEvent | null {
   if (OMITTED_EVENT_TYPES.has(event.type)) return null;
+  if (event.type === "entry_appended") {
+    const entry = event.entry;
+    if (
+      !isObject(entry) || entry.type !== "custom"
+      || typeof entry.id !== "string" || typeof entry.customType !== "string"
+    ) return null;
+    // Custom payloads (such as codemode storage) can be megabytes. Announce
+    // identity only; clients read the data through the session entries API.
+    return { type: "entry_appended", entryId: entry.id, customType: entry.customType };
+  }
   // Pi >= 0.86 appends the prompt and tool loadout to the transcript as system
   // messages, which the agent loop announces like any message. They carry the
   // whole prompt plus every tool schema and are never rendered, so drop them
