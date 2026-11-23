@@ -2,6 +2,7 @@ import {
   MAX_ATTACHED_IMAGES,
   isBase64ImageWithinLimits,
 } from "./image-attachments";
+import type { SessionReferenceTarget } from "./session-reference-target";
 
 export interface ChatDraftImage {
   data: string;
@@ -11,6 +12,9 @@ export interface ChatDraftImage {
 export interface ChatDraft {
   value: string;
   images: ChatDraftImage[];
+  /** Quoted sessions, kept in memory only, like the images: a chip that comes
+   *  back after a reload would name a token the stored text never went through. */
+  references?: SessionReferenceTarget[];
 }
 
 const drafts = new Map<string, ChatDraft>();
@@ -215,14 +219,17 @@ export function clearStoredDrafts(): void {
 }
 
 function cloneDraft(draft: ChatDraft): ChatDraft {
-  return {
+  const copy: ChatDraft = {
     value: draft.value,
     images: draft.images.map((image) => ({ ...image })),
   };
+  // Only when there are references: a draft's shape stays what callers wrote.
+  if (draft.references?.length) copy.references = draft.references.map((reference) => ({ ...reference }));
+  return copy;
 }
 
 function isEmptyDraft(draft: ChatDraft): boolean {
-  return !draft.value && draft.images.length === 0;
+  return !draft.value && draft.images.length === 0 && !draft.references?.length;
 }
 
 export function getDraft(key: string): ChatDraft | null {

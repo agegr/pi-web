@@ -24,6 +24,12 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { extractHashQuery, filterSessionEntries, HASH_RESULT_LIMIT, type HashQueryMatch } from "@/lib/session-fuzzy";
+import {
+  canAddSessionReference,
+  referenceTitle,
+  withSessionReferences,
+  type SessionReferenceTarget,
+} from "@/lib/session-reference-target";
 import { formatShortRelativeTime } from "@/lib/i18n/format";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { quoteSeparator } from "@/lib/quoted-selection";
@@ -124,6 +130,8 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  /** Add a quoted session's chip: the sidebar's "Insert into chat", a dragged row, or the picker. */
+  addSessionReference: (reference: SessionReferenceTarget) => void;
   /** An extension's `setEditorText()`: the draft becomes `text`, as pi's editor `setText()` does (undoable). */
   setText: (text: string) => void;
   /** An extension's `pasteToEditor()`: `text` at the caret as typed, like a paste. */
@@ -781,8 +789,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
+  // Quoted sessions show as chips beside the images; their `[title](#session:id)`
+  // tokens are written into the message only when it is sent (#1716).
+  const [attachedReferences, setAttachedReferences] = useState<SessionReferenceTarget[]>(() => (
+    draftKey ? getDraft(draftKey)?.references ?? [] : []
+  ));
   const trimmedValue = value.trimStart();
-  const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
+  const bashMode = attachedImages.length === 0 && attachedReferences.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
@@ -791,8 +804,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [atMenuMaxHeight, setAtMenuMaxHeight] = useState<number | null>(null);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
-  // # session autocomplete: like @ for files, but the completion inserts the
-  // referenced session's transcript (GET /api/sessions/[id]/markdown).
+  // # session autocomplete: like @ for files, but the completion inserts a
+  // reference token whose transcript the server quotes at send time
+  // (lib/session-reference.ts).
   const [hashQuery, setHashQuery] = useState<HashQueryMatch | null>(null);
   const [hashMenuOpen, setHashMenuOpen] = useState(false);
   const [hashMenuMaxHeight, setHashMenuMaxHeight] = useState<number | null>(null);
@@ -839,11 +853,33 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
+  const attachedReferencesRef = useRef(attachedReferences);
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+  attachedReferencesRef.current = attachedReferences;
+
+  // A referenced session joins the composer as a chip: its text never enters the
+  // textarea, so the draft stays the user's own words and the token is built
+  // when the message is sent (lib/session-reference-target.ts).
+  const addSessionReference = useCallback((reference: SessionReferenceTarget) => {
+    const current = attachedReferencesRef.current;
+    const next = canAddSessionReference(current, reference.id) ? [...current, reference] : current;
+    if (next !== current) {
+      attachedReferencesRef.current = next;
+      setAttachedReferences(next);
+    }
+    setHashQuery(null);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus();
+      autoGrowTextarea(ta);
+    });
+  }, []);
 
   useImperativeHandle(ref, () => ({
+    addSessionReference,
     setText(text: string) {
       const ta = textareaRef.current;
       if (!ta) {
@@ -1114,6 +1150,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     });
   }, []);
 
+  const removeSessionReference = useCallback((id: string) => {
+    setAttachedReferences((prev) => {
+      const next = prev.filter((reference) => reference.id !== id);
+      attachedReferencesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // A chip's tooltip: the project folder and when the session last changed,
+  // the two facts a title alone does not tell.
+  const referenceTooltip = useCallback((reference: SessionReferenceTarget) => {
+    const project = reference.cwd ? reference.cwd.split(/[\\/]/).pop() ?? "" : "";
+    const updated = reference.modified
+      ? formatShortRelativeTime(reference.modified, locale, new Date())
+      : "";
+    return [project, updated].filter(Boolean).join(" · ") || referenceTitle(reference);
+  }, [locale]);
+
   const clearImages = useCallback(() => {
     attachedImagesRef.current = [];
     setAttachedImages((prev) => {
@@ -1131,6 +1185,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
+    attachedReferencesRef.current = [];
+    setAttachedReferences([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -1141,8 +1197,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setDraft(draftKey, {
       value,
       images: attachedImages.map(imageToDraftImage),
+      references: attachedReferences,
     });
-  }, [attachedImages, draftKey, value]);
+  }, [attachedImages, attachedReferences, draftKey, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -1159,9 +1216,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     draftKeyRef.current = draftKey;
     const nextValue = draft?.value ?? "";
     const nextImages = draftImagesToAttachedImages(draft?.images);
+    const nextReferences = draft?.references ?? [];
     valueRef.current = nextValue;
     attachedImagesRef.current = nextImages;
+    attachedReferencesRef.current = nextReferences;
     setValue(nextValue);
+    setAttachedReferences(nextReferences);
     setAtQuery(null);
     setHashQuery(null);
     setHistoryMenuOpen(false);
@@ -1263,14 +1323,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    const references = attachedReferencesRef.current;
+    if (!msg && !attachedImages.length && !references.length) return;
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
     // A `!` command runs beside the run, as in pi's TUI; anything else queues.
     if (isStreaming && !(msg.startsWith("!") && !attachedImages.length)) return;
     clearInput();
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
+    // The chips become `[title](#session:id)` tokens at the end of the message,
+    // the one form the server expands (lib/session-reference.ts).
+    onSend(withSessionReferences(msg, references), attachedImages.length ? attachedImages : undefined);
   }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
@@ -1295,7 +1358,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0 || attachedReferences.length > 0;
   const stackedComposer = stacksComposerLayout(compact, isMobile, isStreaming);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
@@ -1454,20 +1517,26 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const applyHashCompletion = useCallback((session: SessionInfo) => {
     if (!hashQuery) return;
     const ta = textareaRef.current;
-    if (!ta) return;
-    // A compact self-contained token: the server expands `[title](#session:uuid)`
-    // to the session's bounded transcript when the message is sent
-    // (lib/session-reference.ts), so the composer stays readable and the
-    // reference survives drafts and restores.
-    const title = (session.name || session.firstMessage || session.id).replace(/[[\]]/g, " ");
-    const token = `[${title}](#session:${session.id})`;
-    const cursor = ta.selectionStart ?? ta.value.length;
-    replaceTextareaRange(ta, hashQuery.start, cursor, token);
-    setHashQuery(null);
+    const caret = ta?.selectionStart ?? value.length;
+    // The query leaves the draft by state, not by typing it out: the chip takes
+    // its place, and a native edit here raced the controlled value (the text
+    // came back on the next render).
+    const next = `${value.slice(0, hashQuery.start)}${value.slice(caret)}`;
+    valueRef.current = next;
+    setValue(next);
+    if (ta) {
+      ta.value = next;
+      ta.setSelectionRange(hashQuery.start, hashQuery.start);
+    }
     setHashMenuOpen(false);
     setHashActiveIndex(0);
-    requestAnimationFrame(() => autoGrowTextarea(ta));
-  }, [hashQuery]);
+    addSessionReference({
+      id: session.id,
+      title: session.name || session.firstMessage || session.id,
+      cwd: session.cwd,
+      modified: session.modified,
+    });
+  }, [hashQuery, addSessionReference, value]);
 
   useEffect(() => {
     if (hashActiveIndex >= hashMatches.length) {
@@ -2215,10 +2284,50 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onDismissCompactError && <DismissButton onClick={onDismissCompactError} title={t("chat.dismissCompactError")} />}
           </div>
         )}
+        {/* Quoted sessions: chips beside the attachments, removed with the × */}
+        {attachedReferences.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+            {attachedReferences.map((reference) => (
+              <span
+                key={reference.id}
+                title={referenceTooltip(reference)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  maxWidth: 260, padding: "3px 4px 3px 7px",
+                  border: "1px solid rgba(59,130,246,0.28)", borderRadius: 6,
+                  background: "color-mix(in srgb, var(--accent) 8%, var(--bg-panel))",
+                  color: "var(--text)", fontSize: 12,
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--accent)" }} aria-hidden="true">
+                  <path d="M8 8h8M8 12h8M8 16h5" /><rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {referenceTitle(reference)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeSessionReference(reference.id)}
+                  aria-label={t("chat.removeReference")}
+                  title={t("chat.removeReference")}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 16, height: 16, flexShrink: 0, padding: 0,
+                    border: "none", borderRadius: 4, background: "none",
+                    color: "var(--text-dim)", cursor: "pointer",
+                  }}
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {/* Image previews */}
         {attachedImages.length > 0 && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-            {attachedImages.map((img, i) => (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>            {attachedImages.map((img, i) => (
               <div key={i} style={{ position: "relative", flexShrink: 0 }}>
                 <ImagePreview key={img.previewUrl} src={img.previewUrl}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}

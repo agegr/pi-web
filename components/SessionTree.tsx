@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type FocusEvent as ReactFocusEvent,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/session-tree";
 import type { SessionInfo } from "@/lib/types";
 import { isPlainActivation, sessionDeepLink } from "@/lib/session-links";
+import { SESSION_DRAG_MIME, sessionDragData } from "@/lib/session-drag";
 import { formatRelativeTime, formatShortRelativeTime } from "@/lib/i18n/format";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { useGroupDrag, type GroupDragHandlers } from "@/hooks/useGroupDrag";
@@ -498,6 +500,24 @@ function rowStyle(top: number, height: number) {
   return { top, height };
 }
 
+/** A session row dragged into the composer quotes that session (#1716). The row
+ *  writes it under our own type, so the drop tells it apart from a file, and a
+ *  link dragged in from another app never looks like one. */
+function startSessionDrag(event: ReactDragEvent<HTMLElement>, root: SessionInfo) {
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer) return;
+  const title = root.name || root.firstMessage || root.id;
+  dataTransfer.effectAllowed = "copy";
+  dataTransfer.setData(SESSION_DRAG_MIME, sessionDragData({
+    id: root.id,
+    title,
+    cwd: root.cwd,
+    modified: root.modified,
+  }));
+  // A plain-text copy for any other drop target (an editor, a terminal).
+  dataTransfer.setData("text/plain", title);
+}
+
 const SessionRowView = memo(function SessionRowView({
   row,
   layout,
@@ -643,6 +663,8 @@ const SessionRowView = memo(function SessionRowView({
       className={className}
       style={rowStyle(top, height)}
       data-row-key={row.key}
+      draggable={!status.transient}
+      onDragStart={(event) => startSessionDrag(event, root)}
       onClick={() => handlers.current.onSelectFamily(family)}
       onContextMenu={(event) => handlers.current.onRowContextMenu(row, event)}
     >
