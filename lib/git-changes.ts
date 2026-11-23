@@ -19,6 +19,9 @@ import { resolveExistingPath } from "./paths";
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
+// A diff is bounded by its own output, never by the size of the file it describes.
+// A 1 MiB patch is already far past what the viewer can usefully render.
+const GIT_DIFF_MAX_BYTES = 1024 * 1024;
 
 async function git(cwd: string, args: string[], maxBuffer = GIT_STATUS_MAX_BUFFER): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
@@ -255,7 +258,7 @@ async function createTrackedFilePatch(
       "HEAD",
       "--",
       ...paths,
-    ], TEXT_PREVIEW_MAX_BYTES * 4);
+    ], GIT_DIFF_MAX_BYTES);
   } catch {
     return null;
   }
@@ -272,6 +275,38 @@ async function findFileRepositoryRoot(cwd: string, filePath: string): Promise<st
     directory = parent;
   }
   return (await findRepositoryRoot(directory)) ?? (await findRepositoryRoot(cwd));
+}
+
+/**
+ * Whether HEAD holds a *blob* at this path (under its old name for a rename).
+ * `-e` only answers "exists": a submodule is a commit object and a directory a
+ * tree object, and neither is a file the viewer should diff as tracked text.
+ * `-t` names the type, so anything but a blob is refused; a missing object or
+ * a failed git command makes the child throw, which we treat as "no blob".
+ */
+async function hasHeadBlob(
+  repositoryRoot: string,
+  gitPath: string,
+  gitConfig: readonly string[],
+): Promise<boolean> {
+  try {
+    const type = await git(repositoryRoot, [...gitConfig, "cat-file", "-t", `HEAD:${gitPath}`]);
+    return type.trim() === "blob";
+  } catch {
+    return false;
+  }
+}
+
+/** Bounded text of a working-copy file, or null when it cannot be an added-file patch. */
+function readWorkingCopyText(filePath: string): string | null {
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return null;
+    const buffer = fs.readFileSync(filePath);
+    return hasNullByte(buffer) ? null : buffer.toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
@@ -302,25 +337,32 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
     return { supported: true, status, patch };
   }
 
-  let stat: fs.Stats;
-  try {
-    stat = fs.lstatSync(resolvedFilePath);
-  } catch {
-    return { supported: false };
-  }
-  if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+  // Whether Git can build the patch from a baseline of its own. A path in HEAD
+  // needs no working-copy bytes at all: `git diff HEAD` reads the blobs, and a
+  // binary file answers "Binary files … differ" with no hunk. A new file —
+  // untracked, a staged addition, or a conflict with no HEAD blob — may need
+  // its content to build an added-file patch, so only those bytes are bounded.
+  // Conflicts are decided by HEAD's contents, not by the status name: UU/DD/AA
+  // with a HEAD blob are tracked changes, UA/AU without one are not. A rename's
+  // blob lives under its old name in HEAD.
+  const headPath = entry.originalPath ?? relativePath;
+  const hasHeadFile = status !== "untracked"
+    && await hasHeadBlob(repositoryRoot, headPath, gitConfig);
 
-  const currentBuffer = fs.readFileSync(resolvedFilePath);
-  if (hasNullByte(currentBuffer)) return { supported: false };
-  const newContent = currentBuffer.toString("utf8");
+  let newContent: string | undefined;
+  if (!hasHeadFile) {
+    const text = readWorkingCopyText(resolvedFilePath);
+    if (text === null) return { supported: false };
+    newContent = text;
+  }
 
   let patch: string;
   if (status === "untracked") {
-    patch = createAddedFilePatch(relativePath, newContent);
+    patch = createAddedFilePatch(relativePath, newContent!);
   } else {
     const trackedPatch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath, gitConfig);
     if (trackedPatch === null) {
-      if (status !== "added") return { supported: false };
+      if (status !== "added" || newContent === undefined) return { supported: false };
       patch = createAddedFilePatch(relativePath, newContent);
     } else {
       patch = trackedPatch;
