@@ -59,7 +59,7 @@ still take precedence.
 Custom clients can read entries written by Pi extensions with `pi.appendEntry(customType, data)`:
 
 ```text
-GET /api/sessions/<id>/entries?customType=my-extension:checkpoint&limit=100
+GET /api/sessions/<id>/entries?customType=my-extension:state&limit=100
 ```
 
 The response is `{ entries, leafId, nextAfter, hasMore }`. Entries are unmodified and ordered by append across all branches. `customType` is optional and repeatable, matching exact types. `limit` defaults to 100, with a maximum of 1000 entries.
@@ -69,7 +69,7 @@ Pass `nextAfter` as the exclusive `after` cursor, including after empty pages; c
 The session's `GET /api/agent/<id>/events` SSE stream emits custom-entry notifications without payloads:
 
 ```json
-{"type":"entry_appended","entryId":"a1b2c3d4","customType":"my-extension:checkpoint"}
+{"type":"entry_appended","entryId":"a1b2c3d4","customType":"my-extension:state"}
 ```
 
 Connect before reading, then catch up from the cursor on `connected` and relevant `entry_appended` events. Notifications are not replayed. Reading entries does not activate a session; opening its event stream can.
