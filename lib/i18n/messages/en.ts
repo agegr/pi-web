@@ -797,6 +797,7 @@ export const enLocale: LocalePlugin = {
     "chat.referencedSession": "Referenced session: ",
     "chat.removeReference": "Remove this reference",
     "chat.referencedMessages": "({count} messages)",
+    "chat.referencedOmitted": "· {count} omitted",
     "chat.searching": "Searching…",
     "chat.noMatchingFiles": "No matching files",
     "chat.searchingAll": " · searching all files…",

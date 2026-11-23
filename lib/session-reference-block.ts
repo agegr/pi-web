@@ -16,8 +16,14 @@ export interface SessionReferenceView {
   id: string;
   /** The referenced session file, as the block recorded it. */
   path: string;
+  /** Its project folder, as the block recorded it; empty when it recorded none. */
+  cwd: string;
+  /** When the session file last changed, ISO; empty when the block recorded none. */
+  modified: string;
   /** Messages on the referenced branch; null when the block records no count. */
   messages: number | null;
+  /** Messages the transcript left out of its middle; 0 when it kept them all. */
+  omitted: number;
   /** What the model read: the text between the tags, minus its outer newlines. */
   body: string;
   /** The tag pair as stored, for a copy that keeps the message whole. */
@@ -95,13 +101,17 @@ export function splitSessionReferences(text: string): MessageSegment[] {
     if (closeAt === -1) break;
     const attributes = attributesOf(open[0]);
     const count = Number.parseInt(attributes.get("messages") ?? "", 10);
+    const omitted = Number.parseInt(attributes.get("omitted") ?? "", 10);
     pushText(text.slice(cursor, open.index));
     segments.push({
       kind: "reference",
       title: attributes.get("title") ?? "",
       id: attributes.get("id") ?? "",
       path: attributes.get("path") ?? "",
+      cwd: attributes.get("cwd") ?? "",
+      modified: attributes.get("modified") ?? "",
       messages: Number.isFinite(count) ? count : null,
+      omitted: Number.isFinite(omitted) && omitted > 0 ? omitted : 0,
       body: text.slice(bodyStart, closeAt).replace(/^\n+/, "").replace(/\n+$/, ""),
       raw: text.slice(open.index, closeAt + `</${SESSION_REFERENCE_TAG}>`.length),
     });

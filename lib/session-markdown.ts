@@ -2,24 +2,34 @@
 // quotes: the user's messages and each assistant turn's final reply. Tool
 // calls, tool results, thinking, model switches and compaction summaries stay
 // out (the rule the maintainer set in #1716): the quote is the conversation,
-// not the work log that produced it. The output is bounded — the start and the
-// recent end are kept and the middle is elided — so a long session never floods
-// the message that carries it. Read-only: entries come from a SessionManager,
-// never a running wrapper.
+// not the work log that produced it. What the quote keeps in full is the focus:
+// the newest few turns, the part a reader quoting a session usually wants to
+// carry on from. Everything older is condensed to the question that opened each
+// turn, so the model still gets the thread for a fraction of the characters and
+// a long session never floods the message that carries it. The cut works in
+// whole turns, so a question is never kept without the reply it got. Read-only:
+// entries come from a SessionManager, never a running wrapper.
 
 import type { SessionEntry } from "@/lib/types";
 
 export interface SessionMarkdownResult {
-  /** The bounded transcript: `User:` / `Assistant:` messages, blank-line separated. */
+  /** The transcript: condensed earlier questions, then the focus turns in full. */
   markdown: string;
-  /** Messages on the branch, the elided ones included. */
+  /** Messages on the branch, the left-out ones included. */
   messageCount: number;
-  /** Messages left out of the middle of `markdown`; 0 when it all fits. */
+  /** Messages nowhere in `markdown`; 0 when it all fits. */
   omittedMessages: number;
 }
 
 export const TRANSCRIPT_MAX_MESSAGES = 300;
 export const TRANSCRIPT_MAX_CHARS = 40_000;
+
+/** Turns the quote keeps in full: the newest ones. Older turns are condensed to
+ *  the question that opened them (`OUTLINE_MAX_CHARS` each). */
+export const TRANSCRIPT_FOCUS_TURNS = 3;
+
+/** How much of an older turn's opening question the condensed list shows. */
+const OUTLINE_MAX_CHARS = 80;
 
 const USER_LABEL = "User:";
 const ASSISTANT_LABEL = "Assistant:";
@@ -110,13 +120,34 @@ function quotedMessages(chain: SessionEntry[]): QuotedMessage[] {
   return messages;
 }
 
+/** The quotable messages grouped into turns, as message positions: a turn
+ *  starts at a user message and runs through the replies up to the next one. An
+ *  assistant reply with no user message before it (its question was not
+ *  quotable) opens a turn of its own, so nothing is dropped on the way in. */
+function turnsOf(messages: QuotedMessage[]): number[][] {
+  const turns: number[][] = [];
+  messages.forEach((message, index) => {
+    if (message.label === USER_LABEL || !turns.length) turns.push([index]);
+    else turns[turns.length - 1].push(index);
+  });
+  return turns;
+}
+
+/** One line for a turn older than the focus: its opening message, cut to
+ *  `OUTLINE_MAX_CHARS`, so the thread stays readable for ~80 characters. */
+function outlineOf(message: QuotedMessage): string {
+  const line = message.text.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
+  return `${message.label} ${line.length > OUTLINE_MAX_CHARS ? `${line.slice(0, OUTLINE_MAX_CHARS - 1)}…` : line}`;
+}
+
 export function sessionToMarkdown(
   entries: SessionEntry[],
   leafId: string | null,
-  options: { maxMessages?: number; maxChars?: number } = {},
+  options: { maxMessages?: number; maxChars?: number; focusTurns?: number } = {},
 ): SessionMarkdownResult {
   const maxMessages = options.maxMessages ?? TRANSCRIPT_MAX_MESSAGES;
   const maxChars = options.maxChars ?? TRANSCRIPT_MAX_CHARS;
+  const focusTurns = Math.max(1, options.focusTurns ?? TRANSCRIPT_FOCUS_TURNS);
   const messages = quotedMessages(newestChain(entries, leafId));
   if (!messages.length) return { markdown: "", messageCount: 0, omittedMessages: 0 };
   const rendered = messages.map((message) => {
@@ -125,24 +156,53 @@ export function sessionToMarkdown(
     return line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line;
   });
 
-  const kept = rendered.map((_, index) => index);
-  // A blank line separates the messages, so each kept message but the last
-  // carries one extra character.
-  let chars = rendered.reduce((sum, line) => sum + line.length, 0) + kept.length - 1;
-  // Drop from the middle out, so what survives is the start of the conversation
-  // and its most recent part, both caps shrinking the same way.
-  while (kept.length > 1 && (kept.length > maxMessages || chars > maxChars)) {
-    const at = Math.floor(kept.length / 2);
-    chars -= rendered[kept[at]].length + 1;
-    kept.splice(at, 1);
+  const turns = turnsOf(messages);
+  const focusStart = Math.max(0, turns.length - focusTurns);
+  // Everything older than the focus becomes one line per turn; the focus keeps
+  // every message of its turns. The opening turn's own label is used because a
+  // turn can open with a reply whose question was not quotable.
+  const outline = turns.slice(0, focusStart).map((turn) => outlineOf(messages[turn[0]]));
+  const focus = turns.slice(focusStart);
+
+  // What is on screen, in the order it is written: the condensed lines (one per
+  // line, single newlines) and then the focus messages (blank-line separated).
+  let outlineStart = 0;
+  let focusDrop = 0;
+  const laidOut = () => {
+    const lines = outline.slice(outlineStart);
+    const focusIndexes = focus.slice(focusDrop).flatMap((turn) => turn);
+    const outlineChars = lines.reduce((sum, line) => sum + line.length, 0) + Math.max(0, lines.length - 1);
+    const focusChars = focusIndexes.reduce((sum, index) => sum + rendered[index].length, 0)
+      + Math.max(0, focusIndexes.length - 1) * 2;
+    const gap = lines.length && focusIndexes.length ? 2 : 0;
+    return { chars: outlineChars + focusChars + gap, messages: lines.length + focusIndexes.length };
+  };
+  // Over a cap, the oldest background goes first; only once it is gone does the
+  // oldest focus turn go, and the newest turn always stays whole (each message
+  // was cut to the cap above): cutting into a turn is the one thing this must
+  // not do. Because the background is given up before any focus turn, the gap
+  // the note reports is always at one place: between the two parts.
+  for (;;) {
+    const { chars, messages: kept } = laidOut();
+    if (kept <= maxMessages && chars <= maxChars) break;
+    if (outlineStart < outline.length) outlineStart += 1;
+    else if (focusDrop < focus.length - 1) focusDrop += 1;
+    else break;
   }
 
-  const omitted = messages.length - kept.length;
-  let headCount = 0;
-  while (headCount < kept.length && kept[headCount] === headCount) headCount += 1;
-  const body = kept.slice(0, headCount).map((index) => rendered[index]);
-  if (omitted > 0) body.push(`… ${omitted} messages omitted …`);
-  for (const index of kept.slice(headCount)) body.push(rendered[index]);
+  const lines = outline.slice(outlineStart);
+  const focusIndexes = focus.slice(focusDrop).flatMap((turn) => turn);
+  const omitted = messages.length - lines.length - focusIndexes.length;
+  const body: string[] = [];
+  if (lines.length) body.push(lines.join("\n"));
+  if (lines.length) {
+    // The count is messages, as the collapsed block shows it; the note says why
+    // they are gone when the earlier turns were condensed rather than dropped.
+    body.push(`… earlier turns condensed to their first question${omitted > 0 ? ` (${omitted} messages omitted)` : ""} …`);
+  } else if (omitted > 0) {
+    body.push(`… ${omitted} messages omitted …`);
+  }
+  for (const index of focusIndexes) body.push(rendered[index]);
 
   return {
     markdown: body.join("\n\n"),

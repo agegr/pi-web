@@ -2,7 +2,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { existsSync, realpathSync, writeFileSync } from "fs";
+import { existsSync, realpathSync, statSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { isDeepStrictEqual } from "util";
 import { validateAgentImages } from "./image-attachments";
@@ -1389,7 +1389,17 @@ export class AgentSessionWrapper {
         // (inside code or escaped) stay as text.
         const promptMessage = await expandSessionReferences(
           command.message as string,
-          (id) => resolveSessionReferenceForSend(id, openSessionManager, resolveSessionPath),
+          (id, maxChars) => resolveSessionReferenceForSend(
+            id,
+            {
+              openSessionManager,
+              resolveSessionPath,
+              // The block's tooltip reads this, so it matches the sidebar's own
+              // "last changed" for the same session.
+              modifiedAt: async (filePath) => statSync(filePath).mtime.toISOString(),
+            },
+            maxChars,
+          ),
         );
         // Serialize only admission. Once the preceding prompt has either
         // passed or failed preflight, the SDK can atomically decide whether

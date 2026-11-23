@@ -797,6 +797,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.referencedSession": "引用對話：",
     "chat.removeReference": "移除這個引用",
     "chat.referencedMessages": "（{count} 條訊息）",
+    "chat.referencedOmitted": "· 含 {count} 條已省略",
     "chat.searching": "搜尋中…",
     "chat.noMatchingFiles": "找不到相符的檔案",
     "chat.searchingAll": " · 正在搜尋所有檔案…",

@@ -16,7 +16,7 @@
 // the app has no locale there. UI copy stays in lib/i18n.
 
 import type { SessionEntry } from "@/lib/types";
-import { sessionToMarkdown } from "./session-markdown";
+import { TRANSCRIPT_MAX_CHARS, sessionToMarkdown } from "./session-markdown";
 
 export const SESSION_REFERENCE_TOKEN_RE =
   /\[([^\]\r\n]*)\]\(#session:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)/g;
@@ -27,6 +27,16 @@ export const SESSION_REFERENCE_TAG = "session-reference";
 /** One line telling the model what the quoted text is, ahead of the transcript. */
 export const SESSION_REFERENCE_NOTE =
   "Quoted from an earlier conversation for background only; it is not part of this request.";
+
+/** What one message may spend on all of its quoted transcripts together. The
+ *  references take it in the order they appear, so the first ones get the room
+ *  they ask for and each later one only what the earlier ones left. Without it
+ *  eight references could each fill the per-transcript cap (#1716). */
+export const TOTAL_REFERENCE_MAX_CHARS = 60_000;
+
+/** Under this, a quote carries too little to be worth a block: the reference is
+ *  reported as unquoted instead of opening a block around a few words. */
+const MIN_REFERENCE_MAX_CHARS = 200;
 
 export interface SessionReference {
   start: number;
@@ -102,6 +112,10 @@ export interface ReferenceSession {
   /** The session file the quote was read from: the agent can `read` it for detail. */
   path: string;
   title?: string;
+  /** The session's project folder, for the block's tooltip. */
+  cwd?: string;
+  /** When the session file last changed, ISO, for the block's tooltip. */
+  modified?: string;
   markdown: string;
   /** Messages on the referenced branch, the elided ones included. */
   messageCount: number;
@@ -131,7 +145,10 @@ export function buildReferenceBlock(ref: ReferenceSession, tokenTitle: string): 
     `title="${attribute(title)}"`,
     `id="${attribute(ref.id)}"`,
     `path="${attribute(ref.path)}"`,
+    ...(ref.cwd ? [`cwd="${attribute(ref.cwd)}"`] : []),
+    ...(ref.modified ? [`modified="${attribute(ref.modified)}"`] : []),
     `messages="${ref.messageCount}"`,
+    `omitted="${ref.omittedMessages}"`,
   ].join(" ");
   const body = ref.markdown || "(no user or assistant messages on this branch)";
   return [
@@ -145,34 +162,49 @@ export function buildReferenceBlock(ref: ReferenceSession, tokenTitle: string): 
 
 /** Replace every unprotected # session reference in `text`. A reference whose
  *  session cannot be resolved becomes an explicit unavailable note instead of
- *  a dead token; protected ones are left untouched. */
+ *  a dead token; protected ones are left untouched. The references share one
+ *  character budget (`maxChars`, `TOTAL_REFERENCE_MAX_CHARS` by default) taken
+ *  in order, and one that arrives with too little left is named as unquoted
+ *  rather than silently dropped. */
 export async function expandSessionReferences(
   text: string,
-  resolve: (id: string) => Promise<ReferenceSession | null>,
+  resolve: (id: string, maxChars: number) => Promise<ReferenceSession | null>,
+  options: { maxChars?: number } = {},
 ): Promise<string> {
   const references = findSessionReferences(text);
   if (!references.length) return text;
+  let remaining = options.maxChars ?? TOTAL_REFERENCE_MAX_CHARS;
   const resolved = new Map<string, ReferenceSession | null>();
   let result = "";
   let position = 0;
   for (const reference of references) {
     result += text.slice(position, reference.start);
+    position = reference.end;
     if (reference.protected) {
       result += text.slice(reference.start, reference.end);
-    } else {
-      if (!resolved.has(reference.id)) {
-        try {
-          resolved.set(reference.id, await resolve(reference.id));
-        } catch {
-          resolved.set(reference.id, null);
-        }
-      }
-      const session = resolved.get(reference.id);
-      result += session
-        ? buildReferenceBlock(session, reference.title)
-        : `(A referenced session could not be read: ${reference.title || reference.id}.)`;
+      continue;
     }
-    position = reference.end;
+    if (remaining < MIN_REFERENCE_MAX_CHARS) {
+      result += `(A referenced session was not quoted: this message's reference budget is used up: ${reference.title || reference.id}.)`;
+      continue;
+    }
+    if (!resolved.has(reference.id)) {
+      try {
+        resolved.set(reference.id, await resolve(reference.id, remaining));
+      } catch {
+        resolved.set(reference.id, null);
+      }
+    }
+    const session = resolved.get(reference.id);
+    if (!session) {
+      result += `(A referenced session could not be read: ${reference.title || reference.id}.)`;
+      continue;
+    }
+    const block = buildReferenceBlock(session, reference.title);
+    result += block;
+    // What the message grew by is what the reference spent; the tag and its
+    // attributes are part of that, so the budget bounds the expanded text.
+    remaining = Math.max(0, remaining - block.length);
   }
   result += text.slice(position);
   return result;
@@ -186,25 +218,49 @@ export interface SessionManagerLike {
   getHeader(): { cwd?: string; timestamp?: string } | null | undefined;
 }
 
+/** What the send-time resolver reads besides the reference itself. Injected so
+ *  this module stays free of node imports: lib/session-reference-block.ts (and
+ *  so the chat) imports its tag name. */
+export interface SessionReferenceSendDeps {
+  openSessionManager: (filePath: string, options?: { mutable?: boolean }) => SessionManagerLike;
+  resolveSessionPath: (id: string) => Promise<string | null>;
+  /** The session file's last change, ISO, for the block's tooltip; unknown is fine. */
+  modifiedAt?: (filePath: string) => Promise<string | undefined>;
+}
+
 /** The send-time resolver for pi-web: read the referenced session file from
  *  disk and render its active branch as bounded Markdown. Never starts a
- *  wrapper; a file that vanished answers null. */
+ *  wrapper; a file that vanished answers null. `maxChars` is what the message's
+ *  shared budget has left, capped at one transcript's own limit. */
 export async function resolveSessionReferenceForSend(
   id: string,
-  openSessionManager: (filePath: string, options?: { mutable?: boolean }) => SessionManagerLike,
-  resolveSessionPath: (id: string) => Promise<string | null>,
+  deps: SessionReferenceSendDeps,
+  maxChars: number = TRANSCRIPT_MAX_CHARS,
 ): Promise<ReferenceSession | null> {
-  const filePath = await resolveSessionPath(id);
+  const filePath = await deps.resolveSessionPath(id);
   if (!filePath) return null;
-  const sm = openSessionManager(filePath);
+  const sm = deps.openSessionManager(filePath);
   // SAFETY: the SDK's SessionManager parses the same JSONL that lib/types.ts
   // describes, so its entries satisfy SessionEntry structurally; the session
   // GET and the markdown route read them the same way.
-  const rendered = sessionToMarkdown(sm.getEntries() as unknown as SessionEntry[], sm.getLeafId());
+  const rendered = sessionToMarkdown(
+    sm.getEntries() as unknown as SessionEntry[],
+    sm.getLeafId(),
+    { maxChars: Math.min(maxChars, TRANSCRIPT_MAX_CHARS) },
+  );
+  const header = sm.getHeader?.();
+  let modified: string | undefined;
+  try {
+    modified = await deps.modifiedAt?.(filePath);
+  } catch {
+    modified = undefined;
+  }
   return {
     id,
     path: filePath,
     title: sm.getSessionName() ?? undefined,
+    cwd: header?.cwd || undefined,
+    modified,
     markdown: rendered.markdown,
     messageCount: rendered.messageCount,
     omittedMessages: rendered.omittedMessages,

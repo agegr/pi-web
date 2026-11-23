@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { formatShortRelativeTime } from "@/lib/i18n/format";
 import { sessionDeepLink } from "@/lib/session-links";
 import type { SessionReferenceView } from "@/lib/session-reference-block";
 
@@ -9,14 +10,22 @@ import type { SessionReferenceView } from "@/lib/session-reference-block";
  *  expanded, lib/session-reference.ts): a single line by default — title,
  *  message count, a link to that session — expanding to the text the model
  *  actually read. Quoting a long conversation must not push the rest of the
- *  transcript off the screen, so it starts collapsed (#1716). */
+ *  transcript off the screen, so it starts collapsed (#1716). The tooltip names
+ *  the project and when the session last changed, and the line says how many
+ *  messages the quote left out, so an incomplete quote never reads as the
+ *  whole conversation. */
 export function SessionReferenceBlock({ reference }: { reference: SessionReferenceView }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const title = reference.title.trim() || reference.id.slice(0, 8);
   const countLabel = reference.messages === null
     ? ""
     : t("chat.referencedMessages", { count: reference.messages });
+  const project = reference.cwd ? reference.cwd.split(/[\\/]/).pop() ?? "" : "";
+  const updated = reference.modified
+    ? formatShortRelativeTime(reference.modified, locale, new Date())
+    : "";
+  const tooltip = [project, updated].filter(Boolean).join(" · ") || reference.path || reference.id;
 
   return (
     <div
@@ -65,7 +74,7 @@ export function SessionReferenceBlock({ reference }: { reference: SessionReferen
         </button>
         <a
           href={sessionDeepLink(reference.id)}
-          title={reference.path || reference.id}
+          title={tooltip}
           style={{
             minWidth: 0,
             overflow: "hidden",
@@ -81,6 +90,11 @@ export function SessionReferenceBlock({ reference }: { reference: SessionReferen
         {countLabel && (
           <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 12 }}>
             {countLabel}
+          </span>
+        )}
+        {reference.omitted > 0 && (
+          <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 12 }}>
+            {t("chat.referencedOmitted", { count: reference.omitted })}
           </span>
         )}
       </div>
