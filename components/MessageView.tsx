@@ -3,6 +3,8 @@
 import { Fragment, memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
+import { SessionReferenceBlock } from "./SessionReferenceBlock";
+import { splitSessionReferences } from "@/lib/session-reference-block";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
@@ -368,6 +370,12 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           .join("\n")
   ).replace(/\r\n?/g, "\n");
 
+  // A message that quoted other sessions carries their transcripts as
+  // `<session-reference>` blocks (lib/session-reference.ts): each shows as one
+  // collapsed line, so the conversation around it stays readable (#1716).
+  const segments = useMemo(() => splitSessionReferences(content), [content]);
+  const hasReference = segments.some((segment) => segment.kind === "reference");
+
   const imageBlocks: ImageContent[] =
     typeof message.content === "string"
       ? []
@@ -511,7 +519,17 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           ) : (
           <>
           {imageBlocksNode}
-          {content && <SafeMarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>}
+          {hasReference ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+              {segments.map((segment, index) => (
+                segment.kind === "reference"
+                  ? <SessionReferenceBlock key={`reference-${index}`} reference={segment} />
+                  : <SafeMarkdownBody key={`text-${index}`} className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{segment.text}</SafeMarkdownBody>
+              ))}
+            </div>
+          ) : (
+            content && <SafeMarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>
+          )}
           </>
           )}
         </div>
