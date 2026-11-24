@@ -100,9 +100,20 @@ function realPathOrSelf(filePath: string): string {
  * (`parent/repo.git`) is its own root: its parent may hold other repositories,
  * whose worktrees would otherwise all land in one project.
  */
-function repoRootFromCommonDir(commonDir: string): string {
+async function repoRootFromCommonDir(commonDir: string): Promise<string> {
   const parent = dirname(commonDir);
   if (basename(commonDir) === ".git") return parent;
+  // A submodule's git dir (`.git/modules/<name>`) is kept apart from its checkout
+  // and names it as `core.worktree`, relative to itself.
+  try {
+    const configured = await git(commonDir, ["config", "--file", join(commonDir, "config"), "--get", "core.worktree"]);
+    if (configured) {
+      const checkout = resolve(commonDir, configured);
+      if (await pathExists(checkout)) return checkout;
+    }
+  } catch {
+    // Not set (a bare clone), or unreadable: judged by the layout below.
+  }
   try {
     const match = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(join(parent, ".git"), "utf8"));
     if (match && samePath(realPathOrSelf(resolve(parent, match[1])), realPathOrSelf(commonDir))) return parent;
@@ -258,7 +269,7 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
     // worktree switcher.
     const isTopLevel = samePath(toplevel, realCwd);
     const isWorktreeTopLevel = !samePath(gitDir, commonDir) && isTopLevel;
-    const topLevelProjectRoot = isWorktreeTopLevel ? repoRootFromCommonDir(commonDir) : toplevel;
+    const topLevelProjectRoot = isWorktreeTopLevel ? await repoRootFromCommonDir(commonDir) : toplevel;
     info = {
       projectRoot: isTopLevel ? await realPathOrSelfAsync(topLevelProjectRoot) : cwd,
       branch: ref && ref !== "HEAD" ? ref : null,
@@ -286,7 +297,7 @@ async function resolveProjectUncached(cwd: string): Promise<ProjectInfo> {
 /** Main repo root (parent of the shared .git dir, or a bare clone), or throws for non-git dirs */
 async function getRepoRoot(cwd: string): Promise<string> {
   const commonDir = await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  return realPathOrSelf(repoRootFromCommonDir(toNativePath(commonDir)));
+  return realPathOrSelf(await repoRootFromCommonDir(toNativePath(commonDir)));
 }
 
 /** Every worktree git has registered, `missing` when it is prunable or its folder is gone. */
@@ -294,6 +305,7 @@ async function listRegisteredWorktrees(cwd: string): Promise<{ path: string; bra
   const out = await git(cwd, ["worktree", "list", "--porcelain"]);
   const worktrees: { path: string; branch: string | null; missing: boolean }[] = [];
   let current: { path: string; branch?: string; prunable?: boolean } | null = null;
+  let mainIsBare = false;
 
   const flush = () => {
     if (current?.path) {
@@ -310,6 +322,8 @@ async function listRegisteredWorktrees(cwd: string): Promise<{ path: string; bra
     if (line.startsWith("worktree ")) {
       flush();
       current = { path: toNativePath(line.slice("worktree ".length).trim()) };
+    } else if (line.trim() === "bare" && current && worktrees.length === 0) {
+      mainIsBare = true;
     } else if (line.startsWith("branch ") && current) {
       current.branch = line.slice("branch ".length).trim().replace(/^refs\/heads\//, "");
     } else if (line.startsWith("prunable") && current) {
@@ -319,6 +333,16 @@ async function listRegisteredWorktrees(cwd: string): Promise<{ path: string; bra
     }
   }
   flush();
+  // For a submodule, git names its git dir in .git/modules as the main worktree,
+  // not the checkout that holds the files.
+  const [main] = worktrees;
+  if (main && !mainIsBare) {
+    const commonDir = toNativePath(await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+    if (samePath(main.path, commonDir)) {
+      const checkout = await repoRootFromCommonDir(commonDir);
+      if (!samePath(checkout, commonDir)) Object.assign(main, { path: checkout, missing: !existsSync(checkout) });
+    }
+  }
   return worktrees;
 }
 
