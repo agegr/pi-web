@@ -795,13 +795,16 @@ function extensionPathParts(extension: SubagentExtensionLike): { parentDir: stri
   };
 }
 
+type ExtensionPackage = { key: string; source: string };
+type ExtensionPackageLookup = (path: string) => ExtensionPackage | undefined;
+
 /**
  * The source a file belongs to. Only package resources have a real identity in
  * `sourceInfo.source`; top-level ones all carry the shared constant `"local"` (settings
- * entry) or `"auto"` (auto-discovered), so they fall back to their own path — otherwise
- * every unrelated local extension would look like one unit to the name gate below.
+ * entry) or `"auto"` (auto-discovered), so they fall back to their own path.
  */
-function extensionSourceKey(extension: SubagentExtensionLike): string {
+function extensionSourceKey(extension: SubagentExtensionLike, pkg?: ExtensionPackage): string {
+  if (pkg) return pkg.key;
   const info = extension.sourceInfo;
   const source = info?.source?.trim();
   return source && info?.origin === "package" ? source : extension.path;
@@ -814,15 +817,14 @@ function extensionSourceKey(extension: SubagentExtensionLike): string {
  * pin). `"local"` / `"auto"` are deliberately never candidates: they are shared constants,
  * so accepting them would turn `ext:local` into "every local extension".
  */
-function extensionCandidateNames(extension: SubagentExtensionLike): string[] {
+function extensionCandidateNames(extension: SubagentExtensionLike, pkg?: ExtensionPackage): string[] {
   const { parentDir, baseName } = extensionPathParts(extension);
   const names = [parentDir, baseName];
   const info = extension.sourceInfo;
-  if (info?.origin === "package") {
-    const source = (info.source ?? "").trim();
-    const packageName = parseNpmSource(source)?.name ?? source;
-    names.push(packageName, packageName.replace(/^@[^/]+\//, ""));
-  }
+  const source = info?.origin === "package" ? info.source?.trim() : undefined;
+  // While scoping at load time, only npm sources contribute an alias, not local or Git paths.
+  const packageName = pkg ? parseNpmSource(pkg.source)?.name : source && (parseNpmSource(source)?.name ?? source);
+  if (packageName) names.push(packageName, packageName.replace(/^@[^/]+\//, ""));
   return [...new Set(names.map((name) => name.toLowerCase()).filter(Boolean))];
 }
 
@@ -833,11 +835,12 @@ function extensionCandidateNames(extension: SubagentExtensionLike): string[] {
  * a selector for one of them would otherwise grant tools from unrelated extensions. Several
  * files of the `same` source may share a name — they are one unit, not a collision.
  */
-function extensionNameOwners(extensions: readonly SubagentExtensionLike[]): Map<string, Set<string>> {
+function extensionNameOwners(extensions: readonly SubagentExtensionLike[], packageForPath?: ExtensionPackageLookup): Map<string, Set<string>> {
   const owners = new Map<string, Set<string>>();
   for (const extension of extensions) {
-    const owner = extensionSourceKey(extension);
-    for (const name of extensionCandidateNames(extension)) {
+    const pkg = packageForPath?.(extension.path);
+    const owner = extensionSourceKey(extension, pkg);
+    for (const name of extensionCandidateNames(extension, pkg)) {
       const claimed = owners.get(name) ?? new Set<string>();
       claimed.add(owner);
       owners.set(name, claimed);
@@ -928,14 +931,14 @@ export function selectSubagentExtensionTools(
  * built-ins a child with `mcp: on` names (`SUBAGENT_MCP_EXTENSION_PATHS`). The SDK
  * calls the override on every reload, so the scope holds without further wiring.
  */
-export function scopeSubagentExtensions(names: readonly string[]) {
+export function scopeSubagentExtensions(names: readonly string[], packageForPath?: ExtensionPackageLookup) {
   const wanted = new Set(names.map((name) => name.toLowerCase()));
   return (base: LoadExtensionsResult): LoadExtensionsResult => {
-    const owners = extensionNameOwners(base.extensions);
+    const owners = extensionNameOwners(base.extensions, packageForPath);
     const extensions = base.extensions.filter((extension) => (
       extension.path.startsWith("<inline:")
       || SUBAGENT_MCP_EXTENSION_PATHS.includes(extension.path)
-      || extensionCandidateNames(extension).some((name) => wanted.has(name) && owners.get(name)?.size === 1)
+      || extensionCandidateNames(extension, packageForPath?.(extension.path)).some((name) => wanted.has(name) && owners.get(name)?.size === 1)
     ));
     const kept = new Set(extensions.map((extension) => extension.path));
     const { runtime } = base;
@@ -956,12 +959,15 @@ export function scopeSubagentExtensions(names: readonly string[]) {
 export const SUBAGENT_MCP_EXTENSION_PATHS: readonly string[] = ["builtin:tool-search", "builtin:mcp"];
 
 /** The extension half of a child's resource loader options, shared by spawn and reopen. */
-export function subagentExtensionLoaderOptions(resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean }) {
+export function subagentExtensionLoaderOptions(
+  resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean },
+  packageForPath?: ExtensionPackageLookup,
+) {
   return {
     noExtensions: !resources.loadExtensions,
     ...(resources.mcp ? { additionalExtensionPaths: [...SUBAGENT_MCP_EXTENSION_PATHS] } : {}),
     ...(resources.loadExtensions && resources.extensions !== undefined
-      ? { extensionsOverride: scopeSubagentExtensions(resources.extensions) }
+      ? { extensionsOverride: scopeSubagentExtensions(resources.extensions, packageForPath) }
       : {}),
   };
 }

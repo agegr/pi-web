@@ -25,7 +25,6 @@ import {
   SUBAGENT_RESULT_TYPE,
   selectSubagentExtensionTools,
   settleOrphanedSubagentStatus,
-  subagentExtensionLoaderOptions,
   subagentToolOptions,
   withSubagentExtensionTools,
   type SubagentMetadata,
@@ -35,7 +34,7 @@ import {
 import type { SessionEntry } from "./types";
 import type { DebugParentNotification, DebugSubagentRun } from "./debug-types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
-import { createSubagentSkillsBinding } from "./subagent-skills";
+import { createSubagentPackageScope, createSubagentSkillsBinding } from "./subagent-skills";
 import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputLimits } from "./subagent-input";
 import { getProjectTrustStatus } from "./project-trust";
 import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
@@ -66,7 +65,7 @@ export interface SubagentRuntimeDependencies {
   getSession(sessionId: string): HostSession | undefined;
   registerSession(
     inner: AgentSessionLike,
-    options?: { exactSystemPrompt?: () => string; chatOnly?: boolean; mcpHost?: McpHost },
+    options?: { exactSystemPrompt?: () => string; preparePackageScope?: () => Promise<void>; chatOnly?: boolean; mcpHost?: McpHost },
   ): HostSession | void;
   reopenSession(sessionId: string, sessionFile: string): Promise<HostSession>;
   resolveSessionPath(sessionId: string): Promise<string | null>;
@@ -651,8 +650,10 @@ export function createSubagentController(
       const mcpEnabled = profile.mcp === "on";
       const chatOnly = promptPlan.chatOnly;
       const { appendSystemPrompt, delegatedTask } = promptPlan;
+      const packageScope = createSubagentPackageScope({ ...profile, mcp: mcpEnabled }, { cwd: childCwd, agentDir, settingsManager });
       const skillsBinding = createSubagentSkillsBinding({
         loadSkills: profile.loadSkills,
+        filterSkills: packageScope.filterSkills,
         skills: profile.skills,
         exactSystemPrompt: promptPlan.exactSystemPrompt,
       });
@@ -679,13 +680,14 @@ export function createSubagentController(
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
       ];
       if (!chatOnly) initTheme();
+      await packageScope.prepare?.();
       const services = await createAgentSessionServices({
         cwd: childCwd,
         agentDir,
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
-          ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }),
+          ...packageScope.loaderOptions,
           ...skillsBinding.loaderOptions,
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
@@ -779,6 +781,7 @@ export function createSubagentController(
       persistChildSession(sessionManager);
       skillsBinding.setActiveToolsGetter(() => inner.getActiveToolNames());
       const childSession = dependencies.registerSession(inner, {
+        preparePackageScope: packageScope.prepare,
         ...(skillsBinding.getExactSystemPrompt !== undefined
           ? { exactSystemPrompt: skillsBinding.getExactSystemPrompt }
           : {}),
