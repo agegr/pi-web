@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -68,7 +68,8 @@ import type { McpHost } from "./mcp-host";
 import type { DebugMcpHost, DebugSessionLifecycle, DebugWrapperSnapshot } from "./debug-types";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
-import { createSubagentPackageScope, createSubagentSkillsBinding } from "./subagent-skills";
+import { createSubagentSessionServices } from "./subagent-resources";
+import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent, liveToolExecutionEvent, parallelToolCallIds } from "./agent-event-wire";
 import { collectStartupIssues, extensionErrorMessage, limitStartupNotices, type StartupIssue } from "./startup-issues";
 import { collectLiveAssistantNotices, readShowCacheMissNotices, withSessionPrices } from "./transcript-notices-server";
@@ -173,7 +174,6 @@ type WrapperMcpHost = Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pi
 
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
-  preparePackageScope?: () => Promise<void>;
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
@@ -401,7 +401,6 @@ export class AgentSessionWrapper {
   // get_state calls waiting for the binding, released early by a blocking dialog (waitForStateRead()).
   private blockingUiWaiters = new Set<() => void>();
   private readonly exactSystemPrompt?: () => string;
-  private readonly preparePackageScope?: () => Promise<void>;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly onDirectTurnSettled?: (aborted: boolean) => void;
@@ -458,7 +457,6 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
-    this.preparePackageScope = options.preparePackageScope;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.onDirectTurnSettled = options.onDirectTurnSettled;
@@ -1966,7 +1964,6 @@ export class AgentSessionWrapper {
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
-        if (this.preparePackageScope) await this.preparePackageScope();
         await this.inner.reload();
         this.reportReloadIssues();
         // pi rebuilds from the tools active before, then extensions adjust them as they start
@@ -2809,7 +2806,6 @@ export class AgentSessionWrapper {
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
-        if (this.preparePackageScope) await this.preparePackageScope();
         await this.inner.reload({
           beforeSessionStart: () => {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
@@ -3004,7 +3000,6 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         ? { exactSystemPrompt: options.exactSystemPrompt }
         : {}),
       chatOnly: options?.chatOnly,
-      preparePackageScope: options?.preparePackageScope,
       suppressCompletionNotifications: true,
       onDirectTurnSettled: (aborted) => SUBAGENT_CONTROLLER.settleDirectTurn(inner.sessionId, aborted),
       ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
@@ -3660,12 +3655,8 @@ export async function startRpcSession(
           codemode: subagentResources.codemode === true,
         })
       : undefined;
-    const packageScope = subagentResources
-      ? createSubagentPackageScope(subagentResources, { cwd: sessionCwd, agentDir, settingsManager })
-      : undefined;
     const skillsBinding = subagentResources ? createSubagentSkillsBinding({
       loadSkills: subagentResources.loadSkills,
-      filterSkills: packageScope?.filterSkills,
       skills: subagentResources.skills,
       exactSystemPrompt: subagentResources.exactSystemPrompt
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
@@ -3678,14 +3669,12 @@ export async function startRpcSession(
         : []),
       ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
     ];
-    await packageScope?.prepare?.();
-    const services = await createAgentSessionServices({
+    const services = await createSubagentSessionServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
-            ...packageScope?.loaderOptions,
             ...skillsBinding!.loaderOptions,
             extensionFactories: subagentExtensionFactories,
             noPromptTemplates: true,
@@ -3722,7 +3711,7 @@ export async function startRpcSession(
             ),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-    });
+    }, subagentResources ?? undefined);
     if (subagentResources?.codemode
       && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
       throw new Error("Code mode is unavailable: builtin:codemode was not registered");
@@ -3877,7 +3866,6 @@ export async function startRpcSession(
       : undefined;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
-      preparePackageScope: packageScope?.prepare,
       chatOnly,
       onAgentRunComplete: (completedSessionId, sessionName) => {
         void notifySessionComplete(completedSessionId, sessionName).catch((error) => {
