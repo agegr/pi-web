@@ -104,8 +104,23 @@ const MANAGEMENT_CLIS = new Set(["pi", "claude", "codex", "gemini"]);
 /** `pi install npm:…` and the other package commands of pi's own CLI. */
 const PI_PACKAGE_COMMANDS = new Set(["install", "remove", "uninstall", "update", "list", "config"]);
 
+/** The count of words in leading `NAME=value` assignments, with an `env` before them. */
+function leadingEnvWords(words: ShellWord[]): number {
+  let index = words[0]?.text === "env" ? 1 : 0;
+  const first = index;
+  while (words[index] && shellAssignment(words[index])) index++;
+  return index > first ? index : 0;
+}
+
 /** Reads one command line already split into words. */
 export function readCommandLine(words: ShellWord[]): CommandLineServers {
+  // `TOKEN=x claude mcp add ...` runs the CLI with that environment: the CLI forms are read after it.
+  const lead = leadingEnvWords(words);
+  return readCliForm(words) ?? (lead > 0 ? readCliForm(words.slice(lead)) : undefined) ?? single(readServerCommand(words));
+}
+
+/** A CLI's own command line (`mcp add`, a management command, `--add-mcp`); undefined for a server's command. */
+function readCliForm(words: ShellWord[]): CommandLineServers | undefined {
   let start = 0;
   let cli = programName(words[0]);
   if (["npx", "bunx", "pnpx"].includes(cli)) {
@@ -139,7 +154,7 @@ export function readCommandLine(words: ShellWord[]): CommandLineServers {
   if (["code", "code-insiders", "codium", "cursor"].includes(cli) && words.some((word) => word.text === "--add-mcp" || word.text.startsWith("--add-mcp="))) {
     return readCodeAddMcp(words.slice(1));
   }
-  return single(readServerCommand(words));
+  return undefined;
 }
 
 function single(outcome: EntryOutcome | { error: McpImportNote }): CommandLineServers {
