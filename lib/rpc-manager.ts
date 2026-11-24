@@ -394,6 +394,7 @@ export class AgentSessionWrapper {
   private agentRunNeedsCompletion = false;
   // Whether the last run ended because it was stopped (pi 1.1's `agent_settled.aborted`), not finished.
   private lastRunAborted = false;
+  private readonly manualCompactionWork = new Set<Promise<void>>();
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -470,6 +471,53 @@ export class AgentSessionWrapper {
     this.builtOnThinkingLevel = inner.agent?.state?.thinkingLevel;
     this.startupNotices = options.startupIssues ? [] : null;
     for (const issue of options.startupIssues ?? []) this.notifyIssue(issue);
+
+    // All manual compactions, including ctx.compact(), call the public SDK method.
+    // Observe the call itself: agent_settled and the interrupted prompt can finish
+    // before compaction_start, so neither can tell us whether the abort is terminal.
+    const compact = inner.compact?.bind(inner);
+    if (compact) inner.compact = (...args) => this.trackManualCompactionWork(compact(...args));
+    const prompt = inner.prompt?.bind(inner);
+    if (prompt) inner.prompt = (...args) => {
+      // A completion callback can submit a prompt whose async input/auth preflight
+      // has not set isStreaming yet. Follow that promise as well as active runs.
+      const duringCompaction = this.manualCompactionWork.size > 0 && !inner.isCompacting;
+      const operation = prompt(...args);
+      return duringCompaction ? this.trackManualCompactionWork(operation) : operation;
+    };
+  }
+
+  private trackManualCompactionWork<T>(operation: Promise<T>): Promise<T> {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.manualCompactionWork.add(promise);
+    const finish = () => {
+      this.manualCompactionWork.delete(promise);
+      resolve();
+      this.notifyAgentRunCompleteIfIdle();
+      this.checkExtensionShutdown();
+    };
+    // Attach after the caller: the SDK's await in ctx.compact() must get to run
+    // onComplete (or onError) before we decide whether its session will continue.
+    queueMicrotask(() => { void operation.then(finish, finish); });
+    return operation;
+  }
+
+  waitForCompactionContinuation(): Promise<void> | undefined {
+    if (this.manualCompactionWork.size === 0) return;
+    return this.drainManualCompactionWork();
+  }
+
+  private async drainManualCompactionWork(): Promise<void> {
+    for (;;) {
+      if (this.manualCompactionWork.size > 0) {
+        await Promise.all(this.manualCompactionWork);
+      } else if (this.inner.isStreaming) {
+        // sendCustomMessage({ triggerTurn: true }) starts a run without prompt().
+        await this.inner.waitForIdle();
+      } else {
+        return;
+      }
+    }
   }
 
   get sessionId(): string {
@@ -539,7 +587,8 @@ export class AgentSessionWrapper {
   }
 
   isRunning(): boolean {
-    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.shellRunning);
+    return this._alive && (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting
+      || this.manualCompactionWork.size > 0 || this.shellRunning);
   }
 
   /**
@@ -907,6 +956,8 @@ export class AgentSessionWrapper {
           release();
         },
       });
+      const continuation = this.waitForCompactionContinuation();
+      if (continuation) await continuation;
     } catch (error) {
       failure = error;
     }
@@ -1534,10 +1585,12 @@ export class AgentSessionWrapper {
             throw error;
           }
 
-          void prompt.then(() => {
+          void prompt.then(async () => {
             // Compatibility fallback if a future SDK resolves without invoking
             // the internal callback. This waits for the run, but never acks early.
             acceptPreflight();
+            const continuation = this.waitForCompactionContinuation();
+            if (continuation) await continuation;
             finishPrompt();
             if (!streamingBehavior) this.emit(this.promptDoneEvent());
           }, (error) => {
