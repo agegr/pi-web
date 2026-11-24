@@ -1,11 +1,11 @@
 /**
  * Side chats (ADR 0007): a focused detour beside the main chat. A side chat is
- * a normal session forked from a parent's active tip (`createSideSession()` in
- * `lib/session-fork.ts`) with three differences, all decided here: a
- * `pi-web:side` entry hides it in its parent's family, it keeps only the
- * parent's read-mostly built-in tools, and a hidden message marks where the
- * inherited history ends. The prompt is not touched, so providers with native
- * mid-conversation updates keep the cached prefix.
+ * a normal session forked from a parent's last ended turn (`createSideSession()`
+ * in `lib/session-fork.ts`; `sideInheritedLeafId()` below) with three
+ * differences, all decided here: a `pi-web:side` entry hides it in its parent's
+ * family, it keeps only the parent's read-mostly built-in tools, and a hidden
+ * message marks where the inherited history ends. The prompt is not touched, so
+ * providers with native mid-conversation updates keep the cached prefix.
  */
 
 import { getCurrentTools } from "@earendil-works/pi-ai";
@@ -98,4 +98,57 @@ export function sideToolNames(
 ): string[] {
   const recorded = systemMessages.length > 0 ? getCurrentTools(systemMessages).map((tool) => tool.name) : undefined;
   return (pinned ?? recorded ?? SIDE_FALLBACK_TOOLS).filter((name) => SIDE_TOOLS.includes(name));
+}
+
+/**
+ * The part of an entry the rewind reads: its id and, on a message, who spoke
+ * and how a reply ended. A structural subset of `SessionEntry`, so a test can
+ * pass plain fixtures.
+ */
+type SideCutEntry = {
+  type: string;
+  id: string;
+  message?: { role?: string; stopReason?: string };
+};
+
+/**
+ * Where a side chat's copy ends: the parent's last ended turn, not necessarily
+ * the parent's leaf. A raw-leaf copy taken mid-run ends on the turn that was in
+ * flight: an unanswered user prompt, or tool calls with no result (pi-ai sends
+ * "No result provided"). That tail reads to the model as an interrupted run to
+ * continue, so the side chat kept working on the parent's task instead of
+ * answering the question it was asked. Ending at the last ended turn makes the
+ * inherited history look finished, and the boundary message below it the actual
+ * current instruction.
+ *
+ * Only the copy is rewound: the parent's session file and its live wrapper's
+ * leaf stay exactly as they were. The cost is that the in-flight turn is not
+ * inherited; a quote or a selection is the way to ask about a piece of it.
+ *
+ * A reply ends its turn on `stop` or `aborted` (the parent's run is over, even
+ * if the user stopped it). `error` and `length` are not cut points: a reply the
+ * provider errored on, or one cut at the output limit, is continued in the same
+ * run (docs/agents/sessions.md, `lib/message-display.ts`), so its turn is still
+ * in flight. A `compaction` entry is deliberately not a cut point either: its
+ * `firstKeptEntryId` may name an entry a cut before it does not include.
+ *
+ * `branch` is in parent-chain order. With no ended reply, the last user prompt
+ * is the fallback, so a parent whose only run never finished still gets the
+ * question it asked. With neither, `leafId` is returned unchanged and the
+ * existing refusals decide.
+ */
+export function sideInheritedLeafId(branch: readonly SideCutEntry[], leafId: string): string {
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index];
+    if (entry.type !== "message") continue;
+    const message = entry.message;
+    if (message?.role === "assistant" && (message.stopReason === "stop" || message.stopReason === "aborted")) {
+      return entry.id;
+    }
+  }
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index];
+    if (entry.type === "message" && entry.message?.role === "user") return entry.id;
+  }
+  return leafId;
 }

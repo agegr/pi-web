@@ -67,8 +67,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // No await from here until the copy exists: pi appends finished entries
     // synchronously in this process, so the leaf read here and the file read
-    // by forkSessionBranch() see the same entries. The leaf is the one
-    // GET /api/sessions/[id] shows: the open wrapper's, else the file's.
+    // by the copy in lib/session-fork.ts see the same entries. The leaf is the
+    // one GET /api/sessions/[id] shows: the open wrapper's, else the file's. A
+    // side chat cuts that leaf back to the parent's last ended turn in
+    // createSideSession(); only its copy is rewound, never the parent.
     const wrapper = getRpcSession(id);
     let liveLeafId = wrapper?.isAlive() ? wrapper.inner.sessionManager.getLeafId() : undefined;
     if (wrapper && liveLeafId !== undefined && !wrapper.isRunning()) {

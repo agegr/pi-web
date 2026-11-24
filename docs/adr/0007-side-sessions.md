@@ -26,7 +26,13 @@ task or losing the parent's context.
    (`POST /api/sessions/[id]/fork`, `{ side: true }`). The copy carries one
    `pi-web:side` custom entry (`version`, `parentSessionId`, `createdAt`) directly
    after the header, where the list's bounded head read finds it, with the first
-   copied entry chained under it, and ends on a hidden boundary message.
+   copied entry chained under it, and ends on a hidden boundary message. It stops
+   at the parent's last ended turn (its last `stop` or `aborted` reply, else its
+   last user prompt, else the raw leaf), not at a raw leaf: a copy taken mid-run
+   would otherwise end on an unanswered prompt or on tool calls without results,
+   which the model reads as work to continue, so the side chat kept doing the
+   parent's task instead of answering the question it was asked. Only the copy is
+   cut back; the parent's file and its wrapper's leaf are untouched.
 
 2. **Relation: `{ kind: "side"; parentSessionId }`, hidden like a subagent.** Hidden
    kinds fold into the parent's family: no sidebar row, counted in the Agents badge,
@@ -89,6 +95,10 @@ task or losing the parent's context.
 
 - Every `/side` copies the parent's branch, whatever its size. A side chat can be
   deleted on its own from the Agents switcher, or with its parent.
+- A side chat does not inherit the parent's in-flight turn: its copy ends at the
+  parent's last ended turn, so that turn is not available as background. A quote
+  or a selection is the way to bring a fragment of it into the side chat. The
+  parent is untouched: only the copy is rewound.
 - Extensions' `session_start` and other handlers run in a side chat too, as they do
   in any session. That is what keeps its prompt and models the parent's.
 - Viewing a subagent in its tab now opens its event stream, which can start a wrapper

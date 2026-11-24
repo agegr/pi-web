@@ -6,7 +6,7 @@ import { scanSessionFileInfo } from "./session-list-scanner";
 import { readSubagentRun } from "./subagents";
 import { SIDE_SESSION_NAME } from "./session-family";
 import { createSessionToolSelectionEntry, readSessionToolSelection } from "./session-tool-selection";
-import { createSideBoundaryEntry, createSideMetadataEntry, readSideRelation } from "./side-session";
+import { createSideBoundaryEntry, createSideMetadataEntry, readSideRelation, sideInheritedLeafId } from "./side-session";
 import type { SessionEntry } from "./types";
 
 /**
@@ -14,6 +14,8 @@ import type { SessionEntry } from "./types";
  * at its leaf) done on disk, so it never needs, starts or touches an
  * AgentSession and works while the source runs. Unlike `/clone`, the copy is
  * named: the source's title plus a short random suffix (session-fork-name.ts).
+ * A side chat is the same copy, cut back to the parent's last ended turn
+ * (`sideInheritedLeafId()`); the source file is never rewritten for that.
  */
 
 export type SessionForkRefusal = "not_found" | "unsaved" | "empty" | "subagent" | "side" | "cwd-invalid" | "cwd-exists";
@@ -53,6 +55,13 @@ export async function readForkSourceTitle(sourcePath: string): Promise<string | 
  * `liveLeafId` is an open wrapper's leaf (null: its leaf was reset before the
  * first entry); undefined means the file's own leaf, its last entry.
  *
+ * `leafFor` may rewind the copy: it gets the branch and its leaf and returns
+ * the entry the copy should end at. The branch is then read again for that id,
+ * so the checks below and `createBranchedSession()` cover the entries actually
+ * copied. Only the copy is affected: the source file and any wrapper's leaf are
+ * left as they are. A side chat passes `sideInheritedLeafId()`, which ends its
+ * copy at the parent's last ended turn; Fork passes nothing.
+ *
  * Only entries already on disk are copied: pi appends each finished entry
  * synchronously in this process, so a run in progress contributes what it has
  * finished. Opens its own SessionManager, because createBranchedSession()
@@ -75,7 +84,10 @@ export function forkSessionBranch(
 }
 
 /**
- * The same copy as a side chat (ADR 0007, `lib/side-session.ts`): the metadata
+ * The same copy as a side chat (ADR 0007, `lib/side-session.ts`): the copy ends
+ * at the parent's last ended turn (`sideInheritedLeafId()`) rather than at the
+ * raw leaf, so an inherited turn is never left in flight for the model to
+ * continue. The source file and its wrapper's leaf are untouched. The metadata
  * entry goes directly after the header, where the list's bounded head read
  * finds it, with the first copied entry chained under it, and the hidden
  * boundary message goes last, as the new leaf. A parent reads its tool pin from
@@ -89,7 +101,7 @@ export function createSideSession(
   liveLeafId?: string | null,
   name: string = SIDE_SESSION_NAME,
 ): { sessionId: string; path: string } {
-  const copy = copySessionBranch(sourcePath, liveLeafId, () => name);
+  const copy = copySessionBranch(sourcePath, liveLeafId, () => name, sideInheritedLeafId);
   const [header, first, ...rest] = readFileSync(copy.path, "utf8").trimEnd().split("\n");
   const firstEntry = JSON.parse(first) as { parentId?: string | null };
   const metadata = createSideMetadataEntry(copy.sourceSessionId, `side-${randomUUID()}`, firstEntry.parentId ?? null);
@@ -146,6 +158,7 @@ function copySessionBranch(
   sourcePath: string,
   liveLeafId: string | null | undefined,
   nameFor: (source: SessionManager) => string | undefined,
+  leafFor?: (branch: readonly SessionEntry[], leafId: string) => string,
 ): { sessionId: string; path: string; name: string | undefined; sourceSessionId: string; toolSelection: string[] | undefined } {
   const live = liveLeafId !== undefined;
   // SessionManager.open() of a missing path silently starts an empty session.
@@ -162,7 +175,11 @@ function copySessionBranch(
     throw new SessionForkError("unsaved", "This session has not been saved yet. Send a message before forking it.");
   }
 
-  const branch = manager.getBranch(leafId);
+  let branch = manager.getBranch(leafId);
+  // The cut is another entry on the same parent chain, so reading it again is
+  // enough: nothing is written and the source's own leaf stays where it was.
+  const cutLeafId = leafFor ? leafFor(branch as unknown as SessionEntry[], leafId) : leafId;
+  if (cutLeafId !== leafId) branch = manager.getBranch(cutLeafId);
   // A copy carrying a subagent's metadata would be read as that subagent and
   // folded, out of sight, into its parent's family.
   if (readSubagentRun(branch as unknown as SessionEntry[], "", sourcePath)) {
@@ -181,7 +198,7 @@ function copySessionBranch(
   const name = nameFor(manager);
   const sourceSessionId = manager.getSessionId();
   const toolSelection = readSessionToolSelection(manager.getEntries() as unknown as SessionEntry[]);
-  const path = manager.createBranchedSession(leafId);
+  const path = manager.createBranchedSession(cutLeafId);
   // Appended to the copy's file; a shell-only copy keeps it in memory until
   // it is written below.
   if (name) manager.appendSessionInfo(name);
