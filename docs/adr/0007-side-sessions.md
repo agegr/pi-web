@@ -31,8 +31,11 @@ task or losing the parent's context.
    last user prompt, else the raw leaf), not at a raw leaf: a copy taken mid-run
    would otherwise end on an unanswered prompt or on tool calls without results,
    which the model reads as work to continue, so the side chat kept doing the
-   parent's task instead of answering the question it was asked. Only the copy is
-   cut back; the parent's file and its wrapper's leaf are untouched.
+   parent's task instead of answering the question it was asked. The cut never
+   goes behind the newest `compaction` entry either: cutting at it is the parent's
+   own compacted view, while cutting before it would hand the copy the full
+   pre-compaction history with no summary. Only the copy is cut back; the
+   parent's file and its wrapper's leaf are untouched.
 
 2. **Relation: `{ kind: "side"; parentSessionId }`, hidden like a subagent.** Hidden
    kinds fold into the parent's family: no sidebar row, counted in the Agents badge,

@@ -129,8 +129,19 @@ type SideCutEntry = {
  * if the user stopped it). `error` and `length` are not cut points: a reply the
  * provider errored on, or one cut at the output limit, is continued in the same
  * run (docs/agents/sessions.md, `lib/message-display.ts`), so its turn is still
- * in flight. A `compaction` entry is deliberately not a cut point either: its
- * `firstKeptEntryId` may name an entry a cut before it does not include.
+ * in flight.
+ *
+ * The cut never goes behind the newest `compaction` entry: when that entry is
+ * newer than the candidate, the cut is the compaction itself. Cutting before it
+ * would hand the copy the full pre-compaction history with no summary, which is
+ * the state compaction exists to avoid: the history no longer fits the
+ * window. Cutting at it is safe and the parent's own compacted view: its
+ * `firstKeptEntryId` always names an entry that is an ancestor of the
+ * compaction, and nothing is in flight after it once it is written (pi's
+ * threshold compaction runs after `agent_end` and keeps the completed response;
+ * a manual `/compact` ends the same way). When the compaction is the leaf it is
+ * literally the parent's leaf, so the copy is the parent's; when a turn after it
+ * is in flight, cutting at it still drops that turn while keeping the summary.
  *
  * `branch` is in parent-chain order. With no ended reply, the last user prompt
  * is the fallback, so a parent whose only run never finished still gets the
@@ -138,17 +149,30 @@ type SideCutEntry = {
  * existing refusals decide.
  */
 export function sideInheritedLeafId(branch: readonly SideCutEntry[], leafId: string): string {
+  let cutIndex = -1;
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const entry = branch[index];
     if (entry.type !== "message") continue;
     const message = entry.message;
     if (message?.role === "assistant" && (message.stopReason === "stop" || message.stopReason === "aborted")) {
-      return entry.id;
+      cutIndex = index;
+      break;
     }
   }
-  for (let index = branch.length - 1; index >= 0; index -= 1) {
-    const entry = branch[index];
-    if (entry.type === "message" && entry.message?.role === "user") return entry.id;
+  if (cutIndex < 0) {
+    for (let index = branch.length - 1; index >= 0; index -= 1) {
+      const entry = branch[index];
+      if (entry.type === "message" && entry.message?.role === "user") {
+        cutIndex = index;
+        break;
+      }
+    }
   }
-  return leafId;
+  if (cutIndex < 0) return leafId;
+  // A cut behind the newest compaction would drop its summary, so a cut that
+  // would land there stops at it instead.
+  for (let index = branch.length - 1; index > cutIndex; index -= 1) {
+    if (branch[index].type === "compaction") return branch[index].id;
+  }
+  return branch[cutIndex].id;
 }
