@@ -61,13 +61,18 @@ export function withSafeModelLoadFailure(data: ModelsData): ModelsData {
 export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsData>): Promise<ModelsData> {
   const state = getModelsCacheState();
   const cached = state.entries.get(cwd);
-  if (cached) {
-    if (cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
-    state.entries.delete(cwd);
-  }
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
+
+  // Stale-while-revalidate. A miss rebuilds the whole session service graph
+  // (createAgentSessionServices: every extension, every credential), which takes seconds on
+  // a host where one lstat costs ~1ms, and it holds the event loop, so the rest of the page
+  // load waits behind it. An expired entry that still holds a model list answers as-is while
+  // the rebuild runs in the background. An entry with no models (a failed load) still blocks:
+  // an old good list must not hide a configuration that is broken now.
+  const stale = cached && cached.data.modelList.length > 0 ? cached.data : undefined;
 
   const existingLoad = state.inFlight.get(cwd);
-  if (existingLoad) return existingLoad;
+  if (existingLoad) return stale ? Promise.resolve(stale) : existingLoad;
 
   const generation = state.generation;
   const loadPromise: Promise<ModelsData> = Promise.resolve()
@@ -75,9 +80,10 @@ export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsDat
     .then((data) => {
       if (state.generation === generation && state.inFlight.get(cwd) === loadPromise) {
         const now = Date.now();
-        for (const [key, entry] of state.entries) {
-          if (entry.expiresAt <= now) state.entries.delete(key);
-        }
+        // Expired entries are kept: they are what the next request serves while this rebuild
+        // runs. Re-inserting the refreshed entry moves it to the end, so the cap evicts the
+        // least recently written entry rather than this one.
+        state.entries.delete(cwd);
         while (state.entries.size >= MAX_MODELS_CACHE_ENTRIES) {
           const oldestKey = state.entries.keys().next().value;
           if (oldestKey === undefined) break;
@@ -92,5 +98,10 @@ export function loadModelsWithCache(cwd: string, loader: () => Promise<ModelsDat
     });
 
   state.inFlight.set(cwd, loadPromise);
-  return loadPromise;
+  if (!stale) return loadPromise;
+
+  // Nobody awaits the background rebuild, so a failure must not surface as an unhandled
+  // rejection; the next request retries.
+  void loadPromise.catch(() => {});
+  return Promise.resolve(stale);
 }
