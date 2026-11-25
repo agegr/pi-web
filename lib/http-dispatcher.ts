@@ -8,7 +8,12 @@ import { readRegularFileText } from "./regular-file";
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
 
 type DispatcherGlobal = typeof globalThis & {
-  __piWebHttpDispatcherConfigured?: boolean;
+  __piWebHttpDispatcher?: {
+    dispatcher: undici.EnvHttpProxyAgent;
+    timeoutMs: number;
+    httpProxy?: string;
+    httpsProxy?: string;
+  };
 };
 
 const dispatcherGlobal = globalThis as DispatcherGlobal;
@@ -27,6 +32,24 @@ function parseHttpIdleTimeoutMs(value: unknown): number | undefined {
     return undefined;
   }
   return Math.floor(value);
+}
+
+export function parseHttpProxy(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      // Undici's HTTP proxy client takes an origin.
+      if (url.pathname !== "/" || url.search || url.hash) return undefined;
+    } else if ((url.protocol !== "socks5:" && url.protocol !== "socks:") || !url.hostname) {
+      return undefined;
+    }
+    decodeURIComponent(url.username);
+    decodeURIComponent(url.password);
+    return value.trim();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -58,6 +81,17 @@ function windowsShellPath(path: string): string {
   return `${match[1].toUpperCase()}:\\${match[2]?.replaceAll("/", "\\") ?? ""}`;
 }
 
+function readSettingsFile(agentDir: string): Record<string, unknown> {
+  try {
+    const text = readRegularFileText(join(agentDir, "settings.json"));
+    if (!text) return {};
+    const settings = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+    return settings && typeof settings === "object" ? settings : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * The global `httpIdleTimeoutMs`, read the way the pi CLI reads it, so a Web UI
  * session gets the HTTP idle timeout the user configured instead of the
@@ -70,23 +104,7 @@ function windowsShellPath(path: string): string {
  * default in place.
  */
 export function readHttpIdleTimeoutMs(agentDir: string = defaultAgentDir()): number | undefined {
-  let text: string | undefined;
-  try {
-    text = readRegularFileText(join(agentDir, "settings.json"));
-  } catch {
-    return undefined;
-  }
-  if (text === undefined) return undefined;
-
-  let settings: unknown;
-  try {
-    settings = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
-  } catch {
-    return undefined;
-  }
-  if (typeof settings !== "object" || settings === null) return undefined;
-
-  return parseHttpIdleTimeoutMs((settings as { httpIdleTimeoutMs?: unknown }).httpIdleTimeoutMs);
+  return parseHttpIdleTimeoutMs(readSettingsFile(agentDir).httpIdleTimeoutMs);
 }
 
 // Undici can emit an internal Client error while terminating a response body.
@@ -119,18 +137,68 @@ function createUndiciOriginDispatcher(origin: string | URL, options: object): un
   );
 }
 
+export function configureHttpDispatcherFromSettings(agentDir: string = defaultAgentDir()): void {
+  const settings = readSettingsFile(agentDir);
+  configureHttpDispatcher(
+    parseHttpIdleTimeoutMs(settings.httpIdleTimeoutMs),
+    parseHttpProxy(settings.httpProxy),
+  );
+}
+
 export function configureHttpDispatcher(
   timeoutMs: number = DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+  proxyUrl?: string,
 ): void {
-  if (dispatcherGlobal.__piWebHttpDispatcherConfigured) return;
+  if (dispatcherGlobal.__piWebHttpDispatcher) return;
 
   const normalizedTimeoutMs = parseHttpIdleTimeoutMs(timeoutMs);
   if (normalizedTimeoutMs === undefined) {
     throw new Error(`Invalid HTTP idle timeout: ${String(timeoutMs)}`);
   }
+  installHttpDispatcher(normalizedTimeoutMs, proxyUrl);
+}
+
+/** A replacement dispatcher inherits the timeout chosen at startup. */
+export function setHttpProxy(proxyUrl: string | undefined): void {
+  const proxy = parseHttpProxy(proxyUrl);
+  if (proxy === undefined && proxyUrl?.trim()) throw new Error("Invalid proxy URL");
+  const timeoutMs = dispatcherGlobal.__piWebHttpDispatcher?.timeoutMs
+    ?? readHttpIdleTimeoutMs()
+    ?? DEFAULT_HTTP_IDLE_TIMEOUT_MS;
+  installHttpDispatcher(timeoutMs, proxy);
+}
+
+function proxyForProtocol(variable: "http_proxy" | "https_proxy", proxyUrl?: string) {
+  const upper = variable.toUpperCase();
+  const lowerValue = process.env[variable];
+  const envValue = lowerValue ?? process.env[upper];
+  if (envValue === undefined) return { url: proxyUrl, source: "settings" };
+  // Windows' environment is case-insensitive; use its conventional uppercase label.
+  const source = lowerValue !== undefined && process.platform !== "win32" ? variable : upper;
+  return { url: envValue, source };
+}
+
+export function resolveHttpProxies(proxyUrl?: string) {
+  const http = proxyForProtocol("http_proxy", proxyUrl);
+  const https = proxyForProtocol("https_proxy", proxyUrl);
+  const httpSource = http.url ? http.source : "direct";
+  // EnvHttpProxyAgent falls back to its HTTP agent when the HTTPS URL is empty.
+  return {
+    httpProxy: http.url,
+    httpsProxy: https.url,
+    sources: { http: httpSource, https: https.url ? https.source : httpSource },
+  };
+}
+
+function installHttpDispatcher(normalizedTimeoutMs: number, proxyUrl?: string): void {
+  const { httpProxy, httpsProxy } = resolveHttpProxies(proxyUrl);
+  const previous = dispatcherGlobal.__piWebHttpDispatcher;
+  if (previous && previous.httpProxy === httpProxy && previous.httpsProxy === httpsProxy) return;
 
   const dispatcher = withUndiciErrorListener(
     new undici.EnvHttpProxyAgent({
+      httpProxy,
+      httpsProxy,
       allowH2: false,
       // Reach an http:// origin through a CONNECT tunnel, as the pi SDK's own
       // dispatcher does. A forwarded request is carried by a client that keeps
@@ -150,9 +218,11 @@ export function configureHttpDispatcher(
 
   // Keep fetch and the dispatcher on the same undici implementation. Preserve
   // an intentional fetch override installed after this module was loaded.
-  if (globalThis.fetch === originalGlobalFetch) {
+  if (!previous && globalThis.fetch === originalGlobalFetch) {
     undici.install?.();
   }
+  dispatcherGlobal.__piWebHttpDispatcher = { dispatcher, timeoutMs: normalizedTimeoutMs, httpProxy, httpsProxy };
 
-  dispatcherGlobal.__piWebHttpDispatcherConfigured = true;
+  // close() drains active responses. New fetches already use the new dispatcher.
+  previous?.dispatcher.close().catch((error) => console.warn("Failed to close the previous HTTP dispatcher", error));
 }

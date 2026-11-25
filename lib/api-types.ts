@@ -11,6 +11,12 @@ export interface SubagentSettingsResponse {
   maxConcurrent: number;
 }
 
+export interface HttpProxySettingsResponse {
+  enabled: boolean;
+  displayAddress: string | null;
+  sources: { http: string; https: string };
+}
+
 /** Code mode's one choice (ADR 0006): Automatic writes nothing, Always on adds `+codemode` to the global defaultTools. */
 export type McpCodemodePreference = "automatic" | "always";
 
