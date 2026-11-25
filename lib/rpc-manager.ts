@@ -2649,6 +2649,23 @@ export class AgentSessionWrapper {
     });
   }
 
+  /** Mirror to the direct parent's live UI, never to its transcript or model queue. */
+  private forwardSubagentNotice(message: string, notifyType: "warning" | "error"): void {
+    if (!this._alive) return;
+    const entries = this.inner.sessionManager.getEntries() as unknown as SessionEntry[];
+    const child = readSubagentRun(entries, this.sessionId, this.sessionFile);
+    if (!child || child.parentSessionId === this.sessionId) return;
+    const parent = getRegistry().get(child.parentSessionId);
+    if (!parent?.isAlive()) return;
+    parent.emit({
+      type: "extension_ui_request",
+      id: randomUUID(),
+      method: "notify",
+      message: `${child.profile} (${child.sessionId}): ${message}`,
+      notifyType,
+    } as ExtensionUiRequest as AgentEvent);
+  }
+
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
       select: (title, options, opts) => this.requestExtensionUi(
@@ -2687,6 +2704,7 @@ export class AgentSessionWrapper {
           message,
           notifyType: type,
         } as ExtensionUiRequest as AgentEvent);
+        if (type === "warning" || type === "error") this.forwardSubagentNotice(message, type);
       },
       onTerminalInput: () => () => {},
       setStatus: (key, text) => {
