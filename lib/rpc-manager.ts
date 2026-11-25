@@ -421,6 +421,7 @@ export class AgentSessionWrapper {
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
+  private sessionShutdownHookActive = false;
   private extensionShutdownRequested = false;
   private extensionShutdownComplete = false;
   private forceShutdownOnIdle = false;
@@ -2201,13 +2202,18 @@ export class AgentSessionWrapper {
   ): Promise<void> {
     // A synchronous throw becomes a rejection, and a rejection that arrives
     // after the deadline is still handled by the race.
-    const handled = (async () => {
-      await emit.call(this.inner.extensionRunner, { type: "session_shutdown", reason: "quit" });
-    })();
-    if (await this.raceShutdownDeadline(handled) === "timeout") {
-      console.warn(
-        `[pi-web] extensions did not finish session_shutdown for session ${this.sessionId} within ${SESSION_SHUTDOWN_DEADLINE_MS} ms; disposing it anyway`,
-      );
+    this.sessionShutdownHookActive = true;
+    try {
+      const handled = (async () => {
+        await emit.call(this.inner.extensionRunner, { type: "session_shutdown", reason: "quit" });
+      })();
+      if (await this.raceShutdownDeadline(handled) === "timeout") {
+        console.warn(
+          `[pi-web] extensions did not finish session_shutdown for session ${this.sessionId} within ${SESSION_SHUTDOWN_DEADLINE_MS} ms; disposing it anyway`,
+        );
+      }
+    } finally {
+      this.sessionShutdownHookActive = false;
     }
   }
 
@@ -2651,12 +2657,15 @@ export class AgentSessionWrapper {
 
   /** Mirror to the direct parent's live UI, never to its transcript or model queue. */
   private forwardSubagentNotice(message: string, notifyType: "warning" | "error"): void {
-    if (!this._alive) return;
-    const entries = this.inner.sessionManager.getEntries() as unknown as SessionEntry[];
+    // Direct eviction closes the child's stream before its SDK shutdown hook runs.
+    if (!this._alive && !this.sessionShutdownHookActive) return;
+    const manager = this.inner.sessionManager;
+    const entries = manager.getEntries() as unknown as SessionEntry[];
     const child = readSubagentRun(entries, this.sessionId, this.sessionFile);
     if (!child || child.parentSessionId === this.sessionId) return;
     const parent = getRegistry().get(child.parentSessionId);
-    if (!parent?.isAlive()) return;
+    // A clone retains the subagent entry but its header points to the source child.
+    if (!parent?.isAlive() || manager.getHeader()?.parentSession !== parent.sessionFile) return;
     parent.emit({
       type: "extension_ui_request",
       id: randomUUID(),
