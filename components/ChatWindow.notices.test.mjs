@@ -28,3 +28,21 @@ test("measures the notice line box from the card's own font size and line height
   const card = source.match(/className="notice-shelf-item"[\s\S]*?fontSize: (\d+),\s*lineHeight: ([\d.]+),/);
   assert.equal(Number(card[1]) * Number(card[2]), lineBox);
 });
+
+test("keeps the floating notices above the composer, scrolling when they do not fit (#1780)", () => {
+  // The shelf floats inside the transcript's box, which ends where the composer
+  // starts. Anchored to the whole chat column, a stack of tall notices ran over
+  // the composer on a phone and took its taps.
+  const transcriptBox = source.indexOf('<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">');
+  const shelf = source.indexOf("<NoticeShelf notices={notices} floating");
+  const composer = source.indexOf("{chatInputElement}");
+  assert.ok(transcriptBox !== -1 && shelf > transcriptBox && shelf < composer);
+  const wrapper = source.slice(source.lastIndexOf("<div", shelf), shelf);
+  assert.match(wrapper, /position: "absolute",\s*top: 12,\s*bottom: 12,/);
+
+  // The floating shelf is capped to that box and scrolls; its cards keep their
+  // own height instead of being squeezed to the minimum.
+  const shelfBody = source.slice(source.indexOf("function NoticeShelf("));
+  assert.match(shelfBody, /\.\.\.\(floating \? \{\s*maxHeight: "100%",\s*overflowY: "auto",/);
+  assert.match(shelfBody, /className="notice-shelf-item"[\s\S]*?flexShrink: 0,/);
+});
