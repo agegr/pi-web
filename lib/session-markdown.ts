@@ -2,13 +2,14 @@
 // quotes: the user's messages and each assistant turn's final reply. Tool
 // calls, tool results, thinking, model switches and compaction summaries stay
 // out (the rule the maintainer set in #1716): the quote is the conversation,
-// not the work log that produced it. What the quote keeps in full is the focus:
-// the newest few turns, the part a reader quoting a session usually wants to
-// carry on from. Everything older is condensed to the question that opened each
-// turn, so the model still gets the thread for a fraction of the characters and
-// a long session never floods the message that carries it. The cut works in
-// whole turns, so a question is never kept without the reply it got. Read-only:
-// entries come from a SessionManager, never a running wrapper.
+// not the work log that produced it. A session under the caps is quoted whole.
+// Over them, the quote keeps the focus in full: the newest few turns, the part
+// a reader quoting a session usually wants to carry on from. Everything older
+// is condensed to the question that opened each turn, so the model still gets
+// the thread for a fraction of the characters and a long session never floods
+// the message that carries it. The cut works in whole turns, so a question is
+// never kept without the reply it got. Read-only: entries come from a
+// SessionManager, never a running wrapper.
 
 import type { SessionEntry } from "@/lib/types";
 
@@ -140,6 +141,14 @@ function outlineOf(message: QuotedMessage): string {
   return `${message.label} ${line.length > OUTLINE_MAX_CHARS ? `${line.slice(0, OUTLINE_MAX_CHARS - 1)}…` : line}`;
 }
 
+/** The line where the quote was cut. The count is messages, as the collapsed
+ *  block shows it; it says why they are gone when the earlier turns were
+ *  condensed rather than dropped. Empty when nothing was cut. */
+function noteFor(condensed: boolean, omitted: number): string {
+  if (condensed) return `… earlier turns condensed to their first question${omitted > 0 ? ` (${omitted} messages omitted)` : ""} …`;
+  return omitted > 0 ? `… ${omitted} messages omitted …` : "";
+}
+
 export function sessionToMarkdown(
   entries: SessionEntry[],
   leafId: string | null,
@@ -155,6 +164,13 @@ export function sessionToMarkdown(
     // One message may not outgrow the whole quote.
     return line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line;
   });
+
+  // Under both caps the quote is the whole conversation: the condensing below
+  // is only how an over-long one is cut (#1716).
+  const fullChars = rendered.reduce((sum, line) => sum + line.length, 0) + (rendered.length - 1) * 2;
+  if (messages.length <= maxMessages && fullChars <= maxChars) {
+    return { markdown: rendered.join("\n\n"), messageCount: messages.length, omittedMessages: 0 };
+  }
 
   const turns = turnsOf(messages);
   const focusStart = Math.max(0, turns.length - focusTurns);
@@ -174,17 +190,21 @@ export function sessionToMarkdown(
     const outlineChars = lines.reduce((sum, line) => sum + line.length, 0) + Math.max(0, lines.length - 1);
     const focusChars = focusIndexes.reduce((sum, index) => sum + rendered[index].length, 0)
       + Math.max(0, focusIndexes.length - 1) * 2;
-    const gap = lines.length && focusIndexes.length ? 2 : 0;
-    return { chars: outlineChars + focusChars + gap, messages: lines.length + focusIndexes.length };
+    const kept = lines.length + focusIndexes.length;
+    // The note between the two parts, and the blank lines around it.
+    const note = noteFor(lines.length > 0, messages.length - kept);
+    const pieces = (lines.length ? 1 : 0) + (note ? 1 : 0) + (focusIndexes.length ? 1 : 0);
+    return { chars: outlineChars + focusChars + note.length + Math.max(0, pieces - 1) * 2, messages: kept };
   };
   // Over a cap, the oldest background goes first; only once it is gone does the
-  // oldest focus turn go, and the newest turn always stays whole (each message
-  // was cut to the cap above): cutting into a turn is the one thing this must
-  // not do. Because the background is given up before any focus turn, the gap
+  // oldest focus turn go, and the newest turn is never dropped: its messages are
+  // cut instead, so no reply loses its question. Because the background is given up before any focus turn, the gap
   // the note reports is always at one place: between the two parts.
+  let over = 0;
   for (;;) {
     const { chars, messages: kept } = laidOut();
-    if (kept <= maxMessages && chars <= maxChars) break;
+    over = chars - maxChars;
+    if (kept <= maxMessages && over <= 0) break;
     if (outlineStart < outline.length) outlineStart += 1;
     else if (focusDrop < focus.length - 1) focusDrop += 1;
     else break;
@@ -193,15 +213,22 @@ export function sessionToMarkdown(
   const lines = outline.slice(outlineStart);
   const focusIndexes = focus.slice(focusDrop).flatMap((turn) => turn);
   const omitted = messages.length - lines.length - focusIndexes.length;
+  const note = noteFor(lines.length > 0, omitted);
+  if (over > 0) {
+    // The newest turn alone is over the char cap: its messages share what is
+    // left, the shortest first taking all it needs, so the question and its
+    // reply both stay and the quote still ends inside the cap.
+    let room = maxChars - (focusIndexes.length - 1) * 2 - (note ? note.length + 2 : 0);
+    const shortestFirst = [...focusIndexes].sort((a, b) => rendered[a].length - rendered[b].length);
+    shortestFirst.forEach((index, position) => {
+      const share = Math.max(1, Math.floor(room / (shortestFirst.length - position)));
+      if (rendered[index].length > share) rendered[index] = `${rendered[index].slice(0, share - 1)}…`;
+      room -= rendered[index].length;
+    });
+  }
   const body: string[] = [];
   if (lines.length) body.push(lines.join("\n"));
-  if (lines.length) {
-    // The count is messages, as the collapsed block shows it; the note says why
-    // they are gone when the earlier turns were condensed rather than dropped.
-    body.push(`… earlier turns condensed to their first question${omitted > 0 ? ` (${omitted} messages omitted)` : ""} …`);
-  } else if (omitted > 0) {
-    body.push(`… ${omitted} messages omitted …`);
-  }
+  if (note) body.push(note);
   for (const index of focusIndexes) body.push(rendered[index]);
 
   return {
