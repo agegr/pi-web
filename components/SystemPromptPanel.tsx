@@ -1,4 +1,4 @@
-type Translate = (key: string, params?: Record<string, string | number>) => string;
+import type { Translate } from "@/lib/i18n/types";
 
 interface Props {
   loading: boolean;

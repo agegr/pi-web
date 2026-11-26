@@ -76,8 +76,8 @@ import {
   type DebugTitleOf,
   type DebugTone,
   type DebugVerdict,
-  type Translate,
 } from "./debug-panel-state";
+import type { Translate } from "@/lib/i18n/types";
 
 /**
  * The top bar's Debug panel: how this page talks to the server (its event stream, its lease, the
