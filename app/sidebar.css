@@ -1000,14 +1000,22 @@ a.session-tree-main {
   border-right: 1px solid var(--border);
 }
 
-/* New closes its own left side in both layouts, so New and the search read
-   as two cells, as the chat bar's right-end cell does: the brand before it
-   is no cell. In the tabs layout the tabs fill the row up to New, and its
-   -1px margin lays that line over the last tab's right one, keeping New's
-   footprint (and so the fit levels) what it was without the line. */
+/* After the brand, New closes its own left side, so New and the search read
+   as two cells, as the chat bar's right-end cell does: the brand is no
+   cell. Its -1px margin keeps New's footprint (and so the fit levels) what
+   it is without the line. */
 .sidebar-new-button {
   margin-left: -1px;
   border-left: 1px solid var(--border);
+}
+
+/* In the tabs layout the tabs fill the row up to New, and the last tab's
+   right line is New's left side. A second line laid over it does not stay
+   on it: at a page zoom other than 100% the two snap to different device
+   pixels, and the line reads thicker than the others. */
+.sidebar-tabs-list ~ .sidebar-new-button {
+  margin-left: 0;
+  border-left: 0;
 }
 
 .sidebar-tab-icon {

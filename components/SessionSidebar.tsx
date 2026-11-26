@@ -24,7 +24,6 @@ import {
   keepOutgoingGroupOpen,
   locateSessionRow,
   nextProjectKeysToRecord,
-  noteRunStarts,
   PINNED_MORE_KEY,
   showLessFamilies,
   showMoreFamilies,
@@ -901,7 +900,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     forgetRetiredSidebarKeys();
   }, []);
 
-  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false): Promise<boolean> => {
+  // `alongside` runs in the same render as the new list, when it lands: the
+  // running poll's answer, so the two never show one state each.
+  const loadSessions = useCallback(async (showLoading = false, force = false, summary = false, alongside?: () => void): Promise<boolean> => {
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
@@ -919,6 +920,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       if (loadId !== sessionLoadIdRef.current) return false;
       sessionListVersionRef.current = data.sessionListVersion;
       setAllSessions(data.sessions);
+      alongside?.();
       // A summary row whose file changed since the last scan is the only one
       // without its details; the others were checked against their file's stat.
       const needsDetails = data.sessions.some((session) => session.detailsPending === true);
@@ -1118,9 +1120,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         currentSuppressedCompletionSessionIdsRef.current = new Set(
           data.completionNotificationSuppressedSessionIds ?? [],
         );
-        setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
-        setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
-        setSubagentsActiveSessionIds((previous) => sameIdsOr(previous, data.subagentsActiveSessionIds ?? []));
+        // The answer's running sets, applied with the session list of the same
+        // moment: a run's end comes with a new list version (agent_end), and
+        // shown before that list, the session would be idle with the times
+        // of before its run.
+        let applied = false;
+        const applyRunning = () => {
+          if (applied || stopped || controller !== current) return;
+          applied = true;
+          setRunningSessionIds((previous) => sameIdsOr(previous, data.runningSessionIds ?? []));
+          setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
+          setSubagentsActiveSessionIds((previous) => sameIdsOr(previous, data.subagentsActiveSessionIds ?? []));
+        };
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
         // The first summary may still be in flight (a cold disk): its version is
@@ -1129,8 +1140,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         const summaryInFlight = summaryStartedAt !== null && Date.now() - summaryStartedAt < INITIAL_SUMMARY_WAIT_MS;
         if (!summaryInFlight && data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
-          await loadSessions();
+          await loadSessions(false, false, false, applyRunning);
         }
+        // No list to wait for, or its load failed or was overtaken.
+        applyRunning();
       } catch {
         // Keep the last known state; the next visible-tab poll retries.
         outcome = current.signal.aborted ? "aborted" : "error";
@@ -1659,20 +1672,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     () => effectiveGroupExpansion(groupExpansion, keptOpenGroups),
     [groupExpansion, keptOpenGroups],
   );
-  // The recent list: when the page first saw each run start (a running
-  // family keeps that place for the run, lib/session-tree.ts
-  // recentOrderKey()), noted on every running poll answer whichever list is
-  // shown, so switching to it finds runs in place; and the viewer's day.
-  const runStartsRef = useRef<ReadonlyMap<string, number>>(new Map());
-  const runStartedAt = useMemo(() => {
-    const next = noteRunStarts(runStartsRef.current, runningSessionIds, serverClockRef.current!.toServer());
-    runStartsRef.current = next;
-    return next;
-  }, [runningSessionIds]);
+  // The recent list: the viewer's day and the folded date sections.
   const today = useLocalDayStart();
   const recentList = useMemo<RecentListInput>(
-    () => ({ today, runStartedAt, collapsed: new Set(recentCollapsed) }),
-    [today, runStartedAt, recentCollapsed],
+    () => ({ today, collapsed: new Set(recentCollapsed) }),
+    [today, recentCollapsed],
   );
   const model = useMemo(() => buildSessionTree({
     sessions: allSessions,

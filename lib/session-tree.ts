@@ -18,7 +18,7 @@
  *
  * The recent list (`listMode: "recent"`) shows the same pinned section, then
  * every project's other families in one list, newest first, under date
- * sections (recentOrderKey(), recentSectionOf()).
+ * sections, the running families on top (recentSectionOf(), pushRecentRows()).
  */
 
 import { getSessionFamily, listSessionFamilies, type SessionFamily } from "./session-family";
@@ -107,13 +107,10 @@ export interface SessionTreeInput {
 /**
  * What the recent list needs besides the catalog and the flags. `today` is
  * the start of the viewer's local day (startOfLocalDay()), so the sections
- * follow the viewer's calendar. `runStartedAt` holds, per running session
- * id, when the page first saw that session run (server time, ms): a running
- * family keeps that place for its whole run (recentOrderKey()).
+ * follow the viewer's calendar.
  */
 export interface RecentListInput {
   today: number;
-  runStartedAt: ReadonlyMap<string, number>;
   /** Sections folded to their header. */
   collapsed: ReadonlySet<RecentSection>;
 }
@@ -450,57 +447,19 @@ function localDaysBefore(dayStart: number, days: number): number {
 }
 
 /**
- * Where a family goes in the recent list, newest first. An idle family goes
- * by its activity (`latestModified`, the time its row shows). A running one
- * keeps the place it took when its run started: the earliest time the page
- * saw one of its running members start (`runStartedAt`), else its activity.
- * New messages during the run never move it, so two runs side by side do
- * not trade places under the pointer; it moves to the top once when it
- * starts and once when it ends (its last message is then its activity).
+ * A family's date section in the recent list: a running family is today's,
+ * it is active now; an idle one goes by its activity (`latestModified`, the
+ * time its row shows) against the viewer's local days: today, yesterday, the
+ * 7 days before today (yesterday apart), or earlier. An unparsable time is
+ * earlier.
  */
-export function recentOrderKey(family: SessionFamily, runningIds: ReadonlySet<string>, runStartedAt: ReadonlyMap<string, number>): number {
-  let started = Infinity;
-  for (const id of familyIds(family)) {
-    if (!runningIds.has(id)) continue;
-    const at = runStartedAt.get(id);
-    if (at !== undefined && Number.isFinite(at)) started = Math.min(started, at);
-  }
-  return started === Infinity ? timeOf(family.latestModified) : started;
-}
-
-/**
- * A family's date section in the recent list, by its order key against the
- * viewer's local days: today, yesterday, the 7 days before today (yesterday
- * apart), or earlier. A running family is today's whenever its run started:
- * it is active now. An unparsable time is earlier.
- */
-export function recentSectionOf(key: number, running: boolean, today: number): RecentSection {
-  if (running || key >= today) return "today";
-  if (key >= localDaysBefore(today, 1)) return "yesterday";
-  if (key >= localDaysBefore(today, 7)) return "week";
+export function recentSectionOf(family: SessionFamily, runningIds: ReadonlySet<string>, today: number): RecentSection {
+  if (anyMemberIn(family, runningIds)) return "today";
+  const time = timeOf(family.latestModified);
+  if (time >= today) return "today";
+  if (time >= localDaysBefore(today, 1)) return "yesterday";
+  if (time >= localDaysBefore(today, 7)) return "week";
   return "earlier";
-}
-
-/**
- * The run starts the page has seen, per session id (recentOrderKey()): a
- * session that runs now keeps the time it has, one that has just started
- * takes `now`, and one that no longer runs leaves. Returns `previous`
- * itself while nothing changes. The first answer of a page counts every run
- * as starting then: the page cannot know when a run already under way
- * began, and the tie between them is broken by creation time, never by
- * activity, so they stay put too.
- */
-export function noteRunStarts(
-  previous: ReadonlyMap<string, number>,
-  runningIds: ReadonlySet<string>,
-  now: number,
-): ReadonlyMap<string, number> {
-  let changed = previous.size !== runningIds.size;
-  if (!changed) for (const id of runningIds) if (!previous.has(id)) changed = true;
-  if (!changed) return previous;
-  const next = new Map<string, number>();
-  for (const id of runningIds) next.set(id, previous.get(id) ?? now);
-  return next;
 }
 
 /**
@@ -660,12 +619,20 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
 }
 
 /**
- * The recent list's rows: `families` (live, not pinned, newest first) in
- * recentOrderKey() order, ties by creation time (newest first), then as
- * they came, under one header per date section that has any, a spacer
+ * The recent list's rows: `families` (live, not pinned, newest first), the
+ * running ones on top, under one header per date section that has any (all
+ * of them Today's, recentSectionOf()), a spacer
  * between two sections. A folded section keeps its header, with the counts
  * its dots show. Every family shows: the rows are virtualized, and a date
  * section has no "show more". Returns whether any section was added.
+ *
+ * Running families go by creation time (newest first), never by activity:
+ * their new messages never move them, and two runs never trade places under
+ * the pointer. The others go by activity, then creation time. A family moves
+ * to the top once when its run starts, and once when it ends, to the top of
+ * the idle ones: its last message is then the newest. That needs the list
+ * that has that message with the running set that has the run's end, which
+ * the sidebar applies in one render (its running poll).
  */
 function pushRecentRows(
   rows: SidebarRow[],
@@ -675,11 +642,20 @@ function pushRecentRows(
   projectOf: (family: SessionFamily) => SidebarProject,
 ): boolean {
   const sorted = families
-    .map((family, index) => ({ family, index, key: recentOrderKey(family, input.runningIds, recent.runStartedAt), created: timeOf(family.root.created) }))
-    .sort((a, b) => compareDesc(a.key, b.key) || compareDesc(a.created, b.created) || a.index - b.index);
+    .map((family, index) => ({
+      family,
+      index,
+      running: anyMemberIn(family, input.runningIds),
+      activity: timeOf(family.latestModified),
+      created: timeOf(family.root.created),
+    }))
+    .sort((a, b) => Number(b.running) - Number(a.running)
+      || (a.running ? 0 : compareDesc(a.activity, b.activity))
+      || compareDesc(a.created, b.created)
+      || a.index - b.index);
   const bySection = new Map<RecentSection, SessionFamily[]>();
-  for (const { family, key } of sorted) {
-    const section = recentSectionOf(key, anyMemberIn(family, input.runningIds), recent.today);
+  for (const { family } of sorted) {
+    const section = recentSectionOf(family, input.runningIds, recent.today);
     const list = bySection.get(section);
     if (list) list.push(family);
     else bySection.set(section, [family]);
@@ -1121,7 +1097,7 @@ export function locateSessionRow(
   }
   const recent = input.listMode === "recent" ? input.recent : undefined;
   if (recent) {
-    const section = recentSectionOf(recentOrderKey(family, input.runningIds, recent.runStartedAt), anyMemberIn(family, input.runningIds), recent.today);
+    const section = recentSectionOf(family, input.runningIds, recent.today);
     return { rowKey: `session:recent:${family.root.id}`, projectKey, unfoldPinned: false, unfoldGroup: false, unfoldRecent: recent.collapsed.has(section) ? section : null };
   }
   const unfoldGroup = Object.hasOwn(input.groupExpansion, projectKey) && input.groupExpansion[projectKey] === false;
