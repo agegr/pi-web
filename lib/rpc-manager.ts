@@ -3105,6 +3105,16 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
 }
 
 /**
+ * The session's wrapper while it is alive, for reads that should come from its in-memory
+ * `SessionManager` rather than the file. A closing wrapper is left out: its replacement may
+ * already be reading the file.
+ */
+export function getLiveRpcSession(sessionId: string): AgentSessionWrapper | undefined {
+  const rpc = getRpcSession(sessionId);
+  return rpc?.isAlive() ? rpc : undefined;
+}
+
+/**
  * The sidebar's rename (#1388). A session a wrapper holds is renamed through
  * `AgentSession.setSessionName()`, as pi's `/name`, so the `session_info` entry hangs off the live
  * leaf and extensions get `session_info_changed`; appended to the file from outside, it was a dead
