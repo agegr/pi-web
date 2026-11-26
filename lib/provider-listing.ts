@@ -51,6 +51,13 @@ export interface ApiKeyProviderListing {
   displayName: string;
   configured: boolean;
   source?: string;
+  /**
+   * True when auth.json holds an API key for this provider that does not
+   * resolve, e.g. a failing `!command` key: pi reports it as not configured,
+   * yet it owns the provider until removed (pi's `/login` shows "stored key did
+   * not resolve").
+   */
+  unresolved?: true;
   modelCount: number;
   /** True when the same provider can also be authenticated with OAuth. */
   supportsOAuth: boolean;
@@ -93,11 +100,17 @@ export function buildApiKeyProviderList(
     if (provider.status.source && CUSTOM_PROVIDER_SOURCES.has(provider.status.source)) continue;
 
     const configured = provider.status.configured && provider.credentialType !== "oauth";
+    // pi reports a stored credential that does not resolve as `{ configured:
+    // false, source: "stored" }` (pi #12164).
+    const unresolved = !provider.status.configured
+      && provider.status.source === "stored"
+      && provider.credentialType === "api_key";
     result.push({
       id: provider.id,
       displayName: provider.name,
       configured,
       ...(configured && provider.status.source ? { source: provider.status.source } : {}),
+      ...(unresolved ? { unresolved: true as const } : {}),
       modelCount: provider.modelCount,
       supportsOAuth: provider.hasOAuth,
     });
