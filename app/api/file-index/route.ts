@@ -58,7 +58,9 @@ async function listWithGit(cwd: string): Promise<FileListing | null> {
       ["-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
       { timeout: 10_000, maxBuffer: 64 * 1024 * 1024, env: projectGitEnvironment() },
     );
-    const all = stdout.split("\0").filter(Boolean);
+    // --cached lists a path once per index stage, so a file in a merge conflict
+    // would show two or three times.
+    const all = [...new Set(stdout.split("\0").filter(Boolean))];
     if (all.length > GIT_HARD_CAP) {
       return { files: all.slice(0, GIT_HARD_CAP), hardTruncated: true };
     }
