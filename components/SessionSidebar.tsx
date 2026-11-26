@@ -24,9 +24,14 @@ import {
   keepOutgoingGroupOpen,
   locateSessionRow,
   nextProjectKeysToRecord,
+  noteRunStarts,
   PINNED_MORE_KEY,
   showLessFamilies,
   showMoreFamilies,
+  startOfLocalDay,
+  type RecentListInput,
+  type RecentSection,
+  type SidebarListMode,
   type SidebarProject,
   type SidebarRow,
 } from "@/lib/session-tree";
@@ -35,15 +40,19 @@ import {
   loadArchiveCollapsed,
   loadFilesCollapsed,
   loadGroupExpansion,
+  loadListMode,
   loadNonGitCwds,
   loadPinnedCollapsed,
+  loadRecentCollapsed,
   loadShowIgnoredFiles,
   loadSidebarTab,
   rememberCwdGitStatus,
   saveArchiveCollapsed,
   saveFilesCollapsed,
   saveGroupExpansion,
+  saveListMode,
   savePinnedCollapsed,
+  saveRecentCollapsed,
   saveShowIgnoredFiles,
   saveSidebarTab,
   type SidebarTab,
@@ -114,6 +123,7 @@ import {
   ChangesIcon,
   CheckIcon,
   ChevronIcon,
+  ClockIcon,
   DotIcon,
   DotOutlineIcon,
   EyeIcon,
@@ -517,6 +527,35 @@ function useHeaderFit(ref: RefObject<HTMLElement | null>, labels: string): () =>
   return fit;
 }
 
+/**
+ * The start of the viewer's local day (lib/session-tree.ts
+ * startOfLocalDay()), moved on just after local midnight, and again when the
+ * page is shown: a sleeping laptop's timer may fire late or not at all.
+ */
+function useLocalDayStart(): number {
+  const [day, setDay] = useState(() => startOfLocalDay(Date.now()));
+  useEffect(() => {
+    let timer: number | undefined;
+    const update = () => {
+      const now = Date.now();
+      const start = startOfLocalDay(now);
+      setDay(start);
+      const tomorrow = new Date(start);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(update, tomorrow.getTime() - now + 1000);
+    };
+    update();
+    const onVisible = () => { if (document.visibilityState === "visible") update(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+  return day;
+}
+
 /** A menu placed below (or above) a button, lined up with one of its edges. */
 function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenuAnchor {
   const rect = element.getBoundingClientRect();
@@ -627,6 +666,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   const [keptOpenGroups, setKeptOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [moreShown, setMoreShown] = useState<Readonly<Record<string, number>>>({});
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  // The list by project (groups) or by date across projects, and the date
+  // sections folded there; both per browser.
+  const [listMode, setListMode] = useState<SidebarListMode>("projects");
+  const [recentCollapsed, setRecentCollapsed] = useState<readonly RecentSection[]>([]);
   // True once the mount effect below has put the browser's folds back: set
   // in the same batch, so a render that has it has them too.
   const [sidebarPrefsRestored, setSidebarPrefsRestored] = useState(false);
@@ -844,6 +887,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     const groups = loadGroupExpansion();
     if (Object.keys(groups).length > 0) setGroupExpansion(groups);
     if (loadPinnedCollapsed()) setPinnedCollapsed(true);
+    if (loadListMode() === "recent") setListMode("recent");
+    const recentFolds = loadRecentCollapsed();
+    if (recentFolds.length > 0) setRecentCollapsed(recentFolds);
     const archiveFolds = loadArchiveCollapsed();
     if (archiveFolds.length > 0) setArchiveCollapsed(archiveFolds);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
@@ -1600,6 +1646,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     () => effectiveGroupExpansion(groupExpansion, keptOpenGroups),
     [groupExpansion, keptOpenGroups],
   );
+  // The recent list: when the page first saw each run start (a running
+  // family keeps that place for the run, lib/session-tree.ts
+  // recentOrderKey()), noted on every running poll answer whichever list is
+  // shown, so switching to it finds runs in place; and the viewer's day.
+  const runStartsRef = useRef<ReadonlyMap<string, number>>(new Map());
+  const runStartedAt = useMemo(() => {
+    const next = noteRunStarts(runStartsRef.current, runningSessionIds, serverClockRef.current!.toServer());
+    runStartsRef.current = next;
+    return next;
+  }, [runningSessionIds]);
+  const today = useLocalDayStart();
+  const recentList = useMemo<RecentListInput>(
+    () => ({ today, runStartedAt, collapsed: new Set(recentCollapsed) }),
+    [today, runStartedAt, recentCollapsed],
+  );
   const model = useMemo(() => buildSessionTree({
     sessions: allSessions,
     uiState,
@@ -1611,7 +1672,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     groupExpansion: shownGroupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+    listMode,
+    recent: recentList,
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, listMode, recentList]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -1727,11 +1790,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     [],
   );
 
-  // A family's row where the tree shows it now (pinned, in its group, or in
-  // the open archive view), else the selected tab.
+  // A family's row where the tree shows it now (pinned, in its group, in the
+  // recent list, or in the open archive view), else the selected tab.
   const familyRowButton = useCallback((rootId: string): HTMLElement | null => {
     const panel = sessionsPanelRef.current;
-    for (const context of ["pinned", "group", "archive"]) {
+    for (const context of ["pinned", "group", "recent", "archive"]) {
       const key = CSS.escape(`session:${context}:${rootId}`);
       const button = panel?.querySelector<HTMLElement>(`[data-row-key="${key}"] .session-tree-main`);
       if (button && button.getClientRects().length > 0) return button;
@@ -2123,11 +2186,19 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       runningIds: runningSessionIds,
       groupExpansion: shownGroupExpansion,
       pinnedCollapsed,
+      listMode,
+      recent: recentList,
     }, sessionId);
     if (!location) return;
     if (location.unfoldPinned) {
       setPinnedCollapsed(false);
       savePinnedCollapsed(false);
+    }
+    const unfoldRecent = location.unfoldRecent;
+    if (unfoldRecent) {
+      const next = recentCollapsed.filter((section) => section !== unfoldRecent);
+      setRecentCollapsed(next);
+      saveRecentCollapsed(next);
     }
     if (location.unfoldGroup) {
       const next = { ...groupExpansion };
@@ -2144,7 +2215,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       block: "nearest",
       ...(focus?.sessionId === sessionId ? { takeFocusFrom: focus.takeFocusFrom } : {}),
     });
-  }, [selectedSessionId, allSessions, uiState, runningSessionIds, shownGroupExpansion, groupExpansion, pinnedCollapsed, loading, uiStateLoaded, sidebarPrefsRestored, mainTreeShown, saveGroupChoices]);
+  }, [selectedSessionId, allSessions, uiState, runningSessionIds, shownGroupExpansion, groupExpansion, pinnedCollapsed, listMode, recentList, recentCollapsed, loading, uiStateLoaded, sidebarPrefsRestored, mainTreeShown, saveGroupChoices]);
 
   // Fork (the row menu's F): the server copies the family's current branch
   // into a new session beside it (POST /api/sessions/[id]/fork) and leaves
@@ -2510,6 +2581,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   const handleShowLess = useCallback((key: string) => {
     setMoreShown((prev) => showLessFamilies(prev, key));
   }, []);
+
+  // The toolbar's Sort by date: the list switches between project groups and
+  // the recent list, and the open session's row is brought into view in the
+  // list it switched to, as when it was opened. Its cell is always there, so
+  // the row's widths never change with the view: on the files tab or over
+  // the archive view it shows the session list, as the recent one (as the
+  // search opens the sessions' where the files have none to offer).
+  const handleToggleListMode = () => {
+    const listInView = (stacked || sidebarTab === "sessions") && !archiveView;
+    const next: SidebarListMode = listInView && listMode === "recent" ? "projects" : "recent";
+    if (!listInView) {
+      switchTab("sessions");
+      if (archiveView) setArchiveView(false);
+    }
+    setListMode(next);
+    saveListMode(next);
+    openRevealRef.current = selectedSessionId;
+  };
+  const handleToggleRecentSection = (section: RecentSection) => {
+    const next = recentCollapsed.includes(section)
+      ? recentCollapsed.filter((item) => item !== section)
+      : [...recentCollapsed, section];
+    setRecentCollapsed(next);
+    saveRecentCollapsed(next);
+  };
 
   const handleTogglePinned = () => {
     const next = !pinnedCollapsed;
@@ -2879,6 +2975,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     onShowMore: handleShowMore,
     onShowLess: handleShowLess,
     onTogglePinned: handleTogglePinned,
+    onToggleRecentSection: handleToggleRecentSection,
     onArchiveFamily: archiveFamily,
     onRestoreFamily: restoreFamily,
     onOpenRowMenu: openRowMenu,
@@ -2930,6 +3027,9 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   // sessions' search alone; the files section's header has the files'.
   const sessionsShown = stacked || sidebarTab === "sessions";
   const searchesFiles = !stacked && sidebarTab === "files" && explorerCwd !== null;
+  // Sort by date is pressed while the recent list is in view: not on the
+  // files tab, nor under the archive view.
+  const listModePressed = listMode === "recent" && sessionsShown && !archiveView;
   // What the toolbar row's widths depend on: New's label, and the tabs (the
   // chosen tab's label is bolder, the files tab carries the count). The
   // brand's text reports its own changes (fitHeader).
@@ -3067,10 +3167,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       )}
       {/* One toolbar row, in the cells of the chat's top bar beside it (its
           line continues that bar's): Sessions | Files, then New and the
-          search of the tab in view. Only the two tabs are the tablist. With
-          the files below the sessions there is nothing to choose: the brand
-          stands there (the panel's anchor, the versions on a click), and
-          the search is the sessions'. */}
+          search of the tab in view, then Sort by date, always there. Only the two tabs are the tablist. With the files
+          below the sessions there is nothing to choose: the brand stands
+          there (the panel's anchor, the versions on a click), and the
+          search is the sessions'. */}
       <div ref={headerRef} className="sidebar-header">
         {stacked && <PiWebTitle onWidthChange={fitHeader} />}
         {!stacked && (
@@ -3144,6 +3244,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
           className={`sidebar-search-toggle${(searchesFiles ? fileSearchOpen : sessionSearchOpen) ? " is-active" : ""}`}
         >
           <SearchIcon size={16} />
+        </button>
+        <button
+          type="button"
+          className={`sidebar-search-toggle sidebar-list-mode-toggle${listModePressed ? " is-active" : ""}`}
+          aria-pressed={listModePressed}
+          aria-label={t("sidebar.listRecent")}
+          title={t("sidebar.listRecent")}
+          onClick={handleToggleListMode}
+        >
+          <ClockIcon size={15} />
         </button>
       </div>
 
