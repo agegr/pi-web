@@ -9,11 +9,10 @@ import {
   type CacheMissSummary,
   type TranscriptNotice,
 } from "@/lib/transcript-notices";
+import type { Translate } from "@/lib/i18n/types";
 
 // pi's TUI draws these lines in its warning color, cache warming dim (#1265).
 export const TRANSCRIPT_NOTICE_WARNING_COLOR = "#d97706";
-
-type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 function costSuffix(t: Translate, cost: number): string {
   const formatted = formatNoticeCost(cost);

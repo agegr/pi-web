@@ -6,6 +6,7 @@ import {
   type ModelCatalogEntry,
 } from "@/lib/model-catalog";
 import { createRefreshingCache } from "@/lib/refreshing-cache";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,6 @@ export async function GET(req: Request) {
     const recommendation = recommendModelCatalogPreset(entries, query, provider, baseUrl);
     return NextResponse.json({ models, recommendation, source: MODELS_DEV_URL });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 502 });
   }
 }

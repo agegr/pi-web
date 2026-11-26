@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { fileManagerPlatform, isFileManagerSupported, isLoopbackHost, launchFileManager } from "@/lib/open-in-file-manager";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -47,6 +48,6 @@ export async function POST(request: Request) {
     await launchFileManager(target);
     return NextResponse.json({ opened: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

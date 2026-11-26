@@ -4,12 +4,10 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { stripJsonComments } from "./jsonc";
 import { invalidateModelsCache } from "./models-cache";
+import { isRecord } from "./is-record";
+import { errorMessage } from "./errors";
 
 const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function normalizeModelCost(value: unknown): Record<string, unknown> | undefined {
   if (!isRecord(value)) return undefined;
@@ -89,7 +87,7 @@ export function readModelsConfig(
     parsed = JSON.parse(stripJsonComments(content));
   } catch (error) {
     throw new ModelsConfigReadError(
-      `Failed to read ${modelsPath}: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to read ${modelsPath}: ${errorMessage(error)}`,
     );
   }
   if (!isRecord(parsed)) {

@@ -16,6 +16,7 @@ import { ActivitySummary } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import { BranchIcon, ChevronIcon, FolderIcon, FolderPlusIcon, PlusIcon, TrashIcon } from "./SidebarIcons";
 import { WorktreeCreateForm } from "./WorktreeCreateForm";
+import { errorMessage } from "@/lib/errors";
 
 /** The picker's two controls. A pick names the one it came from. */
 export type ProjectWorktreeControl = "project" | "worktree";
@@ -311,7 +312,7 @@ export function ProjectWorktreePicker({
     try {
       result = await onCreateWorktree(project, branch);
     } catch (e) {
-      result = { error: e instanceof Error ? e.message : String(e) };
+      result = { error: errorMessage(e) };
     }
     if (!mountedRef.current) return;
     if ("error" in result) {
@@ -338,7 +339,7 @@ export function ProjectWorktreePicker({
     try {
       result = await onRemoveWorktree(project, worktree.path, force);
     } catch (e) {
-      result = { error: e instanceof Error ? e.message : String(e) };
+      result = { error: errorMessage(e) };
     }
     if (!mountedRef.current) return;
     updateMenu(id, (menuState) => {

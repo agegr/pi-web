@@ -1,5 +1,5 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { CONFIG_DIR_NAME, type McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type {
   CodemodeSandboxStatus,
@@ -40,10 +40,12 @@ import { maskArgs, maskCommand, maskUrl } from "./mcp-secrets";
 import { mcpOAuthStoreKeys } from "./mcp-sign-out";
 import { readMcpHostInactive, withMcpStatuses } from "./mcp-status";
 import { findWebPasswordField, resolvedConfigValues, WEB_PASSWORD_VARIABLE } from "./mcp-transport";
-import { samePath } from "./paths";
+import { realPathOrResolved, samePath } from "./paths";
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
 import { loadPiSdkInternals, type PiSdkInternals } from "./pi-sdk-internals";
 import { freshFolderTrustBreadth, getProjectTrustStatus, hasTrustRelevantEntries } from "./project-trust";
+import { errorCode, errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 // What Settings › MCP and the trust dialog list (ADR 0006): the entries of the
 // global `mcp.json` and of a project's `.pi/mcp.json`, read from the files
@@ -92,26 +94,6 @@ export const PROJECT_MCP_CONFIG_MAX_BYTES = 1024 * 1024;
 export const MCP_PROJECT_MAX_SERVERS = 200;
 /** Windows defines neither flag; it has no FIFOs, and the real-path check still refuses a link that leads outside. */
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK || 0) | (constants.O_NOFOLLOW || 0);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
-}
-
-function realPathOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
 
 function problem(info: McpConfigFileInfo, reason: McpConfigFileProblem["reason"], error: string): void {
   info.problems.push({ reason, error });
@@ -183,7 +165,7 @@ function readGlobalFile(agentDir: string): { info: McpConfigFileInfo; text?: str
     }
     return { info };
   }
-  if (!samePath(realPath, join(realPathOr(agentDir), "mcp.json"))) info.realPath = realPath;
+  if (!samePath(realPath, join(realPathOrResolved(agentDir), "mcp.json"))) info.realPath = realPath;
   return { info, text: readResolvedFile(realPath, info, undefined) };
 }
 
@@ -275,7 +257,7 @@ function readProjectFile(cwd: string, allowedRoots: Set<string>): { info: McpCon
   const info: McpConfigFileInfo = { scope: "project", path: location.path, exists: false, problems: [] };
   if (location.kind === "missing") return { info };
   const realPath = location.realPath;
-  if (realPath !== undefined && !samePath(realPath, join(realPathOr(cwd), CONFIG_DIR_NAME, "mcp.json"))) info.realPath = realPath;
+  if (realPath !== undefined && !samePath(realPath, join(realPathOrResolved(cwd), CONFIG_DIR_NAME, "mcp.json"))) info.realPath = realPath;
   if (location.kind === "refused") {
     info.exists = true;
     problem(info, location.reason, location.error);

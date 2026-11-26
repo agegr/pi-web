@@ -1211,6 +1211,16 @@ pre, code {
   font-weight: inherit;
 }
 
+/* Each transcript row is its own block formatting context, so its children's
+   margins stay inside it whether hooks/useSkipOffscreenRows.ts skips it or not
+   (#1808). In a layer under the utilities and with no specificity: a row's own
+   display (inline `flex`, a `flex` or `hidden` class) wins. */
+@layer components {
+  :where(.transcript-rows) > :where(*) {
+    display: flow-root;
+  }
+}
+
 /* react-markdown output styles */
 .chat-content {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);

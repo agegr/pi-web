@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { getGlobalSettingsPath, readGlobalSettings, updateGlobalSettings } from "@/lib/global-settings-file";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ async function readEnabled(): Promise<boolean> {
 }
 
 function errorResponse(error: unknown) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
 }
 
 export async function GET() {

@@ -2,6 +2,7 @@
 
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
+import { MentionIcon } from "./SidebarIcons";
 import { DismissButton } from "./DismissButton";
 import {
   encodeFilePathForApi,
@@ -20,8 +21,8 @@ import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
 import { loadChangesViewMode, saveChangesViewMode, type ChangesViewMode } from "@/lib/sidebar-prefs";
 import { droppedItems } from "@/hooks/useDragDrop";
 import { useI18n } from "@/hooks/useI18n";
-type Translate = ReturnType<typeof useI18n>["t"];
-
+import type { Translate } from "@/lib/i18n/types";
+import { errorMessage } from "@/lib/errors";
 /** Why a listed entry is normally left out; only listings with `hidden=1` report it. */
 type HiddenReason = Exclude<FileTreeHiddenReason, "always">;
 
@@ -176,15 +177,6 @@ function GitStatusBadge({ status, t }: { status: GitFileStatus; t: Translate }) 
   );
 }
 
-function MentionIcon({ size = 11 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
-  );
-}
-
 function OutsideLinkIcon({ size = 11 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -280,7 +272,7 @@ export function TreeNode({
       setChildren(entries);
       setLoaded(true);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -339,7 +331,7 @@ export function TreeNode({
       setAllowedLinkTarget(pendingLinkTarget);
       await loadChildren(true);
     } catch (error) {
-      setAllowLinkError(error instanceof Error ? error.message : String(error));
+      setAllowLinkError(errorMessage(error));
     } finally {
       setAllowingLink(false);
     }
@@ -1069,7 +1061,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setUploadProgress(100);
       applyUploadResult(data, directory);
     } catch (uploadFailure) {
-      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      setUploadError(errorMessage(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
@@ -1108,7 +1100,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
       await performUpload(files, "error", directory);
     } catch (uploadFailure) {
-      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      setUploadError(errorMessage(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
@@ -1223,7 +1215,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     let cancelled = false;
     fetchEntries(cwd, showHidden)
       .then((entries) => { if (!cancelled) setRoots(entries); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .catch((e) => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [cwd, refreshKey, treeRefreshKey, showHidden]);

@@ -11,7 +11,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantAborted, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
 import { stripAnsi } from "@/lib/ansi";
-import { formatTurnDuration } from "@/lib/turn-duration";
+import { formatTurnDuration, recordedMs } from "@/lib/turn-duration";
 import { toolClockMs, type ToolClock, type ToolClocks } from "@/lib/tool-clock";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffCell, type SplitDiffFile, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import { editPreviewFile } from "@/lib/edit-preview";
@@ -44,6 +44,8 @@ import type {
   ToolCallContent,
   ThinkingContent,
 } from "@/lib/types";
+import { isRecord } from "@/lib/is-record";
+import { errorMessage } from "@/lib/errors";
 
 // CJK chars ~1 token each (GLM/DeepSeek/GPT-o200k); other chars ~4 chars/token.
 const CJK_PATTERN = /[\u3000-\u30ff\u3400-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\uac00-\ud7af]/u;
@@ -773,7 +775,7 @@ function AssistantMessageView({
   // Thinking duration of a completed message: the whole response's generation time, which pi
   // records since 1.1 (`durationMs`, from the request's start). Older messages only have
   // timestamps: the time since the previous message.
-  const messageDurationMs = message.role === "assistant" ? recordedDurationMs(message.durationMs) : undefined;
+  const messageDurationMs = message.role === "assistant" ? recordedMs(message.durationMs) : undefined;
   const thinkingDurationFromFile = useMemo<number | undefined>(() => {
     const ms = messageDurationMs ?? (message.timestamp && prevTimestamp ? message.timestamp - prevTimestamp : undefined);
     if (ms === undefined) return undefined;
@@ -788,7 +790,7 @@ function AssistantMessageView({
     const map = new Map<string, number>();
     if (!toolResults) return map;
     for (const [callId, result] of toolResults) {
-      const ms = recordedDurationMs(result.durationMs)
+      const ms = recordedMs(result.durationMs)
         ?? (result.timestamp && message.timestamp ? result.timestamp - message.timestamp : undefined);
       if (ms !== undefined && ms >= TOOL_DURATION_MIN_MS) map.set(callId, ms);
     }
@@ -1107,7 +1109,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex 
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errorMessage(err));
           setLoading(false);
         }
       });
@@ -1181,11 +1183,6 @@ function isSubagentToolDetails(value: unknown): value is SubagentToolDetails {
   if (!value || typeof value !== "object") return false;
   const details = value as Partial<SubagentToolDetails>;
   return details.kind === "pi-web-subagent" && typeof details.sessionId === "string";
-}
-
-/** A duration pi recorded on a message, or undefined when there is none to trust. */
-function recordedDurationMs(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 /** Below this a tool card shows no time: it would read 0.0s on every quick read or search. */
@@ -1284,6 +1281,7 @@ function ToolCallBlock({ block, result, notRun, duration, clock, onOpenSubagent,
   const isError = (result?.isError ?? false)
     || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+  const imageUnsupportedBy = readImageUnsupportedModel(block.toolName, result?.details);
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
 
   return (
@@ -1398,6 +1396,23 @@ function ToolCallBlock({ block, result, notRun, duration, clock, onOpenSubagent,
 
       {/* ── Result images — always visible, independent of the collapsed details ── */}
       {resultImages.length > 0 && <ResultImages images={resultImages} isError={isError} />}
+
+      {/* ── The model saw a placeholder for the image above: shown collapsed too, as pi's TUI does ── */}
+      {imageUnsupportedBy && (
+        <div
+          data-image-unsupported-notice
+          style={{
+            padding: "6px 10px",
+            color: TRANSCRIPT_NOTICE_WARNING_COLOR,
+            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+            lineHeight: 1.5,
+            background: "var(--bg)",
+            borderTop: "1px solid rgba(34,197,94,0.15)",
+          }}
+        >
+          {t("chat.readImageUnsupported", { model: imageUnsupportedBy })}
+        </div>
+      )}
 
       {/* ── Expanded: a pending edit's diff, from its arguments ── */}
       {editPreview && (
@@ -1799,8 +1814,15 @@ function singlePatchPath(text: string | undefined): string | null {
   return files?.length === 1 ? stackedFilePath(files[0]) || null : null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+/**
+ * The model a `read` result says saw a placeholder instead of its image. pi 1.6 keeps this out of the
+ * content the model gets and records it in `details.imageUnsupportedByModel` (#12131); its TUI read
+ * renderer draws it under the card, collapsed or not.
+ */
+export function readImageUnsupportedModel(toolName: string, details: unknown): string | null {
+  if (toolName !== "read" || !isRecord(details)) return null;
+  const model = details.imageUnsupportedByModel;
+  return typeof model === "string" && model !== "" ? model : null;
 }
 
 function ResultImages({ images, isError }: { images: ImageContent[]; isError: boolean }) {
@@ -2448,8 +2470,10 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
     </div>
   ) : null;
 
+  // No top margin: transcript rows keep their margins inside (useSkipOffscreenRows),
+  // so the row above already ends in its gap.
   return (
-    <div style={{ margin: "6px 0" }}>
+    <div style={{ marginBottom: 6 }}>
       <ToolCallBlock block={block} result={result} resultFooter={fullOutputFooter} />
     </div>
   );

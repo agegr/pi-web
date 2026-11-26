@@ -70,7 +70,8 @@ function getSnapshot(): ChatAppearance {
   return appearance;
 }
 
-function subscribe(listener: () => void): () => void {
+/** Also used by the transcript's skipped rows: a new font size leaves them sized for the old one. */
+export function subscribeChatAppearance(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
@@ -94,6 +95,6 @@ const setWidth = (value: number) => setPreference("width", value);
 const setFontSize = (value: number) => setPreference("fontSize", value);
 
 export function useChatAppearance() {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_APPEARANCE);
+  const snapshot = useSyncExternalStore(subscribeChatAppearance, getSnapshot, () => DEFAULT_APPEARANCE);
   return { ...snapshot, setWidth, setFontSize };
 }

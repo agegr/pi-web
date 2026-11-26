@@ -22,7 +22,7 @@ import {
 } from "./mcp-import-core";
 import { type EntryOutcome, readJsonServers } from "./mcp-import-json";
 import { readLink } from "./mcp-import-links";
-import { literalSecretFields, maskArgs } from "./mcp-secrets";
+import { AUTHORIZATION_SCHEME, literalSecretFields, maskArgs } from "./mcp-secrets";
 import { splitShellWords, type ShellWordsError } from "./shell-words";
 
 /**
@@ -57,6 +57,7 @@ import { splitShellWords, type ShellWordsError } from "./shell-words";
 
 export * from "./mcp-import-core";
 export { decodeBase64Utf8 } from "./mcp-import-links";
+import { errorMessage } from "./errors";
 
 type ReadResult = { entries: EntryOutcome[]; notes: McpImportNote[] } | { error: McpImportNote };
 
@@ -96,7 +97,7 @@ function readJsonPaste(input: string, rawPi: boolean): ReadResult {
     try {
       value = parseJsonc(`{${input.replace(/,\s*$/, "")}}`);
     } catch {
-      return { error: { code: "invalid-json", params: { detail: error instanceof Error ? error.message : String(error) } } };
+      return { error: { code: "invalid-json", params: { detail: errorMessage(error) } } };
     }
   }
   return readJsonServers(value, rawPi);
@@ -330,9 +331,6 @@ export function referenceableLiteralSecrets(server: McpImportServer): string[] {
 function referenceNameProblem(given: unknown): "missing" | "name" {
   return typeof given === "string" && given.trim() === "" ? "missing" : "name";
 }
-
-/** An authorization scheme a header value starts with; a stored reference keeps it (`Bearer ${TOKEN}`). */
-const AUTHORIZATION_SCHEME = /^(?:bearer|basic|token)\s+/i;
 
 /**
  * The server's config with the user's values filled in. Values typed into a

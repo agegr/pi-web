@@ -4,6 +4,7 @@ import path from "path";
 import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
 import { getGitFileDiff } from "@/lib/git-changes";
 import { hasParentDirectorySegment } from "@/lib/path-security";
+import { errorMessage } from "@/lib/errors";
 
 function isDiffPathAllowed(filePath: string, allowedRoots: Set<string>): boolean {
   if (hasParentDirectorySegment(filePath)) return false;
@@ -47,6 +48,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(await getGitFileDiff(cwd, filePath));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

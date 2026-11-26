@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSessionEntries, resolveSessionPath } from "@/lib/session-reader";
+import { readSessionEntryById } from "@/lib/session-entry-read";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "@/lib/tool-result-images";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { isRecord } from "@/lib/is-record";
 
 function readBase64Image(block: unknown): { data: string; mime: string } | null {
   if (!isRecord(block) || block.type !== "image") return null;
@@ -53,10 +50,10 @@ export async function GET(
   }
 
   try {
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    const read = await readSessionEntryById(id, entryId);
+    if (!read) return NextResponse.json({ error: "Session not found" }, { status: 404 });
 
-    const entry = getSessionEntries(filePath).find((candidate) => candidate.id === entryId);
+    const { entry } = read;
     if (!entry || entry.type !== "message" || entry.message.role !== "toolResult") {
       return NextResponse.json({ error: "Tool result not found" }, { status: 404 });
     }

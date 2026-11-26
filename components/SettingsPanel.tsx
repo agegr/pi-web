@@ -40,6 +40,7 @@ import { ConfigButton, ConfigDetailNavigationContext, ConfigSwitch, type ConfigD
 import { FontSettings } from "./FontSettings";
 import { HttpProxyForm } from "./HttpProxyForm";
 import { readJsonOrThrow } from "@/lib/fetch-json";
+import { errorMessage } from "@/lib/errors";
 
 interface Props {
   cwd: string | null;
@@ -81,6 +82,12 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
 }
 
+type SteeringMode = "one-at-a-time" | "all";
+const STEERING_MODES = [
+  ["one-at-a-time", "settings.steeringModeOneAtATime"],
+  ["all", "settings.steeringModeAll"],
+] as const;
+
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
@@ -96,6 +103,9 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
+  const [steeringMode, setSteeringMode] = useState<SteeringMode | null>(null);
+  const [steeringModeSaving, setSteeringModeSaving] = useState(false);
+  const [steeringModeError, setSteeringModeError] = useState<string | null>(null);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
@@ -134,7 +144,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         if (!cancelled) setShellSettings(data);
       })
       .catch((cause) => {
-        if (!cancelled) setShellError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setShellError(errorMessage(cause));
       });
     return () => { cancelled = true; };
   }, []);
@@ -147,10 +157,42 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         if (!cancelled) setCacheMissNotices(data.enabled === true);
       })
       .catch((cause) => {
-        if (!cancelled) setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setCacheMissNoticesError(errorMessage(cause));
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/steering-mode")
+      .then(async (response) => {
+        const data = await readJsonOrThrow<{ mode?: SteeringMode }>(response);
+        if (!cancelled) setSteeringMode(data.mode === "all" ? "all" : "one-at-a-time");
+      })
+      .catch((cause) => {
+        if (!cancelled) setSteeringModeError(errorMessage(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // pi's steeringMode (#1771); the server applies it to the open sessions too.
+  const chooseSteeringMode = async (mode: SteeringMode) => {
+    setSteeringModeSaving(true);
+    setSteeringModeError(null);
+    try {
+      const response = await fetch("/api/steering-mode", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await readJsonOrThrow<{ mode?: SteeringMode }>(response);
+      setSteeringMode(data.mode === "all" ? "all" : "one-at-a-time");
+    } catch (cause) {
+      setSteeringModeError(errorMessage(cause));
+    } finally {
+      setSteeringModeSaving(false);
+    }
+  };
 
   // pi's showCacheMissNotices (#1265); the open chat is read again to show or drop them.
   const toggleCacheMissNotices = async (enabled: boolean) => {
@@ -166,7 +208,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       setCacheMissNotices(data.enabled === true);
       if (sessionId) onSessionReloaded();
     } catch (cause) {
-      setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
+      setCacheMissNoticesError(errorMessage(cause));
     } finally {
       setCacheMissNoticesSaving(false);
     }
@@ -188,7 +230,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         onSessionReloaded();
       }
     } catch (cause) {
-      setShellError(cause instanceof Error ? cause.message : String(cause));
+      setShellError(errorMessage(cause));
     } finally {
       setShellSaving(false);
     }
@@ -209,7 +251,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       const data = await readJsonOrThrow<ToolSettingsResponse>(response);
       setShellSettings(data);
     } catch (cause) {
-      setBuiltinToolsError(cause instanceof Error ? cause.message : String(cause));
+      setBuiltinToolsError(errorMessage(cause));
     } finally {
       setBuiltinToolsSaving(false);
     }
@@ -231,7 +273,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       if (!ok) throw new Error("unsupported or not permitted");
       setPushStatus({ kind: "ok", message: t("settings.pushRegistered") });
     } catch (cause) {
-      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${cause instanceof Error ? cause.message : String(cause)}` });
+      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${errorMessage(cause)}` });
     } finally {
       setPushRegistering(false);
     }
@@ -394,6 +436,25 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               </label>
             </div>
           </div>
+          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.steeringMode")}>
+            <span>{t("settings.steeringMode")}</span>
+            <div className="settings-send-mode-options">
+              {STEERING_MODES.map(([mode, label]) => (
+                <label key={mode} className="settings-send-mode-option">
+                  <input
+                    type="radio"
+                    name="steering-mode"
+                    value={mode}
+                    checked={steeringMode === mode}
+                    disabled={steeringMode === null || steeringModeSaving}
+                    onChange={() => void chooseSteeringMode(mode)}
+                    className="sr-only"
+                  />
+                  <span className="settings-send-mode-label">{t(label)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
           <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.cacheMissNotices")}</span>
             <ConfigSwitch
@@ -407,6 +468,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
+        {steeringModeError && <p role="alert" className="settings-general-error">{steeringModeError}</p>}
       </section>
 
       <section className="settings-general-section">

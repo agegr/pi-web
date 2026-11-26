@@ -12,9 +12,11 @@ import {
   validationProblem,
   type ValueGrammar,
 } from "./mcp-import-core";
-import { type EntryOutcome, isRecord, mapServerEntry, mapToolFilters, siblingMcpUrl, sseRefusal } from "./mcp-import-json";
+import { type EntryOutcome, mapServerEntry, mapToolFilters, siblingMcpUrl, sseRefusal } from "./mcp-import-json";
+import { isRecord } from "./is-record";
 import { parseJsonc } from "./jsonc";
 import { literalWord, shellAssignment, type ShellWord, type ShellWordPart } from "./shell-words";
+import { errorMessage } from "./errors";
 
 // Command lines: a server's own command (`npx -y @foo/server`, with
 // `NAME=value` prefixes), and `pi | claude | codex | gemini mcp add …`, plus
@@ -104,8 +106,37 @@ const MANAGEMENT_CLIS = new Set(["pi", "claude", "codex", "gemini"]);
 /** `pi install npm:…` and the other package commands of pi's own CLI. */
 const PI_PACKAGE_COMMANDS = new Set(["install", "remove", "uninstall", "update", "list", "config"]);
 
+/**
+ * Where a command line's program starts: past `NAME=value` words, an `env`
+ * and more of them, as the shell and env(1) read them. env's own options are
+ * refused: what they do to the environment is not read here.
+ */
+function commandStart(words: ShellWord[]): number | { error: McpImportNote } {
+  let index = 0;
+  const skipAssignments = () => {
+    while (words[index] && shellAssignment(words[index])) index++;
+  };
+  skipAssignments();
+  if (words[index]?.text === "env") {
+    index++;
+    if (words[index]?.text.startsWith("-")) {
+      return { error: { code: "cli-unknown-option", params: { cli: "env", option: words[index].text } } };
+    }
+    skipAssignments();
+  }
+  return index;
+}
+
 /** Reads one command line already split into words. */
 export function readCommandLine(words: ShellWord[]): CommandLineServers {
+  const start = commandStart(words);
+  if (typeof start !== "number") return start;
+  // `TOKEN=x pi mcp remove foo` runs pi with that environment: a CLI's own line is read past it.
+  return readCliForm(words.slice(start)) ?? single(readServerCommand(words, start));
+}
+
+/** A CLI's own command line (`mcp add`, a management command, `--add-mcp`); undefined for a server's command. */
+function readCliForm(words: ShellWord[]): CommandLineServers | undefined {
   let start = 0;
   let cli = programName(words[0]);
   if (["npx", "bunx", "pnpx"].includes(cli)) {
@@ -139,7 +170,7 @@ export function readCommandLine(words: ShellWord[]): CommandLineServers {
   if (["code", "code-insiders", "codium", "cursor"].includes(cli) && words.some((word) => word.text === "--add-mcp" || word.text.startsWith("--add-mcp="))) {
     return readCodeAddMcp(words.slice(1));
   }
-  return single(readServerCommand(words));
+  return undefined;
 }
 
 function single(outcome: EntryOutcome | { error: McpImportNote }): CommandLineServers {
@@ -149,24 +180,13 @@ function single(outcome: EntryOutcome | { error: McpImportNote }): CommandLineSe
 // ---------------------------------------------------------------------------
 // A server's own command line
 
-function readServerCommand(words: ShellWord[]): EntryOutcome | { error: McpImportNote } {
+/** `index`: the program's word, past the environment `commandStart()` found. */
+function readServerCommand(words: ShellWord[], index: number): EntryOutcome | { error: McpImportNote } {
   const draft = new ServerDraft("command-line", false);
   draft.transport = "stdio";
-  let index = 0;
-  const assign = () => {
-    for (; index < words.length; index++) {
-      const assignment = shellAssignment(words[index]);
-      if (!assignment) break;
-      draft.env.push([assignment.name, wordSegments(assignment.value, LITERAL_GRAMMAR, true)]);
-    }
-  };
-  assign();
-  if (words[index]?.text === "env") {
-    index++;
-    if (words[index]?.text.startsWith("-")) {
-      return { error: { code: "cli-unknown-option", params: { cli: "env", option: words[index].text } } };
-    }
-    assign();
+  for (const word of words.slice(0, index)) {
+    const assignment = shellAssignment(word);
+    if (assignment) draft.env.push([assignment.name, wordSegments(assignment.value, LITERAL_GRAMMAR, true)]);
   }
   const command = words[index];
   if (!command) return { error: { code: "no-command-or-url" } };
@@ -608,7 +628,7 @@ function parseJsonWord(word: ShellWord): { value: Record<string, unknown> } | { 
   try {
     value = parseJsonc(text);
   } catch (error) {
-    return { error: { code: "invalid-json", params: { detail: error instanceof Error ? error.message : String(error) } } };
+    return { error: { code: "invalid-json", params: { detail: errorMessage(error) } } };
   }
   if (!isRecord(value)) return { error: { code: "no-servers-found" } };
   return { value };

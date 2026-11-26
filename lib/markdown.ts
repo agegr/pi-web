@@ -47,9 +47,18 @@ export function markdownAppUrlTransform(value: string): string {
   return appLinkPattern.test(value) ? value : defaultUrlTransform(value);
 }
 
-/** Also keeps `file:` links, for renderers that open local files in the app. */
+// A bare file name with a line suffix (`app.ts:42`): isBareFileLineHref() in
+// lib/file-links.ts, repeated because this module imports no local one (its
+// tests load it without a bundler).
+const BARE_FILE_LINE_HREF = /^[^\s/:?#]+\.[a-zA-Z0-9]+:\d+(?:[:-]\d+)?(?:[?#]|$)/;
+
+/**
+ * Also keeps `file:` links and a bare file name with a line suffix
+ * (`app.ts:42`, which reads as a scheme), for renderers that open local files
+ * in the app.
+ */
 export function markdownUrlTransform(value: string): string {
-  return /^file:/i.test(value) ? value : markdownAppUrlTransform(value);
+  return /^file:/i.test(value) || BARE_FILE_LINE_HREF.test(value) ? value : markdownAppUrlTransform(value);
 }
 
 /** A link that leaves the page: it names a scheme or another host. */
@@ -138,6 +147,11 @@ function rewriteEscapedInlineCodeBackticks(line: string): string {
   });
 }
 
+// A code span on one line: a whole backtick run, then content, then a run of
+// the same length that no further backtick follows. The character before the
+// opening run is kept (no lookbehind, see AGENTS.md).
+const inlineCodeSpanPattern = /(^|[^`])(`+)(?!`)[^\n]*?[^`\n]\2(?!`)/g;
+
 export function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
   const lines = markdown.split(/\r?\n/);
@@ -172,7 +186,12 @@ export function normalizeDisplayMath(markdown: string): string {
       continue;
     }
 
-    const rawCodeOpen = line.match(/<(code|pre|script|style)\b/i);
+    // A tag named in inline code (`<pre>`) is text, not raw HTML: only a tag
+    // outside a code span opens a raw block, as in splitMarkdownBlocks(). The
+    // spans are blanked, not removed, so the closing tag is looked for in the
+    // line as written: backticks after a raw tag do not make a code span.
+    const prose = line.replace(inlineCodeSpanPattern, (span, before: string) => before + " ".repeat(span.length - before.length));
+    const rawCodeOpen = prose.match(/<(code|pre|script|style)\b/i);
     if (rawCodeOpen) {
       const tag = rawCodeOpen[1].toLowerCase();
       const remainder = line.slice((rawCodeOpen.index ?? 0) + rawCodeOpen[0].length);

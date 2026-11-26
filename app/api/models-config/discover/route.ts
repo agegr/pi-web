@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { resolveModelDiscoveryAuth } from "@/lib/model-discovery-auth";
 import { buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
+import { isRecord } from "@/lib/is-record";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
 const DISCOVERY_TIMEOUT_MS = 20_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function hasHeader(headers: Headers, name: string): boolean {
   return headers.has(name);
@@ -92,7 +90,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ models, endpoint: endpoint.toString() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     const status = error instanceof DOMException && error.name === "TimeoutError" ? 504 : 500;
     return NextResponse.json({ error: message }, { status });
   }

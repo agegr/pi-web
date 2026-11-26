@@ -13,6 +13,8 @@ import {
   type SessionUiState,
   type SessionUiStateRequest,
 } from "./session-ui-state-shared";
+import { errorCode } from "./errors";
+import { errorMessage } from "./errors";
 
 // The sidebar's pins, archive, project order, project names and read times
 // (`lib/session-ui-state-shared.ts` has the rules) in `pi-web-session-state.json`
@@ -76,10 +78,6 @@ function cache(): SessionUiStateCache {
 function noteRevision(path: string, revision: number): void {
   const revisions = cache().revisions;
   if (revision > (revisions.get(path) ?? -1)) revisions.set(path, revision);
-}
-
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
 /** Callers get their own copy: the cached state is shared by every later read. */
@@ -150,7 +148,7 @@ export function readSessionUiState(path?: string): SessionUiState {
   try {
     return copyState(loadState(path ?? getSessionUiStatePath()));
   } catch (error) {
-    console.warn(`[pi-web] could not read the session UI state: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`[pi-web] could not read the session UI state: ${errorMessage(error)}`);
     return emptySessionUiState();
   }
 }
@@ -171,7 +169,7 @@ function backUpCorruptFile(path: string): void {
     renameSync(path, backup);
     console.warn(`[pi-web] ${path} could not be parsed; moved it to ${backup} and started from an empty session UI state`);
   } catch (error) {
-    console.warn(`[pi-web] ${path} could not be parsed and could not be moved aside (${error instanceof Error ? error.message : String(error)}); starting from an empty session UI state`);
+    console.warn(`[pi-web] ${path} could not be parsed and could not be moved aside (${errorMessage(error)}); starting from an empty session UI state`);
   }
 }
 

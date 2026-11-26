@@ -1,3 +1,5 @@
+import { getBrowserStorage } from "./browser-storage";
+
 export const SETTINGS_SECTION_VALUES = [
   "general",
   "models",
@@ -28,15 +30,6 @@ interface StorageLike {
 interface SettingsNavigationState {
   section?: string;
   selections?: Record<string, string>;
-}
-
-function getBrowserStorage(): StorageLike | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
 }
 
 function isSettingsSection(value: unknown): value is SettingsSection {

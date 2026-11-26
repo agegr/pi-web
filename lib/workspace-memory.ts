@@ -1,3 +1,5 @@
+import { getBrowserStorage } from "./browser-storage";
+
 /**
  * Per-workspace "last open session" memory.
  *
@@ -18,15 +20,6 @@ interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
-}
-
-function getBrowserStorage(): StorageLike | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
 }
 
 function readMap(storage: StorageLike): Record<string, string | undefined> {

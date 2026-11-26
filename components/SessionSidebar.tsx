@@ -133,6 +133,7 @@ import {
   TrashIcon,
   UploadIcon,
 } from "./SidebarIcons";
+import { errorMessage } from "@/lib/errors";
 
 interface FileManagerAvailability {
   supported: boolean;
@@ -973,7 +974,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       const data = await res.json().catch(() => ({})) as { error?: string };
       setFileManagerError(data.error ?? `HTTP ${res.status}`);
     } catch (error) {
-      setFileManagerError(error instanceof Error ? error.message : String(error));
+      setFileManagerError(errorMessage(error));
     }
     return true;
   }, [selectedCwd, selectedCwdProp]);
@@ -1386,7 +1387,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       });
       setSelectedCwd(data.cwd);
     } catch (e) {
-      setCustomPathError(e instanceof Error ? e.message : String(e));
+      setCustomPathError(errorMessage(e));
     } finally {
       setCustomPathValidating(false);
     }
@@ -1436,7 +1437,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       setWtRefreshKey((k) => k + 1);
       return { path };
     } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: errorMessage(e) };
     }
   }, [t]);
 
@@ -1458,7 +1459,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       setWtRefreshKey((k) => k + 1);
       return "removed";
     } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: errorMessage(e) };
     }
   }, [currentWorktreePath]);
 
@@ -2217,7 +2218,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       openForkedRef.current(forked, row.key);
       showToast(message, [], tail);
     } catch (error) {
-      showToast(t("sidebar.forkFailed", { error: error instanceof Error ? error.message : String(error) }));
+      showToast(t("sidebar.forkFailed", { error: errorMessage(error) }));
     } finally {
       forkingIdsRef.current.delete(source.id);
     }

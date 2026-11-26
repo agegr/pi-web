@@ -10,6 +10,7 @@ import {
 } from "./mcp-import";
 import { findWebPasswordField, resolvedConfigValues } from "./mcp-transport";
 import type { PiSdkInternals } from "./pi-sdk-internals";
+import { isRecord } from "./is-record";
 
 // What `POST /api/mcp { action: "add" }` checks before it writes anything
 // (ADR 0006, "Adding is one paste box"). The browser sends the pasted text and
@@ -58,10 +59,6 @@ export interface McpAddPrepared {
 }
 
 type AddInternals = Pick<PiSdkInternals, "validateMcpServerConfig" | "getConfigValueEnvVarNames" | "isCommandConfigValue">;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 const MAX_FIELD_VALUE = 64 * 1024;
 const MAX_FIELDS = 200;

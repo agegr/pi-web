@@ -240,6 +240,16 @@ export function MessageIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></SidebarIcon>;
 }
 
+/** "@ mention in chat": the files tab's and the file viewer's insert-a-reference button. */
+export function MentionIcon({ size = 11, ...props }: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props} size={size} strokeWidth={2.2}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </SidebarIcon>
+  );
+}
+
 /**
  * The running-agent spinner. It turns through the `sidebar-spin` class
  * (app/sidebar-menu.css), which stands still under prefers-reduced-motion.

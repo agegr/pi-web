@@ -1,6 +1,7 @@
 import type { AgentMessage } from "./types";
 
-function recordedMs(value: unknown): number | undefined {
+/** A time pi recorded, or undefined when it is missing, negative or not a finite number. */
+export function recordedMs(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 

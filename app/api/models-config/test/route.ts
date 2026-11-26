@@ -6,18 +6,12 @@ import { randomUUID } from "crypto";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { errorMessage } from "@/lib/errors";
+import { isRecord } from "@/lib/is-record";
 
 export const dynamic = "force-dynamic";
 
 const TEST_TIMEOUT_MS = 20_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function getAssistantText(message: AssistantMessage): string {
   return message.content

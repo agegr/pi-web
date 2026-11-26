@@ -32,6 +32,7 @@ import { isPlantUmlLang } from "@/lib/plantuml";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { MentionIcon } from "./SidebarIcons";
 import { diffGapLabel, parseUnifiedPatch, unifiedDiffLines, type SplitDiffGap, type UnifiedDiffLine } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -144,15 +145,6 @@ type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["re
 interface SelectedLineRange {
   startLine: number;
   endLine: number;
-}
-
-function MentionIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
-  );
 }
 
 function closestSourceLine(node: Node): HTMLElement | null {
@@ -1982,7 +1974,7 @@ function TextFileViewer({
                 disabled={!onAtMention && !onMentionLines}
                 className="file-viewer-icon-button"
               >
-                <MentionIcon />
+                <MentionIcon size={14} />
               </button>
             )}
             {(effectiveDisplayMode === "source" || effectiveDisplayMode === "diff") && !isBinary && (

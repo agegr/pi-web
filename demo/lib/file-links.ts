@@ -67,6 +67,16 @@ export function normalizeShellDrivePath(filePath: string): string {
   return `${drive!.toUpperCase()}:/${rest ?? ""}`;
 }
 
+// A file name with a line suffix and no folder (`app.ts:42`, `README.md:3:7`,
+// `app.ts:10-20`) reads as a URL scheme (`app.ts:`), which react-markdown drops
+// and the scheme check refuses; a name with an extension and only line numbers
+// after the colon is a file.
+const BARE_FILE_LINE_HREF = /^[^\s/:?#]+\.[a-zA-Z0-9]+:\d+(?:[:-]\d+)?(?:[?#]|$)/;
+
+export function isBareFileLineHref(href: string): boolean {
+  return BARE_FILE_LINE_HREF.test(href);
+}
+
 function stripLineSuffix(filePath: string): string {
   return filePath.replace(/:\d+(?:(?::|-)\d+)?$/, "");
 }
@@ -148,7 +158,7 @@ export function resolveLocalFileHref(
 
   if (lowerHref.startsWith("/api/") || lowerHref.startsWith("/_next/")) return null;
   if (!isBackslashUncPath && normalizedHref.startsWith("//")) return null;
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/i.test(normalizedHref) && !lowerHref.startsWith("file:") && !/^[a-zA-Z]:\//.test(normalizedHref)) {
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/i.test(normalizedHref) && !lowerHref.startsWith("file:") && !/^[a-zA-Z]:\//.test(normalizedHref) && !isBareFileLineHref(normalizedHref)) {
     return null;
   }
 

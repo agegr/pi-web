@@ -120,3 +120,11 @@ test("blocked storage leaves the default, and a choice still applies for the pag
   assert.equal(store.useFilesPlacement(), "tab");
   assert.equal(store.notifications, 1);
 });
+
+test("a choice that could not be saved still applies when the last consumer unmounts and another mounts", () => {
+  const store = fixture({ blocked: true });
+  assert.equal(store.useFilesPlacement(), "below");
+  store.setFilesPlacement("tab");
+  store.unmount();
+  assert.equal(store.useFilesPlacement(), "tab", "the page keeps the choice, as it did before the store was shared");
+});
