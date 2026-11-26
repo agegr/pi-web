@@ -24,7 +24,9 @@ const CONTEXT_WINDOW_FIELDS = [
 const MAX_TOKENS_FIELDS = ["max_output_tokens", "maxOutputTokens", "max_completion_tokens", "outputTokenLimit"];
 const REASONING_FIELDS = ["supports_reasoning", "supportsReasoning", "reasoning", "thinking"];
 // Every spelling of the effort list; the first one that is an array wins.
+// `effort.supported_levels` nests it beside the gateway's default level (#1791).
 const EFFORT_LIST_FIELDS = ["supported_efforts", "supportedEfforts", "reasoning_levels"];
+const EFFORT_OBJECT_LIST_FIELDS = ["supported_levels", "supportedLevels"];
 
 // pi's models.json accepts `text` and `image`; a gateway may advertise more.
 const INPUT_MODALITIES = new Set(["text", "image"]);
@@ -43,16 +45,25 @@ function firstPositiveInteger(value: Record<string, unknown>, fields: readonly s
 }
 
 /**
- * `modalities.input` (models.dev and pi's own metadata) or a bare `input` array
- * names what the model takes. Only the modalities pi knows survive; a list
- * naming none of them says nothing, and `["image"]` is kept as advertised —
- * guessing `text` back in would override what the gateway said.
+ * `modalities.input` (models.dev and pi's own metadata), `input_modalities`
+ * (bare, or under OpenRouter's `architecture`) or a bare `input` array names
+ * what the model takes. Only the modalities pi knows survive; a list naming
+ * none of them says nothing, and `["image"]` is kept as advertised — guessing
+ * `text` back in would override what the gateway said.
  */
+function inputListFromValue(value: Record<string, unknown>): unknown[] | undefined {
+  const { modalities, architecture } = value;
+  const candidates = [
+    isRecord(modalities) ? modalities.input : undefined,
+    value.input_modalities,
+    isRecord(architecture) ? architecture.input_modalities : undefined,
+    value.input,
+  ];
+  return candidates.find(Array.isArray);
+}
+
 function inputFromValue(value: Record<string, unknown>): string[] | undefined {
-  const modalities = value.modalities;
-  const list = isRecord(modalities) && Array.isArray(modalities.input)
-    ? modalities.input
-    : Array.isArray(value.input) ? value.input : undefined;
+  const list = inputListFromValue(value);
   if (!list) return undefined;
   const input = Array.from(new Set(list
     .filter((entry): entry is string => typeof entry === "string")
@@ -70,7 +81,11 @@ function inputFromValue(value: Record<string, unknown>): string[] | undefined {
  * A list naming none of pi's levels maps nothing.
  */
 function thinkingLevelMapFromEfforts(value: Record<string, unknown>): DiscoveredModel["thinkingLevelMap"] {
-  const list = EFFORT_LIST_FIELDS.map((field) => value[field]).find(Array.isArray);
+  const effort = value.effort;
+  const list = [
+    ...EFFORT_LIST_FIELDS.map((field) => value[field]),
+    ...(isRecord(effort) ? EFFORT_OBJECT_LIST_FIELDS.map((field) => effort[field]) : []),
+  ].find(Array.isArray);
   if (!list) return undefined;
   const advertised = new Set(list.filter((effort): effort is string => typeof effort === "string"));
   if (!EFFORT_LEVELS.some((level) => advertised.has(level))) return undefined;
