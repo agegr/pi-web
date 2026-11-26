@@ -8,6 +8,7 @@ import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
 } from "@/lib/request-security";
+import { pageFramingHeaders } from "@/lib/frame-ancestors";
 import {
   isValidWebSessionToken,
   isValidBasicAuthorization,
@@ -25,9 +26,22 @@ function tooManyAttempts(retryAfterMs: number): NextResponse {
   });
 }
 
+function isApiPath(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
 export function proxy(request: NextRequest) {
-  const isApiRequest = request.nextUrl.pathname === "/api"
-    || request.nextUrl.pathname.startsWith("/api/");
+  const response = routeRequest(request);
+  // Every page answer, the redirects and refusals included, says who may
+  // frame it; see lib/frame-ancestors.ts. API answers are not pages.
+  if (!isApiPath(request.nextUrl.pathname)) {
+    for (const [key, value] of pageFramingHeaders()) response.headers.set(key, value);
+  }
+  return response;
+}
+
+function routeRequest(request: NextRequest): NextResponse {
+  const isApiRequest = isApiPath(request.nextUrl.pathname);
   const isTrustedRequest = isApiRequest
     ? isApiRequestAllowed(request)
     : isApiRequestHostAllowed(request);
