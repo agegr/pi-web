@@ -155,6 +155,68 @@ export function modelDropIndex(from: number, target: number, after: boolean): nu
   return from < slot ? slot - 1 : slot;
 }
 
+/** Adds a model row to the selection, or takes it out. */
+export function toggleModelSelection(selected: ReadonlySet<number>, index: number): Set<number> {
+  const next = new Set(selected);
+  if (next.has(index)) next.delete(index);
+  else next.add(index);
+  return next;
+}
+
+/** Adds the inclusive range between the anchor row and `index` to the selection. */
+export function extendModelSelection(selected: ReadonlySet<number>, anchor: number, index: number): Set<number> {
+  const next = new Set(selected);
+  const start = Math.min(anchor, index);
+  const end = Math.max(anchor, index);
+  for (let slot = start; slot <= end; slot += 1) next.add(slot);
+  return next;
+}
+
+/**
+ * What a Shift- or Ctrl/Cmd-click selects when it enters selection mode from
+ * the model already open: the inclusive range for Shift, both rows for a
+ * toggle click.
+ */
+export function modifierClickSelection(anchor: number, index: number, extend: boolean): Set<number> {
+  return extend
+    ? extendModelSelection(new Set([anchor]), anchor, index)
+    : new Set([anchor, index]);
+}
+
+/**
+ * Removes the models at `indices` and their saved slots together, so a later
+ * rename still compares each model with the id saved at its new slot. Returns
+ * null when no index names a model.
+ */
+export function removeModelEntries<T extends ModelsConfigDraft>(
+  config: T,
+  slots: Map<string, (string | null)[]>,
+  providerName: string,
+  indices: readonly number[],
+): T | null {
+  const providers = config.providers ?? {};
+  const provider = providers[providerName];
+  const models = provider?.models;
+  if (!models) return null;
+  const removal = [...new Set(indices)]
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < models.length)
+    .sort((left, right) => right - left);
+  if (removal.length === 0) return null;
+  const nextModels = [...models];
+  const saved = slots.get(providerName);
+  for (const index of removal) {
+    nextModels.splice(index, 1);
+    saved?.splice(index, 1);
+  }
+  return {
+    ...config,
+    providers: {
+      ...providers,
+      [providerName]: { ...provider, models: nextModels.length ? nextModels : undefined },
+    },
+  };
+}
+
 /** Sorts a provider's models once by shown name (natural, case-insensitive, stable); mutates `slots` to match. Null when already sorted. */
 export function sortModelEntries<T extends ModelsConfigDraft>(
   config: T,

@@ -266,6 +266,88 @@
   opacity: 0.35;
 }
 
+.models-sidebar-select-button {
+  flex-shrink: 0;
+  height: 30px;
+  margin-right: 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.models-sidebar-select-button:not(:disabled):hover,
+.models-sidebar-select-button:not(:disabled):focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.models-sidebar-select-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.models-sidebar-select-button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.models-sidebar-selection-footer {
+  gap: 2px;
+}
+
+.models-sidebar-selection-action {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.models-sidebar-selection-action.is-grow {
+  flex: 1;
+  padding-left: 8px;
+  text-align: left;
+}
+
+.models-sidebar-selection-action:not(:disabled):hover,
+.models-sidebar-selection-action:not(:disabled):focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.models-sidebar-selection-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.models-sidebar-selection-action:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.models-sidebar-selection-action.is-danger:not(:disabled) {
+  color: #ef4444;
+}
+
+.models-sidebar-selection-action.is-danger:not(:disabled):hover,
+.models-sidebar-selection-action.is-danger:not(:disabled):focus-visible {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.models-sidebar-indented-item.is-model-selected {
+  background: var(--bg-selected);
+}
+
 .models-sidebar-add-item {
   color: var(--text-dim);
 }
@@ -2203,6 +2285,11 @@
 
   .config-split-view[data-pane] .models-sidebar-sort-button {
     width: 40px;
+    height: 44px;
+    font-size: 12px;
+  }
+
+  .config-split-view[data-pane] :is(.models-sidebar-select-button, .models-sidebar-selection-action) {
     height: 44px;
     font-size: 12px;
   }
