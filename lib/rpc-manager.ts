@@ -3116,18 +3116,19 @@ export function getLiveRpcSession(sessionId: string): AgentSessionWrapper | unde
 }
 
 /**
- * Settings › General changed pi's global `steeringMode`: each open session takes the
- * value its own settings resolve now (a project's .pi/settings.json still wins), as
- * pi's TUI applies its /settings choice to the running session at once. Queued steers
- * stay queued; the next turn takes them by the new mode.
+ * Settings › General changed pi's global `steeringMode` or `followUpMode`: each open
+ * session takes the values its own settings resolve now (a project's .pi/settings.json
+ * still wins), as pi's TUI applies its /settings choice to the running session at once.
+ * Queued messages stay queued; they go out by the new mode.
  */
-export async function applySteeringModeToLiveSessions(): Promise<void> {
+export async function applyQueueModesToLiveSessions(): Promise<void> {
   await Promise.all(Array.from(getRegistry().values(), async (wrapper) => {
     if (!wrapper.isAlive()) return;
     const { settingsManager, agent } = wrapper.inner;
     try {
       await settingsManager.reload();
       agent.steeringMode = settingsManager.getSteeringMode();
+      agent.followUpMode = settingsManager.getFollowUpMode();
     } catch {
       // Unreadable settings keep this session's mode until it reloads.
     }

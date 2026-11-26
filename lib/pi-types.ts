@@ -181,6 +181,8 @@ export interface AgentSessionLike {
     };
     /** How many queued steers a turn takes; the SDK reads it from settings at creation and reload. */
     steeringMode?: "all" | "one-at-a-time";
+    /** How many queued follow-ups a turn takes, read like `steeringMode`. */
+    followUpMode?: "all" | "one-at-a-time";
     /** Steers and follow-ups pi has queued, its custom messages included (`getSteeringMessages()` lists texts only). */
     hasQueuedMessages(): boolean;
     /** The current run's abort signal; Stop aborts it. */

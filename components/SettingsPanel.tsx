@@ -81,10 +81,15 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
 }
 
-type SteeringMode = "one-at-a-time" | "all";
-const STEERING_MODES = [
-  ["one-at-a-time", "settings.steeringModeOneAtATime"],
-  ["all", "settings.steeringModeAll"],
+type QueueMode = "one-at-a-time" | "all";
+type QueueModes = { steeringMode: QueueMode; followUpMode: QueueMode };
+const QUEUE_MODE_SETTINGS = [
+  ["steeringMode", "settings.steeringMode"],
+  ["followUpMode", "settings.followUpMode"],
+] as const;
+const QUEUE_MODES = [
+  ["one-at-a-time", "settings.queueModeOneAtATime"],
+  ["all", "settings.queueModeAll"],
 ] as const;
 
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
@@ -102,9 +107,9 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
-  const [steeringMode, setSteeringMode] = useState<SteeringMode | null>(null);
-  const [steeringModeSaving, setSteeringModeSaving] = useState(false);
-  const [steeringModeError, setSteeringModeError] = useState<string | null>(null);
+  const [queueModes, setQueueModes] = useState<QueueModes | null>(null);
+  const [queueModesSaving, setQueueModesSaving] = useState(false);
+  const [queueModesError, setQueueModesError] = useState<string | null>(null);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
@@ -163,33 +168,32 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/steering-mode")
+    void fetch("/api/queue-modes")
       .then(async (response) => {
-        const data = await readJsonOrThrow<{ mode?: SteeringMode }>(response);
-        if (!cancelled) setSteeringMode(data.mode === "all" ? "all" : "one-at-a-time");
+        const data = await readJsonOrThrow<QueueModes>(response);
+        if (!cancelled) setQueueModes(data);
       })
       .catch((cause) => {
-        if (!cancelled) setSteeringModeError(errorMessage(cause));
+        if (!cancelled) setQueueModesError(errorMessage(cause));
       });
     return () => { cancelled = true; };
   }, []);
 
-  // pi's steeringMode (#1771); the server applies it to the open sessions too.
-  const chooseSteeringMode = async (mode: SteeringMode) => {
-    setSteeringModeSaving(true);
-    setSteeringModeError(null);
+  // pi's steeringMode (#1771) and followUpMode; the server applies them to the open sessions too.
+  const chooseQueueMode = async (key: keyof QueueModes, mode: QueueMode) => {
+    setQueueModesSaving(true);
+    setQueueModesError(null);
     try {
-      const response = await fetch("/api/steering-mode", {
+      const response = await fetch("/api/queue-modes", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ [key]: mode }),
       });
-      const data = await readJsonOrThrow<{ mode?: SteeringMode }>(response);
-      setSteeringMode(data.mode === "all" ? "all" : "one-at-a-time");
+      setQueueModes(await readJsonOrThrow<QueueModes>(response));
     } catch (cause) {
-      setSteeringModeError(errorMessage(cause));
+      setQueueModesError(errorMessage(cause));
     } finally {
-      setSteeringModeSaving(false);
+      setQueueModesSaving(false);
     }
   };
 
@@ -435,25 +439,27 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
               </label>
             </div>
           </div>
-          <div className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t("settings.steeringMode")}>
-            <span>{t("settings.steeringMode")}</span>
-            <div className="settings-send-mode-options">
-              {STEERING_MODES.map(([mode, label]) => (
-                <label key={mode} className="settings-send-mode-option">
-                  <input
-                    type="radio"
-                    name="steering-mode"
-                    value={mode}
-                    checked={steeringMode === mode}
-                    disabled={steeringMode === null || steeringModeSaving}
-                    onChange={() => void chooseSteeringMode(mode)}
-                    className="sr-only"
-                  />
-                  <span className="settings-send-mode-label">{t(label)}</span>
-                </label>
-              ))}
+          {QUEUE_MODE_SETTINGS.map(([key, heading]) => (
+            <div key={key} className="settings-chat-option settings-chat-switch-option" role="radiogroup" aria-label={t(heading)}>
+              <span>{t(heading)}</span>
+              <div className="settings-send-mode-options">
+                {QUEUE_MODES.map(([mode, label]) => (
+                  <label key={mode} className="settings-send-mode-option">
+                    <input
+                      type="radio"
+                      name={key}
+                      value={mode}
+                      checked={queueModes?.[key] === mode}
+                      disabled={queueModes === null || queueModesSaving}
+                      onChange={() => void chooseQueueMode(key, mode)}
+                      className="sr-only"
+                    />
+                    <span className="settings-send-mode-label">{t(label)}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          ))}
           <div className="settings-chat-option settings-chat-switch-option">
             <span>{t("settings.cacheMissNotices")}</span>
             <ConfigSwitch
@@ -467,7 +473,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         </div>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
-        {steeringModeError && <p role="alert" className="settings-general-error">{steeringModeError}</p>}
+        {queueModesError && <p role="alert" className="settings-general-error">{queueModesError}</p>}
       </section>
 
       <section className="settings-general-section">
