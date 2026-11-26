@@ -277,13 +277,7 @@ async function findFileRepositoryRoot(cwd: string, filePath: string): Promise<st
   return (await findRepositoryRoot(directory)) ?? (await findRepositoryRoot(cwd));
 }
 
-/**
- * Whether HEAD holds a *blob* at this path (under its old name for a rename).
- * `-e` only answers "exists": a submodule is a commit object and a directory a
- * tree object, and neither is a file the viewer should diff as tracked text.
- * `-t` names the type, so anything but a blob is refused; a missing object or
- * a failed git command makes the child throw, which we treat as "no blob".
- */
+/** Whether HEAD holds a blob at this path; a missing path or a failed git command holds none. */
 async function hasHeadBlob(
   repositoryRoot: string,
   gitPath: string,
@@ -294,18 +288,6 @@ async function hasHeadBlob(
     return type.trim() === "blob";
   } catch {
     return false;
-  }
-}
-
-/** Bounded text of a working-copy file, or null when it cannot be an added-file patch. */
-function readWorkingCopyText(filePath: string): string | null {
-  try {
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return null;
-    const buffer = fs.readFileSync(filePath);
-    return hasNullByte(buffer) ? null : buffer.toString("utf8");
-  } catch {
-    return null;
   }
 }
 
@@ -337,23 +319,24 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
     return { supported: true, status, patch };
   }
 
-  // Whether Git can build the patch from a baseline of its own. A path in HEAD
-  // needs no working-copy bytes at all: `git diff HEAD` reads the blobs, and a
-  // binary file answers "Binary files … differ" with no hunk. A new file —
-  // untracked, a staged addition, or a conflict with no HEAD blob — may need
-  // its content to build an added-file patch, so only those bytes are bounded.
-  // Conflicts are decided by HEAD's contents, not by the status name: UU/DD/AA
-  // with a HEAD blob are tracked changes, UA/AU without one are not. A rename's
-  // blob lives under its old name in HEAD.
-  const headPath = entry.originalPath ?? relativePath;
-  const hasHeadFile = status !== "untracked"
-    && await hasHeadBlob(repositoryRoot, headPath, gitConfig);
+  // The path as given, not its real path: a link (a file turned into one, say)
+  // would show its target's diff, and a submodule is a directory.
+  const stat = await fs.promises.lstat(resolvedFilePath).catch(() => null);
+  if (!stat?.isFile()) return { supported: false };
 
+  // A path in HEAD needs no working-copy bytes: `git diff HEAD` reads the blobs,
+  // its output is capped, and a binary file answers "Binary files … differ" with
+  // no hunk. A new file (untracked, a staged addition, a conflict with no HEAD
+  // blob) may need its bytes for an added-file patch, so only those are bounded.
+  // A rename's blob lives under its old name in HEAD.
+  const hasHeadFile = status !== "untracked"
+    && await hasHeadBlob(repositoryRoot, entry.originalPath ?? relativePath, gitConfig);
   let newContent: string | undefined;
   if (!hasHeadFile) {
-    const text = readWorkingCopyText(resolvedFilePath);
-    if (text === null) return { supported: false };
-    newContent = text;
+    if (stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+    const buffer = fs.readFileSync(resolvedFilePath);
+    if (hasNullByte(buffer)) return { supported: false };
+    newContent = buffer.toString("utf8");
   }
 
   let patch: string;

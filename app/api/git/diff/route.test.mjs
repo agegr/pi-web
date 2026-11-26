@@ -407,8 +407,6 @@ test("a submodule path in HEAD is not diffed as an ordinary tracked file", async
   git(root, "add", "-A");
   commit(root, "base");
 
-  // A gitlink is a commit object, not a blob. `cat-file -e` (the old check)
-  // answers "exists" for it, while `cat-file -t` names its real type.
   const head = git(root, "rev-parse", "HEAD").trim();
   git(root, "update-index", "--add", "--cacheinfo", "160000", head, "sub");
   commit(root, "gitlink");
@@ -419,13 +417,7 @@ test("a submodule path in HEAD is not diffed as an ordinary tracked file", async
   git(sub, "add", "-A");
   commit(sub, "sub");
 
-  assert.equal(git(root, "cat-file", "-t", "HEAD:sub").trim(), "commit");
-  assert.equal(git(root, "cat-file", "-t", "HEAD:dir").trim(), "tree");
-  assert.equal(git(root, "cat-file", "-t", "HEAD:tracked.txt").trim(), "blob");
-  assert.doesNotThrow(() => git(root, "cat-file", "-e", "HEAD:sub"));
-  assert.throws(() => git(root, "cat-file", "-t", "HEAD:missing.txt"));
-  // Its diff does carry a hunk, so only the object type can refuse it.
-  assert.ok(git(root, "diff", "--no-ext-diff", "--unified=3", "HEAD", "--", "sub").includes("@@ "));
+  // Its diff carries a hunk ("Subproject commit …"), yet it is no file.
   assert.deepEqual(await diffOf(root, sub), { supported: false });
 
   // An ordinary blob is still diffed from HEAD.
@@ -434,4 +426,17 @@ test("a submodule path in HEAD is not diffed as an ordinary tracked file", async
   assert.equal(ordinary.supported, true);
   assert.equal(ordinary.status, "modified");
   assert.ok(ordinary.patch.includes("+changed"));
+});
+
+test("a tracked file turned into a link is not shown as its target's diff", async () => {
+  const root = largeRepo();
+  fs.writeFileSync(path.join(root, "target.txt"), "before\n");
+  fs.writeFileSync(path.join(root, "turned.txt"), "file\n");
+  git(root, "add", "-A");
+  commit(root, "seed");
+  fs.writeFileSync(path.join(root, "target.txt"), "after\n");
+  fs.rmSync(path.join(root, "turned.txt"));
+  fs.symlinkSync("target.txt", path.join(root, "turned.txt"));
+
+  assert.deepEqual(await diffOf(root, path.join(root, "turned.txt")), { supported: false });
 });
