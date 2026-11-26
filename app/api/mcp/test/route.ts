@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpTestResponse } from "@/lib/api-types";
-import { isMcpEntryRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
+import { isMcpEntryRefusal, mcpEntryRefusalResponse, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
 import { testMcpServer } from "@/lib/mcp-test";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -16,16 +17,12 @@ export const dynamic = "force-dynamic";
 // panel's project when it has one (checked like any cwd), else in the home
 // folder, which the answer names.
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // POST /api/mcp/test body: { scope, name, cwd? }
 // `cwd` is the panel's project: required for a project server, and the
 // folder a global stdio server runs in.
 export async function POST(req: Request) {
   const entry = await readConnectableMcpEntry(req);
-  if (isMcpEntryRefusal(entry)) return NextResponse.json(entry.body, { status: entry.status });
+  if (isMcpEntryRefusal(entry)) return mcpEntryRefusalResponse(entry);
   const { scope, name, sourcePath, configKey, config, cwd, internals } = entry;
   try {
     const result = await testMcpServer({ scope, name, sourcePath, configKey, config, cwd }, internals, { signal: req.signal });

@@ -2,7 +2,6 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-  isThinkingLevel,
   projectSettingsPath,
   shadowingProjectKeys,
   writeDefaultPreferences,
@@ -14,6 +13,7 @@ import { withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { llamaCppExtension } from "@/lib/pi-sdk-internals";
+import { isThinkingLevel } from "@/lib/thinking-levels";
 
 export const dynamic = "force-dynamic";
 

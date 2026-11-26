@@ -2,6 +2,7 @@
 
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
+import { MentionIcon } from "./SidebarIcons";
 import { DismissButton } from "./DismissButton";
 import {
   encodeFilePathForApi,
@@ -20,8 +21,7 @@ import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
 import { loadChangesViewMode, saveChangesViewMode, type ChangesViewMode } from "@/lib/sidebar-prefs";
 import { droppedItems } from "@/hooks/useDragDrop";
 import { useI18n } from "@/hooks/useI18n";
-type Translate = ReturnType<typeof useI18n>["t"];
-
+import type { Translate } from "@/lib/i18n/types";
 /** Why a listed entry is normally left out; only listings with `hidden=1` report it. */
 type HiddenReason = Exclude<FileTreeHiddenReason, "always">;
 
@@ -173,15 +173,6 @@ function GitStatusBadge({ status, t }: { status: GitFileStatus; t: Translate }) 
     >
       {status.code}
     </span>
-  );
-}
-
-function MentionIcon({ size = 11 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
   );
 }
 

@@ -1,5 +1,6 @@
 import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type { McpOAuthCredentialStore, McpOAuthServerStore, PiSdkInternals } from "./pi-sdk-internals";
+import { isRecord } from "./is-record";
 
 // What a sign-out of an MCP server bars (ADR 0006, Settings › MCP sign-in):
 // every connection Pi Web opened for the server before the sign-out, a
@@ -10,10 +11,6 @@ import type { McpOAuthCredentialStore, McpOAuthServerStore, PiSdkInternals } fro
 // `mcp-test`, so what both need lives here. The SDK keys a server's
 // credentials by its name and URL (`mcpOAuthStoreKeys()`), so servers sharing
 // a URL keep separate accounts, and so does everything here.
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * The URL a server signs in at, by the SDK's rule (`runtime.js` usesOAuth /

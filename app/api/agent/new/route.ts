@@ -6,14 +6,11 @@ import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
 import { cwdMissingBody } from "@/lib/missing-cwd";
-
-const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+import { isThinkingLevel } from "@/lib/thinking-levels";
 
 function parseThinkingLevel(value: unknown): ThinkingLevel | undefined {
   if (value === undefined) return undefined;
-  if (typeof value === "string" && THINKING_LEVELS.has(value as ThinkingLevel)) {
-    return value as ThinkingLevel;
-  }
+  if (isThinkingLevel(value)) return value;
   throw new Error(`Invalid thinking level: ${String(value)}`);
 }
 // POST /api/agent/new  body: { cwd: string; type: string; message?: string; ... }

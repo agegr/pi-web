@@ -10,6 +10,8 @@ import { findWebPasswordField } from "./mcp-transport";
 import { loadPiSdkInternals, type PiSdkInternals } from "./pi-sdk-internals";
 import { getProjectTrustStatus } from "./project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "./request-security";
+import { errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 // The checks a route makes before it connects one `mcp.json` entry outside any
 // session: Settings › MCP's Test (`POST /api/mcp/test`) and its sign-in
@@ -48,14 +50,6 @@ export interface McpConnectableEntry {
   cwd: string;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function mcpEntryRefusal(
   status: number,
   reason: McpRefusalReason,
@@ -63,6 +57,21 @@ export function mcpEntryRefusal(
   params: Pick<McpErrorResponse, "path" | "name"> = {},
 ): McpEntryRefusal {
   return { status, body: { error, reason, ...params } };
+}
+
+/** The HTTP answer that refuses a request: `{ error, reason, ...params }` with the status. */
+export function mcpRefusalResponse(
+  status: number,
+  reason: McpRefusalReason,
+  error: string,
+  params: Omit<McpErrorResponse, "error" | "reason"> = {},
+): Response {
+  return Response.json({ error, reason, ...params } satisfies McpErrorResponse, { status });
+}
+
+/** The HTTP answer for a refusal one of this module's checks returned. */
+export function mcpEntryRefusalResponse(refusal: McpEntryRefusal): Response {
+  return Response.json(refusal.body, { status: refusal.status });
 }
 
 export function isMcpEntryRefusal(value: unknown): value is McpEntryRefusal {
@@ -133,7 +142,13 @@ export async function mcpInternalsOrRefusal(doing: string): Promise<PiSdkInterna
   return internals;
 }
 
-function readScope(value: unknown): McpScope | undefined {
+/** A server name a request may carry: a non-empty string of at most 1024 characters. */
+export function readMcpServerName(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 ? value : undefined;
+}
+
+/** `global` or `project`; undefined for anything else. */
+export function readMcpScope(value: unknown): McpScope | undefined {
   return value === "global" || value === "project" ? value : undefined;
 }
 
@@ -179,8 +194,8 @@ export async function readConnectableMcpEntry(req: Request): Promise<McpConnecta
     return mcpEntryRefusal(400, "invalid-request", "Invalid JSON body");
   }
   if (!isRecord(body)) return mcpEntryRefusal(400, "invalid-request", "Expected a JSON object");
-  const scope = readScope(body.scope);
-  const name = typeof body.name === "string" && body.name.length > 0 && body.name.length <= 1024 ? body.name : undefined;
+  const scope = readMcpScope(body.scope);
+  const name = readMcpServerName(body.name);
   if (!scope || name === undefined) {
     return mcpEntryRefusal(400, "invalid-request", "scope must be \"global\" or \"project\", and name a server name");
   }

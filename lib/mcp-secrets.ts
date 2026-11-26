@@ -1,3 +1,5 @@
+import { isRecord } from "./is-record";
+import { safeDecode } from "./safe-decode";
 // Secret classification and masking for MCP server entries (ADR 0006). The
 // Settings panel and the trust dialog show a server's command, arguments and
 // URL to a browser that may be on another machine, and a project's `mcp.json`
@@ -159,7 +161,8 @@ export function looksLikeSecretValue(value: string): boolean {
 
 const REFERENCE = /\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*/;
 const REFERENCES = new RegExp(REFERENCE.source, "g");
-const AUTHORIZATION_SCHEME = /^(?:bearer|basic|token)\s+/i;
+/** The scheme word and its space that start an `Authorization` header value. */
+export const AUTHORIZATION_SCHEME = /^(?:bearer|basic|token)\s+/i;
 
 /** Whether `value`, after an optional authorization scheme, is only `pattern` matches and separators. */
 function onlyMatches(value: string, pattern: RegExp, patterns: RegExp): boolean {
@@ -288,14 +291,6 @@ export function urlSecretParts(url: string): string[] {
   const hidden: string[] = [];
   maskUrlWith(url, isPlaceholderOnly, hidden);
   return [...new Set(hidden)];
-}
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }
 
 function isUrl(value: string): boolean {
@@ -475,10 +470,6 @@ export function argSecretParts(args: readonly string[]): string[] {
 export type LiteralSecretField =
   | { kind: "env" | "header"; name: string }
   | { kind: "oauth-client-secret" | "url" | "args" | "command" };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** A resolved value (env, header, `oauth.clientSecret`) written out rather than referenced or computed. */
 function isLiteral(value: string): boolean {

@@ -2,12 +2,11 @@
 
 import { useId, useMemo } from "react";
 import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
-import type { McpResponse, McpScope } from "@/lib/api-types";
+import type { McpResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
-import { shortenPath } from "@/lib/display-path";
 import type { McpImportField, McpImportNote } from "@/lib/mcp-import";
 import { isReferenceOnly } from "@/lib/mcp-secrets";
-import { mcpFieldLabel, mcpVariableChips, revealHiddenCharacters } from "@/lib/mcp-server-display";
+import { displayMcpPath, mcpFieldLabel, mcpVariableChips, revealHiddenCharacters } from "@/lib/mcp-server-display";
 import {
   ConfigAddSourcePanel,
   ConfigButton,
@@ -40,17 +39,10 @@ import {
   type McpAddSubmitBlock,
 } from "./mcp-add-helpers";
 import type { McpActionFailure, McpActionRequest } from "./mcp-config-helpers";
+import { scopeLabel } from "./settings-ui-helpers";
+import type { Translate } from "@/lib/i18n/types";
 
-type Translate = ReturnType<typeof useI18n>["t"];
 export type McpAddActionRequest = Extract<McpActionRequest, { action: "add" }>;
-
-function displayPath(path: string): string {
-  return revealHiddenCharacters(shortenPath(path));
-}
-
-function scopeLabel(scope: McpScope, t: Translate): string {
-  return scope === "project" ? t("skills.scope.project") : t("skills.scope.global");
-}
 
 /** MCP server catalogs to browse, linked at the right of the pane's title. */
 const MCP_CATALOGS: readonly ConfigAddSourceCatalog[] = [
@@ -91,7 +83,7 @@ function submitBlockText(block: McpAddSubmitBlock, t: Translate, fields: readonl
     case "name-invalid":
       return t("mcp.add.nameInvalid");
     case "name-taken":
-      return t("mcp.add.nameTaken", { name: revealHiddenCharacters(block.name), path: block.path ? displayPath(block.path) : "mcp.json" });
+      return t("mcp.add.nameTaken", { name: revealHiddenCharacters(block.name), path: block.path ? displayMcpPath(block.path) : "mcp.json" });
     case "fields":
       return t("mcp.add.blocked.fields", { fields: block.fields.map(revealHiddenCharacters).join(", ") });
     case "field-invalid":
@@ -101,7 +93,7 @@ function submitBlockText(block: McpAddSubmitBlock, t: Translate, fields: readonl
     case "web-password":
       return t("mcp.add.blocked.web-password");
     case "scope":
-      return mcpAddProjectBlockText(block.block, t, displayPath);
+      return mcpAddProjectBlockText(block.block, t, displayMcpPath);
   }
 }
 
@@ -118,14 +110,14 @@ export const MCP_ADD_REFUSAL_KEYS: Partial<Record<NonNullable<McpActionFailure["
 function failureText(failure: McpActionFailure, t: Translate): string {
   if (failure.timedOut) return t("mcp.actionTimedOut");
   if (failure.reason === "trust-too-broad" && failure.breadth) {
-    return t(MCP_ADD_BREADTH_KEYS[failure.breadth.kind], { path: displayPath(failure.breadth.path) });
+    return t(MCP_ADD_BREADTH_KEYS[failure.breadth.kind], { path: displayMcpPath(failure.breadth.path) });
   }
   if (failure.reason === "secret-global-only" && failure.fields) {
     const fixed = !failure.fields.every(mcpSecretPathTakesVariable);
     return t(fixed ? "mcp.add.projectBlocked.secretFixed" : "mcp.add.projectBlocked.secret", { fields: failure.fields.join(", ") });
   }
   if (failure.reason === "name-taken" && failure.name) {
-    return t("mcp.add.nameTaken", { name: revealHiddenCharacters(failure.name), path: failure.path ? displayPath(failure.path) : "mcp.json" });
+    return t("mcp.add.nameTaken", { name: revealHiddenCharacters(failure.name), path: failure.path ? displayMcpPath(failure.path) : "mcp.json" });
   }
   const addKey = failure.reason ? MCP_ADD_REFUSAL_KEYS[failure.reason] : undefined;
   // The SDK validator's words name the field, never a value.
@@ -215,8 +207,8 @@ export function McpAddServer({
             { value: "global", label: scopeLabel("global", t) },
             { value: "project", label: scopeLabel("project", t), disabled: projectBlock !== undefined && analysis.scope !== "project" },
           ]}
-          path={displayPath(targetFile)}
-          disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayPath) : null}
+          path={displayMcpPath(targetFile)}
+          disabledReason={projectBlock ? mcpAddProjectBlockText(projectBlock, t, displayMcpPath) : null}
           onChange={(scope) => change({ scope })}
         >
           {trustable && (
@@ -225,7 +217,7 @@ export function McpAddServer({
             </span>
           )}
           {analysis.trustFolder && analysis.projectMode.kind === "trust-and-write" && (
-            <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayPath(analysis.projectMode.folder) })}</p>
+            <p className="mcp-config-line is-warning">{t("mcp.add.trustExplain", { path: displayMcpPath(analysis.projectMode.folder) })}</p>
           )}
         </ConfigSaveTarget>
       }
@@ -407,7 +399,7 @@ export function McpAddServer({
           <span className="mcp-config-line is-error">{t("mcp.add.failed")} {failureText(failure, t)}</span>
           {failure.trustKept && (
             <span className="mcp-config-line is-warning">
-              {t("mcp.add.trustKept", { folder: displayPath(failure.trust?.decisionPath ?? cwd ?? "") })}
+              {t("mcp.add.trustKept", { folder: displayMcpPath(failure.trust?.decisionPath ?? cwd ?? "") })}
             </span>
           )}
           {failure.notes && failure.notes.length > 0 && <McpImportNotes notes={failure.notes} fields={server?.fields} />}

@@ -11,6 +11,8 @@ import { getProjectTrustStatus } from "./project-trust";
 import { disabledBuiltInSubagents } from "./subagent-settings";
 import { PRESET_READ_ONLY } from "./tool-presets";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
+import { isThinkingLevel } from "./thinking-levels";
+import { isRecord } from "./is-record";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
 export const SUBAGENT_STATUS_TYPE = "pi-web:subagent-status";
@@ -143,7 +145,6 @@ const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 // resolveShellTools() picks the platform's shell for either name at spawn.
 const BUILTIN_TOOLS = new Set([...DEFAULT_TOOLS, "powershell"]);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
-const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 /**
  * Frontmatter keys the web UI owns. Everything else in a profile file belongs to
@@ -421,7 +422,7 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       codemode,
       mcp: parseMcp(data?.mcp),
       ...(stringValue(data?.model) ? { model: stringValue(data?.model) } : {}),
-      ...(thinkingValue && THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
+      ...(isThinkingLevel(thinkingValue) ? { thinking: thinkingValue } : {}),
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
       inheritContext: booleanValue(data?.inherit_context, false),
       runInBackground: booleanValue(data?.run_in_background, false),
@@ -539,7 +540,7 @@ export function saveSubagentProfile(
   const name = assertProfileName(profile.name);
   const tools = [...new Set(profile.tools.filter((tool) => BUILTIN_TOOLS.has(tool)))];
   const extensionTools = [...new Set(profile.extensionTools ?? [])];
-  if (profile.thinking && !THINKING_LEVELS.has(profile.thinking)) {
+  if (profile.thinking && !isThinkingLevel(profile.thinking)) {
     throw new Error(`Invalid thinking level: ${profile.thinking}`);
   }
   if (profile.maxTurns !== undefined && (!Number.isFinite(profile.maxTurns) || profile.maxTurns < 0)) {
@@ -641,10 +642,6 @@ export function saveProjectSubagentProfile(cwd: string, profile: Omit<SubagentPr
 
 export function deleteProjectSubagentProfile(cwd: string, name: string): void {
   deleteSubagentProfile(cwd, "project", name);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 type ValidSubagentMetadataData = Record<string, unknown> & {

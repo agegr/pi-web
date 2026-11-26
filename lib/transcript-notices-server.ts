@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentUsage, SessionEntry } from "./types";
 import { withTranscriptNotices, type TranscriptNotice } from "./transcript-notices";
+import { isRecord } from "./is-record";
 
 type CacheWarmNotice = Extract<TranscriptNotice, { kind: "cache_warm" }>;
 
@@ -47,10 +48,6 @@ export interface CacheMiss {
   missedCost: number;
   idleMs: number;
   modelChanged: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isUsage(value: unknown): value is AgentUsage {
