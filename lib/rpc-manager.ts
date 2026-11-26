@@ -1429,29 +1429,31 @@ export class AgentSessionWrapper {
 
       switch (type) {
       case "prompt": {
-        // The composer's # session references (`[title](#session:uuid)`) expand
-        // here, once: the model, a parked prompt and the transcript all see the
-        // same expanded content (lib/session-reference.ts). Protected tokens
-        // (inside code or escaped) stay as text.
-        const promptMessage = await expandSessionReferences(
-          command.message as string,
-          (id, maxChars) => resolveSessionReferenceForSend(
-            id,
-            {
-              openSessionManager,
-              resolveSessionPath,
-              // The block's tooltip reads this, so it matches the sidebar's own
-              // "last changed" for the same session.
-              modifiedAt: async (filePath) => statSync(filePath).mtime.toISOString(),
-            },
-            maxChars,
-          ),
-        );
         // Serialize only admission. Once the preceding prompt has either
         // passed or failed preflight, the SDK can atomically decide whether
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
+          // The composer's # session references (`[title](#session:uuid)`) expand
+          // here, once: the model, a parked prompt and the transcript all see the
+          // same expanded content (lib/session-reference.ts). Protected tokens
+          // (inside code or escaped) stay as text. After admission, so a prompt
+          // whose referenced file is still being read is never overtaken by one
+          // sent after it; inside the try, so a failed read releases admission.
+          const promptMessage = await expandSessionReferences(
+            command.message as string,
+            (id, maxChars) => resolveSessionReferenceForSend(
+              id,
+              {
+                openSessionManager,
+                resolveSessionPath,
+                // The block's tooltip reads this, so it matches the sidebar's own
+                // "last changed" for the same session.
+                modifiedAt: async (filePath) => statSync(filePath).mtime.toISOString(),
+              },
+              maxChars,
+            ),
+          );
           // A steer or follow-up joins the run beside a `!` command, as pi's TUI
           // queues it; only a prompt that would start a run waits for the command.
           if (this.shellRunning && !(command.streamingBehavior && this.inner.isStreaming)) {
