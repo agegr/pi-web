@@ -178,12 +178,14 @@ export function normalizeDisplayMath(markdown: string): string {
     }
 
     // A tag named in inline code (`<pre>`) is text, not raw HTML: only a tag
-    // outside a code span opens a raw block, as in splitMarkdownBlocks().
-    const prose = line.replace(inlineCodeSpanPattern, "$1");
+    // outside a code span opens a raw block, as in splitMarkdownBlocks(). The
+    // spans are blanked, not removed, so the closing tag is looked for in the
+    // line as written: backticks after a raw tag do not make a code span.
+    const prose = line.replace(inlineCodeSpanPattern, (span, before: string) => before + " ".repeat(span.length - before.length));
     const rawCodeOpen = prose.match(/<(code|pre|script|style)\b/i);
     if (rawCodeOpen) {
       const tag = rawCodeOpen[1].toLowerCase();
-      const remainder = prose.slice((rawCodeOpen.index ?? 0) + rawCodeOpen[0].length);
+      const remainder = line.slice((rawCodeOpen.index ?? 0) + rawCodeOpen[0].length);
       if (!new RegExp(`</${tag}\\s*>`, "i").test(remainder)) rawCodeTag = tag;
       inlineCodeMarkerSize = 0;
       normalized.push(line);
