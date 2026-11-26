@@ -213,6 +213,7 @@ export interface AgentSessionLike {
     deliverAs?: "steer" | "followUp" | "nextTurn";
   }): Promise<void>;
   abort(): Promise<void>;
+  waitForIdle(): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: {
     excludeFromContext?: boolean;
     operations?: BashOperations;
