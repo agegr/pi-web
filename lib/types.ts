@@ -113,6 +113,8 @@ export interface BashExecutionMessage {
   cancelled?: boolean;
   truncated?: boolean;
   fullOutputPath?: string;
+  /** Why a truncated output could not be saved to a temp file (pi 1.6.1). */
+  fullOutputError?: string;
   excludeFromContext?: boolean;
   timestamp?: number;
 }

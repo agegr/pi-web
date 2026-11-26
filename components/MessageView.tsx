@@ -1869,7 +1869,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const summary = getMessageText(message.content);
   const time = formatTime(message.timestamp);
   const tokensBefore = (message.details as { tokensBefore?: unknown } | undefined)?.tokensBefore;
-  // pi's showCacheMissNotices (#1265): what the compaction billed, in its card.
+  // pi's notices.compactionCosts (#1265): what the compaction billed, in its card.
   const costNotice = getTranscriptNotices(message).find((notice) => notice.kind === "summary_cost" && notice.source === "compaction");
 
   return (
@@ -2395,10 +2395,15 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
 
   // pi keeps the end of a long output (2000 lines or 50KB) and writes all of it
   // to a temp file. The card's result is that end, so the line under it says so
-  // and offers the rest. It sits inside the expanded card: loading the file
+  // and offers the rest, or says why pi could not save it, as pi's
+  // `bashTruncationNote()`. It sits inside the expanded card: loading the file
   // changes the text right above it.
   const linkStyle: CSSProperties = { color: "var(--accent)", fontSize: 11, textDecoration: "underline" };
-  const fullOutputFooter = message.truncated && fullOutputUrl ? (
+  const truncationNote = fullError
+    ?? (fullShown ? t("chat.fullOutputShown")
+      : !fullOutputUrl && message.fullOutputError ? t("chat.fullOutputNotSaved", { error: message.fullOutputError })
+      : t("chat.outputTruncated"));
+  const fullOutputFooter = message.truncated ? (
     <div
       style={{
         display: "flex",
@@ -2411,10 +2416,8 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
         borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
       }}
     >
-      <span role="status">
-        {fullError ?? t(fullShown ? "chat.fullOutputShown" : "chat.outputTruncated")}
-      </span>
-      {!fullShown && (
+      <span role="status">{truncationNote}</span>
+      {fullOutputUrl && !fullShown && (
         <button
           type="button"
           onClick={loadFullOutput}
@@ -2424,9 +2427,11 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
           {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
         </button>
       )}
-      <a href={`${fullOutputUrl}&download=1`} style={linkStyle}>
-        {t("chat.downloadFullOutput")}
-      </a>
+      {fullOutputUrl && (
+        <a href={`${fullOutputUrl}&download=1`} style={linkStyle}>
+          {t("chat.downloadFullOutput")}
+        </a>
+      )}
     </div>
   ) : null;
 
