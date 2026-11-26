@@ -24,6 +24,7 @@ import {
   revealHiddenCharacters,
 } from "@/lib/mcp-server-display";
 import { openStackedDialog } from "@/lib/stacked-dialog";
+import { errorMessage } from "@/lib/errors";
 
 /** How long the dialog waits for the listing before it stops holding Trust back. */
 export const MCP_LISTING_TIMEOUT_MS = 10_000;
@@ -48,10 +49,6 @@ export type ProjectTrustMcpListing =
 
 const STATUS_ID = "project-trust-mcp-status";
 const NOTICE_ID = "project-trust-notice";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function trustStatusFrom(data: ProjectTrustResponse): ProjectTrustStatus {
   const status: ProjectTrustStatus = {

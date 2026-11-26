@@ -1,13 +1,10 @@
+import { errorMessage } from "./errors";
 // What `JSON.parse` said about an `mcp.json`, without the source text it
 // quotes. Settings › MCP shows a file's parse error (`lib/mcp-config-read.ts`),
 // the writer refuses with it (`lib/mcp-config-file.ts`), and the MCP host logs
 // what the SDK's `loadMcpConfig()` reports (`lib/mcp-host.ts`). The host cannot
 // import `mcp-config-read`, whose module chain leads back to it, so the rule
 // lives here, with no imports.
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 // V8's message for an unexpected token quotes the source around it instead of
 // giving a position: the whole text when it is shorter than 21 characters,

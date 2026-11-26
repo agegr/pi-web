@@ -18,6 +18,8 @@ import { projectNameOf } from "@/lib/session-tree";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { MCP_SESSION_STATE_KEYS } from "./mcp-config-helpers";
+import type { Translate } from "@/lib/i18n/types";
+import { isRecord } from "@/lib/is-record";
 
 /**
  * The debug panel's pure parts (components/DebugPanel.tsx): what it reads of the page each second,
@@ -26,8 +28,6 @@ import { MCP_SESSION_STATE_KEYS } from "./mcp-config-helpers";
  * reference to the page's tracked stream objects stays here, so the component never names them.
  * Nothing here opens, renews or reconnects anything.
  */
-
-export type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /** The page's own state is read this often while the panel is open. */
 export const DEBUG_TICK_MS = 1000;
@@ -228,10 +228,6 @@ export function nextLeaseRenewalAt(renewStartedAt: number | null, intervalMs: nu
 
 // ── The server's answer ──
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -241,7 +237,7 @@ function isNumberOrNull(value: unknown): boolean {
 }
 
 function isSummary(value: unknown): boolean {
-  return isObject(value)
+  return isRecord(value)
     && typeof value.sessionId === "string"
     && typeof value.state === "string"
     && isNumber(value.eventStreams)
@@ -249,29 +245,29 @@ function isSummary(value: unknown): boolean {
 }
 
 function isDetail(value: unknown): boolean {
-  if (!isObject(value) || typeof value.sessionId !== "string") return false;
+  if (!isRecord(value) || typeof value.sessionId !== "string") return false;
   const wrapper = value.wrapper;
   const subagents = value.subagents;
   const mcp = value.mcp;
-  return (wrapper === null || (isObject(wrapper) && typeof wrapper.state === "string" && isObject(wrapper.run) && isObject(wrapper.idle)))
-    && (value.lifecycle === null || isObject(value.lifecycle))
+  return (wrapper === null || (isRecord(wrapper) && typeof wrapper.state === "string" && isRecord(wrapper.run) && isRecord(wrapper.idle)))
+    && (value.lifecycle === null || isRecord(value.lifecycle))
     && (value.providers === null || Array.isArray(value.providers))
     && Array.isArray(value.eventStreams)
-    && isObject(subagents) && Array.isArray(subagents.runs) && Array.isArray(subagents.notifications)
-    && (mcp === null || (isObject(mcp) && Array.isArray(mcp.servers)));
+    && isRecord(subagents) && Array.isArray(subagents.runs) && Array.isArray(subagents.notifications)
+    && (mcp === null || (isRecord(mcp) && Array.isArray(mcp.servers)));
 }
 
 function isServerGlobal(value: unknown): boolean {
-  return isObject(value)
+  return isRecord(value)
     && isNumber(value.startedAt)
-    && isObject(value.wrappers)
-    && isObject(value.eventStreams) && isNumber(value.sseTotal) && Array.isArray(value.pages)
-    && isObject(value.terminals);
+    && isRecord(value.wrappers)
+    && isRecord(value.eventStreams) && isNumber(value.sseTotal) && Array.isArray(value.pages)
+    && isRecord(value.terminals);
 }
 
 /** Whether an answer has the shape the panel renders; anything else is reported, never rendered. */
 export function isDebugSnapshotResponse(value: unknown): value is DebugSnapshotResponse {
-  return isObject(value)
+  return isRecord(value)
     && isNumber(value.now)
     && isServerGlobal(value.server)
     && Array.isArray(value.sessions) && value.sessions.every(isSummary)

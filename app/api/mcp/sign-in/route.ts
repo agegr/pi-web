@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpSignInFlowInfo } from "@/lib/api-types";
 import { isMcpDisabledByOperator } from "@/lib/builtin-extensions";
-import { isMcpEntryRefusal, mcpProjectTrustRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
+import { isMcpEntryRefusal, mcpEntryRefusalResponse, mcpProjectTrustRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
 import { createMcpSignInDeps, mcpOAuthUrl, startMcpSignIn } from "@/lib/mcp-sign-in";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +16,10 @@ export const dynamic = "force-dynamic";
 // the entry passes every check a Test makes (`readConnectableMcpEntry()`),
 // and only an HTTP server without an Authorization header signs in with OAuth.
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // POST /api/mcp/sign-in body: { scope, name, cwd? }
 export async function POST(req: Request) {
   const entry = await readConnectableMcpEntry(req);
-  if (isMcpEntryRefusal(entry)) return NextResponse.json(entry.body, { status: entry.status });
+  if (isMcpEntryRefusal(entry)) return mcpEntryRefusalResponse(entry);
   const { scope, name, sourcePath, configKey, config, cwd, project, agentDir, internals } = entry;
   const url = mcpOAuthUrl(config);
   if (url === undefined) {

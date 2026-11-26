@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { stripAnsi } from "@/lib/ansi";
 import { runNpx } from "@/lib/npx";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
 
 export const dynamic = "force-dynamic";
-
-const ANSI_RE = /\x1B\[[0-9;]*m/g;
 
 // POST /api/skills/install  body: { package: string; scope: "global" | "project"; cwd?: string }
 export async function POST(req: Request) {
@@ -45,7 +44,7 @@ export async function POST(req: Request) {
       cwd: !isGlobal && cwd ? cwd : undefined,
     });
 
-    const output = (stdout + stderr).replace(ANSI_RE, "");
+    const output = stripAnsi(stdout + stderr);
     const success = /Installation complete|Installed \d+ skill/.test(output);
     if (!success) {
       return NextResponse.json({ error: output.slice(-300) || "Install failed" }, { status: 500 });
@@ -53,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, output });
   } catch (e: unknown) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
-    const output = ((err.stdout ?? "") + (err.stderr ?? "")).replace(ANSI_RE, "");
+    const output = stripAnsi((err.stdout ?? "") + (err.stderr ?? ""));
     return NextResponse.json({ error: output || (err.message ?? String(e)) }, { status: 500 });
   }
 }

@@ -23,6 +23,8 @@ import type {
   PiSdkInternals,
   StdioTransport,
 } from "./pi-sdk-internals";
+import { cancellableDelay } from "./cancellable-delay";
+import { errorMessage } from "./errors";
 
 // Settings › MCP's Test (ADR 0006): connect one `mcp.json` entry once, outside
 // any session, list what it offers, and close it again. It connects the way a
@@ -116,24 +118,6 @@ export interface McpTestOptions {
   closeWaitMs?: number;
   /** Replaces connecting (tests); the queue, joining, the deadline and recording stay. */
   connect?: McpTestConnect;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function delay(ms: number): { promise: Promise<void>; cancel: () => void } {
-  let timer: NodeJS.Timeout | undefined;
-  const promise = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
-  return { promise, cancel: () => clearTimeout(timer) };
-}
-
-function aborted(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 }
 
 function clip(text: string, max: number): string {
@@ -411,7 +395,7 @@ function providerTokenReader(): (provider: string) => Promise<string | undefined
 export async function closeTestConnection({ connection, transports }: McpTestConnection, waitMs: number = MCP_TEST_CLOSE_WAIT_MS): Promise<void> {
   const closing = [connection.close(), ...transports.map((transport) => transport.close())]
     .map((promise) => promise.catch(() => undefined));
-  const wait = delay(waitMs);
+  const wait = cancellableDelay(waitMs);
   await Promise.race([Promise.all(closing), wait.promise]);
   wait.cancel();
 }
@@ -542,7 +526,7 @@ export async function takeMcpCommandSlot(signal: AbortSignal, waitMs: number): P
     release = resolve;
   });
   queue.tail = ahead.then(() => done);
-  const wait = delay(waitMs);
+  const wait = cancellableDelay(waitMs);
   const outcome = await Promise.race([
     ahead.then(() => "turn" as const),
     wait.promise.then(() => "timeout" as const),
@@ -686,7 +670,7 @@ function startTest(
     try {
       // `connectForTest()` answers within closeWaitMs of an abort; this bounds a replacement that does not.
       const fallback = aborted(controller.signal)
-        .then(() => delay(closeWaitMs + 500).promise)
+        .then(() => cancellableDelay(closeWaitMs + 500).promise)
         .then(() => notRun({ timedOut: true, durationMs: Date.now() - started }));
       const result = await Promise.race([connect(target, controller.signal), fallback]);
       // Stopped because every caller gave up: what it found says nothing about the server. A result
@@ -699,4 +683,10 @@ function startTest(
     }
   };
   return Object.assign(run(), { join });
+}
+
+/** Settles when `signal` aborts, at once when it already has. */
+export function aborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 }

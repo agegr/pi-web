@@ -27,6 +27,8 @@
  * `lib/enabled-models-runtime.ts`.
  */
 
+import { isThinkingLevel } from "./thinking-levels";
+
 /** How one configured pattern resolves against the available models. */
 export interface PatternResolution {
   /** The pattern exactly as stored in settings. */
@@ -347,9 +349,6 @@ export interface ProviderRename {
   to: string;
 }
 
-/** Suffixes `formatEntry()` may have appended, so a rename can carry them over. */
-const THINKING_LEVEL_SUFFIXES = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-
 /**
  * Point renamed models' entries at their new reference.
  *
@@ -374,7 +373,8 @@ export function renameModelPatterns(
       // Model ids may contain colons, so only a known level is a pin suffix.
       if (!pattern.startsWith(`${from}:`)) continue;
       const suffix = pattern.slice(from.length + 1);
-      if (THINKING_LEVEL_SUFFIXES.has(suffix)) return `${to}:${suffix}`;
+      // A reasoning-level suffix `formatEntry()` may have appended carries over.
+      if (isThinkingLevel(suffix)) return `${to}:${suffix}`;
     }
     return pattern;
   });

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { SkillInstallScope } from "@/lib/api-types";
 import { checkSkillUpdates } from "@/lib/skill-updates";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
-import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { cwdAccessRefusal } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,8 @@ export async function POST(req: Request) {
       scope?: unknown;
     };
     const cwd = typeof body.cwd === "string" ? body.cwd : "";
-    if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
+    const refused = await cwdAccessRefusal(cwd);
+    if (refused) return refused;
 
     const pkg = typeof body.package === "string" ? body.package : undefined;
     const scope = body.scope === "global" || body.scope === "project"

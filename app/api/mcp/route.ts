@@ -31,11 +31,14 @@ import {
 import { readMcpOverview, readMcpServerConfigs, readMcpServerEntry } from "@/lib/mcp-config-read";
 import {
   isMcpEntryRefusal,
+  type McpEntryRefusal,
   mcpInternalsOrRefusal,
   mcpProjectTrustRefusal,
+  mcpRefusalResponse,
+  readMcpScope,
   readMcpServerConfig,
+  readMcpServerName,
   validateMcpProject,
-  type McpEntryRefusal,
 } from "@/lib/mcp-entry-request";
 import { MCP_EXPOSURES, isMcpExposure, suggestFreeName } from "@/lib/mcp-import";
 import { mcpOAuthUrl, signOutMcpServer } from "@/lib/mcp-sign-in";
@@ -46,6 +49,8 @@ import type { PiSdkInternals } from "@/lib/pi-sdk-internals";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { freshFolderTrustBreadth, getProjectTrustStatus, trustFreshFolderAndWrite } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { errorMessage } from "@/lib/errors";
+import { isRecord } from "@/lib/is-record";
 
 export const dynamic = "force-dynamic";
 
@@ -64,19 +69,7 @@ export const dynamic = "force-dynamic";
 
 type Project = { cwd: string; allowedRoots: Set<string> };
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 type RefusalParams = Omit<McpErrorResponse, "error" | "reason">;
-
-function refusal(status: number, reason: McpRefusalReason, error: string, params: RefusalParams = {}) {
-  return NextResponse.json({ error, reason, ...params } satisfies McpErrorResponse, { status });
-}
 
 /** A typed refusal: the whole answer of a request, or one server's result in a bulk switch. */
 class Refusal {
@@ -88,7 +81,7 @@ class Refusal {
   ) {}
 
   response() {
-    return refusal(this.status, this.reason, this.error, this.params);
+    return mcpRefusalResponse(this.status, this.reason, this.error, this.params);
   }
 
   item(server: McpServerRef): McpActionItemResult {
@@ -121,7 +114,7 @@ export async function GET(req: Request) {
   try {
     return NextResponse.json((await readMcpOverview({ agentDir: getAgentDir(), project })) satisfies McpResponse);
   } catch (error) {
-    return refusal(500, "internal", errorMessage(error));
+    return mcpRefusalResponse(500, "internal", errorMessage(error));
   }
 }
 
@@ -161,22 +154,14 @@ async function mcpWritable(): Promise<PiSdkInternals | Refusal> {
   return isMcpEntryRefusal(internals) ? asRefusal(internals) : internals;
 }
 
-function readScope(value: unknown): McpScope | undefined {
-  return value === "global" || value === "project" ? value : undefined;
-}
-
-function readName(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 && value.length <= 1024 ? value : undefined;
-}
-
 const MAX_BULK_SERVERS = 500;
 
 function readServerList(value: unknown): McpServerRef[] | undefined {
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_BULK_SERVERS) return undefined;
   const servers = new Map<string, McpServerRef>();
   for (const item of value) {
-    const scope = isRecord(item) ? readScope(item.scope) : undefined;
-    const name = isRecord(item) ? readName(item.name) : undefined;
+    const scope = isRecord(item) ? readMcpScope(item.scope) : undefined;
+    const name = isRecord(item) ? readMcpServerName(item.name) : undefined;
     if (!scope || name === undefined) return undefined;
     servers.set(`${scope}\0${name}`, { scope, name });
   }
@@ -188,7 +173,7 @@ async function overviewResponse(agentDir: string, project: Project | undefined, 
     const overview = await readMcpOverview({ agentDir, project });
     return NextResponse.json({ ...overview, ...extra } satisfies McpActionResponse);
   } catch (error) {
-    return refusal(500, "internal", errorMessage(error));
+    return mcpRefusalResponse(500, "internal", errorMessage(error));
   }
 }
 
@@ -276,17 +261,17 @@ async function switchServerInProject(
 ) {
   const target = writeTarget("project", project, agentDir);
   if (target instanceof Refusal) return target.response();
-  if (target.scope !== "project") return refusal(500, "internal", "No project file to write to");
+  if (target.scope !== "project") return mcpRefusalResponse(500, "internal", "No project file to write to");
   const read = readMcpServerEntry({ agentDir, scope: "global", name });
   if (!read.ok) {
     const params = { path: read.path, ...(read.reason === "server-missing" ? { name } : {}) };
-    if (read.reason === "unreadable") return refusal(500, "internal", read.error, params);
-    return refusal(409, read.reason, read.error, params);
+    if (read.reason === "unreadable") return mcpRefusalResponse(500, "internal", read.error, params);
+    return mcpRefusalResponse(409, read.reason, read.error, params);
   }
   const global = readMcpServerConfig({ agentDir, internals, scope: "global", name });
-  if (typeof global === "string") return refusal(409, "server-invalid", global, { name });
+  if (typeof global === "string") return mcpRefusalResponse(409, "server-invalid", global, { name });
   if (enabled && findWebPasswordField(global.config, internals)) {
-    return refusal(409, "web-password", `"${name}" references PI_WEB_PASSWORD, so Pi Web does not turn it on`, { name });
+    return mcpRefusalResponse(409, "web-password", `"${name}" references PI_WEB_PASSWORD, so Pi Web does not turn it on`, { name });
   }
   try {
     const { value: outcome, path } = await setMcpServerEnabledInProject(target, name, enabled);
@@ -370,7 +355,7 @@ async function removeServer(agentDir: string, project: Project | undefined, serv
  */
 async function undoRemoval(agentDir: string, project: Project | undefined, token: string) {
   const held = takeRemovedEntry(token);
-  if (!held) return refusal(410, "undo-unavailable", "Nothing to undo: the removal is unknown, already undone, or older than 60 seconds");
+  if (!held) return mcpRefusalResponse(410, "undo-unavailable", "Nothing to undo: the removal is unknown, already undone, or older than 60 seconds");
   const server = { scope: held.scope, name: held.name };
   let failure: Refusal | undefined;
   try {
@@ -418,18 +403,18 @@ async function signOutServer(agentDir: string, project: Project | undefined, int
   const read = readMcpServerEntry({ agentDir, scope: server.scope, name, project });
   if (!read.ok) {
     const params = { path: read.path, ...(read.reason === "server-missing" ? { name } : {}) };
-    if (read.reason === "unreadable") return refusal(500, "internal", read.error, params);
-    return refusal(409, read.reason, read.error, params);
+    if (read.reason === "unreadable") return mcpRefusalResponse(500, "internal", read.error, params);
+    return mcpRefusalResponse(409, read.reason, read.error, params);
   }
   if (!isRecord(read.value)) {
-    return refusal(409, "entry-not-object", `${read.sourcePath} defines MCP server "${name}" as something other than an object`, { name });
+    return mcpRefusalResponse(409, "entry-not-object", `${read.sourcePath} defines MCP server "${name}" as something other than an object`, { name });
   }
   // A project override signs in and out as the global server it changes: same name, same URL.
   const resolved = readMcpServerConfig({ agentDir, project, internals, scope: server.scope, name });
-  if (typeof resolved === "string") return refusal(409, "server-invalid", resolved, { name });
+  if (typeof resolved === "string") return mcpRefusalResponse(409, "server-invalid", resolved, { name });
   const url = mcpOAuthUrl(resolved.config);
   if (url === undefined) {
-    return refusal(409, "sign-in-not-oauth", `MCP server "${name}" does not use OAuth: only an HTTP server without an Authorization header does`, { name });
+    return mcpRefusalResponse(409, "sign-in-not-oauth", `MCP server "${name}" does not use OAuth: only an HTTP server without an Authorization header does`, { name });
   }
   const removed = signOutMcpServer(name, url, agentDir, internals);
   forgetMcpEntryStatuses({ scope: server.scope, sourcePath: read.sourcePath, name });
@@ -466,7 +451,7 @@ function insertRefusal(error: unknown, agentDir: string, project: Project | unde
 }
 
 function readAddRequest(body: Record<string, unknown>): McpAddRequest | Refusal {
-  const scope = readScope(body.scope);
+  const scope = readMcpScope(body.scope);
   const values = readMcpAddValues(body.values);
   const secretReferences = readMcpAddSecretReferences(body.secretReferences);
   const server = body.server === undefined ? 0 : body.server;
@@ -474,7 +459,7 @@ function readAddRequest(body: Record<string, unknown>): McpAddRequest | Refusal 
   if (
     typeof body.text !== "string" || body.text.length > MCP_ADD_MAX_TEXT || !scope || !values || !secretReferences
     || typeof server !== "number" || !Number.isInteger(server) || server < 0
-    || (body.name !== undefined && readName(body.name) === undefined)
+    || (body.name !== undefined && readMcpServerName(body.name) === undefined)
     || (body.rawPi !== undefined && typeof body.rawPi !== "boolean")
     || (body.trustFolder !== undefined && typeof body.trustFolder !== "boolean")
     || !Array.isArray(confirm) || confirm.length > 100 || !confirm.every((name) => typeof name === "string")
@@ -520,14 +505,14 @@ async function addServer(
   const request = readAddRequest(body);
   if (request instanceof Refusal) return request.response();
   const { scope } = request;
-  if (scope === "project" && !project) return refusal(400, "invalid-request", "A project server needs the project's cwd");
+  if (scope === "project" && !project) return mcpRefusalResponse(400, "invalid-request", "A project server needs the project's cwd");
   const trustFolder = scope === "project" && body.trustFolder === true && project !== undefined;
   // Where it may go is said first: a confirmation asked for a server the folder then refuses would be asked for nothing.
   const target = trustFolder ? undefined : writeTarget(scope, project, agentDir);
   if (target instanceof Refusal) return target.response();
   if (trustFolder && project) {
     const breadth = freshFolderTrustBreadth(project.cwd, { agentDir, knownFolders: project.allowedRoots });
-    if (breadth) return refusal(409, "trust-too-broad", `Trusting ${project.cwd} would also trust ${breadth.path}`, { breadth });
+    if (breadth) return mcpRefusalResponse(409, "trust-too-broad", `Trusting ${project.cwd} would also trust ${breadth.path}`, { breadth });
   }
   const prepared = prepareMcpAdd(request, { takenNames: namesInFile(agentDir, project, scope, internals), internals });
   if (!prepared.ok) return addRefusal(prepared).response();
@@ -544,16 +529,16 @@ async function addServer(
     if (!result.ok) {
       switch (result.reason) {
         case "trust-too-broad":
-          return refusal(409, "trust-too-broad", result.error, { breadth: result.breadth });
+          return mcpRefusalResponse(409, "trust-too-broad", result.error, { breadth: result.breadth });
         case "folder-not-fresh":
-          return refusal(409, "folder-not-fresh", result.error, result.status ? { trust: result.status } : {});
+          return mcpRefusalResponse(409, "folder-not-fresh", result.error, result.status ? { trust: result.status } : {});
         case "trust-unreadable":
-          return refusal(409, "trust-unreadable", result.error);
+          return mcpRefusalResponse(409, "trust-unreadable", result.error);
         case "write-failed": {
           const failure = insertRefusal(result.writeError, agentDir, project, scope, internals);
           if (result.rollbackError === undefined) return failure.response();
           // The write's own reason still says why nothing was added; `trustKept` says the folder stays trusted.
-          return refusal(failure.status, failure.reason, `${failure.error}; the folder stays trusted, since taking the trust back failed: ${result.rollbackError}`, {
+          return mcpRefusalResponse(failure.status, failure.reason, `${failure.error}; the folder stays trusted, since taking the trust back failed: ${result.rollbackError}`, {
             ...failure.params,
             trustKept: true,
             ...(result.status ? { trust: result.status } : {}),
@@ -569,7 +554,7 @@ async function addServer(
     });
   }
 
-  if (!target) return refusal(500, "internal", "No file to write to");
+  if (!target) return mcpRefusalResponse(500, "internal", "No file to write to");
   let path: string;
   try {
     ({ path } = await insertMcpServer(target, name, entry));
@@ -590,15 +575,15 @@ async function addServer(
 // `cwd` is the panel's project: required for a project server, and the
 // overview in the answer covers it.
 export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
-  if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
+  if (!isApiRequestAllowed(req)) return mcpRefusalResponse(403, "request-denied", "Untrusted API request");
+  if (!hasJsonContentType(req)) return mcpRefusalResponse(415, "content-type", "Content-Type must be application/json");
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return refusal(400, "invalid-request", "Invalid JSON body");
+    return mcpRefusalResponse(400, "invalid-request", "Invalid JSON body");
   }
-  if (!isRecord(body)) return refusal(400, "invalid-request", "Expected a JSON object");
+  if (!isRecord(body)) return mcpRefusalResponse(400, "invalid-request", "Expected a JSON object");
 
   let project: Project | undefined;
   if (body.cwd !== undefined && body.cwd !== null) {
@@ -617,9 +602,9 @@ export async function POST(req: Request) {
       case "disable":
       case "remove":
       case "sign-out": {
-        const scope = readScope(body.scope);
-        const name = readName(body.name);
-        if (!scope || name === undefined) return refusal(400, "invalid-request", "scope must be \"global\" or \"project\", and name a server name");
+        const scope = readMcpScope(body.scope);
+        const name = readMcpServerName(body.name);
+        if (!scope || name === undefined) return mcpRefusalResponse(400, "invalid-request", "scope must be \"global\" or \"project\", and name a server name");
         if (body.action === "remove") return await removeServer(agentDir, project, { scope, name });
         if (body.action === "sign-out") return await signOutServer(agentDir, project, internals, { scope, name });
         return await switchServer(agentDir, project, internals, { scope, name }, body.action === "enable");
@@ -627,37 +612,37 @@ export async function POST(req: Request) {
       case "set-enabled": {
         const servers = readServerList(body.servers);
         if (typeof body.enabled !== "boolean" || !servers) {
-          return refusal(400, "invalid-request", `enabled must be a boolean, and servers a list of 1 to ${MAX_BULK_SERVERS} { scope, name }`);
+          return mcpRefusalResponse(400, "invalid-request", `enabled must be a boolean, and servers a list of 1 to ${MAX_BULK_SERVERS} { scope, name }`);
         }
         return await switchServers(agentDir, project, internals, servers, body.enabled);
       }
       case "set-exposure": {
-        const scope = readScope(body.scope);
-        const name = readName(body.name);
+        const scope = readMcpScope(body.scope);
+        const name = readMcpServerName(body.name);
         if (!scope || name === undefined || !isMcpExposure(body.exposure)) {
-          return refusal(400, "invalid-request", `scope must be "global" or "project", name a server name, and exposure one of ${MCP_EXPOSURES.join(", ")}`);
+          return mcpRefusalResponse(400, "invalid-request", `scope must be "global" or "project", name a server name, and exposure one of ${MCP_EXPOSURES.join(", ")}`);
         }
         return await setServerExposure(agentDir, project, { scope, name }, body.exposure);
       }
       case "set-in-project": {
-        const name = readName(body.name);
+        const name = readMcpServerName(body.name);
         if (name === undefined || typeof body.enabled !== "boolean") {
-          return refusal(400, "invalid-request", "name must name a global server, and enabled be a boolean");
+          return mcpRefusalResponse(400, "invalid-request", "name must name a global server, and enabled be a boolean");
         }
         return await switchServerInProject(agentDir, project, internals, name, body.enabled);
       }
       case "undo": {
         if (typeof body.token !== "string" || body.token.length === 0 || body.token.length > 100) {
-          return refusal(400, "invalid-request", "token must be the token a remove answered with");
+          return mcpRefusalResponse(400, "invalid-request", "token must be the token a remove answered with");
         }
         return await undoRemoval(agentDir, project, body.token);
       }
       case "add":
         return await addServer(agentDir, project, internals, body);
       default:
-        return refusal(400, "invalid-request", "action must be add, enable, disable, remove, set-enabled, set-exposure, set-in-project, undo or sign-out");
+        return mcpRefusalResponse(400, "invalid-request", "action must be add, enable, disable, remove, set-enabled, set-exposure, set-in-project, undo or sign-out");
     }
   } catch (error) {
-    return refusal(500, "internal", errorMessage(error));
+    return mcpRefusalResponse(500, "internal", errorMessage(error));
   }
 }

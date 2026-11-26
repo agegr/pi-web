@@ -1,11 +1,16 @@
+import { stripAnsi } from "./ansi";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent, ToolCallContent } from "./types";
 
 interface DisplayOptions {
   isStreaming?: boolean;
 }
 
+const THINKING_PREVIEW_SOURCE_CHARS = 4_000;
+
+/** The thinking's first line, without the terminal escapes a model may write (#1753). */
 export function getThinkingPreview(thinking: string): string {
-  return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
+  const head = stripAnsi(thinking.trimStart().slice(0, THINKING_PREVIEW_SOURCE_CHARS)).trimStart();
+  return head.match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
 }
 
 export const THINKING_PIECE_CHARS = 8_000;
@@ -260,4 +265,15 @@ export const LIVE_OUTPUT_PREVIEW_LINES = 20;
 /** A running `!` command's last lines (`LIVE_OUTPUT_PREVIEW_LINES`); the page caps their rows. */
 export function liveOutputPreview(output: string): string {
   return output.replace(/\n+$/, "").split("\n").slice(-LIVE_OUTPUT_PREVIEW_LINES).join("\n");
+}
+
+/** The messages' summed `usage.cost.total`, as their usage lines show it; undefined when none costs anything. */
+export function sumCost(messages: readonly AgentMessage[]): number | undefined {
+  let total = 0;
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const cost = message.usage?.cost?.total;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) total += cost;
+  }
+  return total > 0 ? total : undefined;
 }

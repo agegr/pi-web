@@ -2,6 +2,7 @@ import {
   MAX_ATTACHED_IMAGES,
   isBase64ImageWithinLimits,
 } from "./image-attachments";
+import { getBrowserStorage } from "./browser-storage";
 import type { SessionReferenceTarget } from "./session-reference-target";
 
 export interface ChatDraftImage {
@@ -60,15 +61,6 @@ const pendingStores = new Set<string>();
 const storeHolds = new Map<string, number>();
 let storeTimer: ReturnType<typeof setTimeout> | null = null;
 let flushListenersAdded = false;
-
-function getBrowserStorage(): DraftStorage | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /** A fresh composer's keys hold a per-composer id; only a session id means the same draft after a reload. */
 function isStoredDraftKey(key: string): boolean {
