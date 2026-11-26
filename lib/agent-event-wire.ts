@@ -2,6 +2,7 @@ import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike } from "./pi-types";
 import type { ToolResultMessage } from "./types";
 import { withoutContentSignatures, withoutMessageSignatures } from "./message-signatures";
+import { isRecord } from "./is-record";
 
 export interface AgentEventLike {
   type: string;
@@ -50,10 +51,6 @@ const OMITTED_EVENT_TYPES = new Set([
  */
 export const CODEMODE_SNAPSHOT_CALL_LIMIT = 200;
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * A `tool_execution_*` event for a call that another tool made while it ran
  * (`ctx.executeTool()`, which codemode scripts use). The SDK gives those
@@ -70,7 +67,7 @@ export function isNestedToolExecutionEvent(event: AgentEventLike): boolean {
 
 /** Keep the newest calls of a codemode snapshot (`details.calls`) and count the rest. */
 function truncateCodemodeSnapshot(partialResult: unknown): unknown {
-  if (!isObject(partialResult) || !isObject(partialResult.details)) return partialResult;
+  if (!isRecord(partialResult) || !isRecord(partialResult.details)) return partialResult;
   const calls = partialResult.details.calls;
   if (!Array.isArray(calls) || calls.length <= CODEMODE_SNAPSHOT_CALL_LIMIT) return partialResult;
   return {
@@ -87,14 +84,14 @@ export function parallelToolCallIds(content: unknown, agent: Pick<AgentSessionLi
   if (agent.toolExecution !== "parallel" || !Array.isArray(content)
     || stopReason === "length" || stopReason === "error" || stopReason === "aborted") return new Set();
   const calls = content.filter((block): block is { type: "toolCall"; id: string; name: string } =>
-    isObject(block) && block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string");
+    isRecord(block) && block.type === "toolCall" && typeof block.id === "string" && typeof block.name === "string");
   // pi executes the whole batch sequentially if any called tool requires it.
   if (calls.some((call) => agent.state?.tools?.find((tool) => tool.name === call.name)?.executionMode === "sequential")) return new Set();
   return new Set(calls.map((call) => call.id));
 }
 
 export function liveToolExecutionEvent(event: AgentEventLike, needsEarlyResult: boolean): AgentEventLike {
-  if (event.type !== "tool_execution_end" || needsEarlyResult || isNestedToolExecutionEvent(event) || !isObject(event.result)) return event;
+  if (event.type !== "tool_execution_end" || needsEarlyResult || isNestedToolExecutionEvent(event) || !isRecord(event.result)) return event;
   const clientEvent = { ...event };
   delete clientEvent.result;
   return clientEvent;
@@ -102,7 +99,7 @@ export function liveToolExecutionEvent(event: AgentEventLike, needsEarlyResult: 
 
 export function toolResultFromExecutionEnd(event: AgentEventLike): ToolResultMessage | undefined {
   if (event.type !== "tool_execution_end" || isNestedToolExecutionEvent(event)
-    || typeof event.toolCallId !== "string" || !isObject(event.result)
+    || typeof event.toolCallId !== "string" || !isRecord(event.result)
     || !Array.isArray(event.result.content)) return undefined;
   return {
     role: "toolResult",
@@ -144,7 +141,7 @@ function toClientToolExecutionEvent(event: AgentEventLike): AgentEventLike | nul
     toolCallId: event.toolCallId,
     toolName: event.toolName,
     isError: event.isError,
-    ...(!nested && isObject(event.result) ? { result: {
+    ...(!nested && isRecord(event.result) ? { result: {
       content: event.result.content,
       details: event.result.details,
       usage: event.result.usage,
@@ -161,14 +158,14 @@ function toolCallMetadata(
 ): { id: string; toolName: string } | null {
   if (
     (event.type !== "toolcall_start" && event.type !== "toolcall_delta")
-    || !isObject(event.partial)
+    || !isRecord(event.partial)
   ) return null;
   const content = event.partial.content;
   const contentIndex = event.contentIndex;
   if (!Array.isArray(content) || typeof contentIndex !== "number") return null;
 
   const block = content[contentIndex];
-  if (!isObject(block) || block.type !== "toolCall") return null;
+  if (!isRecord(block) || block.type !== "toolCall") return null;
   const id = typeof block.id === "string"
     ? block.id
     : (typeof block.toolCallId === "string" ? block.toolCallId : null);
@@ -181,7 +178,7 @@ function toolCallMetadata(
 /** A `message_start` / `message_end` for a transcript system message (prompt and tool loadout). */
 export function isSystemMessageEvent(event: AgentEventLike): boolean {
   return (event.type === "message_start" || event.type === "message_end")
-    && isObject(event.message)
+    && isRecord(event.message)
     && event.message.role === "system";
 }
 
@@ -204,13 +201,13 @@ export function toClientAgentEvent(
   // browser builds only an assistant reply from its start and reads nothing
   // but the role of the others, so their body (an image read's base64) went
   // out twice.
-  if (event.type === "message_start" && isObject(event.message) && event.message.role !== "assistant") {
+  if (event.type === "message_start" && isRecord(event.message) && event.message.role !== "assistant") {
     return { type: "message_start", message: { role: event.message.role } };
   }
 
   if (event.type === "message_update") {
     const rawAssistantMessageEvent = event.assistantMessageEvent;
-    if (!isObject(rawAssistantMessageEvent)) return null;
+    if (!isRecord(rawAssistantMessageEvent)) return null;
     let assistantMessageEvent = rawAssistantMessageEvent;
 
     if ("toolCall" in assistantMessageEvent) {

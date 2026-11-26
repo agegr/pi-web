@@ -85,6 +85,7 @@ import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSe
 import { focusIfLost } from "@/lib/stacked-dialog";
 import { loadAgentStripLocked, saveAgentStripLocked } from "@/lib/agent-strip-lock";
 import { claimDoneChime } from "@/lib/done-chime";
+import { readJsonOrThrow } from "@/lib/fetch-json";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -1592,8 +1593,7 @@ export function AppShell() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        const data = await response.json() as ProjectTrustStatus & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        const data = await readJsonOrThrow<ProjectTrustStatus>(response);
         setProjectTrust(data);
       })
       .catch((error) => {
@@ -2121,7 +2121,6 @@ export function AppShell() {
 
     const tokens = sessionStats?.tokens;
     const cost = sessionStats?.cost ?? 0;
-    const formatCompact = formatCompactCount;
     const costText = formatCostShort(cost);
 
     let contextColor = "var(--text-muted)";
@@ -2132,8 +2131,8 @@ export function AppShell() {
       if (percent !== null && percent > 90) contextColor = "#ef4444";
       else if (percent !== null && percent > 70) contextColor = "rgba(234,179,8,0.95)";
       desktopContextText = percent !== null
-        ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
-        : `? / ${formatCompact(contextUsage.contextWindow)}`;
+        ? `${percent.toFixed(0)}% / ${formatCompactCount(contextUsage.contextWindow)}`
+        : `? / ${formatCompactCount(contextUsage.contextWindow)}`;
       mobileContextText = percent !== null ? `${percent.toFixed(0)}%` : null;
     }
 
@@ -2204,7 +2203,7 @@ export function AppShell() {
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
                 </svg>
-                {formatCompact(tokens.input)}
+                {formatCompactCount(tokens.input)}
               </span>
             )}
             {tokens && tokens.output > 0 && (
@@ -2212,7 +2211,7 @@ export function AppShell() {
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
                 </svg>
-                {formatCompact(tokens.output)}
+                {formatCompactCount(tokens.output)}
               </span>
             )}
             {costText && (
@@ -2238,7 +2237,7 @@ export function AppShell() {
                 <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
                 </svg>
-                {formatCompact(tokens.input)}
+                {formatCompactCount(tokens.input)}
               </span>
             )}
             {tokens && tokens.output > 0 && (
@@ -2246,7 +2245,7 @@ export function AppShell() {
                 <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
                 </svg>
-                {formatCompact(tokens.output)}
+                {formatCompactCount(tokens.output)}
               </span>
             )}
             {tokens && tokens.cacheRead > 0 && (
@@ -2254,7 +2253,7 @@ export function AppShell() {
                 <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
                 </svg>
-                {formatCompact(tokens.cacheRead)}
+                {formatCompactCount(tokens.cacheRead)}
               </span>
             )}
             {costText && (

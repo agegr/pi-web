@@ -32,6 +32,7 @@ import { findWebPasswordField, resolvedConfigValues, WEB_PASSWORD_VARIABLE, type
 import { SECRET_MASK } from "@/lib/mcp-secrets";
 import { formatMcpCommandLine, revealHiddenCharacters } from "@/lib/mcp-server-display";
 import { isBlockingFileProblem, mcpProjectTrustable, mcpWritesOff } from "./mcp-config-helpers";
+import type { Translate } from "@/lib/i18n/types";
 
 // The add pane of Settings › MCP (`components/McpAddServer.tsx`): what a paste
 // becomes, previewed in the browser with the same pure importer the route
@@ -170,8 +171,6 @@ export const MCP_IMPORT_PROBLEM_KEYS = [
 export function mcpImportNoteSeverity(note: McpImportNote): McpImportNoteSeverity {
   return MCP_IMPORT_NOTE_SEVERITY[note.code] ?? "warning";
 }
-
-type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /**
  * A note as one line of text. Parameters are source text (a field label, an

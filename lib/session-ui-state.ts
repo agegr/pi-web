@@ -13,6 +13,7 @@ import {
   type SessionUiState,
   type SessionUiStateRequest,
 } from "./session-ui-state-shared";
+import { errorCode } from "./errors";
 
 // The sidebar's pins, archive, project order, project names and read times
 // (`lib/session-ui-state-shared.ts` has the rules) in `pi-web-session-state.json`
@@ -76,10 +77,6 @@ function cache(): SessionUiStateCache {
 function noteRevision(path: string, revision: number): void {
   const revisions = cache().revisions;
   if (revision > (revisions.get(path) ?? -1)) revisions.set(path, revision);
-}
-
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
 /** Callers get their own copy: the cached state is shared by every later read. */

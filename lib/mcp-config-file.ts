@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { chmodSync, lstatSync, mkdirSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readlinkSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { McpExposure } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
+import { writeFileExactModeAtomicSync } from "./atomic-file";
 import { serializeByKey } from "./key-serializer";
 import {
   globalMcpConfigPath,
@@ -13,6 +13,8 @@ import {
   projectMcpConfigCreatePath,
   readResolvedConfigFile,
 } from "./mcp-config-read";
+import { errorCode, errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 // Pi Web's `mcp.json` writer (ADR 0006, "Writes"). The SDK's editors
 // (`dist/extensions/mcp/config.js` add/update/removeMcpServerConfig, which the
@@ -85,18 +87,6 @@ export class McpConfigWriteError extends Error {
 /** Tells a refused write by its brand, so a second copy of this module (hot reload, a test loader) still counts. */
 export function isMcpConfigWriteError(error: unknown): error is McpConfigWriteError {
   return typeof error === "object" && error !== null && (error as Record<symbol, unknown>)[WRITE_ERROR_BRAND] === true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,25 +304,6 @@ const LOCK_OPTIONS = {
   },
 };
 
-/** The file is replaced, never written in place: a temporary file in its folder, then a rename over it. */
-function writeAtomically(realPath: string, text: string, mode: number): void {
-  const temp = join(dirname(realPath), `.${basename(realPath)}.${randomUUID()}.tmp`);
-  try {
-    // `wx` and 0600 while written: text that may hold literal secrets is never readable by
-    // others, and nothing already at the temporary path is written through. chmod sets the final mode.
-    writeFileSync(temp, text, { encoding: "utf8", flag: "wx", mode: 0o600, flush: true });
-    chmodSync(temp, mode);
-    renameSync(temp, realPath);
-  } catch (error) {
-    try {
-      unlinkSync(temp);
-    } catch {
-      // Never created, or already renamed.
-    }
-    throw error;
-  }
-}
-
 /** What an edit sees: the parsed file (`{}` when missing) and its `mcpServers`. */
 export interface McpConfigDocument {
   document: Record<string, unknown>;
@@ -391,7 +362,7 @@ export function editMcpConfigFile<T>(
       const document = parseMcpConfigDocument(text, resolved.path);
       const servers = isRecord(document.mcpServers) ? document.mcpServers : undefined;
       const { changed, value } = edit({ document, servers, exists: text !== undefined, path: resolved.path });
-      if (changed) writeAtomically(resolved.realPath, serializeMcpConfig(document, text), resolved.mode(existingMode));
+      if (changed) writeFileExactModeAtomicSync(resolved.realPath, serializeMcpConfig(document, text), resolved.mode(existingMode));
       return { value, written: changed, path: resolved.path, realPath: resolved.realPath };
     } finally {
       await release();

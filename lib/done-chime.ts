@@ -1,3 +1,5 @@
+import { getBrowserStorage } from "./browser-storage";
+
 /**
  * One completion, one chime per browser (#1688). A finished run is heard by
  * the page showing that session (its `agent_end`) and by every other visible
@@ -24,15 +26,6 @@ const DONE_CHIME_RECORD_MAX = 200;
 export interface DoneChimeStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
-}
-
-function getBrowserStorage(): DoneChimeStorage | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
 }
 
 function readRecord(storage: DoneChimeStorage): Record<string, number> {

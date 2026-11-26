@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
+import { isRecord } from "./is-record";
 
 // How an `mcp.json` entry is identified across the modules that compare
 // entries: the MCP host (`lib/mcp-host.ts`) diffs what it registered against
@@ -6,10 +7,6 @@ import { createHmac, randomBytes } from "node:crypto";
 // the key their last known status (`lib/mcp-status.ts`) was recorded under.
 // The host writes those statuses too, and `mcp-config-read` already imports
 // the host's module chain, so both live here rather than in either of them.
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * How deep `canonicalJson()` follows arrays and objects. Real entries are a

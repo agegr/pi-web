@@ -1,3 +1,5 @@
+import { recordedMs } from "./turn-duration";
+
 /**
  * The time a tool card shows before its result message arrives, as pi's TUI: `Elapsed` while the
  * call runs, counted from when its start reached the page, then pi's measured time once it ends.
@@ -19,10 +21,6 @@ interface ToolExecutionEventLike {
   durationMs?: unknown;
 }
 
-function nonNegative(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
 /**
  * The clocks after a tool event. A start counts from `now`, or from `now - elapsedMs` when the
  * server replays the start of a call already running (a reload, a reconnect); a call that has a
@@ -36,11 +34,11 @@ export function applyToolClockEvent(clocks: ToolClocks, event: ToolExecutionEven
   if (event.type === "tool_execution_start") {
     if (clocks.has(id)) return clocks;
     const next = new Map(clocks);
-    next.set(id, { startedAt: now - (nonNegative(event.elapsedMs) ?? 0) });
+    next.set(id, { startedAt: now - (recordedMs(event.elapsedMs) ?? 0) });
     return next;
   }
   if (event.type === "tool_execution_end") {
-    const durationMs = nonNegative(event.durationMs);
+    const durationMs = recordedMs(event.durationMs);
     if (durationMs === undefined) return withoutToolClock(clocks, id);
     const next = new Map(clocks);
     next.set(id, { durationMs });
