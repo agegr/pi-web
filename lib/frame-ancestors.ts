@@ -24,10 +24,17 @@ export function frameAncestorSources(value = process.env.PI_WEB_FRAME_ANCESTORS)
   return valid;
 }
 
+// Documents Pi Web serves for its own frames (the DOCX preview, an SVG
+// opened as a document) name the same ancestors: frame-ancestors checks every ancestor up to the top page, so
+// 'self' alone blanks them once a launcher embeds Pi Web.
+export function frameAncestorsDirective(value = process.env.PI_WEB_FRAME_ANCESTORS): string {
+  return ["frame-ancestors", "'self'", ...frameAncestorSources(value)].join(" ");
+}
+
 export function pageFramingHeaders(value = process.env.PI_WEB_FRAME_ANCESTORS): [string, string][] {
   const sources = frameAncestorSources(value);
   const headers: [string, string][] = [
-    ["Content-Security-Policy", ["frame-ancestors", "'self'", ...sources].join(" ")],
+    ["Content-Security-Policy", frameAncestorsDirective(value)],
   ];
   // X-Frame-Options cannot name another origin. Browsers that know
   // frame-ancestors ignore it, so it only guards older ones, and only when
