@@ -82,7 +82,7 @@ Then set `PI_WEB_APP_NAME=Work Pi` in `.env` and run `docker compose up -d` to r
 - `PI_WEB_IDLE_TIMEOUT_MS`, `PI_WEB_SHUTDOWN_DEADLINE_MS`, `PI_WEB_MCP_IDLE_MS`: session/MCP lifecycle timings.
 - `PI_CODEMODE_MAX_WORKERS`: Pi code-mode worker limit.
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`: outbound proxy configuration.
-- `PI_OFFLINE`: disable online model-catalog/plugin checks.
+- `PI_OFFLINE`: disable online model-catalog, plugin and Pi Web update checks.
 - `PI_WEB_DISABLE_MCP`: disable MCP integration.
 - `PI_WEB_PUSH_SUBJECT`: optional Web Push VAPID subject.
 - `GITHUB_TOKEN` or `GH_TOKEN`: optional GitHub API token used by skill update checks; `SKILLS_API_URL` overrides the skills service base URL.

@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { isPiOffline } from "@/lib/pi-offline";
 
 /**
  * On-demand refresh of pi's remote provider catalogs.
@@ -70,11 +71,6 @@ export function modelCatalogSignature(models: readonly CatalogModel[]): string {
     .join("\n");
 }
 
-/** pi reads any `PI_OFFLINE` value, empty included, as "never touch the network". */
-export function isModelNetworkDisabled(): boolean {
-  return process.env.PI_OFFLINE !== undefined;
-}
-
 /**
  * Fetch the remote catalogs once and persist them.
  *
@@ -87,7 +83,7 @@ export function isModelNetworkDisabled(): boolean {
 export async function refreshModelCatalogs(
   options: CatalogRefreshOptions = {},
 ): Promise<CatalogRefreshResult> {
-  if (isModelNetworkDisabled()) return { completed: false, changed: false, reason: "offline" };
+  if (isPiOffline()) return { completed: false, changed: false, reason: "offline" };
 
   const timeout = AbortSignal.timeout(CATALOG_REFRESH_TIMEOUT_MS);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
