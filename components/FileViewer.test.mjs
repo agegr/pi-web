@@ -253,3 +253,12 @@ test("the diff takes two columns only where the viewer's own box has room for th
   const [minWidth] = new Function(`${ts.transpileModule(declarations("SPLIT_DIFF_MIN_WIDTH"), {}).outputText}\nreturn [SPLIT_DIFF_MIN_WIDTH];`)();
   assert.ok(minWidth <= 0.42 * 1280 && minWidth > 390);
 });
+
+test("a link's chunks stop loading by themselves once one fails", () => {
+  // Each failed chunk ends `loadingMore`, which re-runs the effect at the same
+  // offset: without the error guard it asked hundreds of times a second.
+  const effect = source.match(/\/\/ Load more by itself[\s\S]*?\}, \[[^\]]*\]\);/)?.[0];
+  assert.ok(effect, "the auto-load effect is found");
+  assert.match(effect, /if \([^)]*\berror\b[^)]*\) return;/);
+  assert.match(effect, /\}, \[[^\]]*\berror\b[^\]]*\]\);$/);
+});

@@ -2013,13 +2013,15 @@ function TextFileViewer({
     targetLines,
   ]);
 
-  // Load more by itself until a link's first line is loaded whole.
+  // Load more by itself until a link's first line is loaded whole. A chunk
+  // that failed stops it: each failure ends `loadingMore`, which would fire
+  // this again with the same offset, hundreds of requests a second.
   const targetLineLoaded = !targetLines || !data?.truncated || sourceLines.length > targetLines.start;
   useEffect(() => {
-    if (targetLineLoaded || !scrollRestorePendingRef.current || loadingMore || !data?.truncated) return;
+    if (targetLineLoaded || error || !scrollRestorePendingRef.current || loadingMore || !data?.truncated) return;
     setLoadingMore(true);
     void fetchContent(filePath, data.nextOffset).finally(() => setLoadingMore(false));
-  }, [data, fetchContent, filePath, loadingMore, targetLineLoaded]);
+  }, [data, error, fetchContent, filePath, loadingMore, targetLineLoaded]);
 
   // One renderer set per file: a new object each render would remount every
   // block of the preview (a rendered diagram back to its source) whenever
