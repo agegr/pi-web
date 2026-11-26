@@ -62,6 +62,7 @@ For port and hostname, command-line options override the corresponding environme
 | `PI_WEB_APP_NAME` | PWA manifest `name` and `short_name`; surrounding whitespace is trimmed, empty values use the default | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
+| `PI_WEB_FRAME_ANCESTORS` | Other origins allowed to embed Pi Web in an iframe, comma-separated CSP sources such as `https://portal.example` or `http://localhost:*` | Same origin only |
 | `PI_WEB_PASSWORD` | Enable browser password login; API clients may use Basic Auth with username `pi` | Authentication disabled |
 | `PI_WEB_IDLE_TIMEOUT_MS` | Session idle timeout in milliseconds, up to `2147483647`; `0` disables idle shutdown; invalid or out-of-range values use the default | `600000` (10 min) |
 | `PI_WEB_SHUTDOWN_DEADLINE_MS` | How long extensions get to handle `session_shutdown` before a closing session is disposed anyway, in milliseconds up to `2147483647`; `0`, invalid or out-of-range values use the default | `5000` (5 s) |
