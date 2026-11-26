@@ -1412,7 +1412,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 function SideChatDivider() {
   const { t } = useI18n();
   return (
-    <div role="separator" className="my-4 flex items-center gap-3 text-xs" style={{ color: "var(--text-dim)" }}>
+    // Bottom margin only: the row above keeps its own gap (useSkipOffscreenRows).
+    <div role="separator" className="mb-4 flex items-center gap-3 text-xs" style={{ color: "var(--text-dim)" }}>
       <span className="h-px flex-1" style={{ background: "var(--border)" }} />
       <span>{t("sideChat.divider")}</span>
       <span className="h-px flex-1" style={{ background: "var(--border)" }} />

@@ -2470,8 +2470,10 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
     </div>
   ) : null;
 
+  // No top margin: transcript rows keep their margins inside (useSkipOffscreenRows),
+  // so the row above already ends in its gap.
   return (
-    <div style={{ margin: "6px 0" }}>
+    <div style={{ marginBottom: 6 }}>
       <ToolCallBlock block={block} result={result} resultFooter={fullOutputFooter} />
     </div>
   );
