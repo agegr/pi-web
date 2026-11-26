@@ -90,6 +90,9 @@ interface ResourceLoaderLike {
 }
 
 interface ExtensionRunnerLike {
+  getCommand(name: string): {
+    getArgumentCompletions?: (prefix: string) => Array<{ value: string; label: string; description?: string }> | null | Promise<Array<{ value: string; label: string; description?: string }> | null>;
+  } | undefined;
   getRegisteredCommands(): Array<{
     invocationName: string;
     description?: string;
