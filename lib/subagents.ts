@@ -1,8 +1,8 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { getAgentDir, type LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
+import { DefaultPackageManager, getAgentDir, type LoadExtensionsResult, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { dump as stringifyYaml } from "js-yaml";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "fs";
-import { basename, dirname, join, resolve } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { parseFrontmatter } from "./frontmatter";
 import { parseNpmSource } from "./npm-source";
 import { writePrivateFileAtomicSync } from "./atomic-file";
@@ -916,23 +916,64 @@ export function selectSubagentExtensionTools(
   return [...new Set(selected)];
 }
 
+/** An installed package's root and the source its settings entry names. */
+export interface SubagentPackageRoot {
+  source: string;
+  root: string;
+}
+
+/**
+ * The packages the child's settings configure, with their installed roots, read through pi's
+ * own package manager (`listConfiguredPackages()`: settings and the filesystem, never an
+ * install). Called inside the override, after the SDK has applied project trust, reloaded the
+ * settings and installed missing packages for that pass, so it sees what the loader resolved.
+ */
+export function configuredPackageRoots(cwd: string, agentDir: string, settingsManager: SettingsManager): () => SubagentPackageRoot[] {
+  return () => new DefaultPackageManager({ cwd, agentDir, settingsManager }).listConfiguredPackages()
+    .flatMap(({ source, installedPath }) => (installedPath ? [{ source, root: resolve(installedPath) }] : []));
+}
+
+function isWithin(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/**
+ * The extension as pi will describe it: pi assigns package `sourceInfo` only after the
+ * `extensionsOverride` returns, so a package's files still read as top-level here and
+ * `extensions: some-package` matched nothing. A file under a configured package's installed
+ * root takes that package's source, as pi's own path metadata gives it (the deepest root wins).
+ */
+function withPackageSource(extension: SubagentExtensionLike, roots: readonly SubagentPackageRoot[]): SubagentExtensionLike {
+  if (extension.sourceInfo?.origin === "package" || !isAbsolute(extension.path)) return extension;
+  const path = resolve(extension.path);
+  let owner: SubagentPackageRoot | undefined;
+  for (const root of roots) {
+    if (isWithin(root.root, path) && (!owner || root.root.length > owner.root.length)) owner = root;
+  }
+  return owner ? { ...extension, sourceInfo: { source: owner.source, origin: "package" } } : extension;
+}
+
 /**
  * Keep only the extensions an `extensions:` list names, after the SDK has loaded them, as
  * pi-subagents does. A dropped extension binds no handlers, tools, commands or providers,
  * but its factory has already run once: this scopes the child, it is not a sandbox. Names
  * resolve like `ext:` selectors (directory, file or package name, case-insensitive), so a
- * name two sources claim keeps neither. pi-web's own inline extensions always stay, as do the
- * built-ins a child with `mcp: on` names (`SUBAGENT_MCP_EXTENSION_PATHS`). The SDK
- * calls the override on every reload, so the scope holds without further wiring.
+ * name two sources claim keeps neither; package names come from `packageRoots`. pi-web's own
+ * inline extensions always stay, as do the built-ins a child with `mcp: on` names
+ * (`SUBAGENT_MCP_EXTENSION_PATHS`). The SDK calls the override on every reload, so the scope
+ * holds without further wiring.
  */
-export function scopeSubagentExtensions(names: readonly string[]) {
+export function scopeSubagentExtensions(names: readonly string[], packageRoots?: () => readonly SubagentPackageRoot[]) {
   const wanted = new Set(names.map((name) => name.toLowerCase()));
   return (base: LoadExtensionsResult): LoadExtensionsResult => {
-    const owners = extensionNameOwners(base.extensions);
-    const extensions = base.extensions.filter((extension) => (
+    const roots = packageRoots?.() ?? [];
+    const described = base.extensions.map((extension) => withPackageSource(extension, roots));
+    const owners = extensionNameOwners(described);
+    const extensions = base.extensions.filter((extension, index) => (
       extension.path.startsWith("<inline:")
       || SUBAGENT_MCP_EXTENSION_PATHS.includes(extension.path)
-      || extensionCandidateNames(extension).some((name) => wanted.has(name) && owners.get(name)?.size === 1)
+      || extensionCandidateNames(described[index]).some((name) => wanted.has(name) && owners.get(name)?.size === 1)
     ));
     const kept = new Set(extensions.map((extension) => extension.path));
     const { runtime } = base;
@@ -953,12 +994,15 @@ export function scopeSubagentExtensions(names: readonly string[]) {
 export const SUBAGENT_MCP_EXTENSION_PATHS: readonly string[] = ["builtin:tool-search", "builtin:mcp"];
 
 /** The extension half of a child's resource loader options, shared by spawn and reopen. */
-export function subagentExtensionLoaderOptions(resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean }) {
+export function subagentExtensionLoaderOptions(
+  resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean },
+  packageRoots?: () => readonly SubagentPackageRoot[],
+) {
   return {
     noExtensions: !resources.loadExtensions,
     ...(resources.mcp ? { additionalExtensionPaths: [...SUBAGENT_MCP_EXTENSION_PATHS] } : {}),
     ...(resources.loadExtensions && resources.extensions !== undefined
-      ? { extensionsOverride: scopeSubagentExtensions(resources.extensions) }
+      ? { extensionsOverride: scopeSubagentExtensions(resources.extensions, packageRoots) }
       : {}),
   };
 }
