@@ -1,3 +1,5 @@
+import { getBrowserStorage } from "./browser-storage";
+
 /**
  * Per-browser sidebar preferences: the active tab (sessions or files), the
  * user's explicit project group expand/collapse choices, the archive view's
@@ -45,15 +47,6 @@ interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem?(key: string): void;
-}
-
-function getBrowserStorage(): StorageLike | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
 }
 
 export function loadSidebarTab(storage: StorageLike | null = getBrowserStorage()): SidebarTab {

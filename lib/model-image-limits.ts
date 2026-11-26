@@ -1,3 +1,4 @@
+import { isRecord } from "./is-record";
 /**
  * Client/server helpers for a models.json model's image size limit, pi's
  * `inputLimits.images.resize.maxBytes`: the most a new image may take in
@@ -8,10 +9,6 @@
 
 /** pi's `DEFAULT_MAX_BYTES` (pi-coding-agent's image-resize-core). */
 export const DEFAULT_IMAGE_MAX_BYTES = 4.5 * 1024 * 1024;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** The raw value in the model entry, a draft string included. */
 export function imageMaxBytes(model: { inputLimits?: unknown }): unknown {

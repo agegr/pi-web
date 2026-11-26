@@ -18,6 +18,7 @@ import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { isRecord } from "./is-record";
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -68,10 +69,6 @@ interface IndexEntry {
 }
 
 type RawEntry = Record<string, unknown>;
-
-function isRecord(value: unknown): value is RawEntry {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 // Bump on any change to what foldEntry() counts: a resumed scan adds to totals
 // counted under the rules its prefix was scanned with.

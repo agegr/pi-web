@@ -1,5 +1,6 @@
 import type { McpExposure, McpServerConfig } from "@earendil-works/pi-coding-agent";
 import { isSecretName, maskArgs, maskUrl, SECRET_MASK } from "./mcp-secrets";
+import { isRecord } from "./is-record";
 
 // Shared parts of the paste importer (`lib/mcp-import.ts`): the result types,
 // how a value written for another client becomes a pi value, the draft every
@@ -1141,10 +1142,6 @@ function parseUrl(value: string): URL | undefined {
 export function isLoopbackRedirectUri(value: string): boolean {
   const url = parseUrl(value);
   return url !== undefined && url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname) && url.search === "" && url.hash === "";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isStringRecord(value: unknown): boolean {

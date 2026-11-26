@@ -21,6 +21,7 @@ import {
 } from "./mcp-import-core";
 import { isSecretName } from "./mcp-secrets";
 import { literalWord, splitShellWords } from "./shell-words";
+import { isRecord } from "./is-record";
 
 // JSON shapes of other MCP clients, mapped onto pi's schema: the `mcpServers`
 // family (Claude Desktop and Code, Cursor, Windsurf, Cline, Gemini, Copilot,
@@ -41,10 +42,6 @@ export interface EntryContext {
 
 /** A server read from the paste, or the note that says why it is not one. */
 export type EntryOutcome = { draft: ServerDraft } | { note: McpImportNote };
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** Keys that only Gemini's `settings.json` uses; its `$NAME` is a reference, unlike Claude's. */
 const GEMINI_KEYS = ["httpUrl", "trust", "includeTools", "excludeTools", "authProviderType", "targetAudience", "targetServiceAccount", "tcp"];

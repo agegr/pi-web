@@ -12,7 +12,8 @@ import {
   validationProblem,
   type ValueGrammar,
 } from "./mcp-import-core";
-import { type EntryOutcome, isRecord, mapServerEntry, mapToolFilters, siblingMcpUrl, sseRefusal } from "./mcp-import-json";
+import { type EntryOutcome, mapServerEntry, mapToolFilters, siblingMcpUrl, sseRefusal } from "./mcp-import-json";
+import { isRecord } from "./is-record";
 import { parseJsonc } from "./jsonc";
 import { literalWord, shellAssignment, type ShellWord, type ShellWordPart } from "./shell-words";
 

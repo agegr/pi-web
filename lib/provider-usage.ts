@@ -1,5 +1,6 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ProviderUsageId } from "./provider-usage-ids";
+import { isRecord } from "./is-record";
 
 export { PROVIDER_USAGE_IDS, isProviderUsageId, type ProviderUsageId } from "./provider-usage-ids";
 
@@ -411,10 +412,6 @@ function windowLabel(seconds: number | undefined): string {
 function bearerToken(value: string | null): string | undefined {
   const match = value?.match(/^Bearer\s+(.+)$/i);
   return match?.[1];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

@@ -1,19 +1,16 @@
 import type { AgentMessage, AssistantMessage, ToolCallContent } from "./types";
-
-function isObject(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null && !Array.isArray(val);
-}
+import { isRecord } from "./is-record";
 
 function streamingRawInput(block: Record<string, unknown>): string | undefined {
   if (typeof block.rawInput === "string") return block.rawInput;
   if (typeof block.partialJson === "string") return block.partialJson;
   if (typeof block.partialArgs === "string") return block.partialArgs;
 
-  const customInput = isObject(block.customInput) ? block.customInput : null;
+  const customInput = isRecord(block.customInput) ? block.customInput : null;
   const property = customInput && typeof customInput.property === "string"
     ? customInput.property
     : null;
-  const args = isObject(block.arguments) ? block.arguments : null;
+  const args = isRecord(block.arguments) ? block.arguments : null;
   return property && args && typeof args[property] === "string"
     ? args[property]
     : undefined;
@@ -23,7 +20,7 @@ function normalizeToolCallBlock(
   block: unknown,
   options: { includeStreamingRawInput?: boolean } = {},
 ): ToolCallContent | null {
-  if (!isObject(block) || block.type !== "toolCall") return null;
+  if (!isRecord(block) || block.type !== "toolCall") return null;
   const normalized: ToolCallContent = {
     type: "toolCall",
     toolCallId: typeof block.toolCallId === "string" ? block.toolCallId : (typeof block.id === "string" ? block.id : ""),

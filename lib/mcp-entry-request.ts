@@ -10,6 +10,8 @@ import { findWebPasswordField } from "./mcp-transport";
 import { loadPiSdkInternals, type PiSdkInternals } from "./pi-sdk-internals";
 import { getProjectTrustStatus } from "./project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "./request-security";
+import { errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 // The checks a route makes before it connects one `mcp.json` entry outside any
 // session: Settings › MCP's Test (`POST /api/mcp/test`) and its sign-in
@@ -46,14 +48,6 @@ export interface McpConnectableEntry {
    * server picks the fallback, so it is not checked against the allowed roots.
    */
   cwd: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function mcpEntryRefusal(

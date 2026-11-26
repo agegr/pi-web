@@ -1,3 +1,4 @@
+import { isRecord } from "./is-record";
 // Display helpers for pi's `codemode` tool, whose calls carry a JavaScript
 // script and whose results list the tool calls the script made. The shapes
 // mirror the SDK's `CodemodeToolDetails` / `CodemodeNestedCall`, read
@@ -26,10 +27,6 @@ export interface CodemodeCalls {
 }
 
 const STATUSES = new Set<string>(["running", "ok", "error", "cancelled"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;

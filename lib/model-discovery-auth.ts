@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "./is-record";
 
 export interface ModelDiscoveryAuth {
   apiKey?: string;
@@ -15,10 +16,6 @@ export interface ModelDiscoveryAuth {
   baseUrl?: string;
   /** Effective API protocol, needed to build the protocol-correct model list URL. */
   api?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stringRecord(value: unknown): Record<string, string> {
