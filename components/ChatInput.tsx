@@ -1464,17 +1464,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, [atTokenActive, cwd]);
 
   // ── # session autocomplete ──────────────────────────────────────────────
-  const hashTokenKey = hashQuery === null ? null : `${hashQuery.start}:${hashQuery.query}`;
-  useEffect(() => {
-    if (hashTokenKey === null) {
-      setHashMenuOpen(false);
-      setHashActiveIndex(0);
-      return;
-    }
-    setHashMenuOpen(true);
-    setHashActiveIndex(0);
-  }, [hashTokenKey]);
-
   // The composer's project root (from the catalogue) ranks that project's
   // sessions first, as OpenCode ranks its @ session search.
   const currentProjectRoot = React.useMemo(() => {
@@ -1487,6 +1476,21 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       ? filterSessionEntries(hashSessions, hashQuery.query, HASH_RESULT_LIMIT, currentProjectRoot)
       : []
   ), [hashQuery, hashSessions, currentProjectRoot]);
+
+  // A query of several words that matches nothing is prose after a `#tag`, not
+  // a search: the menu closes rather than stay up (taking the arrow keys) for
+  // the rest of the line.
+  const hashGaveUp = hashQuery !== null && hashSessions !== null && hashMatches.length === 0 && /\s/.test(hashQuery.query);
+  const hashTokenKey = hashQuery === null || hashGaveUp ? null : `${hashQuery.start}:${hashQuery.query}`;
+  useEffect(() => {
+    if (hashTokenKey === null) {
+      setHashMenuOpen(false);
+      setHashActiveIndex(0);
+      return;
+    }
+    setHashMenuOpen(true);
+    setHashActiveIndex(0);
+  }, [hashTokenKey]);
 
   // Fetch the session catalogue when the menu opens, once per component
   // instance; the server caches its own scan.
@@ -1637,16 +1641,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const sendToSideChat = useCallback(() => {
-    const msg = value.trim();
-    if (!msg || attachedImages.length || !onSideChat) return;
+    const text = value.trim();
+    if (!text || attachedImages.length || !onSideChat) return;
     clearInput();
-    onSideChat(msg);
+    onSideChat(withSessionReferences(text, attachedReferencesRef.current));
   }, [value, attachedImages, onSideChat, clearInput]);
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
-    const msg = value.trim();
+    const text = value.trim();
+    // A steer or follow-up carries the chips too: clearInput() drops them.
+    const msg = withSessionReferences(text, attachedReferencesRef.current);
     if (!msg && !attachedImages.length) return;
-    if (msg.startsWith("!") && !attachedImages.length) {
+    if (text.startsWith("!") && !attachedImages.length) {
       // A shell command is never steered into the run as text.
       void handleSend();
       return;
@@ -2322,7 +2328,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         )}
         {/* Image previews */}
         {attachedImages.length > 0 && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>            {attachedImages.map((img, i) => (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+            {attachedImages.map((img, i) => (
               <div key={i} style={{ position: "relative", flexShrink: 0 }}>
                 <ImagePreview key={img.previewUrl} src={img.previewUrl}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}

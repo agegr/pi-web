@@ -28,9 +28,9 @@ export function extractHashQuery(textBeforeCursor: string): HashQueryMatch | nul
   const token = /(?:^|\s)#([^\n]*)$/.exec(textBeforeCursor);
   if (!token) return null;
   const query = token[1];
-  // `# ` (and `## `) is a Markdown heading: a space right after the hashes is
-  // the title being typed, not a session search.
-  if (query.startsWith(" ") || query.startsWith("# ")) return null;
+  // `# `, `## `, `### ` … is a Markdown heading: a space right after the
+  // hashes is the title being typed, not a session search.
+  if (/^#*\s/.test(query)) return null;
   return {
     start: textBeforeCursor.length - (query.length + 1),
     query,
