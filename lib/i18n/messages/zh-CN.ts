@@ -1621,6 +1621,7 @@ export const zhCNLocale: LocalePlugin = {
     "models.optionalApiKey": "API 密钥（可选）",
     "models.llamaEmptyCatalog": "在 llama.cpp 路由服务器中加载一个聊天模型，然后刷新模型目录。",
     "models.replaceApiKey": "输入新的 API Key 以替换…",
+    "models.storedKeyUnresolved": "已保存的 API Key 无法解析",
     "models.connectionLost": "连接已断开",
     "models.verifying": "正在验证…",
     "models.serverError": "服务器错误 {status}",

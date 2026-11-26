@@ -1621,6 +1621,7 @@ export const enLocale: LocalePlugin = {
     "models.optionalApiKey": "API key (optional)",
     "models.llamaEmptyCatalog": "Load a chat model in your llama.cpp router, then refresh the catalog.",
     "models.replaceApiKey": "Enter new key to replace…",
+    "models.storedKeyUnresolved": "stored key did not resolve",
     "models.connectionLost": "Connection lost",
     "models.verifying": "Verifying…",
     "models.serverError": "Server error {status}",

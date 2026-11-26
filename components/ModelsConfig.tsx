@@ -91,6 +91,8 @@ interface ApiKeyProvider {
   displayName: string;
   configured: boolean;
   source?: string;
+  /** auth.json holds a key for it that does not resolve (a failing `!command`). */
+  unresolved?: true;
   modelCount: number;
   /** Provider also supports OAuth, so it appears in both picker sections. */
   supportsOAuth?: boolean;
@@ -1660,6 +1662,8 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
   const [savedOk, setSavedOk] = useState(false);
   const { t } = useI18n();
   const canSave = Boolean(llama ? serverUrl.trim() : apiKey.trim());
+  const hasStoredKey = provider.configured || Boolean(provider.unresolved);
+  const statusColor = provider.configured ? "#4ade80" : provider.unresolved ? "#f87171" : undefined;
 
   async function handleSave() {
     if (!canSave || saving) return;
@@ -1716,12 +1720,12 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
         </ConfigDetailHeaderInfo>
         <ConfigDetailActions>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: provider.configured ? "#4ade80" : "var(--border)", display: "inline-block" }} />
-            <span style={{ fontSize: 11, color: provider.configured ? "#4ade80" : "var(--text-dim)" }}>
-               {provider.configured ? t("i18n.configured") : t("i18n.notConfigured")}
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor ?? "var(--border)", display: "inline-block" }} />
+            <span style={{ fontSize: 11, color: statusColor ?? "var(--text-dim)" }}>
+               {provider.configured ? t("i18n.configured") : provider.unresolved ? t("models.storedKeyUnresolved") : t("i18n.notConfigured")}
             </span>
           </div>
-          {provider.configured && (
+          {hasStoredKey && (
             <ConfigButton
               variant="danger"
               size="small"
@@ -1741,7 +1745,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
             onChange={(event) => setServerUrl(event.target.value)} spellCheck={false} />
         </label>
       )}
-      {!llama && !provider.configured && (
+      {!llama && !hasStoredKey && (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
           {provider.modelCount === 1
             ? t("models.apiKeyEnableOne", { provider: provider.displayName })
@@ -1758,7 +1762,7 @@ function ApiKeyDetail({ provider, onRefresh, enabledModels, contextSettings }: {
             if (e.key === "Enter") handleSave();
           }}
           enterKeyHint="done"
-          placeholder={llama ? t("models.optionalApiKey") : provider.configured ? t("models.replaceApiKey") : "sk-…"}
+          placeholder={llama ? t("models.optionalApiKey") : hasStoredKey ? t("models.replaceApiKey") : "sk-…"}
           style={{ flex: 1 }}
           autoComplete="off"
           spellCheck={false}
@@ -1826,7 +1830,7 @@ function AddProviderPicker({
   const q = search.trim().toLowerCase();
 
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && providerMatchesSearch(q, p.id, p.name));
-  const availableApiKey = apiKeyProviders.filter((p) => !p.configured && providerMatchesSearch(q, p.id, p.displayName));
+  const availableApiKey = apiKeyProviders.filter((p) => !p.configured && !p.unresolved && providerMatchesSearch(q, p.id, p.displayName));
   const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q);
 
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
@@ -2316,7 +2320,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     return label ? <span className="models-sidebar-badge">{label}</span> : null;
   };
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
-  const activeApiKey = apiKeyProviders.filter((p) => p.configured);
+  // An unresolved stored key still owns its provider, so it is listed with the configured ones.
+  const activeApiKey = apiKeyProviders.filter((p) => p.configured || p.unresolved);
 
   // Resolve current detail
   const detailContent = (() => {
@@ -2405,6 +2410,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                   >
                     <ProviderIcon id={p.id} size={16} />
                     <ConfigSidebarText className="is-grow">{p.displayName}</ConfigSidebarText>
+                    {p.unresolved && (
+                      <span role="img" aria-label={t("models.storedKeyUnresolved")} title={t("models.storedKeyUnresolved")}
+                        style={{ width: 7, height: 7, borderRadius: "50%", background: "#f87171", flexShrink: 0 }} />
+                    )}
                     {scopeBadge(p.id)}
                   </ConfigSidebarItem>
                 );
