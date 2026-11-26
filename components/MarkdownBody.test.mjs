@@ -127,15 +127,25 @@ test("keeps Windows drive report links in chat and user messages", () => {
       assert.match(expected, /href="file:\/\/\//);
       assert.doesNotMatch(expected, /target=|rel=/);
       const inert = renderMarkdown(`[report](<${url}>)`, { keepLineBreaks, onOpenFile: undefined });
-      assert.match(inert, /<a href="" target="_blank" rel="noopener noreferrer">report<\/a>/);
+      assert.match(inert, /<a target="_blank" rel="noopener noreferrer">report<\/a>/);
     }
+  }
+});
+
+test("opens a bare file name with a line suffix in the app", () => {
+  const html = renderMarkdown("[app.ts:42](app.ts:42) <a href=\"README.md:10\">readme</a>");
+  assert.match(html, /<a href="app\.ts:42">app\.ts:42<\/a>/);
+  assert.match(html, /<a href="README\.md:10">readme<\/a>/);
+  assert.doesNotMatch(html, /target=/);
+  for (const props of [{ onOpenFile: undefined }, { onOpenFile: undefined, onNavigateLink() {} }]) {
+    assert.doesNotMatch(renderMarkdown("[app.ts:42](app.ts:42)", props), /href=/);
   }
 });
 
 test("keeps file URLs inert without an in-app file handler", () => {
   const html = renderMarkdown("[report](file:///home/me/project/report.html)", { onOpenFile: undefined });
 
-  assert.match(html, /<a href="" target="_blank" rel="noopener noreferrer">report<\/a>/);
+  assert.match(html, /<a target="_blank" rel="noopener noreferrer">report<\/a>/);
 });
 
 test("keeps single-tilde CJK numeric ranges literal instead of striking them", () => {
