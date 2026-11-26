@@ -147,6 +147,11 @@ function rewriteEscapedInlineCodeBackticks(line: string): string {
   });
 }
 
+// A code span on one line: a whole backtick run, then content, then a run of
+// the same length that no further backtick follows. The character before the
+// opening run is kept (no lookbehind, see AGENTS.md).
+const inlineCodeSpanPattern = /(^|[^`])(`+)(?!`)[^\n]*?[^`\n]\2(?!`)/g;
+
 export function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
   const lines = markdown.split(/\r?\n/);
@@ -181,7 +186,12 @@ export function normalizeDisplayMath(markdown: string): string {
       continue;
     }
 
-    const rawCodeOpen = line.match(/<(code|pre|script|style)\b/i);
+    // A tag named in inline code (`<pre>`) is text, not raw HTML: only a tag
+    // outside a code span opens a raw block, as in splitMarkdownBlocks(). The
+    // spans are blanked, not removed, so the closing tag is looked for in the
+    // line as written: backticks after a raw tag do not make a code span.
+    const prose = line.replace(inlineCodeSpanPattern, (span, before: string) => before + " ".repeat(span.length - before.length));
+    const rawCodeOpen = prose.match(/<(code|pre|script|style)\b/i);
     if (rawCodeOpen) {
       const tag = rawCodeOpen[1].toLowerCase();
       const remainder = line.slice((rawCodeOpen.index ?? 0) + rawCodeOpen[0].length);
