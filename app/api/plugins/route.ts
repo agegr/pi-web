@@ -14,6 +14,7 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 import { getProjectTrustStatus } from "@/lib/project-trust";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
 import { invalidateModelRuntimeWithExtensions } from "@/lib/model-runtime";
+import { warmSettingsSections } from "@/lib/settings-sections-host";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -517,5 +518,8 @@ export async function POST(req: Request) {
     // extension factory cache, when the runtime is next built (at the latest
     // when it expires).
     invalidateModelRuntimeWithExtensions();
+    // A package can add or drop a Settings section too (docs/integrations.md),
+    // so read the extensions again instead of leaving the dialog's list stale.
+    void warmSettingsSections({ force: true });
   }
 }

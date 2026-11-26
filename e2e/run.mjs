@@ -19,6 +19,7 @@ import { checkModelDiscovery } from "./model-discovery.mjs";
 import { checkModelOrder } from "./model-order.mjs";
 import { checkModelContext } from "./model-context.mjs";
 import { checkModelSelector } from "./model-selector.mjs";
+import { checkSettingsSections } from "./settings-sections.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
@@ -536,6 +537,22 @@ try {
     }
     await checkModelContext(page);
     await checkModelOrder(page);
+    // In a page of its own: the stub it installs stays on that page, so the
+    // checks above run exactly as before.
+    const sectionsPage = await context.newPage();
+    sectionsPage.setDefaultTimeout(30_000);
+    sectionsPage.on("pageerror", (error) => errors.push(`settings sections: ${error.message}`));
+    sectionsPage.on("console", (message) => {
+      // The check refuses one apply on purpose, so its 400 is not a page error.
+      if (message.type() !== "error" || message.text().includes("/api/settings/sections")) return;
+      errors.push(`settings sections console: ${message.text()}`);
+    });
+    try {
+      await checkSettingsSections(sectionsPage, { base });
+      console.log("PASS: an extension's settings section is listed, filled, applied and polled");
+    } finally {
+      await sectionsPage.close();
+    }
     await page.goto(`${base}/?session=${CODE_BACKGROUND}`, { waitUntil: "domcontentloaded" });
     await page.locator(".markdown-code-block pre").waitFor();
     await checkCodeBackground(page);

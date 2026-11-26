@@ -21,10 +21,13 @@ import { clearStoredDrafts } from "@/lib/draft-store";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import { SETTINGS_BUILTIN_TOOLS } from "@/lib/tool-presets";
 import {
+  SETTINGS_SECTION_VALUES,
   setLastSettingsSection,
   settingsSectionRequiresProject,
   type SettingsSection,
 } from "@/lib/settings-navigation";
+import { useSettingsSections } from "@/hooks/useSettingsSections";
+import { localizedText, type SettingsSectionIconName } from "@/lib/settings-sections";
 import { focusModalPanel, listenForPanelEscape } from "@/lib/stacked-dialog";
 import {
   isThinkingExpandedByDefault,
@@ -36,9 +39,21 @@ import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
+import { ExtensionSettingsSection } from "./ExtensionSettingsSection";
 import { ConfigButton, ConfigDetailNavigationContext, ConfigSwitch, type ConfigDetailNavigation } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
 import { readJsonOrThrow } from "@/lib/fetch-json";
+
+/**
+ * A section the dialog can show: a built-in one, or one a pi extension
+ * registered (`docs/integrations.md`). `lib/settings-navigation.ts` keeps its
+ * built-in union, because only built-ins are remembered in localStorage.
+ */
+type PanelSection = SettingsSection | `ext:${string}`;
+
+function isBuiltinSection(section: PanelSection): section is SettingsSection {
+  return SETTINGS_SECTION_VALUES.includes(section as SettingsSection);
+}
 
 interface Props {
   cwd: string | null;
@@ -58,7 +73,7 @@ interface Props {
   onProjectTrustChanged?: (cwd: string, status: ProjectTrustStatus) => void;
 }
 
-export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
+export function SettingsSectionIcon({ section, icon, size = 16, strokeWidth = 1.8 }: { section: PanelSection; icon?: SettingsSectionIconName; size?: number; strokeWidth?: number }) {
   const common = {
     width: size,
     height: size,
@@ -72,6 +87,8 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
     className: "settings-section-icon",
   };
 
+  if (icon === "sync") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.8 2.8M16.2 16.2 19 19M19 5l-2.8 2.8M7.8 16.2 5 19" /></svg>;
+  if (icon === "server") return <svg {...common}><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01M12 7.5h5M12 16.5h5" /></svg>;
   if (section === "general") return <svg {...common}><path d="M20 7h-9M14 17H5" /><circle cx="7" cy="7" r="3" /><circle cx="17" cy="17" r="3" /></svg>;
   if (section === "models") return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" /></svg>;
   if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
@@ -646,13 +663,19 @@ export function SettingsPanel({
   onOpenTrustDialog,
   onProjectTrustChanged,
 }: Props) {
-  const { t } = useI18n();
-  const [section, setSection] = useState<SettingsSection>(initialSection);
-  const [mountedSections, setMountedSections] = useState<ReadonlySet<SettingsSection>>(
+  const { t, locale } = useI18n();
+  const [section, setSection] = useState<PanelSection>(initialSection);
+  const [mountedSections, setMountedSections] = useState<ReadonlySet<PanelSection>>(
     () => new Set([section]),
   );
+  // Sections a pi extension registered; empty until (or unless) one does.
+  const extensionSections = useSettingsSections();
   // Which sections need a project is decided once, in lib/settings-navigation.ts.
-  const sections: { id: SettingsSection; label: string; requiresProject: boolean }[] = ([
+  const builtinSections: {
+    id: SettingsSection;
+    label: string;
+    requiresProject: boolean;
+  }[] = ([
     { id: "general", label: t("settings.general") },
     { id: "models", label: t("common.models") },
     { id: "skills", label: t("common.skills") },
@@ -660,7 +683,23 @@ export function SettingsPanel({
     { id: "plugins", label: t("common.plugins") },
     { id: "mcp", label: t("settings.mcp") },
   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
-  const sectionRequiresProject = settingsSectionRequiresProject(section);
+  // An extension's sections follow the built-ins, never between them.
+  const sections: {
+    id: PanelSection;
+    label: string;
+    requiresProject: boolean;
+    icon?: SettingsSectionIconName;
+  }[] = [
+    ...builtinSections,
+    ...extensionSections.map((item) => ({
+      id: item.id as PanelSection,
+      label: localizedText(item.label, locale),
+      requiresProject: false,
+      icon: item.icon,
+    })),
+  ];
+  // An extension's section belongs to the extension, so it never waits for a project.
+  const sectionRequiresProject = isBuiltinSection(section) && settingsSectionRequiresProject(section);
   const isPhone = useIsMobile();
   const phone = usePhoneSettingsLevel(isPhone, openAtHome);
   const { dropHistory, enter: enterPhoneLevel, goUp: goUpPhoneLevel, levelRef: phoneLevelRef } = phone;
@@ -717,18 +756,20 @@ export function SettingsPanel({
     setLastSettingsSection("general");
   }, [cwd, sectionRequiresProject]);
 
-  const activateSection = (nextSection: SettingsSection) => {
+  const activateSection = (nextSection: PanelSection) => {
     setMountedSections((current) => new Set(current).add(nextSection));
     setSection(nextSection);
-    setLastSettingsSection(nextSection);
+    // Only the built-in sections are remembered: an extension's id is not known
+    // until it answers, so restoring one would fall back to General anyway.
+    if (isBuiltinSection(nextSection)) setLastSettingsSection(nextSection);
   };
 
-  const openSectionFromHome = (nextSection: SettingsSection) => {
+  const openSectionFromHome = (nextSection: PanelSection) => {
     activateSection(nextSection);
     enterPhoneLevel("section");
   };
 
-  const sectionHost = (id: SettingsSection, content: ReactNode) => mountedSections.has(id) ? (
+  const sectionHost = (id: PanelSection, content: ReactNode) => mountedSections.has(id) ? (
     <div
       key={id}
       hidden={section !== id || phone.level === "home"}
@@ -795,7 +836,7 @@ export function SettingsPanel({
                   aria-current={selected ? "page" : undefined}
                   onClick={() => activateSection(item.id)}
                 >
-                  <SettingsSectionIcon section={item.id} />
+                  <SettingsSectionIcon section={item.id} icon={item.icon} />
                   <span>{item.label}</span>
                 </button>
               );
@@ -818,7 +859,7 @@ export function SettingsPanel({
                     aria-describedby={disabled ? `settings-phone-home-${item.id}-note` : undefined}
                     onClick={() => openSectionFromHome(item.id)}
                   >
-                    <SettingsSectionIcon section={item.id} size={20} />
+                    <SettingsSectionIcon section={item.id} icon={item.icon} size={20} />
                     <span className="settings-phone-home-label">
                       <span>{item.label}</span>
                       {disabled && (
@@ -845,6 +886,10 @@ export function SettingsPanel({
           {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
+          {extensionSections.map((item) => sectionHost(
+            item.id as PanelSection,
+            <ExtensionSettingsSection key={item.id} descriptor={item} />,
+          ))}
           </ConfigDetailNavigationContext.Provider>
         </main>
       </div>

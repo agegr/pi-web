@@ -21,3 +21,14 @@ test("signing out removes the stored drafts once the server signed out", async (
 test("the login page returns only to a destination safeLoginDestination() accepts", () => {
   assert.match(loginSource, /safeLoginDestination\(destination, window\.location\.origin\)/);
 });
+
+test("a section a pi extension registered is appended after the built-ins", async () => {
+  const panelSource = await readFile(new URL("./SettingsPanel.tsx", import.meta.url), "utf8");
+  // The built-in list stays literal; an extension's sections are spread after it.
+  assert.match(panelSource, /\.\.\.builtinSections,/);
+  assert.match(panelSource, /\.\.\.extensionSections\.map\(/);
+  // Its panel is mounted through sectionHost(), like every other section.
+  assert.match(panelSource, /extensionSections\.map\(\(item\) => sectionHost\(/);
+  // Only built-in ids are remembered, so nothing restores an id before it exists.
+  assert.match(panelSource, /if \(isBuiltinSection\(nextSection\)\) setLastSettingsSection\(nextSection\);/);
+});

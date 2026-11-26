@@ -1,6 +1,7 @@
 import { configureHttpDispatcher, readHttpIdleTimeoutMs } from "@/lib/http-dispatcher";
 import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
 import { applyCodemodeWorkerDefault } from "@/lib/codemode-workers";
+import { warmSettingsSections } from "@/lib/settings-sections-host";
 
 export function registerNodeInstrumentation(): void {
   // Before any session can run a codemode script (lib/codemode-workers.ts).
@@ -25,5 +26,9 @@ export function registerNodeInstrumentation(): void {
   // the launcher opens the browser only once the first page is served, after
   // it (bin/browser-opener.js), and the routes reuse Node's cached module.
   // A failure is left for the routes' own import to report.
-  import("@earendil-works/pi-coding-agent").catch(() => {});
+  //
+  // The extensions load straight after that import, because they are what can
+  // declare a Settings section (docs/integrations.md). Unawaited for the same
+  // reason: the dialog lists the built-in sections until they answer.
+  void warmSettingsSections();
 }
