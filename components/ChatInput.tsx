@@ -23,7 +23,7 @@ import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
-import { getMarkdownListContinuation, getMarkdownListIndentEdit } from "@/lib/markdown-list-continuation";
+import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
 import { quoteSeparator } from "@/lib/quoted-selection";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 import { FolderIcon, getFileIcon } from "./FileIcons";
@@ -241,27 +241,22 @@ export function replaceLinksWithMarkdown(
  * overflows the box stays cut off instead of showing a scrollbar.
  *
  * The "auto" step clamps scrollTop to 0, so the scroll the browser gave the
- * caret is captured first and restored last.
- * A caret at the end of the text follows the end of the text, not the old
- * offset: only then does a re-wrapped draft keep its last line in view.
+ * caret is captured first and restored last; a caret at the end follows the
+ * end of the text instead.
  */
 export function autoGrowTextarea(ta: HTMLTextAreaElement): void {
   // The "auto" step fits the whole text, which clamps scrollTop to 0; keep the
   // scroll the browser gave the caret (typing at the end had already scrolled
   // it into view), or the capped height hides the caret again.
   const scrollTop = ta.scrollTop;
-  // A draft typed at its end follows the end instead of replaying the offset:
-  // a browser only scrolls for an edit it performed itself. A change with no
-  // keystroke (the run's Steer / Follow-up / Side-chat buttons narrow the
-  // composer by ~190px, a font change, the phone's stacked layout) re-wraps the
-  // text taller with no scroll of its own, and the old offset then leaves the
-  // caret below the fold until the next key. A caret inside the text has no
-  // position to compare, so it keeps the old offset.
-  const followEnd = Boolean(ta.value) && ta.selectionEnd === ta.value.length;
   ta.style.height = "auto";
   ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 200) : ta.clientHeight}px`;
   ta.style.overflowY = ta.value && ta.scrollHeight > ta.clientHeight ? "auto" : "hidden";
-  ta.scrollTop = followEnd ? ta.scrollHeight : scrollTop;
+  ta.scrollTop = scrollTop;
+  // A re-wrap with no keystroke (the run's buttons narrowing the composer, a
+  // font change) brings no browser caret scroll, so the old offset can leave an
+  // end caret below the fold.
+  if (ta.value) scrollTextareaCaretIntoView(ta);
 }
 
 /**
@@ -1678,26 +1673,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         e.preventDefault();
         onAbort();
         return;
-      }
-
-      // Tab nests the Markdown list items the selection touches, as pi's editor
-      // and Markdown editors do; anywhere else the key keeps its native focus
-      // move. Shift+Tab moves them back out one level.
-      if (e.key === "Tab" && !isComposing && !extensionUiOpen && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const ta = e.currentTarget;
-        const edit = getMarkdownListIndentEdit(
-          ta.value,
-          ta.selectionStart,
-          ta.selectionEnd,
-          e.shiftKey ? "outdent" : "indent",
-        );
-        if (edit) {
-          e.preventDefault();
-          replaceTextareaRange(ta, edit.start, edit.end, edit.text);
-          ta.setSelectionRange(edit.selectionStart, edit.selectionEnd);
-          scrollTextareaCaretIntoView(ta);
-          return;
-        }
       }
 
       if (sendShortcut) {
