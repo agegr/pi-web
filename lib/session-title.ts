@@ -223,7 +223,9 @@ function stripWrappingQuotes(value: string): string {
 
 export function parseGeneratedSessionTitle(raw: string): string {
   let value = raw.trim();
-  const fenced = value.match(/^```(?:json|text)?\s*([\s\S]*?)\s*```$/i);
+  // The word after an opening fence on its own line is the info string
+  // (```markdown, ```plaintext), never the title; a one-line fence has none.
+  const fenced = value.match(/^```(?:[^\s`]*[ \t]*\r?\n|json|text)?\s*([\s\S]*?)\s*```$/i);
   if (fenced) value = fenced[1].trim();
 
   if (value.startsWith("{")) {
