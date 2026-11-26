@@ -756,7 +756,6 @@ export const enLocale: LocalePlugin = {
     "transcriptNotice.foldCacheMisses": "{count} cache misses {tokens} tokens{cost}",
     "settings.httpProxy": "Network proxy",
     "settings.httpProxyAddress": "Address",
-    "settings.httpProxyPort": "Port",
     "settings.httpProxyEnvironment": "{protocol} uses the {source} environment variable.",
     "settings.httpProxyRequired": "Enter a proxy address to enable it.",
     "settings.httpProxyInvalid": "Enter a valid proxy address, including the protocol.",

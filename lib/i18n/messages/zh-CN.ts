@@ -756,7 +756,6 @@ export const zhCNLocale: LocalePlugin = {
     "transcriptNotice.foldCacheMisses": "缓存未命中 {count} 次 {tokens} Token{cost}",
     "settings.httpProxy": "网络代理",
     "settings.httpProxyAddress": "地址",
-    "settings.httpProxyPort": "端口",
     "settings.httpProxyEnvironment": "{protocol} 请求使用环境变量 {source}。",
     "settings.httpProxyRequired": "请输入代理地址以启用代理。",
     "settings.httpProxyInvalid": "请输入包含协议的有效代理地址。",

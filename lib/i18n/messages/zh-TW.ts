@@ -756,7 +756,6 @@ export const zhTWLocale: LocalePlugin = {
     "transcriptNotice.foldCacheMisses": "快取未命中 {count} 次 {tokens} Token{cost}",
     "settings.httpProxy": "網路代理",
     "settings.httpProxyAddress": "位址",
-    "settings.httpProxyPort": "連接埠",
     "settings.httpProxyEnvironment": "{protocol} 請求使用環境變數 {source}。",
     "settings.httpProxyRequired": "請輸入代理伺服器位址以啟用代理。",
     "settings.httpProxyInvalid": "請輸入包含通訊協定的有效代理伺服器位址。",

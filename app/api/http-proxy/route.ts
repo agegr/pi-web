@@ -7,8 +7,6 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 
 export const dynamic = "force-dynamic";
 
-class MissingProxyError extends Error {}
-
 function proxyResponse(proxyUrl: string | undefined) {
   const url = proxyUrl ? new URL(proxyUrl) : undefined;
   return NextResponse.json({
@@ -41,7 +39,7 @@ export async function PUT(req: Request) {
   if (!hasJsonContentType(req)) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
-  let body: { enabled?: unknown; httpProxy?: unknown; port?: unknown } | null;
+  let body: { enabled?: unknown; httpProxy?: unknown } | null;
   try {
     body = await req.json();
   } catch {
@@ -51,11 +49,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 });
   }
   const proxyUrl = body.enabled ? parseHttpProxy(body.httpProxy) : undefined;
-  const port = body.enabled && body.httpProxy === undefined ? body.port : undefined;
-  if (port !== undefined && port !== null && (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535)) {
-    return NextResponse.json({ error: "Expected a port between 1 and 65535, or null for the default" }, { status: 400 });
-  }
-  if (body.enabled && port === undefined && !proxyUrl) {
+  if (body.enabled && !proxyUrl) {
     const missing = body.httpProxy == null || (typeof body.httpProxy === "string" && !body.httpProxy.trim());
     return NextResponse.json(missing
       ? { reason: "proxy-required", error: "A proxy URL is required" }
@@ -65,18 +59,9 @@ export async function PUT(req: Request) {
     const settingsPath = getGlobalSettingsPath();
     if (proxyUrl || existsSync(settingsPath)) {
       await updateGlobalSettings(settingsPath, (settings) => {
-        if (port !== undefined) {
-          // The browser only sees the origin. Edit the port on the full URL from disk.
-          const current = parseHttpProxy(settings.httpProxy);
-          if (!current) throw new MissingProxyError();
-          const url = new URL(current);
-          url.port = port === null ? "" : String(port);
-          settings.httpProxy = url.href;
-        } else if (proxyUrl) settings.httpProxy = proxyUrl;
+        if (proxyUrl) settings.httpProxy = proxyUrl;
         else delete settings.httpProxy;
       });
-    } else if (port !== undefined) {
-      throw new MissingProxyError();
     }
     // Apply the latest saved value under the read lock, including a concurrent save.
     return await readGlobalSettings(settingsPath, (settings) => {
@@ -85,7 +70,6 @@ export async function PUT(req: Request) {
       return proxyResponse(savedProxy);
     });
   } catch (error) {
-    if (error instanceof MissingProxyError) return NextResponse.json({ error: "No configured proxy to edit" }, { status: 409 });
     return errorResponse(error);
   }
 }

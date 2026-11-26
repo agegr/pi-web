@@ -107,21 +107,3 @@ test("rejects malformed requests and leaves a broken settings file untouched", a
   assert.equal((await put({ enabled: false })).status, 500);
   assert.equal(await readFile(settingsPath, "utf8"), "{ not json");
 });
-
-test("editing a port preserves the stored proxy credentials and other settings", async () => {
-  const saved = { theme: "dark", httpProxy: "socks5://user:secret@[::1]:1080" };
-  await writeFile(settingsPath, JSON.stringify(saved));
-  for (const port of [-1, 0, 2.5, 65536, "8080"]) {
-    assert.equal((await put({ enabled: true, port })).status, 400);
-  }
-  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), saved);
-  const changed = await put({ enabled: true, port: 1081 });
-  assert.equal(changed.status, 200);
-  assert.equal((await changed.json()).displayAddress, "socks5://[::1]:1081");
-  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { theme: "dark", httpProxy: "socks5://user:secret@[::1]:1081" });
-  assert.equal((await put({ enabled: true, port: null })).status, 200);
-  assert.equal(JSON.parse(await readFile(settingsPath, "utf8")).httpProxy, "socks5://user:secret@[::1]");
-  await put({ enabled: false });
-  assert.equal((await put({ enabled: true, port: 1081 })).status, 409);
-  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")), { theme: "dark" });
-});
