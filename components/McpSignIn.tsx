@@ -19,8 +19,7 @@ import {
   mcpSignInShared,
   type McpSignInRun,
 } from "./mcp-sign-in-helpers";
-
-type Translate = ReturnType<typeof useI18n>["t"];
+import type { Translate } from "@/lib/i18n/types";
 
 /**
  * Why a sign-in request or Sign out failed, in sign-in words where the reason

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { getPiWebReleaseUrl, isNewerStableVersion } from "@/lib/app-update";
-import { errorMessage } from "@/lib/errors";
 import { createRefreshingCache } from "@/lib/refreshing-cache";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 

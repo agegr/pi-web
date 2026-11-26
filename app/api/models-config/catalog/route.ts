@@ -5,8 +5,8 @@ import {
   searchModelCatalog,
   type ModelCatalogEntry,
 } from "@/lib/model-catalog";
-import { errorMessage } from "@/lib/errors";
 import { createRefreshingCache } from "@/lib/refreshing-cache";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 

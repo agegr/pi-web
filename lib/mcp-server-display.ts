@@ -1,7 +1,8 @@
 import type { McpConfigFieldRef, McpConfigFileProblem, McpOverrideKey, McpServerInfo, McpVariableReference } from "./api-types";
+import { shortenPath } from "./display-path";
 
 // Display helpers for MCP server descriptions (`McpServerInfo`), shared by the
-// trust dialog and Settings › MCP. Client-safe: types only, no Node imports.
+// trust dialog and Settings › MCP. Client-safe: no Node imports.
 // What they format was masked on the server already; nothing here reveals or
 // resolves a value.
 
@@ -124,4 +125,9 @@ export function mcpFileProblemDetail(problem: McpConfigFileProblem, realPath?: s
   if (problem.reason === "unparsable" || problem.reason === "unreadable") return revealHiddenCharacters(problem.error);
   if (problem.reason === "link-outside") return realPath === undefined ? undefined : revealHiddenCharacters(realPath);
   return undefined;
+}
+
+/** A file path as Settings › MCP shows it: home shortened to `~`, hidden characters made visible. */
+export function displayMcpPath(path: string): string {
+  return revealHiddenCharacters(shortenPath(path));
 }

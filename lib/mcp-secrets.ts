@@ -161,7 +161,8 @@ export function looksLikeSecretValue(value: string): boolean {
 
 const REFERENCE = /\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*/;
 const REFERENCES = new RegExp(REFERENCE.source, "g");
-const AUTHORIZATION_SCHEME = /^(?:bearer|basic|token)\s+/i;
+/** The scheme word and its space that start an `Authorization` header value. */
+export const AUTHORIZATION_SCHEME = /^(?:bearer|basic|token)\s+/i;
 
 /** Whether `value`, after an optional authorization scheme, is only `pattern` matches and separators. */
 function onlyMatches(value: string, pattern: RegExp, patterns: RegExp): boolean {

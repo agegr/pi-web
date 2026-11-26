@@ -3,8 +3,8 @@
 import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
-import { errorMessage } from "@/lib/errors";
 import { readJsonOrThrow } from "@/lib/fetch-json";
+import { errorMessage } from "@/lib/errors";
 
 interface DirectoryEntry {
   name: string;

@@ -72,8 +72,8 @@ import { providerBadgeLabel } from "./enabled-models-helpers";
 import { OAuthPastePanel } from "./OAuthPastePanel";
 import { ProviderIcon } from "./ProviderIcon";
 import { ProviderUsageSummary } from "./ProviderUsageSummary";
-import { errorMessage } from "@/lib/errors";
 import { readJsonOrThrow } from "@/lib/fetch-json";
+import { errorMessage } from "@/lib/errors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -212,10 +212,6 @@ const PROVIDER_ENTRY_MESSAGES: Record<ProviderEntryProblem, string> = {
 };
 
 // ── Form field helpers ────────────────────────────────────────────────────────
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <ConfigField label={label}>{children}</ConfigField>;
-}
 
 const inputStyle = {
   padding: "6px 9px",
@@ -450,7 +446,7 @@ function ProviderDetail({ name, editingName, fallbackLabel, provider, onChange, 
         <EnabledModelsProviderSwitchNote providerId={name} controller={enabledModels} id={switchNoteId} />
       </div>
 
-       <Field label={t("i18n.providerId")}>
+       <ConfigField label={t("i18n.providerId")}>
         <TextInput value={editingName} onChange={onEditingNameChange} placeholder="provider-id" mono />
         {editingName !== name && editingName.trim() && (
           <button onClick={() => onRename(editingName.trim())}
@@ -458,34 +454,34 @@ function ProviderDetail({ name, editingName, fallbackLabel, provider, onChange, 
              {t("i18n.rename")}
           </button>
         )}
-      </Field>
+      </ConfigField>
 
       {/* models.json `name`: the label the sidebar and the selector show (#1567). */}
-      <Field label={t("models.providerDisplayName")}>
+      <ConfigField label={t("models.providerDisplayName")}>
         <TextInput value={provider.name ?? ""} onChange={(v) => onChange(setProviderDisplayName(provider, v))}
           placeholder={fallbackLabel} />
-      </Field>
+      </ConfigField>
 
-      <Field label="Base URL">
+      <ConfigField label="Base URL">
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
           placeholder="https://api.example.com/v1" inputMode="url" mono />
-      </Field>
+      </ConfigField>
 
-      <Field label="API Key">
+      <ConfigField label="API Key">
         <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
           placeholder={t("models.apiKeyPlaceholder")} mono />
-      </Field>
+      </ConfigField>
 
-      <Field label="API">
+      <ConfigField label="API">
         <Select value={provider.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
-      </Field>
+      </ConfigField>
 
-      <Field label="Headers">
+      <ConfigField label="Headers">
         <HeaderListEditor
           headers={provider.headers}
           onChange={(headers) => set("headers", headers)}
         />
-      </Field>
+      </ConfigField>
 
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         {discoveryState.phase !== "success" && (
@@ -1140,8 +1136,8 @@ function ModelDetail({
       </ConfigDetailHeader>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
-        <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayNamePlaceholder")} /></Field>
+        <ConfigField label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></ConfigField>
+        <ConfigField label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder={t("models.displayNamePlaceholder")} /></ConfigField>
       </div>
 
       <div style={{ padding: "2px 0" }}>
@@ -1218,14 +1214,14 @@ function ModelDetail({
         </div>
 
         <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-          <Field label={t("models.contextWindow")}>
+          <ConfigField label={t("models.contextWindow")}>
             <NumInput value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
               onChange={(v) => set("contextWindow", v ? parseInt(v) : undefined)} placeholder="128000" />
-          </Field>
-          <Field label={t("models.maxOutputTokens")}>
+          </ConfigField>
+          <ConfigField label={t("models.maxOutputTokens")}>
             <NumInput value={model.maxTokens !== undefined ? String(model.maxTokens) : ""}
               onChange={(v) => set("maxTokens", v ? parseInt(v) : undefined)} placeholder="16384" />
-          </Field>
+          </ConfigField>
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -1235,9 +1231,9 @@ function ModelDetail({
           {costEditing ? (
             <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8 }}>
               {costFields.map(({ key, label }) => (
-                <Field key={key} label={label}>
+                <ConfigField key={key} label={label}>
                   <NumInput value={costDraft[key]} onChange={(v) => setCost(key, v)} placeholder="0" />
-                </Field>
+                </ConfigField>
               ))}
               {hasModelCostDraftValue(costDraft) && !parseCompleteModelCost(costDraft) && (
                 <div aria-live="polite" style={{ gridColumn: "1 / -1", color: "#d97706", fontSize: 10 }}>
@@ -1299,16 +1295,16 @@ function ModelDetail({
 
         {advancedOpen && (
           <div id="model-advanced-settings" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "4px 0 16px" }}>
-            <Field label={t("models.baseUrlOverride")}>
+            <ConfigField label={t("models.baseUrlOverride")}>
               <TextInput value={model.baseUrl ?? ""} onChange={(v) => set("baseUrl", v.trim() || undefined)}
                 placeholder={provider.baseUrl ?? t("models.providerDefaults")} inputMode="url" mono />
-            </Field>
+            </ConfigField>
 
-            <Field label={t("models.apiOverride")}>
+            <ConfigField label={t("models.apiOverride")}>
               <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
-            </Field>
+            </ConfigField>
 
-            <Field label={t("models.headers")}>
+            <ConfigField label={t("models.headers")}>
               <HeaderListEditor
                 headers={model.headers}
                 onChange={(headers) => set("headers", headers)}
@@ -1316,10 +1312,10 @@ function ModelDetail({
               <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
                 {t("models.headersHelp")}
               </span>
-            </Field>
+            </ConfigField>
 
             {(model.input?.includes("image") || imageLimit !== undefined) && (
-              <Field label={t("models.imageMaxBytes")}>
+              <ConfigField label={t("models.imageMaxBytes")}>
                 <NumInput
                   value={imageLimit === undefined ? "" : String(imageLimit)}
                   onChange={(v) => onChange(withImageMaxBytes(model, v.trim() || undefined))}
@@ -1333,7 +1329,7 @@ function ModelDetail({
                 <code style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
                   inputLimits.images.resize.maxBytes
                 </code>
-              </Field>
+              </ConfigField>
             )}
 
             {model.reasoning && (

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpTestResponse } from "@/lib/api-types";
-import { isMcpEntryRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
+import { isMcpEntryRefusal, mcpEntryRefusalResponse, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
 import { testMcpServer } from "@/lib/mcp-test";
 import { errorMessage } from "@/lib/errors";
 
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 // folder a global stdio server runs in.
 export async function POST(req: Request) {
   const entry = await readConnectableMcpEntry(req);
-  if (isMcpEntryRefusal(entry)) return NextResponse.json(entry.body, { status: entry.status });
+  if (isMcpEntryRefusal(entry)) return mcpEntryRefusalResponse(entry);
   const { scope, name, sourcePath, configKey, config, cwd, internals } = entry;
   try {
     const result = await testMcpServer({ scope, name, sourcePath, configKey, config, cwd }, internals, { signal: req.signal });
