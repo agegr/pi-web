@@ -21,8 +21,12 @@ const markdownSanitizeSchema = {
   strip: [...(defaultSchema.strip || []), "iframe", "object", "style", "form"],
 };
 
+// A bare file name with a line suffix (`app.ts:42`): isBareFileLineHref() in
+// lib/file-links.ts, repeated because this module imports no local one.
+const BARE_FILE_LINE_HREF = /^[^\s/:?#]+\.[a-zA-Z0-9]+:\d+(?:[:-]\d+)?(?:[?#]|$)/;
+
 export function markdownUrlTransform(value: string): string {
-  return /^file:/i.test(value) ? value : defaultUrlTransform(value);
+  return /^file:/i.test(value) || BARE_FILE_LINE_HREF.test(value) ? value : defaultUrlTransform(value);
 }
 
 const escapedInlineCodePattern = /(?<![\\`])`((?:[^`\n]|\\`)+?)(?<![\\`])`(?!`)/g;
