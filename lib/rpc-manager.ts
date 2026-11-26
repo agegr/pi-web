@@ -1446,7 +1446,12 @@ export class AgentSessionWrapper {
               id,
               {
                 openSessionManager,
-                resolveSessionPath,
+                // A cached path can outlive its file: opening it would quote an
+                // empty new session instead of saying the file is gone.
+                resolveSessionPath: async (id) => {
+                  const filePath = await resolveSessionPath(id);
+                  return filePath && existsSync(filePath) ? filePath : null;
+                },
                 // The block's tooltip reads this, so it matches the sidebar's own
                 // "last changed" for the same session.
                 modifiedAt: async (filePath) => statSync(filePath).mtime.toISOString(),

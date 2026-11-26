@@ -153,7 +153,9 @@ export function buildReferenceBlock(ref: ReferenceSession, tokenTitle: string): 
   const body = ref.markdown || "(no user or assistant messages on this branch)";
   return [
     `<${SESSION_REFERENCE_TAG} ${attributes}>`,
-    SESSION_REFERENCE_NOTE,
+    // The path in the body, not only in the tag: the expanded block shows the
+    // body, so the user sees the file the agent is told it may read.
+    `${SESSION_REFERENCE_NOTE} The whole session is in ${ref.path}`,
     "",
     body,
     `</${SESSION_REFERENCE_TAG}>`,
@@ -242,7 +244,7 @@ export async function resolveSessionReferenceForSend(
   const sm = deps.openSessionManager(filePath);
   // SAFETY: the SDK's SessionManager parses the same JSONL that lib/types.ts
   // describes, so its entries satisfy SessionEntry structurally; the session
-  // GET and the markdown route read them the same way.
+  // GET reads them the same way.
   const rendered = sessionToMarkdown(
     sm.getEntries() as unknown as SessionEntry[],
     sm.getLeafId(),

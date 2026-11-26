@@ -3,6 +3,7 @@
 // file, and one dragged from another app (a link, a text selection) is never
 // mistaken for one of ours.
 
+import { isRecord } from "./is-record";
 import type { SessionReferenceTarget } from "./session-reference-target";
 
 export const SESSION_DRAG_MIME = "application/x-pi-web-session";
@@ -27,8 +28,8 @@ export function readSessionDrag(dataTransfer: DragSource): SessionReferenceTarge
   if (!dataTransfer.types.includes(SESSION_DRAG_MIME)) return null;
   try {
     const parsed: unknown = JSON.parse(dataTransfer.getData(SESSION_DRAG_MIME));
-    if (!parsed || typeof parsed !== "object") return null;
-    const { id, title, cwd, modified } = parsed as Record<string, unknown>;
+    if (!isRecord(parsed)) return null;
+    const { id, title, cwd, modified } = parsed;
     if (typeof id !== "string" || !id) return null;
     return {
       id,
