@@ -1,6 +1,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,
+  createAgentSessionServices,
   getAgentDir,
   initTheme,
   SessionManager,
@@ -24,6 +25,8 @@ import {
   SUBAGENT_RESULT_TYPE,
   selectSubagentExtensionTools,
   settleOrphanedSubagentStatus,
+  configuredPackageRoots,
+  subagentExtensionLoaderOptions,
   subagentToolOptions,
   withSubagentExtensionTools,
   type SubagentMetadata,
@@ -33,7 +36,6 @@ import {
 import type { SessionEntry } from "./types";
 import type { DebugParentNotification, DebugSubagentRun } from "./debug-types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
-import { createSubagentSessionServices } from "./subagent-resources";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputLimits } from "./subagent-input";
 import { getProjectTrustStatus } from "./project-trust";
@@ -678,12 +680,13 @@ export function createSubagentController(
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
       ];
       if (!chatOnly) initTheme();
-      const services = await createSubagentSessionServices({
+      const services = await createAgentSessionServices({
         cwd: childCwd,
         agentDir,
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
+          ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }, configuredPackageRoots(childCwd, agentDir, settingsManager)),
           ...skillsBinding.loaderOptions,
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
@@ -697,7 +700,7 @@ export function createSubagentController(
             : {}),
           appendSystemPrompt,
         },
-      }, { ...profile, mcp: mcpEnabled });
+      });
 
       if (codemodeEnabled && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
         throw new Error("Code mode is unavailable: builtin:codemode was not registered");

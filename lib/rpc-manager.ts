@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -49,6 +49,8 @@ import {
   readSubagentRun,
   readSubagentSessionResources,
   settleOrphanedSubagentStatus,
+  configuredPackageRoots,
+  subagentExtensionLoaderOptions,
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
@@ -68,7 +70,6 @@ import type { McpHost } from "./mcp-host";
 import type { DebugMcpHost, DebugSessionLifecycle, DebugWrapperSnapshot } from "./debug-types";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
-import { createSubagentSessionServices } from "./subagent-resources";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent, liveToolExecutionEvent, parallelToolCallIds } from "./agent-event-wire";
 import { collectStartupIssues, extensionErrorMessage, limitStartupNotices, type StartupIssue } from "./startup-issues";
@@ -3669,12 +3670,13 @@ export async function startRpcSession(
         : []),
       ...(skillsBinding?.loaderOptions.extensionFactories ?? []),
     ];
-    const services = await createSubagentSessionServices({
+    const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
+            ...subagentExtensionLoaderOptions(subagentResources, configuredPackageRoots(sessionCwd, agentDir, settingsManager)),
             ...skillsBinding!.loaderOptions,
             extensionFactories: subagentExtensionFactories,
             noPromptTemplates: true,
@@ -3711,7 +3713,7 @@ export async function startRpcSession(
             ),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-    }, subagentResources ?? undefined);
+    });
     if (subagentResources?.codemode
       && !services.resourceLoader.getExtensions().extensions.some((extension) => extension.tools.has("codemode"))) {
       throw new Error("Code mode is unavailable: builtin:codemode was not registered");
