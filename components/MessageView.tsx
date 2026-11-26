@@ -1280,6 +1280,7 @@ function ToolCallBlock({ block, result, notRun, duration, clock, onOpenSubagent,
   const isError = (result?.isError ?? false)
     || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
   const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+  const imageUnsupportedBy = readImageUnsupportedModel(block.toolName, result?.details);
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
 
   return (
@@ -1394,6 +1395,23 @@ function ToolCallBlock({ block, result, notRun, duration, clock, onOpenSubagent,
 
       {/* ── Result images — always visible, independent of the collapsed details ── */}
       {resultImages.length > 0 && <ResultImages images={resultImages} isError={isError} />}
+
+      {/* ── The model saw a placeholder for the image above: shown collapsed too, as pi's TUI does ── */}
+      {imageUnsupportedBy && (
+        <div
+          data-image-unsupported-notice
+          style={{
+            padding: "6px 10px",
+            color: TRANSCRIPT_NOTICE_WARNING_COLOR,
+            fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+            lineHeight: 1.5,
+            background: "var(--bg)",
+            borderTop: "1px solid rgba(34,197,94,0.15)",
+          }}
+        >
+          {t("chat.readImageUnsupported", { model: imageUnsupportedBy })}
+        </div>
+      )}
 
       {/* ── Expanded: a pending edit's diff, from its arguments ── */}
       {editPreview && (
@@ -1793,6 +1811,17 @@ function singlePatchPath(text: string | undefined): string | null {
   if (!text) return null;
   const files = parseUnifiedPatch(text);
   return files?.length === 1 ? stackedFilePath(files[0]) || null : null;
+}
+
+/**
+ * The model a `read` result says saw a placeholder instead of its image. pi 1.6 keeps this out of the
+ * content the model gets and records it in `details.imageUnsupportedByModel` (#12131); its TUI read
+ * renderer draws it under the card, collapsed or not.
+ */
+export function readImageUnsupportedModel(toolName: string, details: unknown): string | null {
+  if (toolName !== "read" || !isRecord(details)) return null;
+  const model = details.imageUnsupportedByModel;
+  return typeof model === "string" && model !== "" ? model : null;
 }
 
 function ResultImages({ images, isError }: { images: ImageContent[]; isError: boolean }) {
