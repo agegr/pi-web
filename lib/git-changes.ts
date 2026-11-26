@@ -19,6 +19,9 @@ import { resolveExistingPath } from "./paths";
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
+// A diff is bounded by its own output, never by the size of the file it describes.
+// A 1 MiB patch is already far past what the viewer can usefully render.
+const GIT_DIFF_MAX_BYTES = 1024 * 1024;
 
 async function git(cwd: string, args: string[], maxBuffer = GIT_STATUS_MAX_BUFFER): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
@@ -255,7 +258,7 @@ async function createTrackedFilePatch(
       "HEAD",
       "--",
       ...paths,
-    ], TEXT_PREVIEW_MAX_BYTES * 4);
+    ], GIT_DIFF_MAX_BYTES);
   } catch {
     return null;
   }
@@ -272,6 +275,20 @@ async function findFileRepositoryRoot(cwd: string, filePath: string): Promise<st
     directory = parent;
   }
   return (await findRepositoryRoot(directory)) ?? (await findRepositoryRoot(cwd));
+}
+
+/** Whether HEAD holds a blob at this path; a missing path or a failed git command holds none. */
+async function hasHeadBlob(
+  repositoryRoot: string,
+  gitPath: string,
+  gitConfig: readonly string[],
+): Promise<boolean> {
+  try {
+    const type = await git(repositoryRoot, [...gitConfig, "cat-file", "-t", `HEAD:${gitPath}`]);
+    return type.trim() === "blob";
+  } catch {
+    return false;
+  }
 }
 
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
@@ -302,25 +319,33 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
     return { supported: true, status, patch };
   }
 
-  let stat: fs.Stats;
-  try {
-    stat = fs.lstatSync(resolvedFilePath);
-  } catch {
-    return { supported: false };
-  }
-  if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+  // The path as given, not its real path: a link (a file turned into one, say)
+  // would show its target's diff, and a submodule is a directory.
+  const stat = await fs.promises.lstat(resolvedFilePath).catch(() => null);
+  if (!stat?.isFile()) return { supported: false };
 
-  const currentBuffer = fs.readFileSync(resolvedFilePath);
-  if (hasNullByte(currentBuffer)) return { supported: false };
-  const newContent = currentBuffer.toString("utf8");
+  // A path in HEAD needs no working-copy bytes: `git diff HEAD` reads the blobs,
+  // its output is capped, and a binary file answers "Binary files … differ" with
+  // no hunk. A new file (untracked, a staged addition, a conflict with no HEAD
+  // blob) may need its bytes for an added-file patch, so only those are bounded.
+  // A rename's blob lives under its old name in HEAD.
+  const hasHeadFile = status !== "untracked"
+    && await hasHeadBlob(repositoryRoot, entry.originalPath ?? relativePath, gitConfig);
+  let newContent: string | undefined;
+  if (!hasHeadFile) {
+    if (stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+    const buffer = fs.readFileSync(resolvedFilePath);
+    if (hasNullByte(buffer)) return { supported: false };
+    newContent = buffer.toString("utf8");
+  }
 
   let patch: string;
   if (status === "untracked") {
-    patch = createAddedFilePatch(relativePath, newContent);
+    patch = createAddedFilePatch(relativePath, newContent!);
   } else {
     const trackedPatch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath, gitConfig);
     if (trackedPatch === null) {
-      if (status !== "added") return { supported: false };
+      if (status !== "added" || newContent === undefined) return { supported: false };
       patch = createAddedFilePatch(relativePath, newContent);
     } else {
       patch = trackedPatch;
