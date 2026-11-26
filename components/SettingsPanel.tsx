@@ -39,6 +39,7 @@ import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigDetailNavigationContext, ConfigSwitch, type ConfigDetailNavigation } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
 import { readJsonOrThrow } from "@/lib/fetch-json";
+import { errorMessage } from "@/lib/errors";
 
 interface Props {
   cwd: string | null;
@@ -133,7 +134,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         if (!cancelled) setShellSettings(data);
       })
       .catch((cause) => {
-        if (!cancelled) setShellError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setShellError(errorMessage(cause));
       });
     return () => { cancelled = true; };
   }, []);
@@ -146,7 +147,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         if (!cancelled) setCacheMissNotices(data.enabled === true);
       })
       .catch((cause) => {
-        if (!cancelled) setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
+        if (!cancelled) setCacheMissNoticesError(errorMessage(cause));
       });
     return () => { cancelled = true; };
   }, []);
@@ -165,7 +166,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       setCacheMissNotices(data.enabled === true);
       if (sessionId) onSessionReloaded();
     } catch (cause) {
-      setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
+      setCacheMissNoticesError(errorMessage(cause));
     } finally {
       setCacheMissNoticesSaving(false);
     }
@@ -187,7 +188,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         onSessionReloaded();
       }
     } catch (cause) {
-      setShellError(cause instanceof Error ? cause.message : String(cause));
+      setShellError(errorMessage(cause));
     } finally {
       setShellSaving(false);
     }
@@ -208,7 +209,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       const data = await readJsonOrThrow<ToolSettingsResponse>(response);
       setShellSettings(data);
     } catch (cause) {
-      setBuiltinToolsError(cause instanceof Error ? cause.message : String(cause));
+      setBuiltinToolsError(errorMessage(cause));
     } finally {
       setBuiltinToolsSaving(false);
     }
@@ -230,7 +231,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
       if (!ok) throw new Error("unsupported or not permitted");
       setPushStatus({ kind: "ok", message: t("settings.pushRegistered") });
     } catch (cause) {
-      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${cause instanceof Error ? cause.message : String(cause)}` });
+      setPushStatus({ kind: "error", message: `${t("settings.pushRegisterFailed")} ${errorMessage(cause)}` });
     } finally {
       setPushRegistering(false);
     }

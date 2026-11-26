@@ -14,6 +14,7 @@ import { invalidateModelsCache } from "@/lib/models-cache";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { llamaCppExtension } from "@/lib/pi-sdk-internals";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,6 @@ export async function PUT(req: Request) {
       ...(edit.thinkingLevel ? { defaultThinkingLevel: edit.thinkingLevel } : {}),
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

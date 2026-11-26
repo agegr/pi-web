@@ -5,6 +5,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { stripJsonComments } from "./jsonc";
 import { invalidateModelsCache } from "./models-cache";
 import { isRecord } from "./is-record";
+import { errorMessage } from "./errors";
 
 const MODEL_COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
@@ -86,7 +87,7 @@ export function readModelsConfig(
     parsed = JSON.parse(stripJsonComments(content));
   } catch (error) {
     throw new ModelsConfigReadError(
-      `Failed to read ${modelsPath}: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to read ${modelsPath}: ${errorMessage(error)}`,
     );
   }
   if (!isRecord(parsed)) {

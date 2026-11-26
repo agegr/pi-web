@@ -57,6 +57,7 @@ import { splitShellWords, type ShellWordsError } from "./shell-words";
 
 export * from "./mcp-import-core";
 export { decodeBase64Utf8 } from "./mcp-import-links";
+import { errorMessage } from "./errors";
 
 type ReadResult = { entries: EntryOutcome[]; notes: McpImportNote[] } | { error: McpImportNote };
 
@@ -96,7 +97,7 @@ function readJsonPaste(input: string, rawPi: boolean): ReadResult {
     try {
       value = parseJsonc(`{${input.replace(/,\s*$/, "")}}`);
     } catch {
-      return { error: { code: "invalid-json", params: { detail: error instanceof Error ? error.message : String(error) } } };
+      return { error: { code: "invalid-json", params: { detail: errorMessage(error) } } };
     }
   }
   return readJsonServers(value, rawPi);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deleteSessions, MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete";
 import { NO_STORE, noStoreRefusal, readSessionIdsRequest } from "@/lib/session-ids-request";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,6 @@ export async function POST(req: Request) {
     const result = await deleteSessions(ids, { keepRunning: true });
     return NextResponse.json(result satisfies SessionDeleteResult, { headers: NO_STORE });
   } catch (error) {
-    return noStoreRefusal(500, error instanceof Error ? error.message : String(error));
+    return noStoreRefusal(500, errorMessage(error));
   }
 }

@@ -20,6 +20,7 @@ import {
   writePowerShellToolEnabled,
 } from "@/lib/powershell-settings";
 import { SETTINGS_BUILTIN_TOOLS } from "@/lib/tool-presets";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export const dynamic = "force-dynamic";
 const CHANGES = ["enabled", "builtinTools", "codemode", "codemodeMode", "codemodeInlineBudget"] as const;
 
 function errorResponse(error: unknown) {
-  return mcpRefusalResponse(500, "internal", error instanceof Error ? error.message : String(error));
+  return mcpRefusalResponse(500, "internal", errorMessage(error));
 }
 
 async function readToolSettings(): Promise<ToolSettingsResponse> {

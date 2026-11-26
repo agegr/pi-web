@@ -26,6 +26,7 @@ import type {
   PluginsResponse,
   PluginToggleResult,
 } from "@/lib/api-types";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
@@ -350,7 +351,7 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
   } catch (error) {
     diagnostics.push({
       type: "error",
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 
@@ -500,7 +501,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(await readPlugins(body.cwd));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   } finally {
     // The provider lists share one extension-loaded runtime, and a package can
     // add or drop a provider; an update that failed halfway may have, too. An

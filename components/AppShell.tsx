@@ -86,6 +86,7 @@ import { focusIfLost } from "@/lib/stacked-dialog";
 import { loadAgentStripLocked, saveAgentStripLocked } from "@/lib/agent-strip-lock";
 import { claimDoneChime } from "@/lib/done-chime";
 import { readJsonOrThrow } from "@/lib/fetch-json";
+import { errorMessage } from "@/lib/errors";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -831,7 +832,7 @@ export function AppShell() {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        setInitialCwdError(error instanceof Error ? error.message : String(error));
+        setInitialCwdError(errorMessage(error));
         setInitialCwdStatus("error");
       });
 
@@ -1232,7 +1233,7 @@ export function AppShell() {
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 1800);
     } catch (error) {
       if (activeSessionIdRef.current !== sessionId) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       setAutoNameStatus({ kind: "error", message });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
     }
@@ -1624,7 +1625,7 @@ export function AppShell() {
       setModelsRefreshKey((key) => key + 1);
       setSessionKey((key) => key + 1);
     } catch (error) {
-      setProjectTrustError({ error: error instanceof Error ? error.message : String(error) });
+      setProjectTrustError({ error: errorMessage(error) });
     } finally {
       setProjectTrustBusy(false);
     }

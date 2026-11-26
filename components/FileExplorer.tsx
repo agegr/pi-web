@@ -22,6 +22,7 @@ import { loadChangesViewMode, saveChangesViewMode, type ChangesViewMode } from "
 import { droppedItems } from "@/hooks/useDragDrop";
 import { useI18n } from "@/hooks/useI18n";
 import type { Translate } from "@/lib/i18n/types";
+import { errorMessage } from "@/lib/errors";
 /** Why a listed entry is normally left out; only listings with `hidden=1` report it. */
 type HiddenReason = Exclude<FileTreeHiddenReason, "always">;
 
@@ -271,7 +272,7 @@ export function TreeNode({
       setChildren(entries);
       setLoaded(true);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(errorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -330,7 +331,7 @@ export function TreeNode({
       setAllowedLinkTarget(pendingLinkTarget);
       await loadChildren(true);
     } catch (error) {
-      setAllowLinkError(error instanceof Error ? error.message : String(error));
+      setAllowLinkError(errorMessage(error));
     } finally {
       setAllowingLink(false);
     }
@@ -1060,7 +1061,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setUploadProgress(100);
       applyUploadResult(data, directory);
     } catch (uploadFailure) {
-      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      setUploadError(errorMessage(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
@@ -1099,7 +1100,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
       await performUpload(files, "error", directory);
     } catch (uploadFailure) {
-      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      setUploadError(errorMessage(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
@@ -1214,7 +1215,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     let cancelled = false;
     fetchEntries(cwd, showHidden)
       .then((entries) => { if (!cancelled) setRoots(entries); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .catch((e) => { if (!cancelled) setError(errorMessage(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [cwd, refreshKey, treeRefreshKey, showHidden]);

@@ -2,6 +2,7 @@ import fs from "fs";
 import { NextRequest, NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed, isFilePathAllowed, isWindowsAbsolutePath } from "@/lib/file-access";
 import { getGitStatus } from "@/lib/git-changes";
+import { errorMessage } from "@/lib/errors";
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,6 +32,6 @@ export async function GET(request: NextRequest) {
     // A closed request (a newer refresh replaced it) stops its scan.
     return NextResponse.json(await getGitStatus(cwd, request.signal));
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

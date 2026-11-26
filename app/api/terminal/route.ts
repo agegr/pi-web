@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { cwdMissingBody } from "@/lib/missing-cwd";
 import { createTerminal } from "@/lib/terminal-manager";
+import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,6 +44,6 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ id });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

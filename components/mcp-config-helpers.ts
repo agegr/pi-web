@@ -28,6 +28,7 @@ import type {
 } from "@/lib/api-types";
 import type { McpImportFieldValue, McpImportNote } from "@/lib/mcp-import";
 import { itemsToSwitch } from "./settings-ui-helpers";
+import { errorMessage } from "@/lib/errors";
 
 // Pure helpers for Settings › MCP (components/McpConfig.tsx): what each row
 // shows, how the groups are built, and how the overview is loaded. Client-safe:
@@ -805,7 +806,7 @@ export async function requestMcpJson<T>(
   try {
     response = await fetchImpl(url, { ...init, cache: "no-store" });
   } catch (error) {
-    return { ok: false, error: { error: error instanceof Error ? error.message : String(error) } };
+    return { ok: false, error: { error: errorMessage(error) } };
   }
   let data: unknown;
   try {
