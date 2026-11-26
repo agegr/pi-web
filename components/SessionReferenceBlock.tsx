@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { formatShortRelativeTime } from "@/lib/i18n/format";
-import { sessionDeepLink } from "@/lib/session-links";
+import { isPlainActivation, sessionDeepLink } from "@/lib/session-links";
+import { OpenSessionContext } from "./open-session-context";
 import type { SessionReferenceView } from "@/lib/session-reference-block";
 
 /** One quoted session inside a sent message (the `#` reference the server
@@ -17,6 +18,7 @@ import type { SessionReferenceView } from "@/lib/session-reference-block";
 export function SessionReferenceBlock({ reference }: { reference: SessionReferenceView }) {
   const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  const openSession = useContext(OpenSessionContext);
   const title = reference.title.trim() || reference.id.slice(0, 8);
   const countLabel = reference.messages === null
     ? ""
@@ -75,6 +77,12 @@ export function SessionReferenceBlock({ reference }: { reference: SessionReferen
         <a
           href={sessionDeepLink(reference.id)}
           title={tooltip}
+          onClick={(event) => {
+            // A plain click opens the session here, as its sidebar row does;
+            // Ctrl/Cmd-click, middle-click and the rest stay the browser's.
+            if (!isPlainActivation(event)) return;
+            if (openSession?.(reference.id)) event.preventDefault();
+          }}
           style={{
             minWidth: 0,
             overflow: "hidden",

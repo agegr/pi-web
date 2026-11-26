@@ -83,6 +83,21 @@ function closingTagIndex(text: string, from: number): number {
   return firstClose;
 }
 
+/** A message's text as a label reads it (a session's first message in the
+ *  sidebar, the # picker, a chip's title): each quoted session as `#title`, not
+ *  its transcript. A message that quoted other sessions holds their whole
+ *  transcripts, tags included, which would otherwise make up the label. */
+export function sessionReferencesAsMentions(text: string): string {
+  if (!text.includes(`<${SESSION_REFERENCE_TAG} `)) return text;
+  const segments = splitSessionReferences(text);
+  if (!segments.some((segment) => segment.kind === "reference")) return text;
+  return segments
+    .map((segment) => segment.kind === "text"
+      ? segment.text
+      : `#${segment.title.trim() || segment.id.slice(0, 8)}`)
+    .join("\n\n");
+}
+
 /** Split a message's text at its reference blocks: what the user typed around
  *  them, and one segment per block, in order. An unclosed tag is left as text,
  *  so a message that only mentions the syntax never loses its tail. */

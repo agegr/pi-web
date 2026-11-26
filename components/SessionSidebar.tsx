@@ -282,6 +282,9 @@ export interface SessionSidebarControl {
   refreshWorktrees(): void;
   /** Creates a worktree of `project` and lists it at once; the caller starts the session in it. */
   createWorktree(project: ProjectChoice, branch: string): Promise<{ path: string } | { error: string }>;
+  /** Opens a listed session as picking it from the list does (a side chat as
+   *  its parent's tab, as a search hit opens it); false when it is not listed. */
+  openSession(sessionId: string): boolean;
 }
 
 type WorktreeEntry = WorktreeChoice;
@@ -1501,8 +1504,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
 
+  const openSessionRef = useRef<(sessionId: string) => boolean>(() => false);
+  openSessionRef.current = (sessionId) => {
+    const session = allSessions.find((item) => item.id === sessionId);
+    if (!session) return false;
+    if (session.relation?.kind === "side" && session.id !== selectedSessionId) onSelectSideChat(session);
+    else handleSelectSessionFromList(session);
+    return true;
+  };
+
   useImperativeHandle(controlRef, () => ({
     startNewSessionIn: (target) => startNewSessionInRef.current(target),
+    openSession: (sessionId) => openSessionRef.current(sessionId),
     openFolderForNewSession: (onPicked, returnFocusTo) => {
       folderPickRef.current = onPicked;
       folderReturnFocusRef.current = returnFocusTo;

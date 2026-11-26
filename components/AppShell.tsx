@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { OpenSessionContext } from "./open-session-context";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
@@ -728,6 +729,13 @@ export function AppShell() {
     });
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
+
+  // A quoted session's title in the transcript opens it here, as its sidebar
+  // row does: the sidebar holds the list and the pick rules (side chats).
+  const openSessionInPage = useCallback(
+    (sessionId: string) => sidebarControlRef.current?.openSession(sessionId) ?? false,
+    [],
+  );
 
   const handleAtMentions = useCallback((relativePaths: string[]) => {
     const mentions = buildFileAtMentionsText(relativePaths);
@@ -2367,7 +2375,7 @@ export function AppShell() {
   };
 
   return (
-    <>
+    <OpenSessionContext.Provider value={openSessionInPage}>
     <style>{`
       @keyframes session-info-pop {
         0% {
@@ -3186,6 +3194,6 @@ export function AppShell() {
         onStatus={setProjectTrust}
       />
     )}
-    </>
+    </OpenSessionContext.Provider>
   );
 }

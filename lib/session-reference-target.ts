@@ -17,9 +17,12 @@ export interface SessionReferenceTarget {
 /** One message quotes at most this many sessions. */
 export const MAX_SESSION_REFERENCES = 8;
 
-/** What the chip reads: the title, or the id's start when the session has none. */
+/** What the chip reads: the title on one line, or the id's start when the
+ *  session has none. An unnamed session's title is its first message, which may
+ *  span lines; the token's link text cannot (SESSION_REFERENCE_TOKEN_RE), so a
+ *  line break there would leave the token unexpanded. */
 export function referenceTitle(target: SessionReferenceTarget): string {
-  return target.title.trim() || target.id.slice(0, 8);
+  return target.title.replace(/\s+/g, " ").trim() || target.id.slice(0, 8);
 }
 
 /** The token for one reference. Brackets in the title become spaces: a `]` in
