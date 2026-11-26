@@ -717,6 +717,18 @@ export function AppShell() {
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [isMobile]);
 
+  // The row menu's "Insert into chat": the session becomes a chip in the open
+  // composer and its token is written when that message is sent (#1716).
+  const handleInsertSessionReference = useCallback((session: SessionInfo) => {
+    chatInputRef.current?.addSessionReference({
+      id: session.id,
+      title: session.name || session.firstMessage || session.id,
+      cwd: session.cwd,
+      modified: session.modified,
+    });
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
   const handleAtMentions = useCallback((relativePaths: string[]) => {
     const mentions = buildFileAtMentionsText(relativePaths);
     if (mentions) chatInputRef.current?.insertText(mentions);
@@ -1684,6 +1696,7 @@ export function AppShell() {
         onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
+        onInsertSessionReference={handleInsertSessionReference}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         hiddenFinishedSessionIds={hiddenFinishedSessionIds}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}

@@ -2,7 +2,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, statSync, writeFileSync } from "fs";
 import { isDeepStrictEqual } from "util";
 import { validateAgentImages } from "./image-attachments";
 import { EXTENSION_REPORTED_CODE } from "./agent-client";
@@ -20,7 +20,8 @@ import {
   preferUserBashExtension,
   preferUserPowerShellExtension,
 } from "./project-command-env";
-import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, invalidateSessionManagerCache, invalidateSessionPathCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, invalidateSessionManagerCache, invalidateSessionPathCache, openSessionManager, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { expandSessionReferences, resolveSessionReferenceForSend } from "./session-reference";
 import { computeLiveSessionTotalActiveMs } from "./session-timing";
 import { realPathOrResolved } from "./paths";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
@@ -1489,6 +1490,31 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
+          // The composer's # session references (`[title](#session:uuid)`) expand
+          // here, once: the model, a parked prompt and the transcript all see the
+          // same expanded content (lib/session-reference.ts). Protected tokens
+          // (inside code or escaped) stay as text. After admission, so a prompt
+          // whose referenced file is still being read is never overtaken by one
+          // sent after it; inside the try, so a failed read releases admission.
+          const promptMessage = await expandSessionReferences(
+            command.message as string,
+            (id, maxChars) => resolveSessionReferenceForSend(
+              id,
+              {
+                openSessionManager,
+                // A cached path can outlive its file: opening it would quote an
+                // empty new session instead of saying the file is gone.
+                resolveSessionPath: async (id) => {
+                  const filePath = await resolveSessionPath(id);
+                  return filePath && existsSync(filePath) ? filePath : null;
+                },
+                // The block's tooltip reads this, so it matches the sidebar's own
+                // "last changed" for the same session.
+                modifiedAt: async (filePath) => statSync(filePath).mtime.toISOString(),
+              },
+              maxChars,
+            ),
+          );
           // A steer or follow-up joins the run beside a `!` command, as pi's TUI
           // queues it; only a prompt that would start a run waits for the command.
           if (this.shellRunning && !(command.streamingBehavior && this.inner.isStreaming)) {
@@ -1572,7 +1598,7 @@ export class AgentSessionWrapper {
           if (!streamingBehavior) this.lastRunAborted = false;
           let prompt: Promise<void>;
           try {
-            prompt = this.inner.prompt(command.message as string, {
+            prompt = this.inner.prompt(promptMessage, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
               source: "rpc",
@@ -1607,7 +1633,7 @@ export class AgentSessionWrapper {
             // so the wrapper cannot idle out from under it.
             if (!preflightAccepted && isCompactionInProgressError(error)) {
               this.parkDuringCompaction({
-                message: command.message as string,
+                message: promptMessage,
                 images: promptImages,
                 streamingBehavior,
                 settle: finishPrompt,

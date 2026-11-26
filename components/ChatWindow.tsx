@@ -13,6 +13,7 @@ import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-fi
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
+import type { SessionReferenceTarget } from "@/lib/session-reference-target";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, getUserMessageDraftImages, getUserMessageText, type ChatInputHandle } from "./ChatInput";
@@ -703,7 +704,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     }
   }, [addNotice, chatInputRef, newSessionCwd, onFilesUploaded, session?.cwd, t]);
 
-  const onDrop = useCallback((items: DroppedItem[]) => {
+  const onDrop = useCallback((items: DroppedItem[], session?: SessionReferenceTarget) => {
+    // A dragged session row quotes it: it joins the composer as a chip and its
+    // token is written when the message is sent (#1716).
+    if (session) {
+      chatInputRef?.current?.addSessionReference(session);
+      return;
+    }
     const { images, files, folders } = splitDroppedItems(items);
     if (images.length > 0) chatInputRef?.current?.addImages(images);
     if (folders.length > 0) {
