@@ -77,8 +77,30 @@ export function isBareFileLineHref(href: string): boolean {
   return BARE_FILE_LINE_HREF.test(href);
 }
 
-function stripLineSuffix(filePath: string): string {
-  return filePath.replace(/:\d+(?:(?::|-)\d+)?$/, "");
+/** Lines a file link points at, 1-based and inclusive. */
+export interface FileLineRange {
+  start: number;
+  end: number;
+}
+
+/** Where in a file a link points: a PDF page or a run of source lines. */
+export interface FileLinkTarget {
+  page?: number;
+  lines?: FileLineRange;
+}
+
+// `:42`, `:42:7` (line and column) or `:10-20` (a range), at the end of a path.
+const LINE_SUFFIX = /:(\d+)(?:([:-])(\d+))?$/;
+
+function splitLineSuffix(filePath: string): { path: string; lines?: FileLineRange } {
+  const match = filePath.match(LINE_SUFFIX);
+  if (!match) return { path: filePath };
+  const path = filePath.slice(0, match.index);
+  const start = Number(match[1]);
+  if (!Number.isSafeInteger(start) || start < 1) return { path };
+  // A column names a place in the line; a second number after `-` ends a range.
+  const end = match[2] === "-" ? Number(match[3]) : start;
+  return { path, lines: { start, end: Number.isSafeInteger(end) && end > start ? end : start } };
 }
 
 function normalizeLocalPath(filePath: string): string {
@@ -144,6 +166,18 @@ export function resolveLocalFileHref(
   baseDir?: string,
   relativeRoot = baseDir,
 ): string | null {
+  return resolveLocalFileLink(href, baseDir, relativeRoot)?.path ?? null;
+}
+
+/**
+ * A local file link's path and where in the file it points: the line suffix
+ * (`:42`, `:42:7`, `:10-20`) and a PDF's `#page=N`.
+ */
+export function resolveLocalFileLink(
+  href: string | undefined,
+  baseDir?: string,
+  relativeRoot = baseDir,
+): { path: string; target?: FileLinkTarget } | null {
   if (!href) return null;
 
   const cleanHref = href.split("#", 1)[0].split("?", 1)[0].trim();
@@ -181,9 +215,10 @@ export function resolveLocalFileHref(
 
   if (!candidate) return null;
 
-  const filePath = stripLineSuffix(normalizeLocalPath(candidate));
+  const { path: filePath, lines } = splitLineSuffix(normalizeLocalPath(candidate));
   if (candidateKind === "relative" && relativeRoot && !isPathInside(filePath, relativeRoot)) return null;
-  return filePath;
+  const page = parsePdfPageFragment(href) ?? undefined;
+  return { path: filePath, target: page || lines ? { page, lines } : undefined };
 }
 
 const PDF_PAGE_FRAGMENT = /^page=(\d+)$/i;
