@@ -815,6 +815,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.loadingSessions": "正在加载会话...",
     "chat.noMatchingSessions": "未找到匹配的会话",
     "chat.referencedSession": "引用会话：",
+    "chat.skillBlock": "技能：",
     "chat.removeReference": "移除这个引用",
     "chat.referencedMessages": "（{count} 条消息）",
     "chat.referencedOmitted": "· 含 {count} 条已省略",

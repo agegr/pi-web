@@ -1677,6 +1677,12 @@ pre, code {
   cursor: zoom-in;
   text-align: left;
 }
+/* A user's text already scrolls inside its own cap (USER_TEXT_MAX_HEIGHT in
+   components/MessageView.tsx); a diagram scrolling inside it would be a second
+   scrollbar. */
+.markdown-user-message .mermaid-preview-button {
+  max-height: none;
+}
 .mermaid-preview-button:hover {
   opacity: 0.85;
 }

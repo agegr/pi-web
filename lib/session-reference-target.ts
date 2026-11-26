@@ -36,12 +36,17 @@ export function sessionReferenceTokens(targets: readonly SessionReferenceTarget[
   return targets.map(sessionReferenceToken).join("\n");
 }
 
-/** The message as sent: the user's text, then the tokens the server expands. */
+/** The message as sent: the user's text, then the tokens the server expands.
+ *  A bare slash command (`/skill:docx`) takes them after a space: pi reads a
+ *  skill's or an extension command's name up to the first space
+ *  (`_expandSkillCommand()`), so after a blank line the name would run into the
+ *  quoted block and the command would go out unexpanded. */
 export function withSessionReferences(text: string, targets: readonly SessionReferenceTarget[]): string {
   const tokens = sessionReferenceTokens(targets);
   if (!tokens) return text;
   const body = text.trimEnd();
-  return body ? `${body}\n\n${tokens}` : tokens;
+  if (!body) return tokens;
+  return /^\/\S+$/.test(body) ? `${body} ${tokens}` : `${body}\n\n${tokens}`;
 }
 
 /** Whether `id` may join the list: the same session twice would quote it twice. */
