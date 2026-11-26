@@ -11,6 +11,7 @@ services:
       PI_CODING_AGENT_DIR: /home/node/.pi/agent
       PI_WEB_PASSWORD: ${PI_WEB_PASSWORD:?Set PI_WEB_PASSWORD in .env}
       PI_WEB_ALLOWED_HOSTS: ${PI_WEB_ALLOWED_HOSTS:-}
+      PI_WEB_FRAME_ANCESTORS: ${PI_WEB_FRAME_ANCESTORS:-}
       PI_WEB_SKIP_VERSION_CHECK: "1"
     ports:
       - "127.0.0.1:${PI_WEB_PORT:-30141}:30141"

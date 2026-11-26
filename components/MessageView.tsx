@@ -3,6 +3,9 @@
 import { Fragment, memo, useState, useRef, useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
+import { SessionReferenceBlock } from "./SessionReferenceBlock";
+import { EXPANDABLE_TITLE_STYLE, ExpandableBlock } from "./ExpandableBlock";
+import { splitSessionReferences } from "@/lib/session-reference-block";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
@@ -21,7 +24,8 @@ import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansi
 import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
-import { skillExpansionContent, skillExpansionToCommand } from "@/lib/slash-display";
+import type { FileLinkTarget } from "@/lib/file-links";
+import { parseSkillExpansion, skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
@@ -115,13 +119,17 @@ function formatMessageBytes(n: number): string {
 /**
  * MarkdownBody with an oversized-content guard: huge messages render as a
  * click-to-reveal plain-text <pre> instead of running the markdown pipeline.
+ * `maxHeight` caps whichever of the two renders, scrolling inside it, so a
+ * caller that caps its text never wraps a second scroll area around the
+ * revealed <pre>'s own.
  */
-function SafeMarkdownBody({ children, className, ...props }: React.ComponentProps<typeof MarkdownBody>) {
+function SafeMarkdownBody({ children, className, maxHeight, ...props }: React.ComponentProps<typeof MarkdownBody> & { maxHeight?: number }) {
   const { t } = useI18n();
   const [showRaw, setShowRaw] = useState(false);
 
   if (children.length <= MAX_MARKDOWN_CHARS) {
-    return <MarkdownBody className={className} {...props}>{children}</MarkdownBody>;
+    const body = <MarkdownBody className={className} {...props}>{children}</MarkdownBody>;
+    return maxHeight === undefined ? body : <div style={{ maxHeight, overflowY: "auto", minWidth: 0 }}>{body}</div>;
   }
   if (!showRaw) {
     return (
@@ -146,7 +154,7 @@ function SafeMarkdownBody({ children, className, ...props }: React.ComponentProp
     );
   }
   return (
-    <div className={className} style={{ maxHeight: 420, overflow: "auto", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
+    <div className={className} style={{ maxHeight: maxHeight ?? 420, overflow: "auto", fontSize: "calc(12px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
       <pre
         style={{
           margin: 0,
@@ -163,9 +171,11 @@ function SafeMarkdownBody({ children, className, ...props }: React.ComponentProp
   );
 }
 
-// Cap the user "sent" bubble's height so an abnormally long message does not
-// push the conversation off screen; overflow scrolls inside the bubble.
-const USER_BUBBLE_MAX_HEIGHT = 300;
+// Cap the user's text so an abnormally long message does not push the
+// conversation off screen (#419); overflow scrolls inside that text. The cap
+// sits on each piece of text, not the bubble: a quoted session and an expanded
+// skill cap themselves, and one scroll area inside another left two scrollbars.
+const USER_TEXT_MAX_HEIGHT = 300;
 
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
   const key = `${sessionId}:${entryId}:${blockIndex}`;
@@ -202,7 +212,7 @@ interface Props {
   toolResults?: Map<string, ToolResultMessage>;
   modelNames?: Record<string, string>;
   cwd?: string;
-  onOpenFile?: (filePath: string, page?: number) => void;
+  onOpenFile?: (filePath: string, target?: FileLinkTarget) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
   entryId?: string;
   searchBlock?: AssistantContentBlock;
@@ -349,7 +359,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forkEntryId, forking, onEditContent, onCancelEdit, isEditing }: {
   message: UserMessage;
   cwd?: string;
-  onOpenFile?: (filePath: string, page?: number) => void;
+  onOpenFile?: (filePath: string, target?: FileLinkTarget) => void;
   entryId?: string;
   onFork?: (entryId: string, message: UserMessage) => void;
   forkEntryId?: string;
@@ -361,10 +371,9 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forkEntryI
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(false);
 
   // Session files can hold `\r\n` or lone `\r` line endings (#680). Chrome renders
-  // a lone `\r` as a space even in the pre-wrap command-args and raw-text views.
+  // a lone `\r` as a space even in the pre-wrap raw-text view.
   // Copy uses this text too; the session file keeps the original endings.
   const content = (
     typeof message.content === "string"
@@ -375,19 +384,21 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forkEntryI
           .join("\n")
   ).replace(/\r\n?/g, "\n");
 
+  // An invoked skill shows as its own collapsed block, as pi's TUI shows it;
+  // the arguments after it are the user's own text.
+  const skill = useMemo(() => parseSkillExpansion(content), [content]);
+  // Copy and edit take it back as the command the user typed.
+  const commandText = skill ? skillExpansionToCommand(content) : null;
+  // A message that quoted other sessions carries their transcripts as
+  // `<session-reference>` blocks (lib/session-reference.ts): each shows as one
+  // collapsed line, so the conversation around it stays readable (#1716).
+  const text = skill ? skill.args : content;
+  const segments = useMemo(() => splitSessionReferences(text), [text]);
+
   const imageBlocks: ImageContent[] =
     typeof message.content === "string"
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
-
-  const commandText = skillExpansionToCommand(content);
-  const commandSeparator = commandText?.search(/\s/) ?? -1;
-  const commandName = commandText
-    ? commandSeparator === -1 ? commandText : commandText.slice(0, commandSeparator)
-    : "";
-  const commandArgs = commandText && commandSeparator !== -1
-    ? commandText.slice(commandSeparator + 1)
-    : "";
 
   const time = formatTime(message.timestamp);
   const canFork = !!forkEntryId && !!onFork;
@@ -395,7 +406,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forkEntryI
   const editTarget = commandText ? replaceUserMessageText(message, commandText) : message;
 
   const imageBlocksNode = imageBlocks.length > 0 && (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
       {imageBlocks.map((img, i) => {
         // lib/types.ts ImageContent uses {source:{type,data,media_type,url}}
         // pi-ai on-disk format uses flat {data, mimeType} — handle both
@@ -452,75 +463,24 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forkEntryI
             lineHeight: 1.6,
             color: "var(--text)",
             wordBreak: "break-word",
-            maxHeight: USER_BUBBLE_MAX_HEIGHT,
-            overflowY: "auto",
           }}
         >
-          {commandText ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-              {imageBlocksNode}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  onClick={() => setExpanded((prev) => !prev)}
-                  title={expanded ? t("i18n.collapse") : t("i18n.expand")}
-                  aria-expanded={expanded}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    flexShrink: 0,
-                    padding: 0,
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: "var(--accent)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "calc(13px + var(--chat-font-size-offset, 0px))",
-                    textAlign: "left",
-                  }}
-                >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {commandName}
-                  </span>
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
-                    aria-hidden="true"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-                {commandArgs && (
-                  <span style={{
-                    color: "var(--text)",
-                    fontSize: "calc(14px + var(--chat-font-size-offset, 0px))",
-                    lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    minWidth: 0,
-                    flex: 1,
-                  }}>
-                    {commandArgs}
-                  </span>
-                )}
-              </div>
-              {expanded && (
-                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{skillExpansionContent(content) ?? content}</MarkdownBody>
-              )}
-            </div>
-          ) : (
-          <>
-          {imageBlocksNode}
-          {content && <SafeMarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>}
-          </>
-          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+            {imageBlocksNode}
+            {skill && (
+              <ExpandableBlock
+                label={t("chat.skillBlock")}
+                title={<span style={{ ...EXPANDABLE_TITLE_STYLE, color: "var(--text)" }}>{skill.name}</span>}
+              >
+                <MarkdownBody className="markdown-user-message" keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{skill.content}</MarkdownBody>
+              </ExpandableBlock>
+            )}
+            {segments.map((segment, index) => (
+              segment.kind === "reference"
+                ? <SessionReferenceBlock key={`reference-${index}`} reference={segment} />
+                : <SafeMarkdownBody key={`text-${index}`} className="markdown-user-message" maxHeight={USER_TEXT_MAX_HEIGHT} keepLineBreaks cwd={cwd} onOpenFile={onOpenFile}>{segment.text}</SafeMarkdownBody>
+            ))}
+          </div>
         </div>
 
       </div>
@@ -715,7 +675,7 @@ function AssistantMessageView({
   toolClocks?: ToolClocks;
   modelNames?: Record<string, string>;
   cwd?: string;
-  onOpenFile?: (filePath: string, page?: number) => void;
+  onOpenFile?: (filePath: string, target?: FileLinkTarget) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
   showTimestamp?: boolean;
   prevTimestamp?: number;
@@ -1017,7 +977,7 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, searchTarget, toolResults, toolsNotRun, isStreaming, streamingDuration, toolCallDurations, toolClocks, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; toolsNotRun?: boolean; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; toolClocks?: ToolClocks; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ block, searchTarget, toolResults, toolsNotRun, isStreaming, streamingDuration, toolCallDurations, toolClocks, cwd, onOpenFile, onOpenSubagent, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; searchTarget?: boolean; toolResults?: Map<string, ToolResultMessage>; toolsNotRun?: boolean; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; toolClocks?: ToolClocks; cwd?: string; onOpenFile?: (filePath: string, target?: FileLinkTarget) => void; onOpenSubagent?: (sessionId: string, label: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     return <div data-message-text data-search-target={searchTarget || undefined}><TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} /></div>;
   }
@@ -1033,7 +993,7 @@ function BlockView({ block, searchTarget, toolResults, toolsNotRun, isStreaming,
   return null;
 }
 
-function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void }) {
+function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string, target?: FileLinkTarget) => void }) {
   // pi's TUI hands the text to the terminal, which draws a model's escape sequences as styling;
   // a browser would show them as raw "[38;5;5m" (#1753).
   return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{stripAnsi(block.text)}</SafeMarkdownBody>;
@@ -1909,7 +1869,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   const summary = getMessageText(message.content);
   const time = formatTime(message.timestamp);
   const tokensBefore = (message.details as { tokensBefore?: unknown } | undefined)?.tokensBefore;
-  // pi's showCacheMissNotices (#1265): what the compaction billed, in its card.
+  // pi's notices.compactionCosts (#1265): what the compaction billed, in its card.
   const costNotice = getTranscriptNotices(message).find((notice) => notice.kind === "summary_cost" && notice.source === "compaction");
 
   return (
@@ -2032,7 +1992,7 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
   );
 }
 
-function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string, page?: number) => void }) {
+function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string, target?: FileLinkTarget) => void }) {
   const { t } = useI18n();
   // Expanded by default: pi's TUI always draws a displayed custom message in full.
   const [contentExpanded, setContentExpanded] = useState(true);
@@ -2435,10 +2395,15 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
 
   // pi keeps the end of a long output (2000 lines or 50KB) and writes all of it
   // to a temp file. The card's result is that end, so the line under it says so
-  // and offers the rest. It sits inside the expanded card: loading the file
+  // and offers the rest, or says why pi could not save it, as pi's
+  // `bashTruncationNote()`. It sits inside the expanded card: loading the file
   // changes the text right above it.
   const linkStyle: CSSProperties = { color: "var(--accent)", fontSize: 11, textDecoration: "underline" };
-  const fullOutputFooter = message.truncated && fullOutputUrl ? (
+  const truncationNote = fullError
+    ?? (fullShown ? t("chat.fullOutputShown")
+      : !fullOutputUrl && message.fullOutputError ? t("chat.fullOutputNotSaved", { error: message.fullOutputError })
+      : t("chat.outputTruncated"));
+  const fullOutputFooter = message.truncated ? (
     <div
       style={{
         display: "flex",
@@ -2451,10 +2416,8 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
         borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
       }}
     >
-      <span role="status">
-        {fullError ?? t(fullShown ? "chat.fullOutputShown" : "chat.outputTruncated")}
-      </span>
-      {!fullShown && (
+      <span role="status">{truncationNote}</span>
+      {fullOutputUrl && !fullShown && (
         <button
           type="button"
           onClick={loadFullOutput}
@@ -2464,9 +2427,11 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
           {loadingFull ? t("chat.loadingFullOutput") : t("chat.viewFullOutput")}
         </button>
       )}
-      <a href={`${fullOutputUrl}&download=1`} style={linkStyle}>
-        {t("chat.downloadFullOutput")}
-      </a>
+      {fullOutputUrl && (
+        <a href={`${fullOutputUrl}&download=1`} style={linkStyle}>
+          {t("chat.downloadFullOutput")}
+        </a>
+      )}
     </div>
   ) : null;
 

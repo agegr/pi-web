@@ -159,3 +159,29 @@ test("opening a PDF without a page fragment clears a previous jump", () => {
   assert.equal(next.page, undefined);
   assert.equal(next.viewerRevision, 1);
 });
+
+test("a line link opens a new tab in the source at its lines", () => {
+  const [tab] = openFileTab([], { ...openA, lines: { start: 42, end: 42 } });
+  assert.deepEqual(tab.lines, { start: 42, end: 42 });
+  assert.deepEqual(tab.viewerState, { displayMode: "source", wrapLines: undefined, scrollTop: 0, scrollLeft: 0 });
+});
+
+test("a line link turns an open tab to its source and remounts it, even for the same lines", () => {
+  const inDiff = { ...tabA, viewerState: { ...tabA.viewerState, displayMode: "diff" } };
+  const [next] = openFileTab([inDiff], { ...openA, lines: { start: 10, end: 20 } });
+  assert.deepEqual(next.lines, { start: 10, end: 20 });
+  assert.equal(next.viewerRevision, 1);
+  // The reader's wrap choice stays; the old scroll gives way to the lines.
+  assert.deepEqual(next.viewerState, { displayMode: "source", wrapLines: true, scrollTop: 0, scrollLeft: 0 });
+
+  const [again] = openFileTab([next], { ...openA, lines: { start: 10, end: 20 } });
+  assert.equal(again.viewerRevision, 2);
+});
+
+test("the viewer's report drops the link's lines, so a remount restores its own scroll", () => {
+  const opened = openFileTab([tabA], { ...openA, lines: { start: 42, end: 42 } });
+  const reported = { ...opened[0].viewerState, scrollTop: 800 };
+  const [saved] = saveFileViewerState(opened, tabA.id, 1, reported);
+  assert.equal("lines" in saved, false);
+  assert.deepEqual(saved.viewerState, reported);
+});

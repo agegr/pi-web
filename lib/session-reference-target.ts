@@ -1,0 +1,58 @@
+// A # session reference as the composer holds it. The compact
+// `[title](#session:<uuid>)` token is written into the message only when it is
+// sent, so the textarea keeps the user's own words and the reference shows as a
+// removable chip beside the attachments (#1716). The server turns each token
+// into a `<session-reference>` block at send time (lib/session-reference.ts).
+
+export interface SessionReferenceTarget {
+  id: string;
+  /** The session's title when it was picked: the token's link text. */
+  title: string;
+  /** Its project folder, for the chip's tooltip. */
+  cwd?: string;
+  /** Its last update, ISO, for the chip's tooltip. */
+  modified?: string;
+}
+
+/** One message quotes at most this many sessions. */
+export const MAX_SESSION_REFERENCES = 8;
+
+/** What the chip reads: the title on one line, or the id's start when the
+ *  session has none. An unnamed session's title is its first message, which may
+ *  span lines; the token's link text cannot (SESSION_REFERENCE_TOKEN_RE), so a
+ *  line break there would leave the token unexpanded. */
+export function referenceTitle(target: SessionReferenceTarget): string {
+  return target.title.replace(/\s+/g, " ").trim() || target.id.slice(0, 8);
+}
+
+/** The token for one reference. Brackets in the title become spaces: a `]` in
+ *  the link text would end the token early and it would never read back. */
+export function sessionReferenceToken(target: SessionReferenceTarget): string {
+  return `[${referenceTitle(target).replace(/[[\]]/g, " ")}](#session:${target.id})`;
+}
+
+/** Every reference's token, one per line; empty when there are none. */
+export function sessionReferenceTokens(targets: readonly SessionReferenceTarget[]): string {
+  return targets.map(sessionReferenceToken).join("\n");
+}
+
+/** The message as sent: the user's text, then the tokens the server expands.
+ *  A bare slash command (`/skill:docx`) takes them after a space: pi reads a
+ *  skill's or an extension command's name up to the first space
+ *  (`_expandSkillCommand()`), so after a blank line the name would run into the
+ *  quoted block and the command would go out unexpanded. */
+export function withSessionReferences(text: string, targets: readonly SessionReferenceTarget[]): string {
+  const tokens = sessionReferenceTokens(targets);
+  if (!tokens) return text;
+  const body = text.trimEnd();
+  if (!body) return tokens;
+  return /^\/\S+$/.test(body) ? `${body} ${tokens}` : `${body}\n\n${tokens}`;
+}
+
+/** Whether `id` may join the list: the same session twice would quote it twice. */
+export function canAddSessionReference(
+  targets: readonly SessionReferenceTarget[],
+  id: string,
+): boolean {
+  return targets.length < MAX_SESSION_REFERENCES && !targets.some((target) => target.id === id);
+}

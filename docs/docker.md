@@ -66,6 +66,7 @@ The Compose file explicitly sets the following:
 | `PI_CODING_AGENT_DIR` | `/home/node/.pi/agent` | Explicitly points Pi and Pi Web at the persistent agent mount; normally this defaults to `$HOME/.pi/agent`. |
 | `PI_WEB_PASSWORD` | Required by the Compose interpolation | Enables browser password login. Use a strong secret. |
 | `PI_WEB_ALLOWED_HOSTS` | Optional, empty by default | Comma-separated, exact proxy/custom hostnames. Set this when a reverse proxy forwards a hostname not otherwise accepted by Pi Web. |
+| `PI_WEB_FRAME_ANCESTORS` | Optional, empty by default | Comma-separated CSP sources of other origins allowed to embed Pi Web in an iframe, for example `https://portal.example`. Unset, only Pi Web's own origin may frame it. |
 | `PI_WEB_SKIP_VERSION_CHECK` | `1` | Disables the Pi Web update check in this deployment. |
 
 There are no model API keys required to start the web server. Configure provider credentials in the Models panel or persist an existing Pi agent directory. Provider API requests still require network access unless using a local provider.
@@ -82,7 +83,7 @@ Then set `PI_WEB_APP_NAME=Work Pi` in `.env` and run `docker compose up -d` to r
 - `PI_WEB_IDLE_TIMEOUT_MS`, `PI_WEB_SHUTDOWN_DEADLINE_MS`, `PI_WEB_MCP_IDLE_MS`: session/MCP lifecycle timings.
 - `PI_CODEMODE_MAX_WORKERS`: Pi code-mode worker limit.
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`: outbound proxy configuration.
-- `PI_OFFLINE`: disable online model-catalog/plugin checks.
+- `PI_OFFLINE`: disable online model-catalog, plugin and Pi Web update checks.
 - `PI_WEB_DISABLE_MCP`: disable MCP integration.
 - `PI_WEB_PUSH_SUBJECT`: optional Web Push VAPID subject.
 - `GITHUB_TOKEN` or `GH_TOKEN`: optional GitHub API token used by skill update checks; `SKILLS_API_URL` overrides the skills service base URL.

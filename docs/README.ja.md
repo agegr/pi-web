@@ -61,6 +61,7 @@ pi-web update [--check] # グローバル npm インストールを更新
 | `PI_WEB_APP_NAME` | PWA マニフェストの `name` と `short_name`。前後の空白は取り除かれ、空の値はデフォルトを使用 | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Pi Web の更新チェックを無効化 | 未設定 |
 | `PI_WEB_ALLOWED_HOSTS` | 追加で許可するプロキシまたはカスタムホスト名。複数指定はカンマ区切りで完全一致 | 未設定 |
+| `PI_WEB_FRAME_ANCESTORS` | Pi Web を iframe に埋め込める他のオリジン。CSP のソース表記をカンマ区切りで指定（例：`https://portal.example`、`http://localhost:*`） | 同一オリジンのみ |
 | `PI_WEB_PASSWORD` | ブラウザーのパスワードログインを有効化。API はユーザー名 `pi` の Basic Auth も利用可能 | 認証なし |
 | `PI_WEB_IDLE_TIMEOUT_MS` | セッションのアイドルタイムアウト（ミリ秒、最大 `2147483647`）。`0` でアイドル時の終了を無効化。無効または範囲外の値はデフォルトを使用 | `600000`（10 分） |
 | `PI_WEB_SHUTDOWN_DEADLINE_MS` | セッションを閉じるとき、拡張機能が `session_shutdown` を処理するまでの猶予（ミリ秒、最大 `2147483647`）。過ぎるとセッションはそのまま破棄される。`0`、無効または範囲外の値はデフォルトを使用 | `5000`（5 秒） |

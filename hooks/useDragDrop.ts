@@ -2,9 +2,13 @@
 
 import { useState, useCallback, useRef } from "react";
 import type { DroppedItem } from "@/lib/file-upload-client";
+import { readSessionDrag, SESSION_DRAG_MIME } from "@/lib/session-drag";
+import type { SessionReferenceTarget } from "@/lib/session-reference-target";
 
-function hasDraggedFiles(e: React.DragEvent): boolean {
-  return Array.from(e.dataTransfer.items).some((item) => item.kind === "file");
+/** What a drag carries: a dragged sidebar row, or files and folders. */
+function draggedKind(e: React.DragEvent): "session" | "files" | null {
+  if (e.dataTransfer.types.includes(SESSION_DRAG_MIME)) return "session";
+  return Array.from(e.dataTransfer.items).some((item) => item.kind === "file") ? "files" : null;
 }
 
 /**
@@ -28,19 +32,19 @@ export function droppedItems(dataTransfer: DataTransfer): DroppedItem[] {
   return Array.from(dataTransfer.files).map((file) => ({ kind: "file", file }));
 }
 
-export function useDragDrop(onDrop: (items: DroppedItem[]) => void) {
+export function useDragDrop(onDrop: (items: DroppedItem[], session?: SessionReferenceTarget) => void) {
   const [isDragOver, setIsDragOver] = useState(false);
   const counterRef = useRef(0);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
-    if (!hasDraggedFiles(e)) return;
+    if (!draggedKind(e)) return;
     e.preventDefault();
     counterRef.current += 1;
     setIsDragOver(true);
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!hasDraggedFiles(e)) return;
+    if (!draggedKind(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }, []);
@@ -57,7 +61,9 @@ export function useDragDrop(onDrop: (items: DroppedItem[]) => void) {
     e.preventDefault();
     counterRef.current = 0;
     setIsDragOver(false);
-    onDrop(droppedItems(e.dataTransfer));
+    // A dragged session row quotes that session; anything else is files.
+    const session = readSessionDrag(e.dataTransfer);
+    onDrop(session ? [] : droppedItems(e.dataTransfer), session ?? undefined);
   }, [onDrop]);
 
   return { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop };

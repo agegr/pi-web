@@ -1677,6 +1677,12 @@ pre, code {
   cursor: zoom-in;
   text-align: left;
 }
+/* A user's text already scrolls inside its own cap (USER_TEXT_MAX_HEIGHT in
+   components/MessageView.tsx); a diagram scrolling inside it would be a second
+   scrollbar. */
+.markdown-user-message .mermaid-preview-button {
+  max-height: none;
+}
 .mermaid-preview-button:hover {
   opacity: 0.85;
 }
@@ -1997,6 +2003,16 @@ pre, code {
 
 .file-viewer-mode-button:hover {
   filter: brightness(1.08);
+}
+
+/* The lines a file link pointed at (`app.ts:42`, `:10-20`). The gutter's own
+   background is inline, so its mark is a bar, not a tint. */
+.file-source-line.is-link-target {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.file-source-line.is-link-target > :first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .file-viewer-load-more {

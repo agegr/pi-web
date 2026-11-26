@@ -2,12 +2,19 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentUsage, SessionEntry } from "./types";
-import { withTranscriptNotices, type TranscriptNotice } from "./transcript-notices";
+import {
+  DEFAULT_NOTICE_SETTINGS,
+  NOTICE_SETTING_KEYS,
+  NOTICE_SETTING_OF_KIND,
+  withTranscriptNotices,
+  type NoticeSettings,
+  type TranscriptNotice,
+} from "./transcript-notices";
 import { isRecord } from "./is-record";
 
 type CacheWarmNotice = Extract<TranscriptNotice, { kind: "cache_warm" }>;
 
-// The notices pi's TUI shows when `showCacheMissNotices` is on (#1265), derived
+// The notices pi's TUI shows under its `notices.*` settings (#1265), derived
 // from session entries so a reload, a reconnect or an older page shows the same
 // ones: cache misses are never persisted, the TUI re-derives them too.
 // `scanCacheMisses()` ports the SDK's core/cache-stats.js, which the package
@@ -354,19 +361,47 @@ export function collectLiveAssistantNotices(
 
 interface CachedSetting {
   stamp: string;
-  value: boolean | undefined;
+  value: Partial<NoticeSettings> | undefined;
 }
 
 const SETTING_CACHE_LIMIT = 200;
 const settingCache = new Map<string, CachedSetting>();
 
 /**
- * One settings file's `showCacheMissNotices`, read without pi's file lock:
+ * pi's migration of `showCacheMissNotices` (before 1.6.1) into `notices`, in
+ * place, as `SettingsManager.migrateSettings()` does on every load: a legacy
+ * boolean fills all four, keys already set in `notices` win, and the legacy
+ * key goes either way.
+ */
+export function migrateNoticeSettings(settings: Record<string, unknown>): void {
+  if (typeof settings.showCacheMissNotices === "boolean") {
+    const shown = settings.showCacheMissNotices;
+    const notices = isRecord(settings.notices) ? settings.notices : {};
+    settings.notices = { cacheMisses: shown, cacheWarming: shown, compactionCosts: shown, reasoningDrops: shown, ...notices };
+  }
+  delete settings.showCacheMissNotices;
+}
+
+/** The `notices` keys one settings object sets, after pi's migration. */
+export function noticeSettingsOf(settings: Record<string, unknown>): Partial<NoticeSettings> {
+  const migrated = { ...settings };
+  migrateNoticeSettings(migrated);
+  const out: Partial<NoticeSettings> = {};
+  if (!isRecord(migrated.notices)) return out;
+  for (const key of NOTICE_SETTING_KEYS) {
+    const value = migrated.notices[key];
+    if (typeof value === "boolean") out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * One settings file's `notices`, read without pi's file lock:
  * `SettingsManager.create()` locks each file (a `settings.json.lock` directory
  * in the project) and busy-waits when another writer holds it, which every
  * history read and every reply would pay. Cached until the file changes.
  */
-function readSettingFile(path: string): boolean | undefined {
+function readSettingFile(path: string): Partial<NoticeSettings> | undefined {
   let stamp: string;
   try {
     const stats = statSync(path);
@@ -377,11 +412,10 @@ function readSettingFile(path: string): boolean | undefined {
   }
   const cached = settingCache.get(path);
   if (cached?.stamp === stamp) return cached.value;
-  let value: boolean | undefined;
+  let value: Partial<NoticeSettings> | undefined;
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
-    const raw = isRecord(parsed) ? parsed.showCacheMissNotices : undefined;
-    value = typeof raw === "boolean" ? raw : undefined;
+    value = isRecord(parsed) ? noticeSettingsOf(parsed) : undefined;
   } catch {
     // pi skips a file it cannot parse, keeping the other one.
     value = undefined;
@@ -392,11 +426,21 @@ function readSettingFile(path: string): boolean | undefined {
   return value;
 }
 
-/** pi's `showCacheMissNotices` for a folder: project settings over global, off by default. */
-export function readShowCacheMissNotices(cwd: string, agentDir: string = getAgentDir()): boolean {
-  return readSettingFile(join(cwd, ".pi", "settings.json"))
-    ?? readSettingFile(join(agentDir, "settings.json"))
-    ?? false;
+/**
+ * pi's `getNotices()` for a folder: each key from the project settings over
+ * the global ones (pi deep-merges `notices`), off by default.
+ */
+export function readNoticeSettings(cwd: string, agentDir: string = getAgentDir()): NoticeSettings {
+  return {
+    ...DEFAULT_NOTICE_SETTINGS,
+    ...readSettingFile(join(agentDir, "settings.json")),
+    ...readSettingFile(join(cwd, ".pi", "settings.json")),
+  };
+}
+
+/** The notices of `list` that `settings` shows. */
+export function shownNotices(list: readonly TranscriptNotice[], settings: NoticeSettings): TranscriptNotice[] {
+  return list.filter((notice) => settings[NOTICE_SETTING_OF_KIND[notice.kind]]);
 }
 
 /**
@@ -432,8 +476,8 @@ export function withSessionPrices(entries: readonly SessionEntry[], models?: Not
 }
 
 /**
- * A session's notices for the history routes, or undefined while the setting
- * is off. A total miss is priced from the session's own cache reads, then
+ * A session's notices for the history routes, only the kinds pi's `notices`
+ * settings show; undefined while all are off. A total miss is priced from the session's own cache reads, then
  * `models` (an open session's runtime); the extension-loaded runtime is never
  * built here, as that runs every extension with no deadline.
  */
@@ -443,8 +487,16 @@ export function readSessionTranscriptNotices(options: {
   leafId?: string | null;
   models?: NoticeModelLookup;
 }): Map<string, TranscriptNotice[]> | undefined {
-  if (!options.cwd || !readShowCacheMissNotices(options.cwd)) return undefined;
-  return collectTranscriptNotices(options.entries, withSessionPrices(options.entries, options.models), { leafId: options.leafId });
+  if (!options.cwd) return undefined;
+  const settings = readNoticeSettings(options.cwd);
+  if (!NOTICE_SETTING_KEYS.some((key) => settings[key])) return undefined;
+  const all = collectTranscriptNotices(options.entries, withSessionPrices(options.entries, options.models), { leafId: options.leafId });
+  const notices = new Map<string, TranscriptNotice[]>();
+  for (const [entryId, list] of all) {
+    const shown = shownNotices(list, settings);
+    if (shown.length > 0) notices.set(entryId, shown);
+  }
+  return notices;
 }
 
 /** `context` with each message carrying the notices of its entry. */

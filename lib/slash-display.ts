@@ -21,15 +21,24 @@ export function skillExpansionToCommand(text: string): string | null {
   return args ? `/skill:${name} ${args}` : `/skill:${name}`;
 }
 
-/**
- * The text inside a complete SDK skill expansion's envelope (the reference
- * line and the skill body), what pi's TUI shows for an expanded skill
- * invocation; the arguments after it are the command's.
- */
-export function skillExpansionContent(text: string): string | null {
+/** A complete SDK skill expansion read apart, as pi's TUI shows it: the
+ *  skill's name, the text inside the envelope (the reference line and the
+ *  skill body, what `SkillInvocationMessageComponent` expands to) and the
+ *  arguments after it, which are the user's own message (empty when none). */
+export interface SkillExpansion {
+  name: string;
+  content: string;
+  args: string;
+}
+
+export function parseSkillExpansion(text: string): SkillExpansion | null {
   const match = text.match(SKILL_EXPANSION_RE);
   if (!match) return null;
   const args = match[4];
   const tail = args === undefined ? "\n</skill>".length : "\n</skill>\n\n".length + args.length;
-  return text.slice(text.indexOf("\n") + 1, text.length - tail);
+  return {
+    name: match[1],
+    content: text.slice(text.indexOf("\n") + 1, text.length - tail),
+    args: args ?? "",
+  };
 }

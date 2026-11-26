@@ -955,11 +955,22 @@ a.session-tree-main {
   border-bottom: 1px solid var(--border);
 }
 
-/* The tablist itself holds only the two tabs (ARIA allows nothing else in it). */
+/* The tablist itself holds only the two tabs (ARIA allows nothing else in it).
+   It takes the row's free space, shared by the two tabs as equal cells, so
+   no empty cell is left between the last tab and New. */
 .sidebar-tabs-list {
   display: flex;
-  flex: none;
+  flex: 1 0 auto;
   align-items: stretch;
+}
+
+.sidebar-tabs-list .sidebar-tab {
+  flex: 1 0 0;
+  min-width: max-content;
+}
+
+.sidebar-tabs-list + .sidebar-header-spacer {
+  display: none;
 }
 
 /* The chat bar's cells: a 2px line on top that takes the accent when the
@@ -989,15 +1000,22 @@ a.session-tree-main {
   border-right: 1px solid var(--border);
 }
 
-/* New closes its own left side in both layouts, so New and the search read
-   as two cells, as the chat bar's right-end cell does: the brand before it
-   is no cell, and in the tabs layout the spacer leaves a gap after the last
-   tab at most widths. Its -1px margin lays that line over the last tab's
-   right one where the spacer has collapsed, and keeps New's footprint (and
-   so the fit levels) what it was without the line. */
+/* After the brand, New closes its own left side, so New and the search read
+   as two cells, as the chat bar's right-end cell does: the brand is no
+   cell. Its -1px margin keeps New's footprint (and so the fit levels) what
+   it is without the line. */
 .sidebar-new-button {
   margin-left: -1px;
   border-left: 1px solid var(--border);
+}
+
+/* In the tabs layout the tabs fill the row up to New, and the last tab's
+   right line is New's left side. A second line laid over it does not stay
+   on it: at a page zoom other than 100% the two snap to different device
+   pixels, and the line reads thicker than the others. */
+.sidebar-tabs-list ~ .sidebar-new-button {
+  margin-left: 0;
+  border-left: 0;
 }
 
 .sidebar-tab-icon {
@@ -1041,8 +1059,9 @@ a.session-tree-main {
    the versions in the accent for a few seconds. Never cut: New's label
    gives way first, and on a row too narrow for the versions they take the
    sidebar's meta size (data-fit 2, which only they reach: "Pi Web" fits
-   beside the two cells at the sidebar's 180px minimum, and at 11px so do
-   the versions with a digit to spare). */
+   beside the three cells at the sidebar's 180px minimum; at 11px the
+   versions need 212px, and narrower they push Sort by date past the edge
+   for the few seconds they show). */
 .sidebar-brand {
   flex: none;
   align-self: center;
@@ -1088,6 +1107,12 @@ a.session-tree-main {
 .sidebar-search-toggle {
   width: var(--top-bar-height);
   padding: 0;
+}
+
+/* Sort by date: a cell after the search, as wide, parted from it by a line;
+   pressed (the recent list shown), it takes the chosen cell's look. */
+.sidebar-list-mode-toggle {
+  border-left: 1px solid var(--border);
 }
 
 .sidebar-new-button:disabled {

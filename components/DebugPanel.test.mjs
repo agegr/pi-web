@@ -768,7 +768,8 @@ test("the sidebar's running poll records its request alone, not the session-list
   const answered = poll.indexOf("answeredAt = Date.now();");
   assert.ok(json !== -1 && answered > json, "after the answer is read");
   assert.ok(answered < poll.indexOf("if (stopped || controller !== current) return;"), "before a poll that lost the race returns");
-  assert.ok(answered < poll.indexOf("await loadSessions();"), "before the reload");
+  const reload = poll.indexOf("await loadSessions(");
+  assert.ok(reload !== -1 && answered < reload, "before the reload");
   assert.match(poll, /\} finally \{[^]*?noteRunningPoll\(startedAt, outcome, httpStatus, answeredAt\);\s*\}/);
 });
 
