@@ -242,7 +242,8 @@ export function replaceLinksWithMarkdown(
  * overflows the box stays cut off instead of showing a scrollbar.
  *
  * The "auto" step clamps scrollTop to 0, so the scroll the browser gave the
- * caret is captured first and restored last.
+ * caret is captured first and restored last; a caret at the end follows the
+ * end of the text instead.
  */
 export function autoGrowTextarea(ta: HTMLTextAreaElement): void {
   // The "auto" step fits the whole text, which clamps scrollTop to 0; keep the
@@ -253,6 +254,10 @@ export function autoGrowTextarea(ta: HTMLTextAreaElement): void {
   ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 200) : ta.clientHeight}px`;
   ta.style.overflowY = ta.value && ta.scrollHeight > ta.clientHeight ? "auto" : "hidden";
   ta.scrollTop = scrollTop;
+  // A re-wrap with no keystroke (the run's buttons narrowing the composer, a
+  // font change) brings no browser caret scroll, so the old offset can leave an
+  // end caret below the fold.
+  if (ta.value) scrollTextareaCaretIntoView(ta);
 }
 
 /**

@@ -1165,6 +1165,34 @@ test("a capped composer keeps its scroll while it regrows, so a caret at the end
   assert.equal(tall.scrollTop, 40, "the auto-height reset does not leave the box scrolled back to the top");
 });
 
+test("a re-wrapped draft keeps a caret at the end visible instead of replaying the old offset", () => {
+  // As when a run's Steer / Follow-up / Side-chat buttons narrow the composer:
+  // the text wraps taller with no keystroke, so no browser caret scroll comes.
+  const ta = {
+    value: "many\nlines",
+    selectionEnd: "many\nlines".length,
+    scrollTop: 158,
+    style: { height: "", overflowY: "" },
+    get scrollHeight() { return 1075; },
+    clientHeight: 200,
+  };
+  autoGrowTextarea(ta);
+  assert.equal(ta.scrollTop, 1075, "an end caret follows the text to its bottom");
+});
+
+test("a caret inside the text keeps the scroll it had while the box regrows", () => {
+  const ta = {
+    value: "many\nlines",
+    selectionEnd: 3,
+    scrollTop: 158,
+    style: { height: "", overflowY: "" },
+    get scrollHeight() { return 1075; },
+    clientHeight: 200,
+  };
+  autoGrowTextarea(ta);
+  assert.equal(ta.scrollTop, 158, "a mid-text caret cannot be positioned, so the old offset stays");
+});
+
 test("a programmatic caret at the end scrolls an overflowing box to its bottom, a mid-text caret does not", () => {
   const fake = (value, selectionEnd, scrollHeight) => ({
     value,
