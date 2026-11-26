@@ -104,21 +104,22 @@ async function repoRootFromCommonDir(commonDir: string): Promise<string> {
   const parent = dirname(commonDir);
   if (basename(commonDir) === ".git") return parent;
   // A submodule's git dir (`.git/modules/<name>`) is kept apart from its checkout
-  // and names it as `core.worktree`, relative to itself.
+  // and names it as `core.worktree`, relative to itself. Only a checkout whose
+  // `.git` file points back counts: a git dir's config alone never moves the root.
+  const candidates = [parent];
   try {
     const configured = await git(commonDir, ["config", "--file", join(commonDir, "config"), "--get", "core.worktree"]);
-    if (configured) {
-      const checkout = resolve(commonDir, configured);
-      if (await pathExists(checkout)) return checkout;
-    }
+    if (configured) candidates.unshift(resolve(commonDir, configured));
   } catch {
-    // Not set (a bare clone), or unreadable: judged by the layout below.
+    // Not set (a bare clone), or unreadable.
   }
-  try {
-    const match = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(join(parent, ".git"), "utf8"));
-    if (match && samePath(realPathOrSelf(resolve(parent, match[1])), realPathOrSelf(commonDir))) return parent;
-  } catch {
-    // No `.git` file beside it (a `.git` directory belongs to another repo).
+  for (const candidate of candidates) {
+    try {
+      const match = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(join(candidate, ".git"), "utf8"));
+      if (match && samePath(realPathOrSelf(resolve(candidate, match[1])), realPathOrSelf(commonDir))) return candidate;
+    } catch {
+      // No `.git` file there (a `.git` directory belongs to another repo).
+    }
   }
   return commonDir;
 }
@@ -334,9 +335,9 @@ async function listRegisteredWorktrees(cwd: string): Promise<{ path: string; bra
   }
   flush();
   // For a submodule, git names its git dir in .git/modules as the main worktree,
-  // not the checkout that holds the files.
+  // not the checkout that holds the files. A checkout holds a `.git`: no git run.
   const [main] = worktrees;
-  if (main && !mainIsBare) {
+  if (main && !mainIsBare && !existsSync(join(main.path, ".git"))) {
     const commonDir = toNativePath(await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]));
     if (samePath(main.path, commonDir)) {
       const checkout = await repoRootFromCommonDir(commonDir);
