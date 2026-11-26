@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
-  McpErrorResponse,
-  McpRefusalReason,
   ProjectMcpListing,
   ProjectTrustResponse,
   ProjectTrustUnreadableResponse,
 } from "@/lib/api-types";
 import { readProjectMcpServers } from "@/lib/mcp-config-read";
-import { isMcpEntryRefusal, validateMcpProject } from "@/lib/mcp-entry-request";
+import { isMcpEntryRefusal, mcpEntryRefusalResponse, mcpRefusalResponse, validateMcpProject } from "@/lib/mcp-entry-request";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -16,10 +14,6 @@ import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-man
 import { errorMessage } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
-
-function refusal(status: number, reason: McpRefusalReason, error: string) {
-  return NextResponse.json({ error, reason } satisfies McpErrorResponse, { status });
-}
 
 /**
  * The folder, checked as Settings › MCP's routes check theirs
@@ -29,10 +23,10 @@ function refusal(status: number, reason: McpRefusalReason, error: string) {
  * whether or not it exists.
  */
 async function validateCwd(value: unknown): Promise<
-  { cwd: string; allowedRoots: Set<string> } | { response: NextResponse }
+  { cwd: string; allowedRoots: Set<string> } | { response: Response }
 > {
   const result = await validateMcpProject(value);
-  if (isMcpEntryRefusal(result)) return { response: NextResponse.json(result.body, { status: result.status }) };
+  if (isMcpEntryRefusal(result)) return { response: mcpEntryRefusalResponse(result) };
   return result;
 }
 
@@ -70,8 +64,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
-  if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
+  if (!isApiRequestAllowed(req)) return mcpRefusalResponse(403, "request-denied", "Untrusted API request");
+  if (!hasJsonContentType(req)) return mcpRefusalResponse(415, "content-type", "Content-Type must be application/json");
   try {
     // A body that is not JSON names no cwd.
     const body = await req.json().catch(() => null) as { cwd?: unknown } | null;
@@ -81,10 +75,10 @@ export async function POST(req: Request) {
     const agentDir = getAgentDir();
     const current = getProjectTrustStatus(result.cwd, agentDir);
     if (!current.requiresTrust) {
-      return refusal(409, "trust-not-required", "This project has no resources that require trust");
+      return mcpRefusalResponse(409, "trust-not-required", "This project has no resources that require trust");
     }
     if (hasBusyRpcSessionForCwd(result.cwd)) {
-      return refusal(409, "session-busy", "Wait for the active session to finish before trusting this project");
+      return mcpRefusalResponse(409, "session-busy", "Wait for the active session to finish before trusting this project");
     }
 
     const status = trustProject(result.cwd, agentDir);
@@ -92,6 +86,6 @@ export async function POST(req: Request) {
     await destroyRpcSessionsForCwd(result.cwd);
     return NextResponse.json(status);
   } catch (error) {
-    return refusal(500, "internal", errorMessage(error));
+    return mcpRefusalResponse(500, "internal", errorMessage(error));
   }
 }

@@ -17,6 +17,7 @@ import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { readSideRelation } from "./side-session";
 import { checkSessionMembership, listSessionsIncremental, scanSessionFileInfo, type ScannedSessionInfo } from "./session-list-scanner";
+import { SESSION_ID_PATTERN } from "./session-ui-state-shared";
 import { isRecord } from "./is-record";
 
 export { getAgentDir };
@@ -364,7 +365,6 @@ declare global {
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
-const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 
 function defaultSessionsDir(): string {
   return join(getAgentDir(), "sessions");

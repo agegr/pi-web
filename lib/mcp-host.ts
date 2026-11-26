@@ -27,7 +27,7 @@ import {
   replaceMcpStatus,
   type McpStatusEntry,
 } from "./mcp-status";
-import { createTestRedactor, maskStatusError, maskStatusStderr } from "./mcp-test";
+import { aborted, createTestRedactor, maskStatusError, maskStatusStderr } from "./mcp-test";
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
 import type { McpTransport, PiSdkInternals } from "./pi-sdk-internals";
 import { mayReadProjectConfigNow } from "./project-trust";
@@ -498,11 +498,6 @@ function sessionIdOf(ctx: ExtensionContext): string {
   } catch {
     return "";
   }
-}
-
-function aborted(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 }
 
 /** A server the host wants registered: its config as registered, and the entry its status is about. */
