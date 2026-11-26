@@ -80,25 +80,29 @@ test("the brand is a button named for what its click shows, with the brand's tex
   }
 });
 
-test("the brand's text sits in the chevron column and is never cut at the sidebar's minimum", async () => {
+test("the brand's text sits in the chevron column and is never cut", async () => {
   const brand = rule(".sidebar-brand");
   // Its text in the chevron column: the tree's 6px inset and a toggle's 5px.
   const [marginLeft] = brand.match(/margin: 0 0 0 (\d+)px;/).slice(1).map(Number);
   const [paddingLeft] = brand.match(/padding: \d+px (\d+)px;/).slice(1).map(Number);
   assert.equal(marginLeft + paddingLeft, 6 + 5);
 
-  // At the sidebar's minimum (its line off), beside New's + and the search
-  // (36px cells each), "Pi Web" fits in its 15px code type (0.6em a
-  // character), and the versions in the 11px of data-fit 2.
+  // At the sidebar's minimum (its line off), beside New's +, the search and
+  // Sort by date (36px cells each), "Pi Web" fits in its 15px code type
+  // (0.6em a character). The versions, in the 11px of data-fit 2, need
+  // VERSIONS_FIT_WIDTH: narrower, they push Sort by date past the edge for
+  // the 3 s they show.
   assert.match(brand, /(?:^|\s)font-family: var\(--font-mono\);/);
   assert.match(brand, /(?:^|\s)font-size: 15px;/);
   assert.match(css, /\.sidebar-header\[data-fit="2"\] \.sidebar-brand \{\s*font-size: 11px;\s*\}/);
-  const room = SIDEBAR_MIN_WIDTH - 1 - 36 - 36;
+  const cells = 3 * 36;
+  const VERSIONS_FIT_WIDTH = 212;
   const box = (text, fontSize) => marginLeft + 2 * paddingLeft + text.length * 0.6 * fontSize;
-  assert.ok(box(BRAND_TEXT, 15) <= room, "the brand at 15px");
+  assert.ok(box(BRAND_TEXT, 15) <= SIDEBAR_MIN_WIDTH - 1 - cells, "the brand at 15px");
   const piPackage = JSON.parse(await readFile(new URL("../node_modules/@earendil-works/pi-coding-agent/package.json", import.meta.url), "utf8"));
   // Today's versions, with room for a longer one.
   const versions = brandVersionText(packageJson.version, piPackage.version);
-  assert.ok(box(versions, 11) <= room, `${versions} at 11px`);
-  assert.ok(box(`${versions}0`, 11) <= room, "and a digit more");
+  const versionsRoom = VERSIONS_FIT_WIDTH - 1 - cells;
+  assert.ok(box(versions, 11) <= versionsRoom, `${versions} at 11px`);
+  assert.ok(box(`${versions}0`, 11) <= versionsRoom, "and a digit more");
 });

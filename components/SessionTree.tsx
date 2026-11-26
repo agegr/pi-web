@@ -24,6 +24,7 @@ import {
   getVisibleRowIndices,
   revealScrollTop,
   revealStep,
+  type RecentSection,
   type RevealMisses,
   type SidebarLayout,
   type SidebarProject,
@@ -53,7 +54,8 @@ import {
 
 /**
  * The sessions tab's tree: the pinned section, every project as a group of
- * session families, and the footer links, or the archive view's rows. It
+ * session families (or the recent list's date sections), and the footer
+ * links, or the archive view's rows. It
  * renders the flat rows of lib/session-tree.ts in one virtualized scroll and
  * owns nothing but scroll position, viewport size, which row has focus and a
  * group being dragged (hooks/useGroupDrag.ts); every decision (what is shown,
@@ -119,6 +121,8 @@ export interface SessionTreeProps {
   /** Back to the base limit; key is a projectKey or PINNED_MORE_KEY. */
   onShowLess(key: string): void;
   onTogglePinned(): void;
+  /** A recent list's date section header. */
+  onToggleRecentSection?(section: RecentSection): void;
   onArchiveFamily(family: SessionFamily): void;
   onRestoreFamily(family: SessionFamily): void;
   onOpenRowMenu(row: SessionRow, anchor: SidebarMenuAnchor, opener: HTMLElement | null): void;
@@ -603,10 +607,14 @@ const SessionRowView = memo(function SessionRowView({
   // the suffix that tells it from its source, never the suffix.
   const forkTitle = root.name && root.relation?.kind === "fork" ? splitForkSuffix(root.name) : null;
   const details = root.detailsPending ? "…" : t("sidebar.messagesCount", { count: root.messageCount });
-  const tooltip = `${title}\n${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${branch ? ` · ⑂ ${branch}` : ""}`;
+  // Rows outside their project's group name it: the status dots take the
+  // place of the name in the right column, so the tooltip says it too.
+  const projectPart = context === "pinned" || context === "recent" ? `${row.project.name} · ` : "";
+  const tooltip = `${title}\n${projectPart}${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${branch ? ` · ⑂ ${branch}` : ""}`;
 
   // The right column says the one thing worth knowing: awaiting input, else
-  // running, else unread, else when (a pinned row names its project instead).
+  // running, else unread, else when (a pinned or recent row names its project
+  // instead).
   // An archived row shows its family's time like every row, never the archive
   // time: an old session archived today read as "just now" (#1351).
   // Nothing sits before the title, so it gets the room.
@@ -628,7 +636,7 @@ const SessionRowView = memo(function SessionRowView({
     meta = <span className="session-tree-unread" role="img" aria-label={t("sidebar.newSessionActivity")} />;
     metaState = " is-unread";
     metaTitle = t("sidebar.newActivity");
-  } else if (context === "pinned") {
+  } else if (context === "pinned" || context === "recent") {
     meta = <span className="session-tree-project">{row.project.name}</span>;
   } else {
     meta = formatShortRelativeTime(family.latestModified, locale, nowDate);
@@ -1004,6 +1012,13 @@ const GroupRowView = memo(function GroupRowView({
   );
 });
 
+const RECENT_SECTION_LABELS = {
+  today: "sidebar.recentToday",
+  yesterday: "sidebar.recentYesterday",
+  week: "sidebar.recentWeek",
+  earlier: "sidebar.recentEarlier",
+} as const satisfies Record<RecentSection, string>;
+
 /** The rows with at most one control: section headers, "show more", footer links. */
 const PlainRowView = memo(function PlainRowView({
   row,
@@ -1023,16 +1038,22 @@ const PlainRowView = memo(function PlainRowView({
 
   switch (row.kind) {
     case "pinned-header":
+    case "recent-header": {
+      // A date section is a section label like the pinned one, in its look.
+      const label = row.kind === "pinned-header" ? t("sidebar.pinned") : t(RECENT_SECTION_LABELS[row.section]);
       return (
         <div className="session-tree-row session-tree-pinned-header" style={style} data-row-key={row.key}>
           <button
             type="button"
             className="session-tree-pinned-toggle"
             aria-expanded={!row.collapsed}
-            onClick={() => handlers.current.onTogglePinned()}
+            onClick={() => {
+              if (row.kind === "pinned-header") handlers.current.onTogglePinned();
+              else handlers.current.onToggleRecentSection?.(row.section);
+            }}
           >
             <ChevronIcon size={12} strokeWidth={3} className={`session-tree-chevron${row.collapsed ? "" : " is-open"}`} />
-            <span className="session-tree-pinned-label">{t("sidebar.pinned")}</span>
+            <span className="session-tree-pinned-label">{label}</span>
             <span className="session-tree-pinned-count">· {row.count}</span>
             {row.collapsed && row.running > 0 && (
               <span
@@ -1061,6 +1082,7 @@ const PlainRowView = memo(function PlainRowView({
           </button>
         </div>
       );
+    }
     case "pinned-more":
     case "group-more": {
       const moreKey = row.kind === "pinned-more" ? PINNED_MORE_KEY : row.projectKey;
