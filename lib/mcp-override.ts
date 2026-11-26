@@ -1,4 +1,5 @@
 import type { McpOverrideKey } from "./api-types";
+import { isRecord } from "./is-record";
 
 // Project overrides of global MCP servers (pi 1.0.1): a project `.pi/mcp.json`
 // entry without `command`, `url` or `type` changes only `enabled`, `exposure`
@@ -6,10 +7,6 @@ import type { McpOverrideKey } from "./api-types";
 // `loadMcpConfig()` and `updateMcpServerConfig()`, for the listing
 // (`lib/mcp-config-read.ts`), the writer (`lib/mcp-config-file.ts`) and the
 // MCP host (`lib/mcp-host.ts`), which may not import the listing.
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** What a project override may set (the SDK's module-private `OVERRIDE_KEYS`), in its order. */
 export const MCP_OVERRIDE_KEYS: readonly McpOverrideKey[] = ["enabled", "exposure", "toolExposure"];

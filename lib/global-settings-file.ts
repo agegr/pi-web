@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
+import { isRecord } from "./is-record";
 
 // Locked read-modify-write of the global `settings.json` for the keys pi's
 // SettingsManager has no setter for (`defaultTools`). The lock is the one
@@ -9,10 +10,6 @@ import lockfile from "proper-lockfile";
 
 export function getGlobalSettingsPath(agentDir = getAgentDir()): string {
   return join(agentDir, "settings.json");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseSettings(path: string): Record<string, unknown> {

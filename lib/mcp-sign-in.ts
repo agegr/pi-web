@@ -32,6 +32,8 @@ import type {
   McpSignInOptions,
   PiSdkInternals,
 } from "./pi-sdk-internals";
+import { errorMessage } from "./errors";
+import { isRecord } from "./is-record";
 
 // The URL rule, the sign-out counts and the guarded store live in
 // `lib/mcp-sign-out.ts`, which Tests use too; re-exported for the routes.
@@ -103,14 +105,6 @@ export const MCP_SIGN_IN_MAX_PASTE_CHARS = 16 * 1024;
 
 const ENDED: ReadonlySet<McpSignInPhase> = new Set<McpSignInPhase>(["done", "failed", "cancelled", "expired"]);
 const DENIAL_MAX_CHARS = 500;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 // ---------------------------------------------------------------------------
 // What a flow needs from the SDK, replaceable in tests
