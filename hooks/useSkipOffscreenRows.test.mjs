@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createJiti } from "jiti";
 
 // The layout half of #1808 needs a browser (the headless repro in the commit
-// message): a row whose child's margin collapsed through its edge grew by that
-// margin when skipped, flipped back at the near band's edge every frame, and
-// moved the rows below where that margin had collapsed with a neighbour's.
-// This checks the bookkeeping around it with a stand-in DOM: block rows become
-// flow-root before they are observed, a skip writes the measured size and no
-// containment of its own, and a skipped row whose content changes is measured
-// again while its own style writes are not taken for changes.
+// messages): a row whose child's margin collapsed through its edge grew by that
+// margin when skipped and flipped back at the near band's edge every frame, and
+// a sub-pixel difference in how the observer reads a plain and a skipped row
+// did the same. This checks the bookkeeping around it with a stand-in DOM:
+// rows are skipped past the far band and laid out inside the near one, and a
+// skipped row that may have changed is laid out again and skipped at its new
+// size only once a ResizeObserver reports that layout, never measured in the
+// middle of the script that changed it.
 
 class FakeStyle {
+  setProperty(name, value) { this[name] = value; }
   removeProperty(name) {
+    delete this[name];
     delete this[name.replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
   }
 }
@@ -29,118 +33,173 @@ class FakeNode {
   }
 }
 
+let layouts = 0;
 class FakeElement extends FakeNode {
-  constructor({ display = "block", overflowY = "visible", height = 0 } = {}) {
+  constructor({ overflowY = "visible", height = 0 } = {}) {
     super();
     this.style = new FakeStyle();
-    this.computed = { display, overflowY };
+    this.overflowY = overflowY;
     this.height = height;
   }
   get children() { return this.childNodes.filter((node) => node instanceof FakeElement); }
-  getBoundingClientRect() { return { height: this.height, width: 800 }; }
+  getBoundingClientRect() {
+    layouts++;
+    return { height: this.height, width: 800 };
+  }
 }
 
+const observers = { intersection: new Map(), resize: [], mutation: [] };
+const fontListeners = new Set();
 globalThis.HTMLElement = FakeElement;
 globalThis.CSS = { supports: () => true };
+globalThis.window = {
+  addEventListener() {},
+  removeEventListener() {},
+  get localStorage() { throw new Error("no storage"); },
+};
+globalThis.document = {
+  documentElement: new FakeElement(),
+  fonts: { addEventListener: (_, fn) => fontListeners.add(fn), removeEventListener: (_, fn) => fontListeners.delete(fn) },
+};
 globalThis.getComputedStyle = (element) => ({
-  display: element.style.display ?? element.computed.display,
-  overflowY: element.computed.overflowY,
+  overflowY: element.overflowY,
   paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px",
 });
 globalThis.IntersectionObserver = class {
-  constructor(callback) { this.callback = callback; this.observed = []; globalThis.IntersectionObserver.last = this; }
-  observe(target) { this.observed.push(target); }
-  unobserve(target) { this.observed = this.observed.filter((node) => node !== target); }
-  disconnect() { this.observed = []; }
-};
-globalThis.MutationObserver = class {
-  constructor(callback) { this.callback = callback; globalThis.MutationObserver.last = this; }
-  observe(target, options) { this.options = options; }
-  disconnect() {}
+  constructor(callback, { rootMargin }) { this.callback = callback; this.observed = new Set(); observers.intersection.set(rootMargin, this); }
+  observe(target) { this.observed.add(target); }
+  unobserve(target) { this.observed.delete(target); }
+  disconnect() { this.observed.clear(); }
 };
 globalThis.ResizeObserver = class {
-  observe() {}
+  constructor(callback) { this.callback = callback; this.observed = new Set(); observers.resize.push(this); }
+  observe(target) { this.observed.add(target); }
+  unobserve(target) { this.observed.delete(target); }
+  disconnect() { this.observed.clear(); }
+};
+globalThis.MutationObserver = class {
+  constructor(callback) { this.callback = callback; observers.mutation.push(this); }
+  observe(target, options) { this.target = target; this.options = options; }
   disconnect() {}
 };
 
-const jiti = createJiti(import.meta.url);
+const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { skipOffscreenRows } = await jiti.import("./useSkipOffscreenRows.ts");
+const { setFontWeight } = await jiti.import("./useFontPreferences.ts");
 
 function transcript() {
+  observers.intersection.clear();
+  observers.resize.length = 0;
+  observers.mutation.length = 0;
   const scroller = new FakeElement({ overflowY: "auto" });
   const rows = new FakeElement();
   scroller.append(rows);
-  const block = new FakeElement({ height: 82.796875 });
+  const first = new FakeElement({ height: 82.796875 });
   const text = new FakeNode();
-  block.append(text);
-  const flex = new FakeElement({ display: "flex", height: 40 });
-  rows.append(block);
-  rows.append(flex);
-  return { rows, block, text, flex };
+  first.append(text);
+  const second = new FakeElement({ height: 40 });
+  rows.append(first);
+  rows.append(second);
+  const cleanup = skipOffscreenRows(rows);
+  const near = observers.intersection.get("100% 0px");
+  const far = observers.intersection.get("125% 0px");
+  const rowsMutation = observers.mutation.find((observer) => observer.target === rows);
+  // The observer that reports the layout of rows laid out again.
+  const settled = () => observers.resize.find((observer) => observer.observed.has(first) || observer.observed.has(second));
+  const report = (observer, targets, isIntersecting) => observer.callback(targets.map((target) => ({ target, isIntersecting })));
+  const layoutFrame = () => { const observer = settled(); observer?.callback([...observer.observed].map((target) => ({ target }))); };
+  return { rows, first, second, text, cleanup, near, far, rowsMutation, report, layoutFrame, settled };
 }
 
-// The observers of the rows attached last.
-const observers = {
-  get intersection() { return globalThis.IntersectionObserver.last; },
-  get mutation() { return globalThis.MutationObserver.last; },
-};
-const far = (...targets) => observers.intersection.callback(targets.map((target) => ({ target, isIntersecting: false })));
-const near = (...targets) => observers.intersection.callback(targets.map((target) => ({ target, isIntersecting: true })));
+test("rows are skipped past the far band and laid out inside the near one; in between nothing flips", () => {
+  const { first, near, far, report, cleanup } = transcript();
+  assert.ok(near.observed.has(first) && far.observed.has(first));
 
-test("block rows hold their margins before they are observed; flex rows are left alone", () => {
-  const { rows, block, flex } = transcript();
-  const cleanup = skipOffscreenRows(rows);
-  assert.equal(block.style.display, "flow-root");
-  assert.equal(flex.style.display, undefined);
-  assert.deepEqual(observers.intersection.observed, [block, flex]);
-  assert.deepEqual(observers.mutation.options, { childList: true, subtree: true, characterData: true, attributes: true });
+  report(near, [first], false);
+  assert.equal(first.style.contentVisibility, undefined, "leaving the near band alone does not skip a row");
+  report(far, [first], false);
+  assert.equal(first.style.contentVisibility, "auto");
+  assert.equal(first.style.containIntrinsicBlockSize, "82.796875px", "the size alone, no `auto` and no containment");
+  assert.equal(first.style.contain, undefined);
+
+  report(far, [first], true);
+  assert.equal(first.style.contentVisibility, "auto", "entering the far band alone does not lay a row out");
+  report(near, [first], true);
+  assert.equal(first.style.contentVisibility, undefined);
+  assert.equal(first.style.containIntrinsicBlockSize, undefined);
 
   cleanup();
-  assert.equal(block.style.display, undefined, "cleanup gives the rows back as they were");
+  assert.equal(fontListeners.size, 0);
 });
 
-test("a far row keeps the size it has laid out, with no containment or remembered size of its own", () => {
-  const { rows, block } = transcript();
-  skipOffscreenRows(rows);
-  far(block);
-  assert.equal(block.style.contentVisibility, "auto");
-  assert.equal(block.style.containIntrinsicBlockSize, "82.796875px");
-  assert.equal(block.style.contain, undefined);
+test("a skipped row whose content changes is laid out again and skipped once its layout is reported", () => {
+  const { first, second, text, far, rowsMutation, report, layoutFrame } = transcript();
+  report(far, [first, second], false);
 
-  near(block);
-  assert.equal(block.style.contentVisibility, undefined);
-  assert.equal(block.style.containIntrinsicBlockSize, undefined);
-  assert.equal(block.style.display, "flow-root", "a near row stays a formatting context of its own");
+  first.height = 120;
+  rowsMutation.callback([{ type: "attributes", attributeName: "style", target: first, addedNodes: [], removedNodes: [] }]);
+  assert.equal(first.style.containIntrinsicBlockSize, "82.796875px", "a row's own style writes are not changes");
+
+  const before = layouts;
+  rowsMutation.callback([{ type: "characterData", target: text, addedNodes: [], removedNodes: [] }]);
+  assert.equal(layouts, before, "nothing is measured while the change is being made");
+  assert.equal(first.style.contentVisibility, undefined, "laid out with the next frame");
+  assert.equal(second.style.containIntrinsicBlockSize, "40px", "an unchanged row stays skipped");
+
+  layoutFrame();
+  assert.equal(first.style.contentVisibility, "auto");
+  assert.equal(first.style.containIntrinsicBlockSize, "120px");
 });
 
-test("a skipped row whose content changes is measured again; its own style writes are not changes", () => {
-  const { rows, block, text, flex } = transcript();
-  skipOffscreenRows(rows);
-  far(block, flex);
-
-  block.height = 120;
-  observers.mutation.callback([{ type: "attributes", attributeName: "style", target: block, addedNodes: [], removedNodes: [] }]);
-  assert.equal(block.style.containIntrinsicBlockSize, "82.796875px");
-
-  observers.mutation.callback([{ type: "characterData", target: text, addedNodes: [], removedNodes: [] }]);
-  assert.equal(block.style.containIntrinsicBlockSize, "120px");
-  assert.equal(block.style.contentVisibility, "auto");
-  assert.equal(flex.style.containIntrinsicBlockSize, "40px", "an unchanged row is not measured again");
+test("a row laid out again that comes near meanwhile is not skipped", () => {
+  const { first, text, near, far, rowsMutation, report, layoutFrame, settled } = transcript();
+  report(far, [first], false);
+  rowsMutation.callback([{ type: "childList", target: text, addedNodes: [], removedNodes: [] }]);
+  const observer = settled();
+  report(near, [first], true);
+  assert.ok(!observer.observed.has(first));
+  layoutFrame();
+  assert.equal(first.style.contentVisibility, undefined);
 });
 
-test("rows added later are adopted the same way, and removed ones forgotten", () => {
-  const { rows, block } = transcript();
-  skipOffscreenRows(rows);
+test("a font change, and a font that finished loading, re-measure every skipped row the same way", () => {
+  const { first, second, far, report, layoutFrame, cleanup } = transcript();
+  report(far, [first, second], false);
+  first.height = 90;
+  setFontWeight("ui", 600);
+  assert.equal(first.style.contentVisibility, undefined);
+  assert.equal(second.style.contentVisibility, undefined);
+  layoutFrame();
+  assert.equal(first.style.containIntrinsicBlockSize, "90px");
+
+  first.height = 95;
+  for (const listener of fontListeners) listener();
+  layoutFrame();
+  assert.equal(first.style.containIntrinsicBlockSize, "95px");
+
+  cleanup();
+  setFontWeight("ui", 400);
+  assert.equal(first.style.containIntrinsicBlockSize, undefined, "a detached transcript no longer listens");
+});
+
+test("rows added later are observed, and removed ones forgotten", () => {
+  const { rows, first, near, far, rowsMutation, report } = transcript();
   const added = new FakeElement({ height: 10 });
   rows.append(added);
-  observers.mutation.callback([{ type: "childList", target: rows, addedNodes: [added], removedNodes: [] }]);
-  assert.equal(added.style.display, "flow-root");
-  assert.ok(observers.intersection.observed.includes(added));
+  rowsMutation.callback([{ type: "childList", target: rows, addedNodes: [added], removedNodes: [] }]);
+  assert.ok(near.observed.has(added) && far.observed.has(added));
 
-  far(block);
-  rows.childNodes = rows.childNodes.filter((node) => node !== block);
-  block.parentNode = null;
-  observers.mutation.callback([{ type: "childList", target: rows, addedNodes: [], removedNodes: [block] }]);
-  assert.ok(!observers.intersection.observed.includes(block));
-  assert.equal(block.style.contentVisibility, undefined);
+  report(far, [first], false);
+  rows.childNodes = rows.childNodes.filter((node) => node !== first);
+  first.parentNode = null;
+  rowsMutation.callback([{ type: "childList", target: rows, addedNodes: [], removedNodes: [first] }]);
+  assert.ok(!near.observed.has(first) && !far.observed.has(first));
+  assert.equal(first.style.contentVisibility, undefined);
+});
+
+test("the rows' container makes its rows flow-root without outranking their own display", () => {
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /@layer components \{\s*:where\(\.transcript-rows\) > :where\(\*\) \{\s*display: flow-root;/);
+  const chat = readFileSync(new URL("../components/ChatWindow.tsx", import.meta.url), "utf8");
+  assert.match(chat, /ref=\{attachTranscriptRows\} className="transcript-rows"/);
 });

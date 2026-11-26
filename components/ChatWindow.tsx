@@ -1254,7 +1254,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                        {t("chat.loadEarlier")}
                     </div>
                   )}
-                  <div ref={attachTranscriptRows}>{rendered.slice(startIndex)}</div>
+                  <div ref={attachTranscriptRows} className="transcript-rows">{rendered.slice(startIndex)}</div>
                 </>
               );
             })()}
