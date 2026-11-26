@@ -1999,6 +1999,16 @@ pre, code {
   filter: brightness(1.08);
 }
 
+/* The lines a file link pointed at (`app.ts:42`, `:10-20`). The gutter's own
+   background is inline, so its mark is a bar, not a tint. */
+.file-source-line.is-link-target {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.file-source-line.is-link-target > :first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .file-viewer-load-more {
   position: absolute;
   z-index: 2;
