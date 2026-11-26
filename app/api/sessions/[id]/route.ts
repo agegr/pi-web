@@ -64,7 +64,7 @@ export async function GET(
     const deferToolResultImages = searchParams.has("deferMedia");
     const rawTail = Number(searchParams.get("tail"));
     const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 50;
-    // pi's showCacheMissNotices (#1265): cache, cost and provider notices on the messages they follow.
+    // pi's notices.* (#1265): cache, cost and provider notices on the messages they follow.
     const transcriptNotices = readSessionTranscriptNotices({
       entries: entries as unknown as SessionEntry[],
       cwd: sm.getHeader()?.cwd ?? "",
