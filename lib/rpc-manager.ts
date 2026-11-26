@@ -395,6 +395,7 @@ export class AgentSessionWrapper {
   // Whether the last run ended because it was stopped (pi 1.1's `agent_settled.aborted`), not finished.
   private lastRunAborted = false;
   private readonly manualCompactionWork = new Set<Promise<void>>();
+  private readonly compactWithoutContinuation: AgentSessionLike["compact"] | undefined;
   private promptAdmissionTail: Promise<void> = Promise.resolve();
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
@@ -472,10 +473,13 @@ export class AgentSessionWrapper {
     this.startupNotices = options.startupIssues ? [] : null;
     for (const issue of options.startupIssues ?? []) this.notifyIssue(issue);
 
-    // All manual compactions, including ctx.compact(), call the public SDK method.
-    // Observe the call itself: agent_settled and the interrupted prompt can finish
-    // before compaction_start, so neither can tell us whether the abort is terminal.
+    // An extension's ctx.compact() calls the public SDK method, and its onComplete may
+    // start the next turn. Observe the call itself: agent_settled and the interrupted
+    // prompt can finish before compaction_start, so neither can tell us whether the
+    // abort is terminal. The wrapper's own `compact` command has no completion callback
+    // and keeps the untracked method: prompts parked meanwhile report their own prompt_done.
     const compact = inner.compact?.bind(inner);
+    this.compactWithoutContinuation = compact;
     if (compact) inner.compact = (...args) => this.trackManualCompactionWork(compact(...args));
     const prompt = inner.prompt?.bind(inner);
     if (prompt) inner.prompt = (...args) => {
@@ -1894,7 +1898,7 @@ export class AgentSessionWrapper {
         this.renewExtensionUiStop();
         try {
           return await this.withFinalIdleReset(() =>
-            this.inner.compact(command.customInstructions as string | undefined)
+            (this.compactWithoutContinuation ?? this.inner.compact.bind(this.inner))(command.customInstructions as string | undefined)
           );
         } finally {
           invalidateSessionListCache();
