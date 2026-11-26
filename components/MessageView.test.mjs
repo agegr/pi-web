@@ -712,16 +712,34 @@ test("marks persisted assistant messages with their source entry", () => {
   assert.match(html, /data-entry-id="assistant-entry"/);
 });
 
-test("renders a complete SDK skill expansion as a compact command", () => {
+test("renders a complete SDK skill expansion as a collapsed skill block, as pi's TUI does", () => {
   const html = renderMessage({
     role: "user",
     content: COMPLETE_SKILL_EXPANSION,
   });
 
-  assert.match(html, /\/skill:review/);
-  assert.match(html, /src\/main\.ts/);
+  assert.match(html, /Skill: /);
+  assert.match(html, />review</);
+  assert.match(html, /<p>src\/main\.ts<\/p>/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /Review the supplied files/);
+  assert.doesNotMatch(html, /&lt;skill/);
+});
+
+test("a session quoted in a skill's arguments shows as its own block", () => {
+  const html = renderMessage({
+    role: "user",
+    content: COMPLETE_SKILL_EXPANSION.replace(
+      "src/main.ts",
+      'src/main.ts\n\n<session-reference title="甲" id="01a1d03f-83b1-7311-b88e-4fa7a73ace2f" path="/x.jsonl" messages="2">\nUser: hi\n</session-reference>',
+    ),
+  });
+
+  assert.match(html, /<p>src\/main\.ts<\/p>/);
+  assert.match(html, />甲</);
+  assert.equal(html.split('aria-expanded="false"').length, 3);
+  assert.doesNotMatch(html, /session-reference/);
+  assert.doesNotMatch(html, /User: hi/);
 });
 
 test("does not collapse incomplete skill-looking user text", () => {
@@ -763,14 +781,13 @@ test("keeps assistant soft line breaks as Markdown paragraphs", () => {
   assert.doesNotMatch(html, /<br/);
 });
 
-test("renders lone carriage returns in compact command arguments as line breaks", () => {
+test("renders lone carriage returns in a skill's arguments as line breaks", () => {
   const html = renderMessage({
     role: "user",
     content: COMPLETE_SKILL_EXPANSION.replace("src/main.ts", "src/main.ts\rsrc/app.ts"),
   });
 
-  assert.match(html, /\/skill:review/);
-  assert.match(html, /src\/main\.ts\nsrc\/app\.ts/);
+  assert.match(html, /src\/main\.ts<br\/>src\/app\.ts/);
   assert.doesNotMatch(html, /\r/);
 });
 
