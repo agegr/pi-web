@@ -33,7 +33,11 @@ import {
   trackAddedModels,
   collectModelRenames,
   deleteProviderEntry,
+  extendModelSelection,
+  modifierClickSelection,
   renameProviderEntry,
+  removeModelEntries,
+  toggleModelSelection,
   updateHeaderRow,
   type HeaderRow,
   type ModelCostDraft,
@@ -1995,6 +1999,15 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const draggedModelRef = useRef<{ providerName: string; index: number } | null>(null);
   const [modelDrop, setModelDrop] = useState<{ providerName: string; index: number; after: boolean } | null>(null);
   /**
+   * Models picked for bulk deletion, scoped to one provider's footer. Entering
+   * closes a model detail; switching to another row leaves the mode.
+   */
+  const [modelSelection, setModelSelection] = useState<{ providerName: string; indices: Set<number> } | null>(null);
+  const selectionAnchorRef = useRef<number | null>(null);
+  /** Receives the focus a removed Select button cannot keep, so Escape still reaches the panel. */
+  const selectAllModelsRef = useRef<HTMLButtonElement | null>(null);
+  const selectingProviderRef = useRef<string | null>(null);
+  /**
    * The provider name field while it differs from the provider's id. Save
    * applies it like every other visible edit; Rename applies it right away.
    */
@@ -2036,6 +2049,29 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   useEffect(() => {
     if (selection) setLastSettingsSelection("models", JSON.stringify(selection));
   }, [selection]);
+
+  // A provider switch, or any other row opening its detail, leaves selection mode.
+  useEffect(() => {
+    if (!modelSelection) return;
+    if (selection?.type === "provider" && selection.name === modelSelection.providerName) return;
+    setModelSelection(null);
+    selectionAnchorRef.current = null;
+    draggedModelRef.current = null;
+    setModelDrop(null);
+  }, [modelSelection, selection]);
+
+  // Entering replaces the Select button that had focus with the selection footer.
+  useEffect(() => {
+    const providerName = modelSelection?.providerName ?? null;
+    if (providerName && providerName !== selectingProviderRef.current) {
+      // A row click keeps focus on that row; only a removed Select button needs a new target.
+      const active = document.activeElement;
+      if (!active || active === document.body || !active.isConnected) {
+        selectAllModelsRef.current?.focus({ preventScroll: true });
+      }
+    }
+    selectingProviderRef.current = providerName;
+  }, [modelSelection]);
 
   // An overrides-only entry belongs to its managed provider, not a duplicate custom provider.
   useEffect(() => {
@@ -2184,6 +2220,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
    * browser's own edge scrolling.
    */
   const modelDragProps = (providerName: string, index: number, modelId: string): ButtonHTMLAttributes<HTMLButtonElement> => {
+    // Rows toggle instead of moving while the provider's models are being picked.
+    if (modelSelection) return {};
     const target = (event: DragEvent<HTMLButtonElement>) => {
       const dragged = draggedModelRef.current;
       if (dragged?.providerName !== providerName) return null;
@@ -2242,6 +2280,57 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     setSelection({ type: "provider", name: providerName });
     closeDetail();
   }, [closeDetail]);
+
+  const startModelSelection = useCallback((providerName: string, indices: Iterable<number> = [], anchor: number | null = null) => {
+    // Entering closes the model detail and leaves no drag state behind.
+    setSelection({ type: "provider", name: providerName });
+    setModelSelection({ providerName, indices: new Set(indices) });
+    selectionAnchorRef.current = anchor;
+    draggedModelRef.current = null;
+    setModelDrop(null);
+  }, []);
+
+  const exitModelSelection = useCallback(() => {
+    setModelSelection(null);
+    selectionAnchorRef.current = null;
+    draggedModelRef.current = null;
+    setModelDrop(null);
+  }, []);
+
+  const toggleSelectedModel = (providerName: string, index: number, shiftKey: boolean) => {
+    if (!modelSelection || modelSelection.providerName !== providerName) return;
+    const anchor = selectionAnchorRef.current;
+    if (shiftKey && anchor !== null) {
+      setModelSelection({ providerName, indices: extendModelSelection(modelSelection.indices, anchor, index) });
+      return;
+    }
+    selectionAnchorRef.current = index;
+    setModelSelection({ providerName, indices: toggleModelSelection(modelSelection.indices, index) });
+  };
+
+  const selectAllModels = (providerName: string) => {
+    const count = config.providers?.[providerName]?.models?.length ?? 0;
+    setModelSelection({ providerName, indices: new Set(Array.from({ length: count }, (_, index) => index)) });
+    selectionAnchorRef.current = null;
+  };
+
+  const clearModelSelection = () => {
+    setModelSelection((current) => current ? { ...current, indices: new Set() } : current);
+    selectionAnchorRef.current = null;
+  };
+
+  const deleteSelectedModels = useCallback((providerName: string) => {
+    if (saving || loadError || !modelSelection || modelSelection.providerName !== providerName) return;
+    const next = removeModelEntries(config, savedModelIdsRef.current, providerName, [...modelSelection.indices]);
+    if (!next) return;
+    setConfig(next);
+    setModelSelection({ providerName, indices: new Set() });
+    selectionAnchorRef.current = null;
+    setSavedOk(false);
+    setSaveError(null);
+    // The Delete button may have just disabled itself; keep focus inside the panel for Escape.
+    selectAllModelsRef.current?.focus({ preventScroll: true });
+  }, [config, loadError, modelSelection, saving]);
 
   const handleSave = useCallback(async () => {
     if (loadError) return;
@@ -2374,6 +2463,16 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   return (
     <>
     <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.pi/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
+      <div
+        style={{ display: "contents" }}
+        onKeyDown={(event) => {
+          // Escape leaves selection mode before Settings' own Escape closes the panel.
+          if (!modelSelection || event.key !== "Escape" || event.defaultPrevented) return;
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          event.preventDefault();
+          exitModelSelection();
+        }}
+      >
 
         <EnabledModelsBanner controller={enabledModels} />
 
@@ -2430,6 +2529,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
               ) : providers.map(([pName, pData]) => {
                 const isProviderSelected = selection?.type === "provider" && selection.name === pName;
                 const models = pData.models ?? [];
+                const selecting = modelSelection?.providerName === pName;
+                const selectedCount = selecting ? modelSelection.indices.size : 0;
                 return (
                   <div key={pName} style={{ marginBottom: 2 }}>
                     {/* Provider row */}
@@ -2453,6 +2554,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                     {/* Model rows */}
                     {models.map((m, i) => {
                       const isModelSelected = selection?.type === "model" && selection.providerName === pName && selection.index === i;
+                      const isChecked = selecting && modelSelection.indices.has(i);
                       let modelKey = modelKeysRef.current.get(m);
                       if (!modelKey) {
                         modelKey = `model-${++modelKeySequenceRef.current}`;
@@ -2462,13 +2564,31 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                       return (
                         <ConfigSidebarItem
                           key={modelKey}
-                          active={isModelSelected}
-                          className="models-sidebar-indented-item"
+                          active={!selecting && isModelSelected}
+                          aria-pressed={selecting ? isChecked : undefined}
+                          className={`models-sidebar-indented-item${isChecked ? " is-model-selected" : ""}`}
                           style={drop ? { boxShadow: `inset 0 ${drop.after ? "-2px" : "2px"} 0 var(--accent)` } : undefined}
-                          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                          onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
+                          aria-keyshortcuts={selecting ? undefined : "Alt+ArrowUp Alt+ArrowDown"}
+                          onClick={(event) => {
+                            if (selecting) {
+                              // Toggle the row instead of opening the model detail.
+                              event.preventDefault();
+                              toggleSelectedModel(pName, i, event.shiftKey);
+                              return;
+                            }
+                            const openModel = selection?.type === "model" && selection.providerName === pName
+                              ? selection.index
+                              : null;
+                            if (openModel !== null && (event.shiftKey || event.ctrlKey || event.metaKey)) {
+                              // A modified click on a second row starts selection mode from the open model.
+                              event.preventDefault();
+                              startModelSelection(pName, modifierClickSelection(openModel, i, event.shiftKey), i);
+                              return;
+                            }
+                            setSelection({ type: "model", providerName: pName, index: i });
+                          }}
                           onKeyDown={(event) => {
-                            if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                            if (modelSelection || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
                             const direction = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : null;
                             if (direction === null) return;
                             event.preventDefault();
@@ -2479,6 +2599,11 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                           <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
                             {modelSidebarLabel(m) || t("i18n.newModel")}
                           </ConfigSidebarText>
+                          {isChecked && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
                           )}
@@ -2486,25 +2611,68 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                       );
                     })}
 
-                    {/* Add model button, and A–Z */}
-                    <div className="models-sidebar-model-footer">
-                      <ConfigSidebarItem
-                        className="models-sidebar-indented-item models-sidebar-add-item"
-                        onClick={(e) => { e.stopPropagation(); addModel(pName); }}
-                      >
-                        <ConfigSidebarText>+ {t("i18n.model")}</ConfigSidebarText>
-                      </ConfigSidebarItem>
-                      <button
-                        type="button"
-                        className="models-sidebar-sort-button"
-                        aria-label={t("models.sortByName")}
-                        title={t("models.sortByName")}
-                        disabled={saving || loadError !== null || models.length < 2}
-                        onClick={() => sortModels(pName)}
-                      >
-                        A–Z
-                      </button>
-                    </div>
+                    {/* Keyed apart, so the Select button unmounts instead of becoming Delete and keeping the focus. */}
+                    {selecting ? (
+                      <div key="selecting" className="models-sidebar-model-footer models-sidebar-selection-footer">
+                        <button
+                          type="button"
+                          ref={selectAllModelsRef}
+                          className="models-sidebar-selection-action is-grow"
+                          onClick={() => selectAllModels(pName)}
+                        >
+                          {t("models.selectAll")}
+                        </button>
+                        <button
+                          type="button"
+                          className="models-sidebar-selection-action"
+                          onClick={clearModelSelection}
+                        >
+                          {t("models.clearSelection")}
+                        </button>
+                        <button
+                          type="button"
+                          className="models-sidebar-selection-action is-danger"
+                          disabled={saving || loadError !== null || selectedCount === 0}
+                          onClick={() => deleteSelectedModels(pName)}
+                        >
+                          {t("models.deleteSelected", { count: selectedCount })}
+                        </button>
+                        <button
+                          type="button"
+                          className="models-sidebar-selection-action"
+                          onClick={exitModelSelection}
+                        >
+                          {t("models.done")}
+                        </button>
+                      </div>
+                    ) : (
+                      <div key="footer" className="models-sidebar-model-footer">
+                        <ConfigSidebarItem
+                          className="models-sidebar-indented-item models-sidebar-add-item"
+                          onClick={(e) => { e.stopPropagation(); addModel(pName); }}
+                        >
+                          <ConfigSidebarText>+ {t("i18n.model")}</ConfigSidebarText>
+                        </ConfigSidebarItem>
+                        <button
+                          type="button"
+                          className="models-sidebar-sort-button"
+                          aria-label={t("models.sortByName")}
+                          title={t("models.sortByName")}
+                          disabled={saving || loadError !== null || models.length < 2}
+                          onClick={() => sortModels(pName)}
+                        >
+                          A–Z
+                        </button>
+                        <button
+                          type="button"
+                          className="models-sidebar-select-button"
+                          disabled={saving || loadError !== null || models.length === 0}
+                          onClick={() => startModelSelection(pName)}
+                        >
+                          {t("models.select")}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2547,6 +2715,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
              <span>{savedOk ? t("i18n.saved") : saving ? t("i18n.saving") : t("i18n.save")}</span>
           </ConfigButton>
         </ConfigFooter>
+      </div>
     </ConfigPanelShell>
     {pickerOpen && (
       <AddProviderPicker

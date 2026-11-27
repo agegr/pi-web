@@ -6,15 +6,18 @@ const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const {
   collectModelRenames,
   deleteProviderEntry,
+  extendModelSelection,
   hasModelCostDraftValue,
   modelCostToDraft,
   modelDropIndex,
   modelSidebarLabel,
+  modifierClickSelection,
   moveModelEntry,
   parseCompleteModelCost,
   providerRuntimeName,
   providerSidebarLabel,
   providerMatchesSearch,
+  removeModelEntries,
   renameProviderEntry,
   savedModelIds,
   savedProviderNames,
@@ -23,6 +26,7 @@ const {
   setCompatFlag,
   setProviderDisplayName,
   sortModelEntries,
+  toggleModelSelection,
   trackAddedModels,
   updateHeaderRow,
 } = await jiti.import("./models-config-helpers.ts");
@@ -241,6 +245,68 @@ test("reordering preserves rename, addition and deletion tracking", () => {
   const remaining = { providers: { stepfun: { models: renamed.providers.stepfun.models.filter((model) => model.id !== "new") } } };
   assert.deepEqual(collectModelRenames(remaining, slots, new Map()), [{ from: "stepfun/second", to: "stepfun/second-renamed" }]);
   assert.deepEqual(moved.providers.stepfun.models.map((model) => model.id), ["first", "added", "second"]);
+});
+
+test("selecting a model toggles it, and Shift-click adds a range from the anchor", () => {
+  const toggled = toggleModelSelection(new Set([1]), 3);
+  assert.deepEqual([...toggled].sort(), [1, 3]);
+  assert.deepEqual([...toggleModelSelection(toggled, 1)].sort(), [3]);
+
+  assert.deepEqual([...extendModelSelection(new Set([1]), 1, 4)].sort(), [1, 2, 3, 4]);
+  assert.deepEqual([...extendModelSelection(new Set([4]), 4, 2)].sort(), [2, 3, 4]);
+  assert.deepEqual([...extendModelSelection(new Set([0, 5]), 3, 3)].sort(), [0, 3, 5]);
+  // The current selection is never mutated, so React sees a new set.
+  const selected = new Set([2]);
+  toggleModelSelection(selected, 2);
+  extendModelSelection(selected, 2, 5);
+  assert.deepEqual([...selected], [2]);
+});
+
+test("Shift- and Ctrl/Cmd-click enter selection mode from the open model", () => {
+  assert.deepEqual([...modifierClickSelection(1, 3, true)].sort(), [1, 2, 3]);
+  assert.deepEqual([...modifierClickSelection(3, 1, true)].sort(), [1, 2, 3]);
+  assert.deepEqual([...modifierClickSelection(0, 3, false)].sort(), [0, 3]);
+  assert.deepEqual([...modifierClickSelection(2, 2, false)], [2]);
+});
+
+test("deleting selected models removes their draft rows and saved slots together", () => {
+  const config = {
+    providers: {
+      relay: { baseUrl: "https://example.invalid/v1", models: [
+        { id: "first" }, { id: "second", name: "Second" }, { id: "third" }, { id: "fourth" },
+      ] },
+      other: { models: [{ id: "keep" }] },
+    },
+  };
+  const slots = savedModelIds(config);
+  // Duplicates and out-of-range slots change nothing extra.
+  const next = removeModelEntries(config, slots, "relay", [3, 1, 1, -1, 99]);
+
+  assert.deepEqual(next.providers.relay.models.map((model) => model.id), ["first", "third"]);
+  assert.equal(next.providers.relay.baseUrl, config.providers.relay.baseUrl);
+  assert.equal(next.providers.other, config.providers.other);
+  assert.deepEqual(slots.get("relay"), ["first", "third"]);
+  assert.deepEqual(slots.get("other"), ["keep"]);
+  assert.deepEqual(config.providers.relay.models.map((model) => model.id), ["first", "second", "third", "fourth"]);
+  assert.equal(removeModelEntries(next, slots, "relay", []), null);
+  assert.equal(removeModelEntries(next, slots, "missing", [0]), null);
+
+  // Removing every model leaves the provider entry, as the single Remove does.
+  const empty = removeModelEntries(next, slots, "relay", [0, 1]);
+  assert.equal(empty.providers.relay.models, undefined);
+  assert.deepEqual(slots.get("relay"), []);
+});
+
+test("a rename after a bulk delete still compares against the models left at their slots", () => {
+  const config = draft(["first", "second", "third"]);
+  const slots = savedModelIds(config);
+  const remaining = removeModelEntries(config, slots, "stepfun", [1]);
+  const renamed = { providers: { stepfun: { models: [{ id: "first" }, { id: "third-renamed" }] } } };
+
+  assert.deepEqual(collectModelRenames(renamed, slots, new Map()), [
+    { from: "stepfun/third", to: "stepfun/third-renamed" },
+  ]);
+  assert.deepEqual(remaining.providers.stepfun.models.map((model) => model.id), ["first", "third"]);
 });
 
 const tracking = (config) => ({
