@@ -1366,9 +1366,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               subagentsActive: reply.subagentsActive === true,
             },
           };
-        } catch {
-          // Debug snapshots must never affect the lease response.
-        }
+        } catch {}
       }
     })();
     leaseRequestRef.current = request;

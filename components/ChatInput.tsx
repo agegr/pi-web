@@ -2044,11 +2044,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           setArgumentCompletionIndex((index) => (index + delta + argumentCompletions.length) % argumentCompletions.length);
           return;
         }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setArgumentCompletions([]);
-          return;
-        }
         if ((e.key === "Tab" || acceptShortcut) && argumentCompletions[argumentCompletionIndex]) {
           e.preventDefault();
           applyArgumentCompletion(argumentCompletions[argumentCompletionIndex]);
