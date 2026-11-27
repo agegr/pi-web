@@ -2611,8 +2611,9 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                       );
                     })}
 
+                    {/* Keyed apart, so the Select button unmounts instead of becoming Delete and keeping the focus. */}
                     {selecting ? (
-                      <div className="models-sidebar-model-footer models-sidebar-selection-footer">
+                      <div key="selecting" className="models-sidebar-model-footer models-sidebar-selection-footer">
                         <button
                           type="button"
                           ref={selectAllModelsRef}
@@ -2645,7 +2646,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
                         </button>
                       </div>
                     ) : (
-                      <div className="models-sidebar-model-footer">
+                      <div key="footer" className="models-sidebar-model-footer">
                         <ConfigSidebarItem
                           className="models-sidebar-indented-item models-sidebar-add-item"
                           onClick={(e) => { e.stopPropagation(); addModel(pName); }}
