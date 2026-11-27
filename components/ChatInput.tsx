@@ -118,6 +118,7 @@ interface Props {
    */
   extensionUiOpen?: boolean;
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
+  onGetArgumentCompletions?: (name: string, prefix: string, signal: AbortSignal) => Promise<Array<{ value: string; label: string; description?: string }> | null>;
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   soundEnabled?: boolean;
   onSoundToggle?: () => void;
@@ -169,6 +170,71 @@ export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, g
 export function cycleListIndex(index: number, length: number, delta: number): number {
   if (length <= 0) return 0;
   return ((index + delta) % length + length) % length;
+}
+
+export interface ArgumentCompletionTarget {
+  commandName: string;
+  prefix: string;
+  start: number;
+  end: number;
+}
+
+export function argumentCompletionSnapshotKey(value: string, start: number, end: number, draftKey: string | undefined): string {
+  return JSON.stringify([value, start, end, draftKey]);
+}
+
+export function argumentCompletionSnapshotIsCurrent(storedSnapshot: string | null, currentSnapshot: string | null): boolean {
+  return storedSnapshot !== null && storedSnapshot === currentSnapshot;
+}
+
+export function argumentCompletionIsSuppressed(snapshot: string, suppressedSnapshot: string | null): boolean {
+  return snapshot === suppressedSnapshot;
+}
+
+export function ownsArgumentCompletionRequest(
+  requestId: number,
+  currentRequestId: number,
+  controller: AbortController,
+  currentController: AbortController | null,
+): boolean {
+  return requestId === currentRequestId && controller === currentController;
+}
+
+export function argumentCompletionOwnsEscape(input: {
+  visibleResults: boolean;
+  pendingRequest: boolean;
+  snapshot: string | null;
+  suppressedSnapshot: string | null;
+}): boolean {
+  return input.visibleResults || (input.pendingRequest && input.snapshot !== null && input.suppressedSnapshot !== input.snapshot);
+}
+
+export function getArgumentCompletionTarget(value: string, caret: number): ArgumentCompletionTarget | null {
+  const beforeCaret = value.slice(0, caret);
+  const leadingTrim = beforeCaret.length - beforeCaret.trimStart().length;
+  const commandText = beforeCaret.trimStart();
+  if (!commandText.startsWith("/")) return null;
+  const separator = commandText.indexOf(" ");
+  if (separator <= 0) return null;
+  return {
+    commandName: commandText.slice(1, separator),
+    prefix: commandText.slice(separator + 1),
+    start: leadingTrim + separator + 1,
+    end: caret,
+  };
+}
+
+export function replaceArgumentCompletion(
+  textarea: HTMLTextAreaElement,
+  target: ArgumentCompletionTarget,
+  value: string,
+  draftKey: string | undefined,
+  afterNativeInput: (snapshot: string) => void,
+): string {
+  replaceTextareaRange(textarea, target.start, target.end, value);
+  const snapshot = argumentCompletionSnapshotKey(textarea.value, textarea.selectionStart, textarea.selectionEnd, draftKey);
+  afterNativeInput(snapshot);
+  return snapshot;
 }
 
 // Plain replacement for when execCommand is unavailable or refuses: no undo
@@ -756,6 +822,60 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
   );
 }
 
+// Keep the slash and argument-completion palettes visually consistent.
+function paletteShellStyle(maxHeight: string): React.CSSProperties {
+  return {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "calc(100% + 8px)",
+    zIndex: 120,
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
+    overflow: "hidden",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    maxHeight,
+  };
+}
+
+function paletteHeaderStyle(): React.CSSProperties {
+  return {
+    padding: "8px 10px",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    fontSize: 11,
+    color: "var(--text-dim)",
+    flexShrink: 0,
+  };
+}
+
+function paletteCardStyle(active: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 4,
+    justifyContent: "center",
+    padding: "8px 10px",
+    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+    borderRadius: 7,
+    background: active ? "var(--bg-selected)" : "var(--bg-panel)",
+    color: "var(--text)",
+    cursor: "pointer",
+    textAlign: "left",
+    boxShadow: active ? "0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent)" : "none",
+  };
+}
+
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
@@ -765,7 +885,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
-  slashCommands, slashCommandsLoading, onLoadSlashCommands,
+  slashCommands, slashCommandsLoading, onLoadSlashCommands, onGetArgumentCompletions,
   extensionUiOpen = false,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -799,6 +919,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [argumentCompletions, setArgumentCompletions] = useState<Array<{ value: string; label: string; description?: string }>>([]);
+  const [argumentCompletionIndex, setArgumentCompletionIndex] = useState(0);
+  const [argumentCompletionMaxHeight, setArgumentCompletionMaxHeight] = useState<number | null>(null);
+  const [argumentCaretRevision, setArgumentCaretRevision] = useState(0);
   const [slashMenuMaxHeight, setSlashMenuMaxHeight] = useState<number | null>(null);
   const [atQuery, setAtQuery] = useState<AtQueryMatch | null>(null);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
@@ -840,8 +964,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const lastCompositionEndAtRef = useRef(0);
   const pendingPasteRef = useRef<object | null>(null);
   const slashCommandsRequestedRef = useRef(false);
+  const argumentCompletionRequestRef = useRef(0);
+  const argumentCompletionAbortRef = useRef<AbortController | null>(null);
+  const argumentCompletionSnapshotRef = useRef<string | null>(null);
+  const argumentCompletionRequestSnapshotRef = useRef<string | null>(null);
+  const argumentCompletionSuppressedRef = useRef<string | null>(null);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const argumentCompletionItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const argumentCompletionMenuRef = useRef<HTMLDivElement>(null);
   const atMenuRef = useRef<HTMLDivElement>(null);
   const atItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const hashMenuRef = useRef<HTMLDivElement>(null);
@@ -858,6 +989,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
   attachedReferencesRef.current = attachedReferences;
+  const argumentCompletionVisible = !extensionUiOpen && !isComposingRef.current && argumentCompletions.length > 0
+    && argumentCompletionSnapshotIsCurrent(argumentCompletionSnapshotRef.current, argumentCompletionSnapshotKey(
+      textareaRef.current?.value ?? value,
+      textareaRef.current?.selectionStart ?? 0,
+      textareaRef.current?.selectionEnd ?? 0,
+      draftKey,
+    ));
 
   // A referenced session joins the composer as a chip: its text never enters the
   // textarea, so the draft stays the user's own words and the token is built
@@ -1177,6 +1315,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const clearInput = useCallback(() => {
+    argumentCompletionRequestRef.current += 1;
+    argumentCompletionAbortRef.current?.abort();
+    argumentCompletionAbortRef.current = null;
+    argumentCompletionRequestSnapshotRef.current = null;
+    argumentCompletionSnapshotRef.current = null;
+    argumentCompletionSuppressedRef.current = null;
+    setArgumentCompletions([]);
     valueRef.current = "";
     setValue("");
     setAtQuery(null);
@@ -1214,6 +1359,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
     const draft = draftKey ? getDraft(draftKey) : null;
     draftKeyRef.current = draftKey;
+    argumentCompletionRequestRef.current += 1;
+    argumentCompletionAbortRef.current?.abort();
+    argumentCompletionAbortRef.current = null;
+    argumentCompletionRequestSnapshotRef.current = null;
+    argumentCompletionSnapshotRef.current = null;
+    argumentCompletionSuppressedRef.current = null;
+    setArgumentCompletions([]);
     const nextValue = draft?.value ?? "";
     const nextImages = draftImagesToAttachedImages(draft?.images);
     const nextReferences = draft?.references ?? [];
@@ -1595,6 +1747,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     atItemRefs.current.length = atMatches.length;
   }, [atMatches.length]);
 
+  useLayoutEffect(() => {
+    if (!argumentCompletionVisible || extensionUiOpen) {
+      setArgumentCompletionMaxHeight(null);
+      return;
+    }
+    const menu = argumentCompletionMenuRef.current;
+    if (!menu) return;
+    return subscribeUpwardMenuMaxHeight(menu, (height) => setArgumentCompletionMaxHeight((current) => current === height ? current : height));
+  }, [argumentCompletionVisible, extensionUiOpen]);
+
+  useEffect(() => {
+    if (argumentCompletionVisible) argumentCompletionItemRefs.current[argumentCompletionIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [argumentCompletionIndex, argumentCompletionVisible]);
+
   useEffect(() => {
     if (!atMenuOpen) return;
     atItemRefs.current[atActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -1614,6 +1780,93 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (!historyMenuOpen || extensionUiOpen) return;
     historyItemRefs.current[historyActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [historyActiveIndex, historyMenuOpen, extensionUiOpen]);
+
+  const invalidateArgumentCompletion = useCallback(() => {
+    argumentCompletionRequestRef.current += 1;
+    argumentCompletionAbortRef.current?.abort();
+    argumentCompletionAbortRef.current = null;
+    argumentCompletionRequestSnapshotRef.current = null;
+    argumentCompletionSnapshotRef.current = null;
+    setArgumentCompletions([]);
+    setArgumentCaretRevision((revision) => revision + 1);
+  }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    setArgumentCompletions([]);
+    argumentCompletionSnapshotRef.current = null;
+    argumentCompletionAbortRef.current?.abort();
+    argumentCompletionAbortRef.current = null;
+    argumentCompletionRequestSnapshotRef.current = null;
+    if (!onGetArgumentCompletions || !draftKey || extensionUiOpen || isComposingRef.current || !textarea) return;
+    const snapshot = argumentCompletionSnapshotKey(value, textarea.selectionStart, textarea.selectionEnd, draftKey);
+    if (argumentCompletionIsSuppressed(snapshot, argumentCompletionSuppressedRef.current) || textarea.selectionStart !== textarea.selectionEnd) return;
+    const target = getArgumentCompletionTarget(value, textarea.selectionStart);
+    if (!target || !slashCommands?.some((command) => command.name === target.commandName && command.source === "extension")) return;
+    const requestId = ++argumentCompletionRequestRef.current;
+    const controller = new AbortController();
+    argumentCompletionAbortRef.current = controller;
+    argumentCompletionRequestSnapshotRef.current = snapshot;
+    const timer = window.setTimeout(() => {
+      onGetArgumentCompletions(target.commandName, target.prefix, controller.signal).then((items) => {
+        const current = textareaRef.current;
+        const currentSnapshot = current && argumentCompletionSnapshotKey(current.value, current.selectionStart, current.selectionEnd, draftKeyRef.current);
+        const isCurrentRequest = ownsArgumentCompletionRequest(
+          requestId,
+          argumentCompletionRequestRef.current,
+          controller,
+          argumentCompletionAbortRef.current,
+        );
+        if (isCurrentRequest) {
+          argumentCompletionRequestSnapshotRef.current = null;
+          argumentCompletionAbortRef.current = null;
+        }
+        if (!isCurrentRequest || controller.signal.aborted || isComposingRef.current || currentSnapshot !== snapshot) return;
+        argumentCompletionSnapshotRef.current = snapshot;
+        setArgumentCompletions(items ?? []);
+        setArgumentCompletionIndex(0);
+      }).catch(() => {
+        const isCurrentRequest = ownsArgumentCompletionRequest(
+          requestId,
+          argumentCompletionRequestRef.current,
+          controller,
+          argumentCompletionAbortRef.current,
+        );
+        if (isCurrentRequest) {
+          argumentCompletionRequestSnapshotRef.current = null;
+          argumentCompletionAbortRef.current = null;
+        }
+        if (isCurrentRequest && !controller.signal.aborted) setArgumentCompletions([]);
+      });
+    }, 100);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      if (argumentCompletionAbortRef.current === controller) {
+        argumentCompletionAbortRef.current = null;
+        argumentCompletionRequestSnapshotRef.current = null;
+      }
+    };
+  }, [value, draftKey, slashCommands, onGetArgumentCompletions, extensionUiOpen, argumentCaretRevision]);
+
+  const applyArgumentCompletion = useCallback((item: { value: string; label: string; description?: string }) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const caret = textarea.selectionStart;
+    const snapshot = argumentCompletionSnapshotKey(textarea.value, caret, textarea.selectionEnd, draftKeyRef.current);
+    if (argumentCompletionSnapshotRef.current !== snapshot || caret !== textarea.selectionEnd) return;
+    const target = getArgumentCompletionTarget(textarea.value, caret);
+    if (!target) return;
+    replaceArgumentCompletion(textarea, target, item.value, draftKeyRef.current, (snapshot) => {
+      argumentCompletionSuppressedRef.current = snapshot;
+    });
+    setValue(textarea.value);
+    setArgumentCompletions([]);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      autoGrowTextarea(textarea);
+    });
+  }, []);
 
   const applyHistoryInput = useCallback((text: string) => {
     setValue(text);
@@ -1758,6 +2011,46 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         return;
       }
 
+      if (e.key === "Escape" && !isComposing && !extensionUiOpen) {
+        const textarea = textareaRef.current;
+        const target = textarea && getArgumentCompletionTarget(textarea.value, textarea.selectionStart);
+        const snapshot = textarea && argumentCompletionSnapshotKey(textarea.value, textarea.selectionStart, textarea.selectionEnd, draftKeyRef.current);
+        const commandHasCompleter = target && onGetArgumentCompletions
+          && slashCommands?.some((command) => command.name === target.commandName && command.source === "extension");
+        const visibleResults = Boolean(snapshot && argumentCompletionSnapshotRef.current === snapshot && argumentCompletions.length > 0);
+        const ownsArgumentCompletion = argumentCompletionOwnsEscape({
+          visibleResults,
+          pendingRequest: Boolean(commandHasCompleter && argumentCompletionRequestSnapshotRef.current === snapshot && argumentCompletionAbortRef.current),
+          snapshot,
+          suppressedSnapshot: argumentCompletionSuppressedRef.current,
+        });
+        if (ownsArgumentCompletion) {
+          e.preventDefault();
+          if (snapshot) argumentCompletionSuppressedRef.current = snapshot;
+          invalidateArgumentCompletion();
+          return;
+        }
+      }
+
+      const textarea = textareaRef.current;
+      const currentArgumentSnapshot = textarea && argumentCompletionSnapshotKey(textarea.value, textarea.selectionStart, textarea.selectionEnd, draftKeyRef.current);
+      const hasCurrentArgumentResults = Boolean(currentArgumentSnapshot
+        && argumentCompletionSnapshotRef.current === currentArgumentSnapshot
+        && argumentCompletions.length > 0);
+      if (hasCurrentArgumentResults && !extensionUiOpen && !isComposing) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const delta = e.key === "ArrowDown" ? 1 : -1;
+          setArgumentCompletionIndex((index) => (index + delta + argumentCompletions.length) % argumentCompletions.length);
+          return;
+        }
+        if ((e.key === "Tab" || acceptShortcut) && argumentCompletions[argumentCompletionIndex]) {
+          e.preventDefault();
+          applyArgumentCompletion(argumentCompletions[argumentCompletionIndex]);
+          return;
+        }
+      }
+
       if (historyMenuOpen && !extensionUiOpen && !isComposing) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -1900,7 +2193,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         }
       }
     },
-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, extensionUiOpen, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, extensionUiOpen, argumentCompletions, argumentCompletionIndex, applyArgumentCompletion, onGetArgumentCompletions, slashCommands, invalidateArgumentCompletion, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
   );
 
   const handleInput = useCallback(() => {
@@ -2453,41 +2746,33 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             </div>
           )}
+          {argumentCompletionVisible && !extensionUiOpen && (
+            <div ref={argumentCompletionMenuRef} role="listbox" aria-label={t("chat.slashCommands", { label: slashCommandCountLabel })} style={{ ...paletteShellStyle(argumentCompletionMaxHeight === null ? "min(48vh, 360px)" : `min(48vh, 360px, ${argumentCompletionMaxHeight}px)`), zIndex: 121 }}>
+              <div style={paletteHeaderStyle()}>
+                <span>{t("chat.slashCommands", { label: argumentCompletions.length === 1 ? t("chat.match") : t("chat.matches", { count: argumentCompletions.length }) })}</span>
+                <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
+              </div>
+              <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                {argumentCompletions.map((item, index) => (
+                  <button key={`${item.value}:${index}`} ref={(node) => { argumentCompletionItemRefs.current[index] = node; }} type="button" role="option" aria-selected={index === argumentCompletionIndex}
+                    onMouseDown={(event) => { event.preventDefault(); applyArgumentCompletion(item); }}
+                    onMouseEnter={() => setArgumentCompletionIndex(index)}
+                    style={paletteCardStyle(index === argumentCompletionIndex)}>
+                    <span style={{ fontSize: 13, overflowWrap: "anywhere", wordBreak: "break-word" }}>{item.label}</span>
+                    {item.description && <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.35 }}>{item.description}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {slashMenuOpen && slashQuery !== null && !extensionUiOpen && (
             <div
               ref={slashMenuRef}
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: "calc(100% + 8px)",
-                zIndex: 120,
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
-                overflow: "hidden",
-                boxSizing: "border-box",
-                display: "flex",
-                flexDirection: "column",
-                maxHeight: slashMenuMaxHeight === null
-                  ? "min(72.8vh, 598px)"
-                  : `min(72.8vh, 598px, ${slashMenuMaxHeight}px)`,
-              }}
+              style={paletteShellStyle(slashMenuMaxHeight === null
+                ? "min(72.8vh, 598px)"
+                : `min(72.8vh, 598px, ${slashMenuMaxHeight}px)`)}
             >
-              <div
-                style={{
-                  padding: "8px 10px",
-                  borderBottom: "1px solid var(--border)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                  flexShrink: 0,
-                }}
-              >
+              <div style={paletteHeaderStyle()}>
                  <span>{slashCommandsLoading ? t("chat.loadingCommands") : t("chat.slashCommands", { label: slashCommandCountLabel })}</span>
                  <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
               </div>
@@ -2545,18 +2830,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                                 width: "100%",
                                 minWidth: 0,
                                 minHeight: 58,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
-                                justifyContent: "center",
-                                padding: "9px 10px",
-                                border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-                                borderRadius: 7,
-                                background: active ? "var(--bg-selected)" : "var(--bg-panel)",
-                                color: "var(--text)",
-                                cursor: "pointer",
-                                textAlign: "left",
-                                boxShadow: active ? "0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent)" : "none",
+                                ...paletteCardStyle(active),
                               }}
                             >
                               <span style={{
@@ -2837,6 +3111,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             value={value}
             onChange={(e) => {
               valueRef.current = e.target.value;
+              argumentCompletionSuppressedRef.current = null;
+              invalidateArgumentCompletion();
               setValue(e.target.value);
               setHistoryMenuOpen(false);
               updateAtQuery(e.target.value, e.target.selectionStart);
@@ -2844,17 +3120,22 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             }}
             onSelect={(e) => {
               const el = e.currentTarget;
+              invalidateArgumentCompletion();
               updateAtQuery(el.value, el.selectionStart);
               updateHashQuery(el.value, el.selectionStart);
             }}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => {
               isComposingRef.current = true;
+              invalidateArgumentCompletion();
             }}
             onCompositionEnd={(e) => {
               isComposingRef.current = false;
+              argumentCompletionSuppressedRef.current = null;
               lastCompositionEndAtRef.current = Date.now();
               const el = e.currentTarget;
+              setValue(el.value);
+              invalidateArgumentCompletion();
               updateAtQuery(el.value, el.selectionStart);
               updateHashQuery(el.value, el.selectionStart);
             }}
