@@ -2757,6 +2757,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         icon: <FolderIcon />,
         onSelect: () => openProjectInFiles(project),
       },
+      {
+        type: "item",
+        id: "open-new-tab",
+        label: t("sidebar.openInNewTab"),
+        icon: <OpenInNewTabIcon />,
+        shortcut: "T",
+        onSelect: () => openProjectInNewTab(project),
+      },
       ...(fileManagerPlatformName === null ? [] : [{
         type: "item" as const,
         id: "open-in-file-manager",
@@ -2768,14 +2776,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
           });
         },
       }]),
-      {
-        type: "item",
-        id: "open-new-tab",
-        label: t("sidebar.openInNewTab"),
-        icon: <OpenInNewTabIcon />,
-        shortcut: "T",
-        onSelect: () => openProjectInNewTab(project),
-      },
       { type: "separator", id: "separator-layout" },
       {
         type: "item",

@@ -24,14 +24,19 @@ function isGitName(name: string): boolean {
   return name.replace(/[. ]+$/, "").toLowerCase() === ".git";
 }
 
-/** Refuses a real path that is `.git` or inside one, below the project root holding it. */
-function refuseGitPath(realPath: string, allowedRoots: Set<string>): void {
+/**
+ * Refuses a path that is `.git` or inside one, below the project root holding
+ * it. Checked on the path as asked, before anything is looked up (`.GIT` on a
+ * case-sensitive disk is refused, not "not found"), and again once links are
+ * resolved.
+ */
+function refuseGitPath(target: string, roots: Iterable<string>): void {
   // The deepest root: a project opened inside another keeps its own view.
   let root = "";
-  for (const candidate of resolveRealRoots(allowedRoots)) {
-    if (candidate.length > root.length && isPathWithinRoots(realPath, new Set([candidate]))) root = candidate;
+  for (const candidate of roots) {
+    if (candidate.length > root.length && isPathWithinRoots(target, new Set([candidate]))) root = candidate;
   }
-  if (path.relative(root, realPath).split(path.sep).some(isGitName)) {
+  if (path.relative(root, target).split(path.sep).some(isGitName)) {
     throw new FileManageError(403, "Cannot change .git");
   }
 }
@@ -50,6 +55,7 @@ export function resolveManagedDirectory(directory: string, allowedRoots: Set<str
   if (hasParentDirectorySegment(directory) || !isPathWithinRoots(directory, allowedRoots)) {
     throw new FileManageError(403, "Access denied");
   }
+  refuseGitPath(path.resolve(directory), allowedRoots);
   let stat: fs.Stats;
   try {
     stat = fs.statSync(directory);
@@ -61,7 +67,7 @@ export function resolveManagedDirectory(directory: string, allowedRoots: Set<str
   if (!isPathWithinRoots(realDirectory, resolveRealRoots(allowedRoots))) {
     throw new FileManageError(403, "Access denied");
   }
-  refuseGitPath(realDirectory, allowedRoots);
+  refuseGitPath(realDirectory, resolveRealRoots(allowedRoots));
   return realDirectory;
 }
 
