@@ -41,7 +41,7 @@ export type MessageSegment = MessageTextSegment | SessionReferenceView;
 // `title`, `id`, `path` and `messages` (lib/session-reference.ts), while a
 // conversation *about* this feature writes the bare name in prose. Reading a
 // bare `<session-reference>` as an opening tag would swallow the message.
-const ATTRIBUTES = String.raw`(?:\s+[a-zA-Z-]+="[^"]*")*`;
+const ATTRIBUTES = String.raw`(?:\s+[a-zA-Z-]+="[^"]*")+`;
 const OPEN_TAG_RE = () => new RegExp(`<${SESSION_REFERENCE_TAG}${ATTRIBUTES}\\s*>`, "g");
 const ANY_TAG_RE = () => new RegExp(`<${SESSION_REFERENCE_TAG}${ATTRIBUTES}\\s*>|</${SESSION_REFERENCE_TAG}>`, "g");
 
