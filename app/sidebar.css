@@ -4,8 +4,10 @@
  * Session tree (components/SessionTree.tsx). Rows are absolutely positioned
  * by the virtualizer, which also sets each row's height inline from
  * SIDEBAR_ROW_HEIGHTS (lib/session-tree.ts), so no height is set here.
- * `.session-tree.is-mobile` follows the component's layout prop (useIsMobile),
- * not a media query, so the CSS always matches the heights the rows got.
+ * `.session-tree.is-mobile` follows the component's layout prop (useTouchRows),
+ * not a media query, so the CSS always matches the heights the rows got. The
+ * sizes inside the rows are app/globals.css's row tokens, switched by the
+ * same query.
  */
 .session-tree {
   /* The drag ghost's box: it sits outside the scroll box (SessionTree). */
@@ -388,28 +390,48 @@ a.session-tree-main {
   align-items: center;
 }
 
-/* A row's icon buttons, the same in the session list and the file tree
-   (.file-tree-action, FileExplorer): 24px square, no border, the hover's
-   fill alone. */
+/* A row's icon buttons, the same in the session list (regular) and the
+   file tree (.file-tree-action, FileExplorer; compact): the size's button
+   (app/globals.css) drawn as the hover's fill, no border, in a hit box 2px
+   larger on every side (the padding, outside the clipped background). The
+   last one's box reaches 2px into the row's padding, so its fill ends on
+   the time's edge. */
 .session-tree-action,
-.file-tree-action {
+.session-tree .session-tree-group-action,
+.file-tree-action,
+.file-tree-view-toggle {
+  --row-action-size: var(--row-button);
   display: none;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: 2px;
-  padding: 0;
-  border-radius: 6px;
+  box-sizing: border-box;
+  width: calc(var(--row-action-size) + 4px);
+  height: calc(var(--row-action-size) + 4px);
+  padding: 2px;
+  border-radius: 8px;
+  background-clip: content-box;
   color: var(--text-dim);
+}
+
+.file-tree-action,
+.file-tree-view-toggle {
+  --row-action-size: var(--row-button-compact);
+}
+
+.session-tree-action:last-child,
+.session-tree .session-tree-group-action:last-child,
+.file-tree-action:last-child,
+.file-tree-view-toggle {
+  margin-right: -2px;
 }
 
 .session-tree .session-tree-action:hover,
 .session-tree .session-tree-action.is-active,
 .file-tree-action:hover,
-.file-tree-action.is-active {
-  background: var(--bg-selected);
+.file-tree-action.is-active,
+.file-tree-view-toggle:hover {
+  background-color: var(--bg-selected);
   color: var(--text);
 }
 
@@ -433,10 +455,16 @@ a.session-tree-main {
   align-items: center;
 }
 
-.file-tree-action {
+.file-tree-action,
+.file-tree-view-toggle {
   border: 0;
-  background: transparent;
+  background-color: transparent;
   cursor: pointer;
+}
+
+/* The changes list's tree/list switch, in its summary row: always shown. */
+.file-tree-view-toggle {
+  display: flex;
 }
 
 .file-tree-row:hover .file-tree-action,
@@ -453,8 +481,6 @@ a.session-tree-main {
 .file-tree.is-mobile .file-tree-more-action,
 .file-tree.is-mobile .file-tree-change-mention {
   display: flex;
-  width: 32px;
-  height: 32px;
 }
 
 .file-tree.is-mobile .file-tree-row:hover .file-tree-meta,
@@ -469,14 +495,15 @@ a.session-tree-main {
   }
 }
 
-.file-tree-action:focus-visible {
+.file-tree-action:focus-visible,
+.file-tree-view-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 .session-tree .session-tree-session.is-selected .session-tree-action:hover,
 .session-tree .session-tree-session.is-selected .session-tree-action.is-active {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover);
 }
 
 /* Desktop: ⋯ (and archive) on hover; ⋯ alone on the selected row or while its menu is open. */
@@ -518,12 +545,14 @@ a.session-tree-main {
   display: flex;
 }
 
-/* A row's name field: a session's rename, a file's rename or new folder. */
+/* A row's name field: a session's rename, a file's rename or new folder,
+   as tall as its row size's button (inputs are 16px on phones, globals.css,
+   and the touch button's 32px holds them). */
 .session-tree-rename,
 .file-tree-rename {
   flex: 1;
   min-width: 0;
-  height: 24px;
+  height: var(--row-button);
   padding: 0 8px;
   box-sizing: border-box;
   border: 1px solid var(--accent);
@@ -535,6 +564,10 @@ a.session-tree-main {
   font-size: 12px;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.file-tree-rename {
+  height: var(--row-button-compact);
 }
 
 .session-tree-confirm-text {
@@ -579,6 +612,12 @@ a.session-tree-main {
 
 .session-tree-confirm-cancel:hover {
   background: var(--bg-hover);
+}
+
+/* In a session row, its size's button height. */
+.session-tree .session-tree-confirm-delete,
+.session-tree .session-tree-confirm-cancel {
+  height: var(--row-button);
 }
 
 /* Project group header: a section header over its rows, not one more row:
@@ -743,11 +782,11 @@ a.session-tree-main {
   background: #d97706;
 }
 
+/* No gap: each button's hit box brings its 2px (as a session row's do). */
 .session-tree-group-actions {
   display: none;
   flex: none;
   align-items: center;
-  gap: 2px;
 }
 
 .session-tree-group:hover .session-tree-group-actions,
@@ -789,21 +828,15 @@ a.session-tree-main {
   }
 }
 
+/* Sized as a session row's buttons (above); always laid out, the group's
+   actions box shows or hides them. */
 .session-tree .session-tree-group-action {
   display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border-radius: 6px;
-  color: var(--text-dim);
 }
 
 .session-tree .session-tree-group-action:hover,
 .session-tree .session-tree-group-action.is-active {
-  background: var(--bg-selected);
+  background-color: var(--bg-selected);
   color: var(--text);
 }
 
@@ -914,8 +947,6 @@ a.session-tree-main {
 
 .session-tree.is-mobile .session-tree-more-action {
   display: flex;
-  width: 32px;
-  height: 32px;
 }
 
 .session-tree.is-mobile .session-tree-session:hover .session-tree-meta {
@@ -932,22 +963,6 @@ a.session-tree-main {
 
 .session-tree.is-mobile .session-tree-group .session-tree-summary {
   display: flex;
-}
-
-.session-tree.is-mobile .session-tree-group-action {
-  width: 32px;
-  height: 32px;
-}
-
-/* Inputs are forced to 16px on phones (globals.css), so the field gets taller. */
-.session-tree.is-mobile .session-tree-rename,
-.file-tree.is-mobile .file-tree-rename {
-  height: 32px;
-}
-
-.session-tree.is-mobile .session-tree-confirm-delete,
-.session-tree.is-mobile .session-tree-confirm-cancel {
-  height: 32px;
 }
 
 /* Touch screens wider than a phone have no hover: keep ⋯ reachable. */
@@ -993,15 +1008,15 @@ a.session-tree-main {
 }
 
 /* With the files below, the toast sits at the bottom of the sessions, above
-   the files section (its height, or folded its 28px row and its line; 36px
-   on a coarse pointer, below), so it never covers the file tree. The
+   the files section (its height, or folded its header row and its line), so
+   it never covers the file tree. The
    sessions' live region, at the root; the files have their own (below). */
 .session-sidebar.is-files-below .sidebar-toast-region {
   bottom: calc(var(--sidebar-files-height, 320px) + 8px);
 }
 
 .session-sidebar.is-files-below.is-files-collapsed .sidebar-toast-region {
-  bottom: 37px;
+  bottom: calc(var(--row-height) + 9px);
 }
 
 /* The file explorer's toast (a move's Undo, an upload's result): the same
@@ -1292,12 +1307,12 @@ a.session-tree-main {
 .session-sidebar.is-files-below .sidebar-files-panel {
   flex: 0 1 auto;
   height: var(--sidebar-files-height, 320px);
-  min-height: 29px;
+  min-height: calc(var(--row-height) + 1px);
   border-top: 1px solid var(--border);
 }
 
 .session-sidebar.is-files-below.is-files-collapsed .sidebar-files-panel {
-  height: 29px;
+  height: calc(var(--row-height) + 1px);
 }
 
 /* A fold or an unfold (only those: .is-files-folding is on the root while
@@ -1351,26 +1366,27 @@ a.session-tree-main {
    after it (" · N", meta); the whole toggle folds the section. At the right
    end, on the session times' edge, the files' keys in the files tab's
    order, the search last: seven keys always there (disabled without a
-   folder), so no key ever moves. The toggle keeps its content (chevron,
-   label, count) and the keys share what it leaves, 18 to 26px each; only
-   with the keys at 18px does the toggle give way: its label first, then
-   the count, down to the chevron (17px). At the default 260px beside
-   Chromium's 10px scrollbar "文件 · 2" leaves the keys about 24px each and
-   "Files · 123" about 21px; from about 300px they are square, 26px; at the
-   sidebar's 180px minimum (159px inside the row's padding) they are 18px
-   and the toggle keeps 31px. */
+   folder), so no key ever moves. A regular row (app/globals.css), its keys
+   the size's button tall. The toggle keeps its content (chevron, label,
+   count) and the keys share what it leaves, 18 to 24px each; only with
+   the keys at 18px does the toggle give way: its label first, then the
+   count, down to the chevron (17px). At the default 260px beside
+   Chromium's 10px scrollbar "文件 · 2" leaves the keys square, 24px, and
+   "Files · 123" about 21px; from about 280px they are square whatever the
+   label; at the sidebar's 180px minimum (159px inside the row's padding)
+   they are 18px and the toggle keeps 31px. */
 .sidebar-files-section {
   display: flex;
   flex: none;
   align-items: center;
   gap: 2px;
-  height: 28px;
+  height: var(--row-height);
   padding: 0 var(--sidebar-files-inset-right) 0 6px;
 }
 
 /* Its content is its basis, with 5px on either side (its hover box never
    ends on the count, which never touches the first key), and it takes the
-   row's room beyond the keys' 26px, so the whole space up to them folds
+   row's room beyond the keys' 24px, so the whole space up to them folds
    the section. What does not fit goes whole, never cut: it wraps to a
    second line, under the first (as tall as the row: the chevron's box is)
    and clipped with the overflow. The count goes first, then the label. */
@@ -1426,23 +1442,23 @@ a.session-tree-main {
 
 /* The keys' group, right-aligned by the toggle before it: never under its
    seven keys' minimum (no shrink from 7 x 18px), never over their maximum
-   (7 x 26px), counted for the keys there are (SessionSidebar.test.mjs). Its grow factor, far above the toggle's, gives it the room
-   the toggle's content leaves until the keys reach 26px; the toggle gets
+   (7 x 24px), counted for the keys there are (SessionSidebar.test.mjs). Its grow factor, far above the toggle's, gives it the room
+   the toggle's content leaves until the keys reach 24px; the toggle gets
    the rest (a fraction of a pixel until then). */
 .sidebar-files-keys {
   display: flex;
   flex: 1000 0 calc(7 * 18px);
   align-items: center;
-  max-width: calc(7 * 26px);
+  max-width: calc(7 * 24px);
 }
 
-/* The section's keys: the files tab's square keys, a step under the row's
-   height, sharing their group's width alike. */
+/* The section's keys: the files tab's square keys at the row's button
+   size, sharing their group's width alike. */
 .sidebar-files-keys .sidebar-tool-button {
   flex: 1 1 0;
   min-width: 18px;
-  max-width: 26px;
-  height: 26px;
+  max-width: 24px;
+  height: var(--row-button);
   border-radius: 6px;
 }
 
@@ -1706,15 +1722,11 @@ a.session-tree-main {
     height: 36px;
   }
 
-  /* The files section's header row and its keys, for a finger; the folded
-     section and the toast above it follow its height. The keys come before
-     the label there: 32px, the toggle taking only what they leave (a zero
-     basis), down to its chevron, and only then do they narrow together
-     (to 15px; their group's basis is their width, its minimum zero). */
-  .sidebar-files-section {
-    height: 36px;
-  }
-
+  /* The files section's keys, for a finger (the row and their height are
+     the touch size's). The keys come before the label there: 32px, the
+     toggle taking only what they leave (a zero basis), down to its
+     chevron, and only then do they narrow together (to 15px; their
+     group's basis is their width, its minimum zero). */
   .sidebar-files-section-toggle {
     flex: 1 1 0;
   }
@@ -1730,19 +1742,6 @@ a.session-tree-main {
     width: 32px;
     min-width: 15px;
     max-width: none;
-    height: 32px;
-  }
-
-  .session-sidebar.is-files-below .sidebar-files-panel {
-    min-height: 37px;
-  }
-
-  .session-sidebar.is-files-below.is-files-collapsed .sidebar-files-panel {
-    height: 37px;
-  }
-
-  .session-sidebar.is-files-below.is-files-collapsed .sidebar-toast-region {
-    bottom: 45px;
   }
 }
 

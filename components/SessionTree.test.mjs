@@ -11,9 +11,11 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { SessionTree, sessionRowTitle } = await jiti.import("./SessionTree.tsx");
-const { buildSessionTree, SIDEBAR_ROW_HEIGHTS } = await jiti.import("@/lib/session-tree.ts");
+const { buildSessionTree, ROW_SIZES, SIDEBAR_ROW_HEIGHTS } = await jiti.import("@/lib/session-tree.ts");
+const { TOUCH_ROWS_QUERY } = await jiti.import("@/hooks/useIsMobile.ts");
 const source = await readFile(new URL("./SessionTree.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/sidebar.css", import.meta.url), "utf8");
+const globalCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 const h = React.createElement;
 const MINUTE = 60_000;
@@ -433,7 +435,7 @@ test("show more, empty groups, footer links and archive groups", () => {
   // Without sessions only a pin keeps a project listed once another one is current (#1476).
   assert.match(
     rowMarkup(html, "empty:/work/app"),
-    /style="top:78px;height:28px" data-row-key="empty:\/work\/app"><span class="session-tree-group-empty-label">No sessions yet<\/span><button type="button" class="session-tree-more-toggle">Pin to keep<\/button><\/div>/,
+    /style="top:72px;height:28px" data-row-key="empty:\/work\/app"><span class="session-tree-group-empty-label">No sessions yet<\/span><button type="button" class="session-tree-more-toggle">Pin to keep<\/button><\/div>/,
   );
   const pinnedEmpty = render({ rows: [{ kind: "group-empty", key: "empty:/work/app", project: { ...project, pinned: true } }] });
   assert.match(rowMarkup(pinnedEmpty, "empty:/work/app"), /No sessions yet<\/span><\/div>/);
@@ -561,26 +563,52 @@ test("row CSS stays flat, themed and quiet", () => {
   assert.doesNotMatch(css, /color: color-mix\(in srgb, var\(--text\)/);
 });
 
-test("a row's controls fit its height with room to spare: 28px rows on a desktop, 44px on a phone", () => {
-  /** The height of the first rule whose selector list starts with `selector`. */
-  const heightOf = (selector) => {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match = css.match(new RegExp(`(?:^|\\n)${escaped}[^{]*\\{[^}]*?\\sheight: (\\d+)px;`));
-    assert.ok(match, `${selector} has a height`);
+test("two row sizes, each a row height and its button, the same numbers in CSS and JS", () => {
+  /** A custom property of app/globals.css's :root, outside and inside the touch query. */
+  const token = (block, name) => {
+    const match = block.match(new RegExp(`--${name}: (\\d+)px;`));
+    assert.ok(match, name);
     return Number(match[1]);
   };
-  // A session row's ⋯ and archive, its rename field, its delete
-  // confirmation's buttons; a group header's + and ⋯ (its rename field is
-  // the session row's). At least 2px clear above and below.
-  const desktop = SIDEBAR_ROW_HEIGHTS.desktop;
-  for (const selector of [".session-tree-action", ".session-tree-rename", ".session-tree-confirm-delete"]) {
-    assert.ok(heightOf(selector) + 4 <= desktop.session, selector);
+  const touchAt = globalCss.indexOf("@media (max-width: 640px), (pointer: coarse) {\n  :root {\n    --top-bar-height");
+  assert.ok(touchAt > 0, "the touch sizes' query");
+  const desktopBlock = globalCss.slice(globalCss.lastIndexOf(":root {", touchAt), touchAt);
+  const touchBlock = globalCss.slice(touchAt, globalCss.indexOf("}", touchAt));
+  const sizes = {};
+  for (const [layout, block] of [["desktop", desktopBlock], ["mobile", touchBlock]]) {
+    sizes[layout] = {
+      regular: token(block, "row-height"),
+      regularButton: token(block, "row-button"),
+      compact: token(block, "row-height-compact"),
+      compactButton: token(block, "row-button-compact"),
+    };
+    assert.deepEqual(ROW_SIZES[layout], { regular: sizes[layout].regular, compact: sizes[layout].compact }, layout);
+    // A button's hit box (its size and 2px on every side) fits its row.
+    assert.ok(sizes[layout].regularButton + 4 <= sizes[layout].regular, `${layout} regular`);
+    assert.ok(sizes[layout].compactButton + 4 <= sizes[layout].compact, `${layout} compact`);
   }
-  assert.ok(heightOf(".session-tree .session-tree-group-action") + 4 <= desktop.group);
-  const mobile = SIDEBAR_ROW_HEIGHTS.mobile;
-  for (const selector of [".session-tree.is-mobile .session-tree-more-action", ".session-tree.is-mobile .session-tree-group-action", ".session-tree.is-mobile .session-tree-rename", ".session-tree.is-mobile .session-tree-confirm-delete"]) {
-    assert.ok(heightOf(selector) + 4 <= Math.min(mobile.session, mobile.group), selector);
-  }
+  assert.deepEqual(sizes.desktop, { regular: 28, regularButton: 24, compact: 24, compactButton: 20 });
+  // On touch the buttons are a finger's in either size; only the rows differ.
+  assert.deepEqual(sizes.mobile, { regular: 44, regularButton: 32, compact: 36, compactButton: 32 });
+  // The JS query is the CSS one.
+  assert.equal(TOUCH_ROWS_QUERY, "(max-width: 640px), (pointer: coarse)");
+
+  // A row's buttons: drawn at the size's button, in a hit box 2px larger
+  // on every side; the session list's regular, the file tree's compact.
+  const shared = css.match(/\.session-tree-action,\s*\.session-tree \.session-tree-group-action,\s*\.file-tree-action,\s*\.file-tree-view-toggle \{([^}]*)\}/);
+  assert.ok(shared, "one rule for every row button");
+  assert.match(shared[1], /--row-action-size: var\(--row-button\);/);
+  assert.match(shared[1], /width: calc\(var\(--row-action-size\) \+ 4px\);\s*height: calc\(var\(--row-action-size\) \+ 4px\);\s*padding: 2px;/);
+  assert.match(shared[1], /background-clip: content-box;/);
+  assert.match(css, /\.file-tree-action,\s*\.file-tree-view-toggle \{\s*--row-action-size: var\(--row-button-compact\);/);
+  // A hover's fill keeps the clip: never the background shorthand there.
+  assert.doesNotMatch(css, /(?:session-tree-action|session-tree-group-action|file-tree-action|file-tree-view-toggle)(?:\.is-active|:hover)[^{]*\{[^}]*\sbackground:/);
+  // The fields and a delete confirmation's buttons: the size's button tall.
+  assert.match(css, /\}\n\n\.file-tree-rename \{\s*height: var\(--row-button-compact\);/);
+  assert.match(css, /\.session-tree-rename,\s*\.file-tree-rename \{[^}]*height: var\(--row-button\);/);
+  assert.match(css, /\.session-tree \.session-tree-confirm-delete,\s*\.session-tree \.session-tree-confirm-cancel \{\s*height: var\(--row-button\);/);
+  // No layout class sizes them on its own.
+  assert.doesNotMatch(css, /\.is-mobile [^{]*\{[^}]*\s(?:width|height): \d+px/);
 });
 
 test("headers lead with their chevron, and every row's text starts in one column", () => {
@@ -615,8 +643,8 @@ test("headers lead with their chevron, and every row's text starts in one column
   assert.doesNotMatch(css, /\.is-mobile \.session-tree-(?:session|group-toggle|group-empty|more|pinned-toggle|archive-group|footer-button) \{[^}]*padding/);
   // One rhythm: session rows, every header (a project's, the pinned
   // section's, a date's, the archive's projects), the empty note and the
-  // footer are one height, 28px (44px on a phone); only "show more" is shorter.
-  assert.deepEqual(SIDEBAR_ROW_HEIGHTS.desktop, { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, "recent-header": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 });
+  // footer are the regular size, 28px (44px on touch); "show more" is compact.
+  assert.deepEqual(SIDEBAR_ROW_HEIGHTS.desktop, { "pinned-header": 28, session: 28, "pinned-more": 24, group: 28, "group-more": 24, "group-empty": 28, "recent-header": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 });
   for (const [layout, height] of [["desktop", 28], ["mobile", 44]]) {
     for (const kind of ["session", "group", "pinned-header", "recent-header", "group-empty", "footer-open", "footer-archived", "archive-group"]) {
       assert.equal(SIDEBAR_ROW_HEIGHTS[layout][kind], height, `${layout} ${kind}`);

@@ -37,16 +37,29 @@ export type SidebarRowKind =
   | "recent-header" | "spacer" | "footer-open" | "footer-archived" | "archive-group";
 
 /**
+ * The sidebar's two row sizes, app/globals.css's --row-height and
+ * --row-height-compact ("mobile" is the touch layout: a phone or a coarse
+ * pointer, the CSS tokens' query).
+ */
+export const ROW_SIZES: Record<SidebarLayout, { regular: number; compact: number }> = {
+  desktop: { regular: 28, compact: 24 },
+  mobile: { regular: 44, compact: 36 },
+};
+
+function rowHeightsFor({ regular, compact }: { regular: number; compact: number }): Record<SidebarRowKind, number> {
+  return { "pinned-header": regular, session: regular, "pinned-more": compact, group: regular, "group-more": compact, "group-empty": regular, "recent-header": regular, spacer: 8, "footer-open": regular, "footer-archived": regular, "archive-group": regular };
+}
+
+/**
  * Per-kind row heights: one rhythm. Session rows, the section headers (a
  * project's, the pinned section's, a date's, the archive's projects), the empty
- * group's note and the footer are one height, 28px (44px on a phone, a
- * finger's minimum for the rows); only "show more" is a step shorter. A
+ * group's note and the footer are the regular size; "show more" is compact. A
  * spacer opens the list and parts the pinned section from the groups, one
  * group from the next and the groups from the footer.
  */
 export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, number>> = {
-  desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, "recent-header": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
-  mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, "recent-header": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
+  desktop: rowHeightsFor(ROW_SIZES.desktop),
+  mobile: rowHeightsFor(ROW_SIZES.mobile),
 };
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;

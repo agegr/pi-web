@@ -103,7 +103,7 @@ import {
 import { isPageAttended, subscribePageAttention } from "@/lib/user-attention";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
 import { useI18n } from "@/hooks/useI18n";
-import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsMobile, useTouchRows } from "@/hooks/useIsMobile";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
@@ -578,6 +578,9 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
 export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSideChat, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileEntryMoved, onFileEntryDeleted, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onInsertSessionReference, onBackgroundTaskDone, hiddenFinishedSessionIds, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  // The session list's touch layout (tall rows, ⋯ always shown) follows a
+  // finger, not only a phone's width: the CSS row sizes' switch.
+  const touchRows = useTouchRows();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   // Tracked in a ref only: the version is compared against the polled value to
   // decide whether the list needs reloading, and no render reads it.
@@ -3034,7 +3037,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     : menu?.kind === "group" ? `group:${menu.project.key}`
     : menu?.kind === "archive-group" ? `archive:${menu.project.key}` : null;
 
-  const treeLayout = isMobile ? "mobile" : "desktop";
+  const treeLayout = touchRows ? "mobile" : "desktop";
   // Until pins and archive have loaded, archived rows would flash in.
   const treeLoading = loading || !uiStateLoaded;
   const treeProps = {

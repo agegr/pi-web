@@ -1177,16 +1177,30 @@ button.extension-widget-trigger:focus-visible {
 
 /* The chat's top bar, the sidebar's toolbar row and the file panel's tab bar
    share one height, so they read as one bar. A phone or touch screen gets a
-   finger's 44px; its icon buttons stay square. The file tree's rows
-   (FileExplorer) grow to 36px there, their row buttons with them. */
+   finger's 44px; its icon buttons stay square.
+
+   The sidebar's lists have two row sizes, each a row height and the button
+   drawn in it. Regular: session rows, every header of the session list, the
+   files section's header row. Compact: the file tree, the changes list,
+   "show more". A row button's hit box is its drawn size plus 2px on every
+   side (the whole row on a desktop); on touch the buttons are a finger's
+   32px in either size, only the rows differ. The session list's heights
+   are these numbers in JS too (ROW_SIZES, lib/session-tree.ts), switched
+   by the same query (useTouchRows, hooks/useIsMobile.ts). */
 :root {
   --top-bar-height: 36px;
-  --file-row-height: 24px;
+  --row-height: 28px;
+  --row-button: 24px;
+  --row-height-compact: 24px;
+  --row-button-compact: 20px;
 }
 @media (max-width: 640px), (pointer: coarse) {
   :root {
     --top-bar-height: 44px;
-    --file-row-height: 36px;
+    --row-height: 44px;
+    --row-button: 32px;
+    --row-height-compact: 36px;
+    --row-button-compact: 32px;
   }
 }
 

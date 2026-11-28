@@ -205,7 +205,7 @@ function NewFolderRow({ directory, depth }: { directory: string; depth: number }
   const manage = useContext(FileManageContext);
   if (!manage || manage.creatingIn !== directory) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4, paddingLeft: 8 + depth * 14, paddingRight: 8, height: "var(--file-row-height)" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 4, paddingLeft: 8 + depth * 14, paddingRight: 8, height: "var(--row-height-compact)" }}>
       <span style={{ width: 10, flexShrink: 0 }} />
       <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}><FolderIcon size={14} open={false} /></span>
       <InlineNameInput
@@ -552,7 +552,7 @@ export function TreeNode({
           gap: 4,
           paddingLeft: 8 + depth * 14,
           paddingRight: 8,
-          height: "var(--file-row-height)",
+          height: "var(--row-height-compact)",
           cursor: "pointer",
           opacity: manage?.draggingPath === node.fullPath ? 0.5 : 1,
           // The hover's fill is the stylesheet's (.file-tree-row:hover).
@@ -706,7 +706,7 @@ export function TreeNode({
             disabled={allowingLink}
             title={t("files.allowOutsideLinkTitle", { target: pendingLinkTarget })}
             style={{
-              height: "calc(var(--file-row-height) - 4px)",
+              height: "var(--row-button-compact)",
               padding: "0 8px",
               background: "var(--bg-panel)",
               border: "1px solid var(--border)",
@@ -752,7 +752,7 @@ export function TreeNode({
             />
           ))}
           {children.length === 0 && loaded && !loadError && (
-            <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
+            <div style={{ paddingLeft: 8 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: "var(--row-height-compact)", display: "flex", alignItems: "center" }}>
               empty
             </div>
           )}
@@ -805,7 +805,7 @@ function ChangeRow({
         gap: treeMode ? 4 : 6,
         paddingLeft: treeMode ? 8 + depth * 14 : 10,
         paddingRight: 8,
-        height: "var(--file-row-height)",
+        height: "var(--row-height-compact)",
         cursor: "pointer",
         borderRadius: 4,
         userSelect: "none",
@@ -895,7 +895,7 @@ function ChangesFolderRow({
         gap: 4,
         paddingLeft: 8 + depth * 14,
         paddingRight: 8,
-        height: "var(--file-row-height)",
+        height: "var(--row-height-compact)",
         cursor: "pointer",
         borderRadius: 4,
         userSelect: "none",
@@ -1821,7 +1821,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               additions: gitLineStats.additions,
               deletions: gitLineStats.deletions,
             })}
-            style={{ display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 6px 0 10px", fontSize: 12 }}
+            style={{ display: "flex", alignItems: "center", gap: 6, height: "var(--row-height-compact)", padding: "0 8px 0 10px", fontSize: 12 }}
           >
             <span style={{ color: "var(--text-dim)" }}>
               {t("files.changedCount", { count: gitFiles.length })}
@@ -1835,22 +1835,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               title={changesViewMode === "list" ? t("files.viewAsTree") : t("files.viewAsList")}
               aria-label={changesViewMode === "list" ? t("files.viewAsTree") : t("files.viewAsList")}
               aria-pressed={changesViewMode === "tree"}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 22,
-                height: 22,
-                padding: 0,
-                border: "none",
-                borderRadius: 4,
-                background: "transparent",
-                color: "var(--text-dim)",
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-dim)"; }}
+              className="file-tree-view-toggle"
             >
               <ChangesViewToggleIcon mode={changesViewMode} />
             </button>
