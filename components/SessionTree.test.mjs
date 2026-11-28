@@ -645,9 +645,12 @@ test("SessionTree.tsx has no RegExp lookbehind (Safari 16.2)", () => {
   assert.doesNotMatch(source, /\(\?<[=!]/, "no RegExp lookbehind (Safari 16.2)");
 });
 
-test("the drag ghost is shorter than a header", () => {
-  // The ghost is a one-line pill shorter than a header (useGroupDrag reads
-  // its height to keep it clear of the pointer and the line).
-  assert.match(cssRule(".session-tree-drag-ghost"), /\n\s*height: 22px;/);
-  assert.ok(22 < SIDEBAR_ROW_HEIGHTS.desktop.group, "shorter than a header");
+test("the drag ghost is a faded copy of the header", () => {
+  // A dragged file row's look: the header's own classes, its box set by
+  // useGroupDrag, faded, never in the way of the pointer.
+  assert.match(source, /className="session-tree-row session-tree-group session-tree-drag-ghost"/);
+  const rule = cssRule(".session-tree-drag-ghost");
+  assert.match(rule, /\n\s*opacity: 0\.6;/);
+  assert.match(rule, /\n\s*pointer-events: none;/);
+  assert.doesNotMatch(rule, /\n\s*height:/);
 });

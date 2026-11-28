@@ -407,15 +407,16 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
   const hasTreeRows = rows.some((row) => row.kind === "session" || row.kind === "group" || row.kind === "archive-group");
   const showEmpty = !loading && !error && emptyLabel !== null && !hasTreeRows;
   // While dragging: the group's block is dimmed in place (groups never fold
-  // up under the pointer), a line marks the drop, and a pill with the
-  // project's name follows the pointer, clear of it and of the line
-  // (useGroupDrag places it), outside the scroll box, where it cannot make
-  // room to scroll into.
+  // up under the pointer), a line marks the drop, and a faded copy of the
+  // header follows the pointer as a dragged file row's does (useGroupDrag
+  // places it), outside the scroll box, where it cannot make room to scroll
+  // into.
   const dragSource = dragView?.source ?? null;
   const dropLineY = dragView?.drop?.lineY ?? null;
-  const ghostProject = dragView?.phase === "dragging"
-    ? rows.find((row): row is Extract<SidebarRow, { kind: "group" }> => row.kind === "group" && row.project.key === dragView.projectKey)?.project ?? null
+  const ghostRow = dragView?.phase === "dragging"
+    ? rows.find((row): row is Extract<SidebarRow, { kind: "group" }> => row.kind === "group" && row.project.key === dragView.projectKey) ?? null
     : null;
+  const ghostProject = ghostRow?.project ?? null;
 
   return (
     <div ref={treeRef} className={`session-tree${layout === "mobile" ? " is-mobile" : ""}${ghostProject ? " is-group-dragging" : ""}`}>
@@ -489,9 +490,13 @@ export function SessionTree(props: SessionTreeProps): ReactNode {
           </div>
         )}
       </div>
-      {ghostProject && (
-        <div ref={ghostRef} className="session-tree-drag-ghost" aria-hidden="true">
-          <span className="session-tree-group-name">{ghostProject.name}</span>
+      {ghostRow && ghostProject && (
+        <div ref={ghostRef} className="session-tree-row session-tree-group session-tree-drag-ghost" aria-hidden="true">
+          <span className="session-tree-group-toggle">
+            <ChevronIcon size={12} strokeWidth={3} className={`session-tree-chevron${ghostRow.expanded ? " is-open" : ""}`} />
+            <span className="session-tree-group-name">{ghostProject.name}</span>
+            {ghostProject.pinned && <PinIcon size={10} className="session-tree-group-pin" />}
+          </span>
         </div>
       )}
     </div>

@@ -14,7 +14,6 @@ const {
   AUTO_SCROLL_MAX_STEP,
   DRAG_START_PX,
   GHOST_GAP_PX,
-  GHOST_LINE_GAP_PX,
   LONG_PRESS_MS,
   LONG_PRESS_SLOP_PX,
   useGroupDrag,
@@ -99,7 +98,7 @@ function model(projects) {
   });
 }
 
-const GHOST_HEIGHT = 22;
+const GHOST_HEIGHT = 28;
 const TREE_TOP = 60;
 
 /**
@@ -220,29 +219,25 @@ test("a mouse drag starts after a few pixels, follows the pointer and drops next
   assert.deepEqual(view.source, { key: "/a", pinned: false, top: 8, bottom: 36, gapAbove: 8, gapBelow: 8 });
   assert.equal(view.drop, null, "still over itself");
   assert.ok(element.captured.has(1), "the header holds the pointer");
-  // The ghost is placed in the tree's box, its left edge 4px in from the
-  // header's (left 6), its width its name's (CSS). No room above the pointer
-  // at the list's top: it goes below.
-  assert.equal(tree.ghost.style.top, `${start + DRAG_START_PX + GHOST_GAP_PX.mouse - TREE_TOP}px`);
-  assert.equal(tree.ghost.style.left, "10px");
-  assert.equal(tree.ghost.style.width, undefined);
-  assert.equal(tree.ghost.style.height, undefined);
+  // The ghost is a copy of the header (left 6, 228 wide, 28 high), held
+  // where the mouse picked it up (44px in, 10px down): under the pointer,
+  // as the browser carries a dragged file row.
+  assert.equal(tree.ghost.style.top, `${start + DRAG_START_PX - 10 - TREE_TOP}px`);
+  assert.equal(tree.ghost.style.left, "6px");
+  assert.equal(tree.ghost.style.width, "228px");
+  assert.equal(tree.ghost.style.height, "28px");
 
   // Past the middle of /c (80..108): after it, the line in the middle of the
-  // footer's spacer (page y 212), below the pointer: the ghost's bottom
-  // keeps the gap above the pointer.
-  tree.move(tree.at(100));
+  // footer's spacer. The ghost follows the pointer both ways, over the line.
+  tree.move(tree.at(100), { x: 70 });
   assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/c", position: "after", lineY: 112 });
-  assert.equal(tree.ghost.style.top, `${tree.at(100) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
-  // The line in the spacer between /b and /c (76), just above the pointer
-  // (78): the ghost goes above the new line, not the last one.
+  assert.equal(tree.ghost.style.top, `${tree.at(100) - 10 - TREE_TOP}px`);
+  assert.equal(tree.ghost.style.left, "26px");
+  // The line in the spacer between /b and /c (76).
   tree.move(tree.at(78));
   assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 76 });
-  assert.equal(tree.ghost.style.top, `${tree.at(76) - GHOST_LINE_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
-  // The line below the pointer: back to the pointer.
   tree.move(tree.at(64));
   assert.deepEqual(tree.hook.result.view.drop, { anchorKey: "/b", position: "after", lineY: 76 });
-  assert.equal(tree.ghost.style.top, `${tree.at(64) - GHOST_GAP_PX.mouse - GHOST_HEIGHT - TREE_TOP}px`);
   tree.release(tree.at(100));
   assert.deepEqual(tree.moves, [["/a", "/c", "after"]], "the drop is taken where the pointer is let go");
   assert.equal(tree.hook.result.view, null);
@@ -358,7 +353,9 @@ test("touch: a swipe scrolls, a long-press picks the group up and holds the list
   assert.equal(tree.hook.result.view.phase, "dragging");
   assert.equal(element.captured.size, 0, "touch keeps its implicit capture");
   tree.move(tree.at(95), { pointerType: "touch" });
-  assert.equal(tree.ghost.style.top, `${tree.at(95) - GHOST_GAP_PX.touch - GHOST_HEIGHT - TREE_TOP}px`, "farther from a finger");
+  // A finger would hide it: the ghost keeps the header's column, above the finger.
+  assert.equal(tree.ghost.style.top, `${tree.at(95) - GHOST_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
+  assert.equal(tree.ghost.style.left, "6px");
   tree.release(tree.at(95));
   assert.deepEqual(tree.moves, [["/a", "/c", "after"]]);
   assert.equal(tree.click(), true);
@@ -478,10 +475,11 @@ test("near an edge the list scrolls, never past the rows' own height", () => {
   assert.equal(tree.scroll.scrollTop, content - 100, "stops at the rows' height");
   assert.equal(tree.hook.result.view.drop.anchorKey, "/p11", "the target follows the scroll");
   // The pointer over the footer at the bottom edge, the line above it at the
-  // band's end, both in view as the list scrolled: the ghost clears the line.
+  // band's end, both in view as the list scrolled; the mouse still carries
+  // the ghost (picked up 7px into /p0's header).
   const lineAt = tree.at(tree.hook.result.view.drop.lineY);
   assert.ok(lineAt < bottom && lineAt > SCROLL_TOP_EDGE);
-  assert.equal(tree.ghost.style.top, `${lineAt - GHOST_LINE_GAP_PX - GHOST_HEIGHT - TREE_TOP}px`);
+  assert.equal(tree.ghost.style.top, `${bottom - 7 - TREE_TOP}px`);
   tree.move(SCROLL_TOP_EDGE + 1);
   runFrames(1);
   assert.equal(tree.scroll.scrollTop, content - 100 - AUTO_SCROLL_MAX_STEP);

@@ -44,12 +44,10 @@ export const LONG_PRESS_SLOP_PX = 8;
 export const AUTO_SCROLL_EDGE: Record<SidebarLayout, number> = { desktop: 32, mobile: 48 };
 /** Most pixels auto-scroll moves the list in one frame. */
 export const AUTO_SCROLL_MAX_STEP = 14;
-/** Room the ghost keeps from the pointer: a finger or pen hides more than a cursor. */
-export const GHOST_GAP_PX = { mouse: 8, touch: 28 } as const;
+/** Room the ghost keeps from a finger or pen, which would hide it (a mouse carries it). */
+export const GHOST_GAP_PX = 28;
 /** Room the ghost keeps from the drop line, whatever the pointer. */
 export const GHOST_LINE_GAP_PX = 8;
-/** The ghost's left edge, in from the header's (the rows' left inset). */
-const GHOST_INDENT_PX = 4;
 /** The click a release produces follows it at once; one later than this is the user's own. */
 const CLICK_SUPPRESS_MS = 600;
 
@@ -59,7 +57,7 @@ interface DragState {
   pointerId: number;
   pointerType: string;
   projectKey: string;
-  /** The header row: it holds a mouse or pen's pointer capture and gives the ghost its left edge. */
+  /** The header row: it holds a mouse or pen's pointer capture, and the ghost is a copy of it. */
   element: HTMLElement;
   startX: number;
   startY: number;
@@ -74,7 +72,8 @@ interface DragState {
   /** The list's scrollTop as the drag left it: any other value means the browser scrolled it. */
   expectedScrollTop: number;
   drop: GroupDrop | null;
-  ghost: { left: number } | null;
+  /** The header's box in the tree, and where in it the pointer picked it up. */
+  ghost: { left: number; width: number; height: number; grabX: number; grabY: number } | null;
 }
 
 export interface GroupDragView {
@@ -158,11 +157,13 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
       return groupDropAt(blocksRef.current, drag.projectKey, drag.clientY - inner.getBoundingClientRect().top);
     };
 
-    // The ghost follows the pointer through its style, not through React
-    // state: just above it, moved only as far as keeping clear of the
-    // pointer and the drop line and inside the list's box takes
-    // (ghostTopFor). Its left edge stays at the rows' inset, not under the
-    // pointer.
+    // The ghost, a faded copy of the header, follows the pointer through its
+    // style, not through React state. A mouse carries it as the browser
+    // carries a dragged file row: held where it was picked up, under the
+    // pointer. A finger or pen would hide it, so there it keeps the header's
+    // column and goes just above the pointer, moved only as far as keeping
+    // clear of the pointer and the drop line and inside the list's box
+    // takes (ghostTopFor).
     const placeGhost = () => {
       const drag = dragRef.current;
       const ghost = optionsRef.current.ghostRef.current;
@@ -170,20 +171,30 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
       const inner = optionsRef.current.innerRef.current;
       const scroll = scrollElement();
       if (!drag?.ghost || !ghost || !tree || !scroll) return;
-      const treeTop = tree.getBoundingClientRect().top;
-      const box = scroll.getBoundingClientRect();
-      const height = ghost.offsetHeight;
-      const top = ghostTopFor({
-        pointerY: drag.clientY,
-        lineY: drag.drop && inner ? inner.getBoundingClientRect().top + drag.drop.lineY : null,
-        ghostHeight: height,
-        pointerGap: drag.pointerType === "mouse" ? GHOST_GAP_PX.mouse : GHOST_GAP_PX.touch,
-        lineGap: GHOST_LINE_GAP_PX,
-        minTop: box.top,
-        maxTop: box.bottom - height,
-      });
-      ghost.style.top = `${top - treeTop}px`;
-      ghost.style.left = `${drag.ghost.left}px`;
+      const treeBox = tree.getBoundingClientRect();
+      const { width, height, grabX, grabY } = drag.ghost;
+      let top: number;
+      let left: number;
+      if (drag.pointerType === "mouse") {
+        top = drag.clientY - grabY;
+        left = drag.clientX - grabX - treeBox.left;
+      } else {
+        const box = scroll.getBoundingClientRect();
+        top = ghostTopFor({
+          pointerY: drag.clientY,
+          lineY: drag.drop && inner ? inner.getBoundingClientRect().top + drag.drop.lineY : null,
+          ghostHeight: height,
+          pointerGap: GHOST_GAP_PX,
+          lineGap: GHOST_LINE_GAP_PX,
+          minTop: box.top,
+          maxTop: box.bottom - height,
+        });
+        left = drag.ghost.left;
+      }
+      ghost.style.top = `${top - treeBox.top}px`;
+      ghost.style.left = `${left}px`;
+      ghost.style.width = `${width}px`;
+      ghost.style.height = `${height}px`;
     };
 
     const stopMotion = (drag: DragState) => {
@@ -288,7 +299,14 @@ export function useGroupDrag(options: GroupDragOptions): GroupDragApi {
           // The window listeners still see the pointer.
         }
       }
-      drag.ghost = { left: drag.element.getBoundingClientRect().left - tree.getBoundingClientRect().left + GHOST_INDENT_PX };
+      const header = drag.element.getBoundingClientRect();
+      drag.ghost = {
+        left: header.left - tree.getBoundingClientRect().left,
+        width: header.width,
+        height: header.height,
+        grabX: Math.min(Math.max(0, drag.startX - header.left), header.width),
+        grabY: Math.min(Math.max(0, drag.startY - header.top), header.height),
+      };
       drag.expectedScrollTop = scroll.scrollTop;
       scroll.addEventListener("scroll", onScroll, { passive: true });
       drag.frame = requestAnimationFrame(autoScroll);

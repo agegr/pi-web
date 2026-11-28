@@ -617,8 +617,8 @@ a.session-tree-main {
 
 /* While a group is dragged: its block dimmed in place, the drop line in the
    middle of the spacer it marks (between two groups, next to the pinned
-   section or the footer), and a ghost with the project's name next to the pointer, placed
-   clear of the line (hooks/useGroupDrag.ts). */
+   section or the footer), and a faded copy of the header following the
+   pointer (hooks/useGroupDrag.ts). */
 .session-tree-drag-source {
   position: absolute;
   right: var(--session-tree-inset-right);
@@ -651,28 +651,19 @@ a.session-tree-main {
   background: var(--accent);
 }
 
-/* A one-line pill, shorter than a header, so it fits above or below the
-   pointer and the line without covering either. Outside the scroll box. */
+/* A faded copy of the dragged header, as the browser draws a dragged file
+   row: the header's look as the pointer left it (hovered), no "+" or ⋯.
+   useGroupDrag sets its box; it sits outside the scroll box. */
 .session-tree-drag-ghost {
-  position: absolute;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
-  min-width: 0;
-  max-width: 70%;
-  height: 22px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--bg-panel);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0.92;
+  right: auto;
+  background: var(--bg-hover);
+  opacity: 0.6;
   pointer-events: none;
+}
+
+.session-tree-drag-ghost .session-tree-group-toggle {
+  color: var(--text);
 }
 
 .session-tree.is-group-dragging {
