@@ -3952,6 +3952,7 @@ export async function startRpcSession(
     const mcpHost = builtins?.mcpHost ?? subagentMcp?.mcpHost;
     const startupIssues = collectStartupIssues({
       diagnostics: services.diagnostics,
+      modelsJsonError: services.modelRuntime.getError(),
       extensions: services.resourceLoader.getExtensions(),
     });
     for (const issue of startupIssues) console.warn(`[pi-web] session ${inner.sessionId}: ${issue.message}`);

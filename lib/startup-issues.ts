@@ -17,8 +17,13 @@ interface Diagnostic {
 }
 
 export interface StartupIssueSources {
-  /** `createAgentSessionServices().diagnostics`: extension providers that failed to register, flags. */
+  /** `createAgentSessionServices().diagnostics`: extension providers that failed to register, flags, models.json. */
   diagnostics?: readonly Diagnostic[];
+  /**
+   * `modelRuntime.getError()`. pi 1.7 also reports it in `diagnostics` (`models.json error: …`),
+   * which the composer's banner already shows from `/api/models`, so it is no notice of its own.
+   */
+  modelsJsonError?: string;
   /** `resourceLoader.getExtensions()`: extensions that failed to load or conflict, and their warnings. */
   extensions?: {
     errors?: readonly { path: string; error: string }[];
@@ -36,7 +41,9 @@ function withPath(message: string, path: string | undefined): string {
 /** Every issue, for the server log; `limitStartupNotices()` picks what the page is told. */
 export function collectStartupIssues(sources: StartupIssueSources): StartupIssue[] {
   const issues: StartupIssue[] = [];
+  const modelsJsonDiagnostic = sources.modelsJsonError && `models.json error: ${sources.modelsJsonError}`;
   for (const diagnostic of sources.diagnostics ?? []) {
+    if (diagnostic.message === modelsJsonDiagnostic) continue;
     if (diagnostic.type === "error" || diagnostic.type === "warning") {
       issues.push({ type: diagnostic.type, message: withPath(diagnostic.message, diagnostic.path) });
     }
