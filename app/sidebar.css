@@ -388,7 +388,11 @@ a.session-tree-main {
   align-items: center;
 }
 
-.session-tree-action {
+/* A row's icon buttons, the same in the session list and the file tree
+   (.file-tree-action, FileExplorer): 24px square, no border, the hover's
+   fill alone. */
+.session-tree-action,
+.file-tree-action {
   display: none;
   flex: none;
   align-items: center;
@@ -402,9 +406,72 @@ a.session-tree-main {
 }
 
 .session-tree .session-tree-action:hover,
-.session-tree .session-tree-action.is-active {
+.session-tree .session-tree-action.is-active,
+.file-tree-action:hover,
+.file-tree-action.is-active {
   background: var(--bg-selected);
   color: var(--text);
+}
+
+/* The file tree's rows (FileExplorer) behave as the session rows: the
+   hover's fill, the buttons after the name shown on hover, keyboard focus or
+   while the row's menu is open, the git marks giving way to them; on a phone
+   ⋯ always shown and larger, the marks staying; without hover ⋯ stays. */
+.file-tree-row:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.file-tree-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.file-tree-action {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.file-tree-row:hover .file-tree-action,
+.file-tree-row.is-menu-open .file-tree-more-action,
+.file-tree-row:has(:focus-visible) .file-tree-action {
+  display: flex;
+}
+
+.file-tree-row:hover .file-tree-meta,
+.file-tree-row.is-menu-open .file-tree-meta {
+  display: none;
+}
+
+.file-tree.is-mobile .file-tree-more-action,
+.file-tree.is-mobile .file-tree-change-mention {
+  display: flex;
+  width: 32px;
+  height: 32px;
+}
+
+.file-tree.is-mobile .file-tree-row:hover .file-tree-meta,
+.file-tree.is-mobile .file-tree-row.is-menu-open .file-tree-meta {
+  display: flex;
+}
+
+@media (hover: none) {
+  .file-tree-more-action,
+  .file-tree-change-mention {
+    display: flex;
+  }
+}
+
+.file-tree-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .session-tree .session-tree-session.is-selected .session-tree-action:hover,
@@ -451,7 +518,9 @@ a.session-tree-main {
   display: flex;
 }
 
-.session-tree-rename {
+/* A row's name field: a session's rename, a file's rename or new folder. */
+.session-tree-rename,
+.file-tree-rename {
   flex: 1;
   min-width: 0;
   height: 24px;
@@ -548,8 +617,8 @@ a.session-tree-main {
 
 /* While a group is dragged: its block dimmed in place, the drop line in the
    middle of the spacer it marks (between two groups, next to the pinned
-   section or the footer), and a ghost with the project's name next to the pointer, placed
-   clear of the line (hooks/useGroupDrag.ts). */
+   section or the footer), and a faded copy of the header following the
+   pointer (hooks/useGroupDrag.ts). */
 .session-tree-drag-source {
   position: absolute;
   right: var(--session-tree-inset-right);
@@ -582,28 +651,19 @@ a.session-tree-main {
   background: var(--accent);
 }
 
-/* A one-line pill, shorter than a header, so it fits above or below the
-   pointer and the line without covering either. Outside the scroll box. */
+/* A faded copy of the dragged header, as the browser draws a dragged file
+   row: the header's look as the pointer left it (hovered), no "+" or ⋯.
+   useGroupDrag sets its box; it sits outside the scroll box. */
 .session-tree-drag-ghost {
-  position: absolute;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
-  min-width: 0;
-  max-width: 70%;
-  height: 22px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: var(--bg-panel);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0.92;
+  right: auto;
+  background: var(--bg-hover);
+  opacity: 0.6;
   pointer-events: none;
+}
+
+.session-tree-drag-ghost .session-tree-group-toggle {
+  color: var(--text);
 }
 
 .session-tree.is-group-dragging {
@@ -880,7 +940,8 @@ a.session-tree-main {
 }
 
 /* Inputs are forced to 16px on phones (globals.css), so the field gets taller. */
-.session-tree.is-mobile .session-tree-rename {
+.session-tree.is-mobile .session-tree-rename,
+.file-tree.is-mobile .file-tree-rename {
   height: 32px;
 }
 
@@ -933,14 +994,58 @@ a.session-tree-main {
 
 /* With the files below, the toast sits at the bottom of the sessions, above
    the files section (its height, or folded its 28px row and its line; 36px
-   on a coarse pointer, below), so it never covers the file tree. Still the
-   one live region, at the root. */
+   on a coarse pointer, below), so it never covers the file tree. The
+   sessions' live region, at the root; the files have their own (below). */
 .session-sidebar.is-files-below .sidebar-toast-region {
   bottom: calc(var(--sidebar-files-height, 320px) + 8px);
 }
 
 .session-sidebar.is-files-below.is-files-collapsed .sidebar-toast-region {
   bottom: 37px;
+}
+
+/* The file explorer's toast (a move's Undo, an upload's result): the same
+   card, at the bottom of the files panel, where the action happened. It
+   takes its own room below the tree instead of covering it, so it may run
+   to several lines: file names are long, and a failed upload's reasons and
+   a conflict's names must be read. With less than 120px left beside the
+   buttons (a conflict's Replace and Skip existing), the message takes a line
+   of its own and the buttons go together, right-aligned, below it. */
+.sidebar-files-toast-region {
+  flex: none;
+  padding: 0 8px;
+}
+
+.sidebar-files-toast-region .sidebar-toast {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 36px;
+  margin-bottom: 8px;
+  padding-block: 4px;
+}
+
+.sidebar-files-toast-region .sidebar-toast-message {
+  display: -webkit-box;
+  flex: 1 1 120px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.sidebar-files-toast-region .sidebar-toast-buttons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+@media (pointer: coarse) {
+  .sidebar-files-toast-region .sidebar-toast {
+    min-height: 44px;
+  }
 }
 
 /* One toolbar row in the cells of the chat's top bar beside it (AppShell):
@@ -1251,9 +1356,9 @@ a.session-tree-main {
    with the keys at 18px does the toggle give way: its label first, then
    the count, down to the chevron (17px). At the default 260px beside
    Chromium's 10px scrollbar "文件 · 2" leaves the keys about 24px each and
-   "Files · 123" about 21px; from about 300px they are 26px; at the sidebar's
-   180px minimum (159px inside the row's padding) they are 18px and the
-   toggle keeps 31px. */
+   "Files · 123" about 21px; from about 300px they are square, 26px; at the
+   sidebar's 180px minimum (159px inside the row's padding) they are 18px
+   and the toggle keeps 31px. */
 .sidebar-files-section {
   display: flex;
   flex: none;
@@ -1321,7 +1426,7 @@ a.session-tree-main {
 
 /* The keys' group, right-aligned by the toggle before it: never under its
    seven keys' minimum (no shrink from 7 x 18px), never over their maximum
-   (7 x 26px). Its grow factor, far above the toggle's, gives it the room
+   (7 x 26px), counted for the keys there are (SessionSidebar.test.mjs). Its grow factor, far above the toggle's, gives it the room
    the toggle's content leaves until the keys reach 26px; the toggle gets
    the rest (a fraction of a pixel until then). */
 .sidebar-files-keys {
@@ -1524,10 +1629,6 @@ a.session-tree-main {
   padding-top: 0;
 }
 
-.session-sidebar.is-files-below .sidebar-files-error {
-  padding: 2px var(--sidebar-files-inset-right) 4px 15px;
-}
-
 /* The head's last row: the actions on that folder and the tree's two
    views, used often enough to stay in view (its search is the toolbar
    row's). The folder's four from the left, the tree's views (ignored files,
@@ -1588,23 +1689,6 @@ a.session-tree-main {
 }
 
 /* Under the head's line, on the boxes' edges. */
-.sidebar-files-error {
-  display: flex;
-  flex: none;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 6px 10px 0;
-  color: #f87171;
-  font-size: 10px;
-  line-height: 1.35;
-}
-
-.sidebar-files-error-text {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 /* The tree's first row 4px under the head's line (with the tree's own 2px),
    as close as it sits under the boxes below the sessions. */
 .sidebar-files-scroll {

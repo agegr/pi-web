@@ -27,6 +27,8 @@ export interface SidebarToastData {
    */
   tail?: string;
   actions: SidebarToastAction[];
+  /** Stays until answered or dismissed: a question (an upload's Replace or Skip), not a notice. */
+  sticky?: boolean;
 }
 
 export interface SidebarToastProps {
@@ -36,6 +38,8 @@ export interface SidebarToastProps {
   dismissLabel: string;
   /** How long the toast stays while nobody points at or focuses it. */
   durationMs?: number;
+  /** Where it sits: the sessions' bottom by default; the files panel's own (`sidebar-files-toast-region`). */
+  regionClassName?: string;
 }
 
 /** Long enough to read the message and reach Undo; hovering or focusing it pauses the countdown. */
@@ -69,10 +73,10 @@ function SidebarToastCard({ toast, dismissLabel, durationMs, onDismissRef }: Toa
 
   // The countdown starts over whenever the pointer or focus leaves.
   useEffect(() => {
-    if (paused) return;
+    if (paused || toast.sticky) return;
     const timer = window.setTimeout(() => onDismissRef.current(), durationMs);
     return () => window.clearTimeout(timer);
-  }, [paused, durationMs, onDismissRef]);
+  }, [paused, toast.sticky, durationMs, onDismissRef]);
 
   return (
     <div
@@ -97,42 +101,46 @@ function SidebarToastCard({ toast, dismissLabel, durationMs, onDismissRef }: Toa
       ) : (
         <span className="sidebar-toast-message" title={toast.message}>{toast.message}</span>
       )}
-      {toast.actions.map((action) => (
+      {/* The buttons stay together: a toast whose message takes a line of
+          its own puts them on the next one as a group. */}
+      <span className="sidebar-toast-buttons">
+        {toast.actions.map((action) => (
+          <button
+            key={action.id}
+            type="button"
+            className="sidebar-toast-action"
+            onClick={() => {
+              // Dismissed first, so a toast the action shows itself (Undo
+              // failed) replaces this one instead of being dismissed with it.
+              onDismissRef.current();
+              action.onClick();
+            }}
+          >
+            {action.label}
+          </button>
+        ))}
         <button
-          key={action.id}
           type="button"
-          className="sidebar-toast-action"
-          onClick={() => {
-            // Dismissed first, so a toast the action shows itself (Undo
-            // failed) replaces this one instead of being dismissed with it.
-            onDismissRef.current();
-            action.onClick();
-          }}
+          className="sidebar-toast-dismiss"
+          aria-label={dismissLabel}
+          title={dismissLabel}
+          onClick={() => onDismissRef.current()}
         >
-          {action.label}
+          <CloseIcon size={12} />
         </button>
-      ))}
-      <button
-        type="button"
-        className="sidebar-toast-dismiss"
-        aria-label={dismissLabel}
-        title={dismissLabel}
-        onClick={() => onDismissRef.current()}
-      >
-        <CloseIcon size={12} />
-      </button>
+      </span>
     </div>
   );
 }
 
-export function SidebarToast({ toast, onDismiss, dismissLabel, durationMs = DEFAULT_TOAST_DURATION_MS }: SidebarToastProps): ReactNode {
+export function SidebarToast({ toast, onDismiss, dismissLabel, durationMs = DEFAULT_TOAST_DURATION_MS, regionClassName = "sidebar-toast-region" }: SidebarToastProps): ReactNode {
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
 
   // The live region stays on the page while empty, so a screen reader is
   // already watching it when a toast appears in it.
   return (
-    <div className="sidebar-toast-region" role="status" aria-live="polite">
+    <div className={regionClassName} role="status" aria-live="polite">
       {toast ? (
         <SidebarToastCard
           key={toast.id}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace } from "./file-tab-state.ts";
+import { dropDeletedFileTabs, openFileTab, retargetFileTabId, retargetFileTabs, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace } from "./file-tab-state.ts";
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -184,4 +184,23 @@ test("the viewer's report drops the link's lines, so a remount restores its own 
   const [saved] = saveFileViewerState(opened, tabA.id, 1, reported);
   assert.equal("lines" in saved, false);
   assert.deepEqual(saved.viewerState, reported);
+});
+
+test("tabs follow a moved file or folder and close when it is deleted", () => {
+  const tabs = [
+    { id: "file:/p/src/a.ts", label: "a.ts", filePath: "/p/src/a.ts", viewerState: { displayMode: "source", scrollTop: 40, scrollLeft: 0 } },
+    { id: "file:/p/src-old/b.ts", label: "b.ts", filePath: "/p/src-old/b.ts" },
+    { id: "term:1", label: "p", filePath: "/p/src", kind: "terminal" },
+  ];
+  const moved = retargetFileTabs(tabs, "/p/src", "/p/lib/src");
+  assert.equal(moved[0].id, "file:/p/lib/src/a.ts");
+  assert.equal(moved[0].viewerState.scrollTop, 40);
+  assert.equal(moved[1], tabs[1], "a sibling sharing the name prefix stays");
+  assert.equal(moved[2], tabs[2], "terminals stay");
+  assert.equal(retargetFileTabs(tabs, "/p/src/a.ts", "/p/src/c.ts")[0].label, "c.ts");
+  assert.equal(retargetFileTabId("file:/p/src/a.ts", "/p/src", "/p/x"), "file:/p/x/a.ts");
+  assert.equal(retargetFileTabs(tabs, "/q", "/r"), tabs);
+
+  assert.deepEqual(dropDeletedFileTabs(tabs, "/p/src").map((tab) => tab.id), ["file:/p/src-old/b.ts", "term:1"]);
+  assert.equal(dropDeletedFileTabs(tabs, "/q"), tabs);
 });

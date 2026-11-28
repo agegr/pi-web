@@ -705,11 +705,16 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     }
   }, [addNotice, chatInputRef, newSessionCwd, onFilesUploaded, session?.cwd, t]);
 
-  const onDrop = useCallback((items: DroppedItem[], session?: SessionReferenceTarget) => {
+  const onDrop = useCallback((items: DroppedItem[], session?: SessionReferenceTarget, mention?: string) => {
     // A dragged session row quotes it: it joins the composer as a chip and its
     // token is written when the message is sent (#1716).
     if (session) {
       chatInputRef?.current?.addSessionReference(session);
+      return;
+    }
+    // A dragged explorer row: its @ mention, as the row's Mention button inserts it.
+    if (mention) {
+      chatInputRef?.current?.insertText(mention);
       return;
     }
     const { images, files, folders } = splitDroppedItems(items);

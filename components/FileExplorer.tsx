@@ -1,9 +1,9 @@
 "use client";
 
-import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { createContext, forwardRef, useContext, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
-import { MentionIcon } from "./SidebarIcons";
-import { DismissButton } from "./DismissButton";
+import { DownloadIcon, FolderOpenIcon, FolderPlusIcon, MentionIcon, MoreIcon, PencilIcon, TrashIcon } from "./SidebarIcons";
+import { SidebarMenu, SidebarMenuQuestion, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import {
   encodeFilePathForApi,
   getFileDirectory,
@@ -14,7 +14,7 @@ import {
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
-import { uploadFiles, type DroppedItem, type UploadConflictStrategy, type UploadError, type UploadResponse } from "@/lib/file-upload-client";
+import { uploadFiles, type DroppedItem, type UploadConflictStrategy, type UploadResponse } from "@/lib/file-upload-client";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import type { FileTreeHiddenReason } from "@/lib/file-tree-visibility";
 import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
@@ -23,6 +23,8 @@ import { droppedItems } from "@/hooks/useDragDrop";
 import { useI18n } from "@/hooks/useI18n";
 import type { Translate } from "@/lib/i18n/types";
 import { errorMessage } from "@/lib/errors";
+import { buildAtMentionText } from "@/lib/file-fuzzy";
+import { createFolder, deleteFileEntry, FILE_ENTRY_DRAG_MIME, fileEntryDragData, moveFileEntry } from "@/lib/file-manage-client";
 /** Why a listed entry is normally left out; only listings with `hidden=1` report it. */
 type HiddenReason = Exclude<FileTreeHiddenReason, "always">;
 
@@ -63,10 +65,137 @@ interface Props {
   onFileSearchOpenChange?: (open: boolean) => void;
   /** Also list what Git ignores, dimmed (the explorer bar's switch). */
   showHidden?: boolean;
+  /** Phone layout (the sidebar's `isMobile`): ⋯ always shown, the menu a bottom sheet. */
+  mobile?: boolean;
+  /** Shows a notice in the sidebar's toast (the one session archive uses). */
+  onToast?: (toast: FileExplorerToast) => void;
+  /**
+   * "Show in Finder" (Explorer, file manager) in a row's menu: the entry
+   * selected in its folder. Absent where the server cannot raise a window for
+   * this browser. `reveal` resolves the message of a failure, or null.
+   */
+  fileManager?: { label: string; reveal: (path: string) => Promise<string | null> };
+  /** An entry moved or was renamed here, so open tabs of it can follow. */
+  onEntryMoved?: (from: string, to: string) => void;
+  onEntryDeleted?: (path: string) => void;
+}
+
+/** A notice for the sidebar's toast. */
+export interface FileExplorerToast {
+  message: string;
+  actions?: { id: string; label: string; onClick: () => void }[];
+  /** Stays until dismissed (failed uploads). */
+  sticky?: boolean;
+  /** Waits for an answer (an upload conflict's Replace or Skip): stays, and later notices wait behind it. */
+  question?: boolean;
 }
 
 export interface FileExplorerHandle {
   openUploadPicker: () => void;
+  /** Starts naming a new folder at the top of the tree. */
+  createFolder: () => void;
+}
+
+/** The explorer's create / rename / move / delete, shared with every row. */
+interface FileManageApi {
+  /** The row whose menu is open. */
+  menuPath: string | null;
+  /** A row's ⋯ (beside the button) or right-click (at the pointer); the shared sidebar menu. */
+  openMenu: (node: FileNode, anchor: SidebarMenuAnchor, opener: HTMLElement | null) => void;
+  /** Phone layout: ⋯ always shown and bigger, the menu a bottom sheet, no quick Mention. */
+  mobile: boolean;
+  renamingPath: string | null;
+  creatingIn: string | null;
+  startRename: (path: string) => void;
+  startCreateFolder: (directory: string) => void;
+  cancelEdit: () => void;
+  submitRename: (node: FileNode, name: string) => void;
+  submitCreateFolder: (directory: string, name: string) => void;
+  draggingPath: string | null;
+  startDrag: (path: string) => void;
+  endDrag: () => void;
+  /** Whether the dragged row may land in `directory` (not its own folder, not inside itself). */
+  canDropInto: (directory: string) => boolean;
+  moveInto: (directory: string) => void;
+}
+
+const FileManageContext = createContext<FileManageApi | null>(null);
+
+// A folder hovered this long during a drag opens, so a deep target is reachable.
+const DRAG_EXPAND_DELAY_MS = 600;
+
+function elementAnchor(element: HTMLElement): SidebarMenuAnchor {
+  const rect = element.getBoundingClientRect();
+  return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align: "end" };
+}
+
+function isSameOrInside(target: string, ancestor: string): boolean {
+  const a = normalizeFilePathSlashes(target);
+  const b = normalizeFilePathSlashes(ancestor).replace(/\/$/, "");
+  return a === b || a.startsWith(`${b}/`);
+}
+
+function InlineNameInput({
+  initial,
+  isDir,
+  onSubmit,
+  onCancel,
+}: {
+  initial: string;
+  isDir: boolean;
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const doneRef = useRef(false);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    // The name without its extension, as Finder and VS Code select it.
+    const dot = isDir ? -1 : initial.lastIndexOf(".");
+    input.setSelectionRange(0, dot > 0 ? dot : initial.length);
+  }, [initial, isDir]);
+  const finish = (submit: boolean) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    const name = inputRef.current?.value.trim() ?? "";
+    if (submit && name && name !== initial) onSubmit(name);
+    else onCancel();
+  };
+  return (
+    <input
+      ref={inputRef}
+      defaultValue={initial}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") { event.preventDefault(); finish(true); }
+        if (event.key === "Escape") { event.preventDefault(); finish(false); }
+      }}
+      onBlur={() => finish(true)}
+      spellCheck={false}
+      className="file-tree-rename"
+    />
+  );
+}
+
+/** The row a new folder is named in, at the top of its parent's entries. */
+function NewFolderRow({ directory, depth }: { directory: string; depth: number }) {
+  const manage = useContext(FileManageContext);
+  if (!manage || manage.creatingIn !== directory) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4, paddingLeft: 8 + depth * 14, paddingRight: 8, height: "var(--file-row-height)" }}>
+      <span style={{ width: 10, flexShrink: 0 }} />
+      <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}><FolderIcon size={14} open={false} /></span>
+      <InlineNameInput
+        initial=""
+        isDir
+        onSubmit={(name) => manage.submitCreateFolder(directory, name)}
+        onCancel={manage.cancelEdit}
+      />
+    </div>
+  );
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -75,19 +204,6 @@ type UploadPhase = "idle" | "checking" | "uploading";
 // project and back (a session picked in another group) does not fold the tree.
 const expandedPathsByCwd = createExpandedPathsMemory();
 
-interface UploadSummary {
-  directory: string;
-  uploaded: string[];
-  skipped: string[];
-  errors: UploadError[];
-}
-
-interface PendingConflict {
-  directory: string;
-  files: File[];
-  conflicts: string[];
-  nonReplaceable: string[];
-}
 
 async function responseError(res: Response, fallback: string): Promise<Error> {
   let message = `${fallback} (HTTP ${res.status})`;
@@ -233,6 +349,8 @@ export function TreeNode({
   onDropTargetChange?: (path: string | null) => void;
   t: Translate;
 }) {
+  const manage = useContext(FileManageContext);
+  const renaming = manage?.renamingPath === node.fullPath;
   const open = expandedPaths.has(node.fullPath);
   const hidden = node.hidden ?? parentHidden;
   const isDropTarget = node.isDir && dropTargetPath === node.fullPath;
@@ -246,7 +364,6 @@ export function TreeNode({
   const [loaded, setLoaded] = useState(node.loaded ?? false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [hovered, setHovered] = useState(false);
   const [allowedLinkTarget, setAllowedLinkTarget] = useState<string | null>(null);
   const [allowingLink, setAllowingLink] = useState(false);
   const [allowLinkError, setAllowLinkError] = useState<string | null>(null);
@@ -290,12 +407,13 @@ export function TreeNode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);
 
-  // A hidden directory left expanded mounts open again when the switch comes
-  // back on, before anything listed it.
+  // A folder opened from anywhere lists itself: mounted open (a restored set,
+  // a hidden folder left expanded), opened by a drag hovering it, or by the
+  // menu's New folder.
   useEffect(() => {
-    if (node.isDir && open && !loaded && !pendingLinkTarget) loadChildren();
+    if (node.isDir && open && !loaded && !loading && !pendingLinkTarget) loadChildren();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [open]);
 
   // Re-fetch children when the tree refreshes: an open directory now, a
   // collapsed one when it next opens (a file dropped onto its row).
@@ -315,6 +433,17 @@ export function TreeNode({
       onOpenFile(node.fullPath, node.name);
     }
   }, [node.isDir, node.fullPath, node.name, loaded, open, pendingLinkTarget, loadChildren, onOpenFile, onToggleExpanded]);
+
+  // A dragged row hovering a closed folder opens it after a moment.
+  const dragging = manage?.draggingPath != null;
+  useEffect(() => {
+    if (!isDropTarget || !dragging || open || pendingLinkTarget) return;
+    const timer = setTimeout(() => onToggleExpanded(node.fullPath, true), DRAG_EXPAND_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isDropTarget, dragging, open, pendingLinkTarget, node.fullPath, onToggleExpanded]);
+
+  // Where a dragged row dropped here lands: this folder, or a file's own folder.
+  const moveTargetDirectory = node.isDir ? node.fullPath : getFileDirectory(node.fullPath);
 
   const handleAllowLink = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -340,23 +469,62 @@ export function TreeNode({
   return (
     <div>
       <div
+        className={`file-tree-row${manage?.menuPath === node.fullPath ? " is-menu-open" : ""}`}
         onClick={handleClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onDragOver={node.isDir ? (event) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
+        onContextMenu={manage && !renaming ? (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const row = event.currentTarget;
+          // The keyboard's context-menu key reports no pointer position.
+          const anchor: SidebarMenuAnchor = event.clientX === 0 && event.clientY === 0
+            ? elementAnchor(row)
+            : { kind: "point", x: event.clientX, y: event.clientY };
+          manage.openMenu(node, anchor, null);
+        } : undefined}
+        draggable={Boolean(manage) && !renaming}
+        onDragStart={manage ? (event) => {
+          // Dropped onto the composer, it becomes an @ mention (useDragDrop).
+          const mention = buildAtMentionText(getRelativeFilePath(node.fullPath, cwd), node.isDir);
+          event.dataTransfer.setData(FILE_ENTRY_DRAG_MIME, fileEntryDragData(node.fullPath, mention));
+          event.dataTransfer.setData("text/plain", mention);
+          event.dataTransfer.effectAllowed = "copyMove";
+          manage.startDrag(node.fullPath);
+        } : undefined}
+        onDragEnd={manage ? () => manage.endDrag() : undefined}
+        onDragOver={(event) => {
+          if (manage?.draggingPath && event.dataTransfer.types.includes(FILE_ENTRY_DRAG_MIME)) {
+            event.stopPropagation();
+            if (!manage.canDropInto(moveTargetDirectory)) {
+              event.dataTransfer.dropEffect = "none";
+              onDropTargetChange?.(null);
+              return;
+            }
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            onDropTargetChange?.(moveTargetDirectory);
+            return;
+          }
+          if (!node.isDir || !event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = "copy";
           onDropTargetChange?.(node.fullPath);
-        } : undefined}
-        onDrop={node.isDir ? (event) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
+        }}
+        onDrop={(event) => {
+          if (manage?.draggingPath && event.dataTransfer.types.includes(FILE_ENTRY_DRAG_MIME)) {
+            event.preventDefault();
+            event.stopPropagation();
+            onDropTargetChange?.(null);
+            if (manage.canDropInto(moveTargetDirectory)) manage.moveInto(moveTargetDirectory);
+            else manage.endDrag();
+            return;
+          }
+          if (!node.isDir || !event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
           event.stopPropagation();
           onDropTargetChange?.(null);
           onDropFiles?.(node.fullPath, droppedItems(event.dataTransfer));
-        } : undefined}
+        }}
         style={{
           position: "relative",
           display: "flex",
@@ -366,11 +534,9 @@ export function TreeNode({
           paddingRight: 8,
           height: "var(--file-row-height)",
           cursor: "pointer",
-          background: isDropTarget
-            ? "color-mix(in srgb, var(--accent) 16%, transparent)"
-            : hovered
-              ? "var(--bg-hover)"
-              : "transparent",
+          opacity: manage?.draggingPath === node.fullPath ? 0.5 : 1,
+          // The hover's fill is the stylesheet's (.file-tree-row:hover).
+          background: isDropTarget ? "color-mix(in srgb, var(--accent) 16%, transparent)" : undefined,
           outline: isDropTarget ? "1px dashed var(--accent)" : "none",
           outlineOffset: -1,
           borderRadius: 4,
@@ -390,6 +556,14 @@ export function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center", opacity: hidden ? HIDDEN_ENTRY_OPACITY : 1 }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
+        {renaming && manage ? (
+          <InlineNameInput
+            initial={node.name}
+            isDir={node.isDir}
+            onSubmit={(name) => manage.submitRename(node, name)}
+            onCancel={manage.cancelEdit}
+          />
+        ) : (
         <span
           data-hidden-reason={hidden}
           style={{
@@ -405,7 +579,9 @@ export function TreeNode({
         >
           {node.name}
         </span>
-        {!hovered && pendingLinkTarget && (
+        )}
+        <span className="file-tree-meta">
+        {pendingLinkTarget && (
           <span
             title={t("files.outsideLink", { target: pendingLinkTarget })}
             aria-label={t("files.outsideLink", { target: pendingLinkTarget })}
@@ -423,10 +599,10 @@ export function TreeNode({
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#3b82f6" }} />
           </span>
         )}
-        {!hovered && !node.isDir && gitStatus && (
+        {!node.isDir && gitStatus && (
           <GitStatusBadge status={gitStatus} t={t} />
         )}
-        {!hovered && containsGitChanges && (
+        {containsGitChanges && (
           <span
             title={t("files.containsChangedFiles")}
             aria-label={t("files.containsChangedFiles")}
@@ -442,77 +618,47 @@ export function TreeNode({
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#d6a84b" }} />
           </span>
         )}
+        </span>
         {loading && (
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
           </svg>
         )}
-        {onAtMention && hovered && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
-            }}
-            title={t("files.insertPath")}
-            style={{
-              position: "absolute",
-              right: !node.isDir ? 28 : 4,
-              top: "50%",
-              transform: "translateY(-50%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              padding: "0 8px",
-              height: "calc(var(--file-row-height) - 4px)",
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              color: "var(--accent)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <MentionIcon />
-            {t("files.mention")}
-          </button>
-        )}
-        {hovered && !node.isDir && (
-          <a
-            href={`/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`}
-            download
-            onClick={(e) => e.stopPropagation()}
-            title={t("files.download")}
-            style={{
-              position: "absolute",
-              right: 4,
-              top: "50%",
-              transform: "translateY(-50%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              padding: "0 5px",
-              height: "calc(var(--file-row-height) - 4px)",
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              textDecoration: "none",
-            }}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-          </a>
+        {/* As a session row's: hidden until hovered (CSS); on a phone or a
+            screen without hover ⋯ stays, and Mention is in the menu. */}
+        {!renaming && (onAtMention || manage) && (
+          <span className="file-tree-actions">
+            {onAtMention && !manage?.mobile && (
+              <button
+                type="button"
+                className="file-tree-action file-tree-quick-action"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
+                }}
+                title={t("files.insertPath")}
+                aria-label={t("files.insertPath")}
+              >
+                <MentionIcon size={13} />
+              </button>
+            )}
+            {manage && (
+              <button
+                type="button"
+                className={`file-tree-action file-tree-more-action${manage.menuPath === node.fullPath ? " is-active" : ""}`}
+                aria-haspopup="menu"
+                aria-expanded={manage.menuPath === node.fullPath}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  manage.openMenu(node, elementAnchor(e.currentTarget), e.currentTarget);
+                }}
+                title={t("files.more")}
+                aria-label={t("files.more")}
+              >
+                <MoreIcon size={14} />
+              </button>
+            )}
+          </span>
         )}
       </div>
       {node.isDir && open && pendingLinkTarget && (
@@ -562,6 +708,7 @@ export function TreeNode({
       )}
       {node.isDir && open && !pendingLinkTarget && (
         <div>
+          <NewFolderRow directory={node.fullPath} depth={depth + 1} />
           {children.map((child) => (
             <TreeNode
               key={child.fullPath}
@@ -621,7 +768,6 @@ function ChangeRow({
   depth?: number;
   treeMode?: boolean;
 }) {
-  const [hovered, setHovered] = useState(false);
   const name = getFileName(status.filePath);
   const rel = getRelativeFilePath(status.filePath, cwd);
   // Split the path so the directory part ellipsizes while the file name stays fully visible
@@ -630,9 +776,8 @@ function ChangeRow({
   const baseName = treeMode ? name : (lastSlash >= 0 ? rel.slice(lastSlash + 1) : rel);
   return (
     <div
+      className="file-tree-row"
       onClick={() => onOpenFile(status.filePath, name, { modeHint: "diff" })}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       title={status.filePath}
       style={{
         display: "flex",
@@ -642,7 +787,6 @@ function ChangeRow({
         paddingRight: 8,
         height: "var(--file-row-height)",
         cursor: "pointer",
-        background: hovered ? "var(--bg-hover)" : "transparent",
         borderRadius: 4,
         userSelect: "none",
         position: "relative",
@@ -690,36 +834,19 @@ function ChangeRow({
           {baseName}
         </span>
       </span>
-      {onAtMention && hovered && (
+      {onAtMention && (
         <button
+          type="button"
+          // Its only action: shown without hover too, where there is none.
+          className="file-tree-action file-tree-change-mention"
           onClick={(e) => {
             e.stopPropagation();
             onAtMention(rel, false);
           }}
           title={t("files.insertPath")}
-          style={{
-            position: "absolute",
-            right: 4,
-            top: "50%",
-            transform: "translateY(-50%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 4,
-            padding: "0 8px",
-            height: "calc(var(--file-row-height) - 4px)",
-            background: "var(--bg-panel)",
-            border: "1px solid var(--border)",
-            borderRadius: 4,
-            color: "var(--accent)",
-            cursor: "pointer",
-            fontSize: 11,
-            fontWeight: 600,
-            whiteSpace: "nowrap",
-          }}
+          aria-label={t("files.insertPath")}
         >
-          <MentionIcon />
-          {t("files.mention")}
+          <MentionIcon size={13} />
         </button>
       )}
     </div>
@@ -737,12 +864,10 @@ function ChangesFolderRow({
   open: boolean;
   onToggle: (path: string, open: boolean) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
   return (
     <div
+      className="file-tree-row"
       onClick={() => onToggle(node.path, !open)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       title={node.path}
       style={{
         display: "flex",
@@ -752,7 +877,6 @@ function ChangesFolderRow({
         paddingRight: 8,
         height: "var(--file-row-height)",
         cursor: "pointer",
-        background: hovered ? "var(--bg-hover)" : "transparent",
         borderRadius: 4,
         userSelect: "none",
       }}
@@ -886,6 +1010,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   fileSearchOpen = false,
   onFileSearchOpenChange,
   showHidden = false,
+  onEntryMoved,
+  onEntryDeleted,
+  onToast,
+  fileManager,
+  mobile = false,
 }, ref) {
   const { t } = useI18n();
   const [roots, setRoots] = useState<FileNode[]>([]);
@@ -901,9 +1030,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [collapsedChangeDirs, setCollapsedChangeDirs] = useState<Set<string>>(() => new Set());
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
-  const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -913,6 +1039,15 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [fileDragActive, setFileDragActive] = useState(false);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const fileDragDepthRef = useRef(0);
+  // The row whose menu is open; `askDelete` swaps its items for the question.
+  const [menu, setMenu] = useState<{ node: FileNode; anchor: SidebarMenuAnchor; opener: HTMLElement | null; askDelete?: boolean } | null>(null);
+  const menuPath = menu?.node.fullPath ?? null;
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [creatingIn, setCreatingIn] = useState<string | null>(null);
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+  const toastRef = useRef(onToast);
+  toastRef.current = onToast;
+  const notify = useCallback((toast: FileExplorerToast) => toastRef.current?.(toast), []);
   const prevCwdRef = useRef<string | null>(null);
   const expandedPathsRef = useRef(expandedPaths);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -1022,57 +1157,82 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  const applyUploadResult = useCallback((data: UploadResponse, directory: string) => {
+  // The result: counts, each failed file with its reason, and a folder drop's
+  // notice. A failure stays until dismissed; a plain success goes like Undo
+  // does (its files stay highlighted, each with Mention in its menu).
+  const applyUploadResult = useCallback((data: UploadResponse, directory: string, folderNotice?: string) => {
     const uploaded = data.uploaded ?? [];
     const skipped = data.skipped ?? [];
     const errors = data.errors ?? [];
-    setUploadSummary({ directory, uploaded, skipped, errors });
+    const parts: string[] = [];
+    if (uploaded.length > 0) parts.push(t("files.uploadedCount", { count: uploaded.length }));
+    if (skipped.length > 0) parts.push(t("files.skippedCount", { count: skipped.length }));
+    if (errors.length > 0) {
+      const failures = errors.map((item) => (item.error ? `${item.name} (${item.error})` : item.name)).join(", ");
+      parts.push(`${t("files.failedCount", { count: errors.length })}: ${failures}`);
+    }
+    if (folderNotice) parts.push(folderNotice);
+    const mentionAction = uploaded.length > 0 && onAtMentions ? [{
+      id: "mention",
+      label: t("files.mention"),
+      onClick: () => onAtMentions(uploaded.map((name) => getRelativeFilePath(joinFilePath(directory, name), cwd))),
+    }] : [];
+    if (parts.length > 0) notify({ message: parts.join(" · "), actions: mentionAction, sticky: errors.length > 0 });
 
     if (uploaded.length > 0) {
       setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(directory, name))));
       setTreeRefreshKey((key) => key + 1);
     }
-  }, []);
+  }, [cwd, notify, onAtMentions, t]);
+
+  // Replace or skip: dismissing the toast cancels the upload.
+  const askConflictRef = useRef<(conflict: { directory: string; files: File[]; conflicts: string[]; nonReplaceable: string[]; folderNotice?: string }) => void>(() => {});
 
   const performUpload = useCallback(async (
     files: File[],
     strategy: UploadConflictStrategy,
     directory: string,
+    folderNotice?: string,
   ) => {
-    setPendingConflict(null);
-    setUploadError(null);
     setUploadProgress(0);
     setUploadPhase("uploading");
 
     try {
       const { status, data } = await uploadFiles(directory, files, strategy, setUploadProgress);
       if (status === 409 && data.conflicts?.length) {
-        setPendingConflict({
-          directory,
-          files,
-          conflicts: data.conflicts,
-          nonReplaceable: data.nonReplaceable ?? [],
-        });
+        askConflictRef.current({ directory, files, conflicts: data.conflicts, nonReplaceable: data.nonReplaceable ?? [], folderNotice });
         return;
       }
       if (status < 200 || status >= 300) {
         throw new Error(data.error ?? `Upload failed (HTTP ${status})`);
       }
       setUploadProgress(100);
-      applyUploadResult(data, directory);
+      applyUploadResult(data, directory, folderNotice);
     } catch (uploadFailure) {
-      setUploadError(errorMessage(uploadFailure));
+      notify({ message: errorMessage(uploadFailure) });
     } finally {
       setUploadPhase("idle");
     }
-  }, [applyUploadResult]);
+  }, [applyUploadResult, notify]);
 
-  const prepareUpload = useCallback(async (files: File[], directory: string) => {
+  askConflictRef.current = ({ directory, files, conflicts, nonReplaceable, folderNotice }) => {
+    const message = [
+      t("files.conflictSummary", { count: conflicts.length, countSuffix: conflicts.length === 1 ? "" : "s", files: conflicts.join(", ") }),
+      ...(nonReplaceable.length > 0 ? [t("files.cannotReplace", { files: nonReplaceable.join(", ") })] : []),
+    ].join(" · ");
+    notify({
+      message,
+      question: true,
+      actions: [
+        { id: "replace", label: t("files.replace"), onClick: () => void performUpload(files, "overwrite", directory, folderNotice) },
+        { id: "skip", label: t("files.skipExisting"), onClick: () => void performUpload(files, "skip", directory, folderNotice) },
+      ],
+    });
+  };
+
+  const prepareUpload = useCallback(async (files: File[], directory: string, folderNotice?: string) => {
     if (files.length === 0 || uploadBusy) return;
-    setUploadSummary(null);
     setHighlightedPaths(new Set());
-    setPendingConflict(null);
-    setUploadError(null);
     setUploadProgress(0);
     setUploadPhase("checking");
 
@@ -1089,22 +1249,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       if (!res.ok) throw new Error(data.error ?? `Upload check failed (HTTP ${res.status})`);
 
       if (data.conflicts?.length) {
-        setPendingConflict({
-          directory,
-          files,
-          conflicts: data.conflicts,
-          nonReplaceable: data.nonReplaceable ?? [],
-        });
+        askConflictRef.current({ directory, files, conflicts: data.conflicts, nonReplaceable: data.nonReplaceable ?? [], folderNotice });
         return;
       }
 
-      await performUpload(files, "error", directory);
+      await performUpload(files, "error", directory, folderNotice);
     } catch (uploadFailure) {
-      setUploadError(errorMessage(uploadFailure));
+      notify({ message: errorMessage(uploadFailure) });
     } finally {
       setUploadPhase("idle");
     }
-  }, [performUpload, uploadBusy]);
+  }, [notify, performUpload, uploadBusy]);
 
   const handleUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -1116,7 +1271,197 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     openUploadPicker() {
       if (!uploadBusy) uploadInputRef.current?.click();
     },
-  }), [uploadBusy]);
+    createFolder() {
+      // The tree shows only without a search query; its row is at the top.
+      setSearchQuery("");
+      setRenamingPath(null);
+      setCreatingIn(cwd);
+    },
+  }), [cwd, uploadBusy]);
+
+  // A moved or renamed folder stays open under its new path.
+  const remapExpanded = useCallback((from: string, to: string) => {
+    setExpandedPaths((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const p of prev) {
+        if (isSameOrInside(p, from)) {
+          next.add(to + p.slice(from.length));
+          changed = true;
+        } else {
+          next.add(p);
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // Paths stay the explorer's own (lexical) ones: the server answers with real
+  // paths, which differ under a linked cwd (`/tmp` → `/private/tmp`).
+  const performMove = useCallback(async (from: string, directory: string, name: string, renamed: boolean, undo = false) => {
+    const to = joinFilePath(directory, name);
+    try {
+      await moveFileEntry(from, directory, name);
+      remapExpanded(from, to);
+      onEntryMoved?.(from, to);
+      setTreeRefreshKey((key) => key + 1);
+      if (undo) return;
+      notify({
+        message: renamed
+          ? t("files.renamedTo", { name })
+          : t("files.movedTo", { name, directory: getRelativeFilePath(directory, cwd) || getFileName(cwd) || cwd }),
+        actions: [{
+          id: "undo",
+          label: t("files.undo"),
+          onClick: () => void performMoveRef.current(to, getFileDirectory(from), getFileName(from), renamed, true),
+        }],
+      });
+    } catch (failure) {
+      notify({ message: errorMessage(failure) });
+    }
+  }, [cwd, notify, onEntryMoved, remapExpanded, t]);
+  const performMoveRef = useRef(performMove);
+  performMoveRef.current = performMove;
+
+  const manageApi = useMemo<FileManageApi>(() => ({
+    menuPath,
+    openMenu: (node, anchor, opener) => setMenu({ node, anchor, opener }),
+    mobile,
+    renamingPath,
+    creatingIn,
+    startRename: (path) => { setCreatingIn(null); setRenamingPath(path); },
+    startCreateFolder: (directory) => { setRenamingPath(null); setCreatingIn(directory); },
+    cancelEdit: () => { setRenamingPath(null); setCreatingIn(null); },
+    submitRename: (node, name) => {
+      setRenamingPath(null);
+      void performMove(node.fullPath, getFileDirectory(node.fullPath), name, true);
+    },
+    submitCreateFolder: (directory, name) => {
+      setCreatingIn(null);
+      createFolder(directory, name)
+        .then(() => {
+          if (directory !== cwd) handleToggleExpanded(directory, true);
+          setTreeRefreshKey((key) => key + 1);
+        })
+        .catch((failure) => notify({ message: errorMessage(failure) }));
+    },
+    draggingPath,
+    startDrag: (path) => { setMenu(null); setDraggingPath(path); },
+    endDrag: () => {
+      setDraggingPath(null);
+      fileDragDepthRef.current = 0;
+      setFileDragActive(false);
+      setDropTargetPath(null);
+    },
+    canDropInto: (directory) => draggingPath !== null
+      && !isSameOrInside(directory, draggingPath)
+      && normalizeFilePathSlashes(directory) !== normalizeFilePathSlashes(getFileDirectory(draggingPath)),
+    moveInto: (directory) => {
+      const from = draggingPath;
+      setDraggingPath(null);
+      fileDragDepthRef.current = 0;
+      setFileDragActive(false);
+      setDropTargetPath(null);
+      if (from) void performMove(from, directory, getFileName(from), false);
+    },
+  }), [creatingIn, cwd, draggingPath, handleToggleExpanded, menuPath, mobile, notify, performMove, renamingPath]);
+
+  const deleteNode = useCallback((node: FileNode) => {
+    deleteFileEntry(node.fullPath)
+      .then(() => {
+        onEntryDeleted?.(node.fullPath);
+        setTreeRefreshKey((key) => key + 1);
+        notify({ message: t("files.deletedEntry", { name: node.name }) });
+      })
+      .catch((failure) => notify({ message: errorMessage(failure) }));
+  }, [notify, onEntryDeleted, t]);
+
+  // The session rows' menu, with a file's actions: what is done to the entry
+  // first, then where it is and what it is called, Delete last in red.
+  const menuItems = useMemo<SidebarMenuItem[] | undefined>(() => {
+    if (!menu) return undefined;
+    const { node } = menu;
+    const items: SidebarMenuItem[] = [];
+    if (onAtMention) {
+      items.push({
+        type: "item",
+        id: "mention",
+        label: t("files.insertPath"),
+        icon: <MentionIcon size={14} />,
+        onSelect: () => onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir),
+      });
+    }
+    if (!node.isDir) {
+      items.push({
+        type: "item",
+        id: "download",
+        label: t("files.downloadItem"),
+        icon: <DownloadIcon />,
+        onSelect: () => {
+          const link = document.createElement("a");
+          link.href = `/api/files/${encodeFilePathForApi(node.fullPath)}?type=download`;
+          link.download = node.name;
+          link.click();
+        },
+      });
+    }
+    if (fileManager) {
+      items.push({
+        type: "item",
+        id: "reveal",
+        label: fileManager.label,
+        icon: <FolderOpenIcon />,
+        onSelect: () => {
+          void fileManager.reveal(node.fullPath).then((failure) => {
+            if (failure) notify({ message: failure });
+          });
+        },
+      });
+    }
+    if (items.length > 0) items.push({ type: "separator", id: "separator-edit" });
+    items.push({
+      type: "item",
+      id: "rename",
+      label: t("files.rename"),
+      icon: <PencilIcon />,
+      shortcut: "R",
+      onSelect: () => { setCreatingIn(null); setRenamingPath(node.fullPath); },
+    });
+    if (node.isDir) {
+      items.push({
+        type: "item",
+        id: "new-folder",
+        label: t("files.newFolder"),
+        icon: <FolderPlusIcon />,
+        shortcut: "N",
+        onSelect: () => {
+          handleToggleExpanded(node.fullPath, true);
+          setRenamingPath(null);
+          setCreatingIn(node.fullPath);
+        },
+      });
+    }
+    items.push({ type: "separator", id: "separator-delete" });
+    items.push({
+      type: "item",
+      id: "delete",
+      label: `${t("files.delete")}…`,
+      icon: <TrashIcon />,
+      shortcut: "D",
+      danger: true,
+      // As a session's Delete: Shift skips the question.
+      onSelect: ({ shiftKey, keepOpen }) => {
+        if (shiftKey) {
+          deleteNode(node);
+          return;
+        }
+        keepOpen();
+        setMenu((current) => (current ? { ...current, askDelete: true } : current));
+      },
+    });
+    return items;
+  }, [cwd, deleteNode, fileManager, handleToggleExpanded, menu, notify, onAtMention, t]);
+
 
   const resetFileDrag = useCallback(() => {
     fileDragDepthRef.current = 0;
@@ -1125,20 +1470,37 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   }, []);
 
   const handleExplorerDragEnter = useCallback((event: React.DragEvent) => {
+    if (draggingPath !== null && event.dataTransfer.types.includes(FILE_ENTRY_DRAG_MIME)) {
+      event.preventDefault();
+      fileDragDepthRef.current += 1;
+      setFileDragActive(true);
+      return;
+    }
     if (!event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     fileDragDepthRef.current += 1;
     setFileDragActive(true);
-  }, []);
+  }, [draggingPath]);
 
   const handleExplorerDragOver = useCallback((event: React.DragEvent) => {
+    if (draggingPath !== null && event.dataTransfer.types.includes(FILE_ENTRY_DRAG_MIME)) {
+      // Below the rows: the project folder.
+      setDropTargetPath((prev) => (prev === null ? prev : null));
+      if (!manageApi.canDropInto(cwd)) {
+        event.dataTransfer.dropEffect = "none";
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      return;
+    }
     if (!event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     // Directory rows stop dragover propagation, so this handler only runs
     // while hovering the panel background: those uploads target the cwd.
     setDropTargetPath((prev) => (prev === null ? prev : null));
-  }, []);
+  }, [cwd, draggingPath, manageApi]);
 
   const handleExplorerDragLeave = useCallback(() => {
     if (fileDragDepthRef.current <= 0) return;
@@ -1156,20 +1518,28 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     // upload, so folders are left out with the chat drop's notice.
     const files = items.flatMap((item) => (item.kind === "file" ? [item.file] : []));
     const folders = items.flatMap((item) => (item.kind === "folder" ? [item.name] : []));
-    void prepareUpload(files, directory).then(() => {
-      if (folders.length === 0) return;
-      const notice = t("chat.dropFoldersUnsupported", { names: folders.join(", ") });
-      // An error from this upload says why its files did not land: keep it.
-      setUploadError((error) => (error && files.length > 0 ? error : notice));
-    });
-  }, [prepareUpload, resetFileDrag, t]);
+    const folderNotice = folders.length > 0 ? t("chat.dropFoldersUnsupported", { names: folders.join(", ") }) : undefined;
+    // Said with the upload's result; alone when only folders were dropped.
+    if (files.length === 0) {
+      if (folderNotice) notify({ message: folderNotice });
+      return;
+    }
+    void prepareUpload(files, directory, folderNotice);
+  }, [notify, prepareUpload, resetFileDrag, t]);
 
   const handleExplorerDrop = useCallback((event: React.DragEvent) => {
+    if (draggingPath !== null && event.dataTransfer.types.includes(FILE_ENTRY_DRAG_MIME)) {
+      event.preventDefault();
+      const target = dropTargetPath ?? cwd;
+      if (manageApi.canDropInto(target)) manageApi.moveInto(target);
+      else manageApi.endDrag();
+      return;
+    }
     if (!event.dataTransfer.types.includes("Files")) return;
     event.preventDefault();
     event.stopPropagation();
     handleDropFiles(dropTargetPath ?? cwd, droppedItems(event.dataTransfer));
-  }, [cwd, dropTargetPath, handleDropFiles]);
+  }, [cwd, draggingPath, dropTargetPath, handleDropFiles, manageApi]);
 
   const handleDropTargetChange = useCallback((path: string | null) => {
     setDropTargetPath((prev) => (prev === path ? prev : path));
@@ -1205,9 +1575,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       expandedPathsRef.current = restored;
       setExpandedPaths(restored);
       setHighlightedPaths(new Set());
-      setUploadSummary(null);
-      setPendingConflict(null);
-      setUploadError(null);
+      setRenamingPath(null);
+      setCreatingIn(null);
+      setMenu(null);
     }
 
     setLoading(cwdChanged);
@@ -1277,17 +1647,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  const showUploadFeedback = uploadBusy || pendingConflict !== null || uploadError !== null || uploadSummary !== null;
 
-  const addUploadedFilesToChat = useCallback(() => {
-    if (!uploadSummary || uploadSummary.uploaded.length === 0) return;
-    onAtMentions?.(
-      uploadSummary.uploaded.map((name) => getRelativeFilePath(joinFilePath(uploadSummary.directory, name), cwd)),
-    );
-  }, [cwd, onAtMentions, uploadSummary]);
 
   return (
+    <FileManageContext.Provider value={manageApi}>
     <div
+      className={`file-tree${mobile ? " is-mobile" : ""}`}
       style={{ minHeight: "100%" }}
       onDragEnter={handleExplorerDragEnter}
       onDragOver={handleExplorerDragOver}
@@ -1295,9 +1660,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       onDrop={handleExplorerDrop}
     >
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
-      {showUploadFeedback && (
+      {uploadBusy && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
-        {uploadBusy && (
+        {(
           <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : t("files.uploading", { progress: uploadProgress })}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 14, color: "var(--text-muted)" }}>
               {uploadPhase === "checking" ? (
@@ -1321,95 +1686,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           </div>
         )}
 
-        {pendingConflict && (
-          <div role="alert" style={{ padding: 7, border: "1px solid color-mix(in srgb, #f59e0b 55%, var(--border))", borderRadius: 4, background: "color-mix(in srgb, #f59e0b 9%, var(--bg-panel))" }}>
-            <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
-              {t("files.conflictSummary", { count: pendingConflict.conflicts.length, countSuffix: pendingConflict.conflicts.length === 1 ? "" : "s", files: pendingConflict.conflicts.join(", ") })}
-            </div>
-            {pendingConflict.nonReplaceable.length > 0 && (
-              <div style={{ marginTop: 3, fontSize: 10, color: "#f59e0b", lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                {t("files.cannotReplace", { files: pendingConflict.nonReplaceable.join(", ") })}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite", pendingConflict.directory)} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
-                {t("files.replace")}
-              </button>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip", pendingConflict.directory)} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
-                {t("files.skipExisting")}
-              </button>
-              <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>
-                {t("files.cancel")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {uploadError && (
-          <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, lineHeight: 1.35, color: "#f87171" }}>
-            <span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>{uploadError}</span>
-            <DismissButton onClick={() => setUploadError(null)} title={t("files.dismissError")} />
-          </div>
-        )}
-
-        {uploadSummary && (
-          <div aria-live="polite">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22, fontSize: 11 }}>
-              <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-                {uploadSummary.uploaded.length > 0 && (
-                  <span title={t("files.uploadedCount", { count: uploadSummary.uploaded.length })} aria-label={t("files.uploadedCount", { count: uploadSummary.uploaded.length })} style={{ display: "flex", alignItems: "center", gap: 3, color: "#22c55e" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="m5 12 4 4L19 6" />
-                    </svg>
-                    <span>{uploadSummary.uploaded.length}</span>
-                  </span>
-                )}
-                {uploadSummary.skipped.length > 0 && (
-                  <span title={t("files.skippedCount", { count: uploadSummary.skipped.length })} aria-label={t("files.skippedCount", { count: uploadSummary.skipped.length })} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--text-dim)" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M8 12h8" />
-                    </svg>
-                    <span>{uploadSummary.skipped.length}</span>
-                  </span>
-                )}
-                {uploadSummary.errors.length > 0 && (
-                  <span title={t("files.failedCount", { count: uploadSummary.errors.length })} aria-label={t("files.failedCount", { count: uploadSummary.errors.length })} style={{ display: "flex", alignItems: "center", gap: 3, color: "#f87171" }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 3 2.5 20h19L12 3Z" />
-                      <path d="M12 9v4" />
-                      <path d="M12 17h.01" />
-                    </svg>
-                    <span>{uploadSummary.errors.length}</span>
-                  </span>
-                )}
-              </div>
-              {uploadSummary.uploaded.length > 0 && onAtMentions && (
-                <button
-                  type="button"
-                  onClick={addUploadedFilesToChat}
-                  title={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
-                  aria-label={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
-                  style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
-                >
-                  <MentionIcon />
-                  {t("files.mention")}
-                </button>
-              )}
-              <DismissButton onClick={() => setUploadSummary(null)} title={t("files.dismissUploadResults")} />
-            </div>
-            {uploadSummary.errors.map((item) => (
-              <div key={item.name} title={item.error} style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, minWidth: 0, fontSize: 10, color: "#f87171" }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 8v5" />
-                  <path d="M12 17h.01" />
-                </svg>
-                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
         </div>
       )}
 
@@ -1565,6 +1841,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           ) : error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
           ) : (
+            <NewFolderRow directory={cwd} depth={0} />
+          )}
+          {!loading && !error && (
             roots.map((node) => (
               <TreeNode
                 key={node.fullPath}
@@ -1622,13 +1901,44 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             <path d="m7 9 5-5 5 5" />
             <path d="M5 20h14" />
           </svg>
-          {t("files.dropToUpload", {
+          {t(draggingPath ? "files.dropToMove" : "files.dropToUpload", {
             directory: dropTargetPath
               ? (getRelativeFilePath(dropTargetPath, cwd) || dropTargetPath)
               : (getFileName(cwd) || cwd),
           })}
         </div>
       )}
+      <SidebarMenu
+        open={menu !== null}
+        anchor={menu?.anchor ?? null}
+        sheet={mobile}
+        ariaLabel={t("sidebar.fileActions")}
+        title={menu?.node.name}
+        items={menu?.askDelete ? undefined : menuItems}
+        cancelLabel={t("sidebar.cancel")}
+        focusCancel={Boolean(menu?.askDelete)}
+        focusKey={menu?.askDelete ? "ask-delete" : "items"}
+        onClose={() => setMenu(null)}
+        returnFocusTo={menu?.opener ?? null}
+      >
+        {menu?.askDelete && (
+          <SidebarMenuQuestion
+            heading={t("files.deleteHeading", { name: menu.node.name })}
+            headingTitle={menu.node.fullPath}
+            notes={[t(menu.node.isDir ? "files.deleteFolderNote" : "files.deleteNote")]}
+            confirmLabel={t("files.delete")}
+            cancelLabel={t("sidebar.cancel")}
+            sheet={mobile}
+            onConfirm={() => {
+              const { node } = menu;
+              setMenu(null);
+              deleteNode(node);
+            }}
+            onCancel={() => setMenu((current) => (current ? { ...current, askDelete: false } : current))}
+          />
+        )}
+      </SidebarMenu>
     </div>
+    </FileManageContext.Provider>
   );
 });

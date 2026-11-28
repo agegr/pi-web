@@ -629,6 +629,11 @@ html[data-keyboard-open] .sidebar-sheet {
   white-space: pre;
 }
 
+/* No box of its own unless a toast wraps (the files' toast, sidebar.css). */
+.sidebar-toast-buttons {
+  display: contents;
+}
+
 .sidebar-toast-action {
   flex: none;
   height: 26px;

@@ -80,8 +80,8 @@ test("the files tab's keys: the folder's four, then the tree's two views, always
   // is the tab's.
   assert.deepEqual(keyLabels(row), [
     "Open workspace terminal",
-    "Open in file manager",
     "Upload files to project root",
+    "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",
@@ -95,8 +95,8 @@ test("the files tab's keys: the folder's four, then the tree's two views, always
   // Without a terminal (no onOpenTerminal) the other five stay; the files
   // tab leaves it out where the row below the sessions disables it.
   assert.deepEqual(keyLabels(actionsRow(render({ selectedCwd: "/work/alpha" }))), [
-    "Open in file manager",
     "Upload files to project root",
+    "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",

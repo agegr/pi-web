@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { isIP } from "net";
+import { posix } from "path";
 
 const FILE_MANAGER_BY_PLATFORM = new Map<string, string>([
   ["win32", "explorer.exe"],
@@ -56,6 +57,33 @@ export function fileManagerCommand(
 }
 
 /**
+ * Builds the command that shows an entry selected in its folder: a file
+ * tree's "Show in Finder". Finder and Explorer select it; xdg-open has no
+ * selection, so Linux opens the folder that holds it. Never opens the entry
+ * itself, so a folder that is an `.app` bundle is shown, not launched.
+ * @param platform A Node `process.platform` value
+ * @param target The file or folder to show
+ * @returns The command and its arguments, or null on an unsupported platform
+ */
+export function fileManagerRevealCommand(
+  platform: string,
+  target: string,
+): { command: string; args: string[] } | null {
+  switch (platform) {
+    case "darwin":
+      return { command: "open", args: ["-R", target] };
+    case "win32":
+      // `/select,` then the path as its own argument: quoted when it has
+      // spaces, which Explorer reads there (not inside `/select,"…"` as one).
+      return { command: "explorer.exe", args: ["/select,", target] };
+    case "linux":
+      return { command: "xdg-open", args: [posix.dirname(target)] };
+    default:
+      return null;
+  }
+}
+
+/**
  * Whether the request's Host header points at this machine.
  *
  * `Host` is client-controlled, so this is a usability guard rather than access
@@ -79,24 +107,29 @@ export function isLoopbackHost(host: string | null | undefined): boolean {
 }
 
 /**
- * Opens a directory in the OS file manager.
+ * Opens a directory in the OS file manager, or with `reveal` shows an entry
+ * selected in its folder (fileManagerRevealCommand).
  *
  * On macOS, `open` launches an `.app` bundle instead of showing it, so callers
- * should only pass project directories such as the explorer root.
- * @param target The directory to open (the caller checks access)
+ * opening a directory should only pass project directories such as the
+ * explorer root; anything else is revealed.
+ * @param target The directory to open, or the entry to reveal (the caller checks access)
  * @param platform A Node `process.platform` value
  * @param env The environment that tells WSL apart from other Linux
+ * @param reveal Show `target` selected in its folder instead of opening it
  * @returns Resolves once the command has started
  */
 export function launchFileManager(
   target: string,
   platform: string = process.platform,
   env: NodeJS.ProcessEnv = process.env,
+  reveal = false,
 ): Promise<void> {
   const distro = platform === "linux" ? wslDistroName(env) : "";
+  const build = reveal ? fileManagerRevealCommand : fileManagerCommand;
   const spec = distro
-    ? fileManagerCommand("win32", windowsPathForWsl(target, distro))
-    : fileManagerCommand(platform, target);
+    ? build("win32", windowsPathForWsl(target, distro))
+    : build(platform, target);
   if (!spec) return Promise.reject(new Error(`Unsupported platform: ${platform}`));
   return new Promise((resolve, reject) => {
     const child = spawn(spec.command, spec.args, { detached: true, stdio: "ignore" });

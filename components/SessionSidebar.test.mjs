@@ -248,8 +248,8 @@ test("below the sessions the section's header row holds the files' keys in the f
   assert.match(keys, /^<div class="sidebar-files-keys" role="group" aria-label="File actions">/);
   assert.deepEqual(keyLabels(keys), [
     "Open workspace terminal",
-    "Open in file manager",
     "Upload files to project root",
+    "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",
@@ -268,16 +268,15 @@ test("below the sessions the section's header row holds the files' keys in the f
   // terminal without a handler, where the files tab leaves it out.
   assert.deepEqual(keyLabels(sectionKeys(render())), [
     "Open workspace terminal (disabled)",
-    "Open in file manager (disabled)",
     "Upload files to project root (disabled)",
+    "New folder (disabled)",
     "Refresh file list (disabled)",
     "Show ignored files (disabled) pressed=false",
     "0 changed files (disabled) pressed=false",
     "Search files (disabled) expanded=false",
   ]);
-  assert.deepEqual(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).slice(0, 3), [
+  assert.deepEqual(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).slice(0, 2), [
     "Open workspace terminal (disabled)",
-    "Open in file manager",
     "Upload files to project root",
   ]);
 
@@ -285,6 +284,7 @@ test("below the sessions the section's header row holds the files' keys in the f
   // never shrinks under its seven keys' minimum nor grows past their
   // maximum, and its grow factor, far above the toggle's (1), gives it the
   // room the toggle's content leaves before the toggle takes any.
+  const KEY_COUNT = 7;
   const keyRule = sidebarRule(".sidebar-files-keys .sidebar-tool-button");
   assert.match(keyRule, /(?:^|\s)flex: 1 1 0;/);
   const [keyMin] = px(keyRule, "min-width");
@@ -293,7 +293,8 @@ test("below the sessions the section's header row holds the files' keys in the f
   assert.ok(keysGroup, "the keys' group: a grow factor, no shrink, its keys' minimum and maximum");
   const [, groupGrow, minCount, groupKeyMin, maxCount, groupKeyMax] = keysGroup.map(Number);
   assert.ok(groupGrow >= 1000, "the toggle gets a fraction of a pixel until the keys are at their widest");
-  assert.deepEqual([minCount, groupKeyMin, maxCount, groupKeyMax], [7, keyMin, 7, keyMax]);
+  assert.equal(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).length, KEY_COUNT, "one key per slot");
+  assert.deepEqual([minCount, groupKeyMin, maxCount, groupKeyMax], [KEY_COUNT, keyMin, KEY_COUNT, keyMax]);
   assert.match(sidebarRule(".sidebar-files-section-toggle"), /(?:^|\s)flex: 1 1 auto;/);
 
   // The fit, added up from the CSS: the sidebar's width less its line, the
@@ -312,8 +313,8 @@ test("below the sessions the section's header row holds the files' keys in the f
   const content = (label, count = 0) => 2 * toggleInset + 12 + 3 + label + (count ? 3 + count : 0);
   const fit = (width, toggleContent) => {
     const room = width - 1 - left - right - gap;
-    const key = Math.min(keyMax, Math.max(keyMin, (room - toggleContent) / 7));
-    return { key, toggle: room - 7 * key };
+    const key = Math.min(keyMax, Math.max(keyMin, (room - toggleContent) / KEY_COUNT));
+    return { key, toggle: room - KEY_COUNT * key };
   };
   // At the default 260px the toggle keeps all of its content, the keys
   // wider than at their minimum: about 21px beside "Files · 123", 24px
@@ -321,14 +322,14 @@ test("below the sessions the section's header row holds the files' keys in the f
   const filesCount = fit(SIDEBAR_DEFAULT_WIDTH, content(34, 26));
   assert.ok(filesCount.key > keyMin && filesCount.toggle >= content(34, 26), `"Files · 123" leaves ${filesCount.key}px keys`);
   assert.ok(fit(SIDEBAR_DEFAULT_WIDTH, content(24, 14)).key >= 24);
-  // From 300px they are at their widest, whatever the label and count.
+  // From 300px they are square, at their widest, whatever the label and count.
   assert.equal(fit(300, content(34, 26)).key, keyMax);
   // At the sidebar's 180px minimum they are at their narrowest and nothing
   // overflows: the toggle keeps more than its chevron (what does not fit
   // in it wraps out of view, whole).
   const narrowest = fit(SIDEBAR_MIN_WIDTH, content(34, 26));
   assert.equal(narrowest.key, keyMin);
-  assert.ok(narrowest.toggle >= toggleMin, `${toggleMin} + ${gap} + 7 × ${keyMin} fits ${SIDEBAR_MIN_WIDTH - 1 - left - right}`);
+  assert.ok(narrowest.toggle >= toggleMin, `${toggleMin} + ${gap} + ${KEY_COUNT} × ${keyMin} fits ${SIDEBAR_MIN_WIDTH - 1 - left - right}`);
 });
 
 test("a key disabled under the focus hands it to the nearest key still enabled, the next one first", () => {

@@ -38,6 +38,7 @@ import { pageStreamLabel, registerPageStream } from "@/lib/page-stream-registry"
 import { contentDisposition } from "@/lib/content-disposition";
 import { frameAncestorsDirective } from "@/lib/frame-ancestors";
 import { errorMessage } from "@/lib/errors";
+import { createDirectory, deleteEntry, FileManageError, moveEntry, resolveManagedDirectory } from "@/lib/file-manage";
 
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
@@ -87,41 +88,18 @@ function parseFileRequestType(value: string): FileRequestType | null {
   return FILE_REQUEST_TYPE_SET.has(value) ? (value as FileRequestType) : null;
 }
 
+// Uploads and the explorer's other writes check their folder the same way.
 async function getUploadDirectory(segments: string[]): Promise<
   { directory: string } | { response: NextResponse }
 > {
-  const directory = filePathFromApiSegments(segments);
-  const allowedRoots = await getAllowedFileRoots();
-  if (!isFilePathAllowed(directory, allowedRoots)) {
-    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
-  }
-
-  let stat: fs.Stats;
   try {
-    stat = fs.statSync(directory);
-  } catch {
-    return { response: NextResponse.json({ error: "Upload directory not found" }, { status: 404 }) };
-  }
-  if (!stat.isDirectory()) {
-    return { response: NextResponse.json({ error: "Upload target is not a directory" }, { status: 400 }) };
-  }
-
-  // A browsable directory can be a symlink. Resolve both sides before writes
-  // so a symlink inside an allowed root cannot redirect uploads outside it.
-  const realDirectory = fs.realpathSync(directory);
-  const realRoots = new Set<string>();
-  for (const root of allowedRoots) {
-    try {
-      realRoots.add(fs.realpathSync(root));
-    } catch {
-      // Ignore stale session roots that no longer exist.
+    return { directory: resolveManagedDirectory(filePathFromApiSegments(segments), await getAllowedFileRoots()) };
+  } catch (error) {
+    if (error instanceof FileManageError) {
+      return { response: NextResponse.json({ error: error.message }, { status: error.status }) };
     }
+    throw error;
   }
-  if (!isFilePathAllowed(realDirectory, realRoots)) {
-    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
-  }
-
-  return { directory: realDirectory };
 }
 
 // A directory link whose target is outside the allowed roots is listed but not
@@ -150,6 +128,38 @@ async function allowLinkedDirectory(
   return NextResponse.json({ path: approval.target });
 }
 
+const MANAGE_TYPES = new Set(["mkdir", "move", "delete"]);
+
+// mkdir: the path is the parent folder, body { name }. move: the path is the
+// entry, body { destination, name } (a rename keeps its folder). delete: the
+// path is the entry. The explorer refreshes itself afterwards.
+async function manageEntry(request: NextRequest, segments: string[], type: string): Promise<NextResponse> {
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+  const body = await request.json().catch(() => null) as { name?: unknown; destination?: unknown } | null;
+  const target = filePathFromApiSegments(segments);
+  const roots = await getAllowedFileRoots();
+  try {
+    if (type === "mkdir") {
+      return NextResponse.json({ path: await createDirectory(target, body?.name, roots) });
+    }
+    if (type === "move") {
+      if (typeof body?.destination !== "string" || !body.destination) {
+        return NextResponse.json({ error: "destination must be a folder path" }, { status: 400 });
+      }
+      return NextResponse.json({ path: await moveEntry(target, body.destination, body.name, roots) });
+    }
+    await deleteEntry(target, roots);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof FileManageError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
 function parseUploadFileNames(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
   return value;
@@ -167,6 +177,7 @@ export async function POST(
     const { path: segments } = await params;
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
     if (type === "allow-link") return allowLinkedDirectory(request, segments);
+    if (MANAGE_TYPES.has(type)) return manageEntry(request, segments, type);
 
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
