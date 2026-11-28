@@ -388,7 +388,11 @@ a.session-tree-main {
   align-items: center;
 }
 
-.session-tree-action {
+/* A row's icon buttons, the same in the session list and the file tree
+   (.file-tree-action, FileExplorer): 24px square, no border, the hover's
+   fill alone. */
+.session-tree-action,
+.file-tree-action {
   display: none;
   flex: none;
   align-items: center;
@@ -402,9 +406,72 @@ a.session-tree-main {
 }
 
 .session-tree .session-tree-action:hover,
-.session-tree .session-tree-action.is-active {
+.session-tree .session-tree-action.is-active,
+.file-tree-action:hover,
+.file-tree-action.is-active {
   background: var(--bg-selected);
   color: var(--text);
+}
+
+/* The file tree's rows (FileExplorer) behave as the session rows: the
+   hover's fill, the buttons after the name shown on hover, keyboard focus or
+   while the row's menu is open, the git marks giving way to them; on a phone
+   ⋯ always shown and larger, the marks staying; without hover ⋯ stays. */
+.file-tree-row:hover {
+  background: var(--bg-hover);
+}
+
+.file-tree-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.file-tree-meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.file-tree-action {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.file-tree-row:hover .file-tree-action,
+.file-tree-row.is-menu-open .file-tree-more-action,
+.file-tree-row:has(:focus-visible) .file-tree-action {
+  display: flex;
+}
+
+.file-tree-row:hover .file-tree-meta,
+.file-tree-row.is-menu-open .file-tree-meta {
+  display: none;
+}
+
+.file-tree.is-mobile .file-tree-more-action,
+.file-tree.is-mobile .file-tree-change-mention {
+  display: flex;
+  width: 32px;
+  height: 32px;
+}
+
+.file-tree.is-mobile .file-tree-row:hover .file-tree-meta,
+.file-tree.is-mobile .file-tree-row.is-menu-open .file-tree-meta {
+  display: flex;
+}
+
+@media (hover: none) {
+  .file-tree-more-action,
+  .file-tree-change-mention {
+    display: flex;
+  }
+}
+
+.file-tree-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .session-tree .session-tree-session.is-selected .session-tree-action:hover,
@@ -451,7 +518,9 @@ a.session-tree-main {
   display: flex;
 }
 
-.session-tree-rename {
+/* A row's name field: a session's rename, a file's rename or new folder. */
+.session-tree-rename,
+.file-tree-rename {
   flex: 1;
   min-width: 0;
   height: 24px;
@@ -880,7 +949,8 @@ a.session-tree-main {
 }
 
 /* Inputs are forced to 16px on phones (globals.css), so the field gets taller. */
-.session-tree.is-mobile .session-tree-rename {
+.session-tree.is-mobile .session-tree-rename,
+.file-tree.is-mobile .file-tree-rename {
   height: 32px;
 }
 
@@ -933,14 +1003,33 @@ a.session-tree-main {
 
 /* With the files below, the toast sits at the bottom of the sessions, above
    the files section (its height, or folded its 28px row and its line; 36px
-   on a coarse pointer, below), so it never covers the file tree. Still the
-   one live region, at the root. */
+   on a coarse pointer, below), so it never covers the file tree. The
+   sessions' live region, at the root; the files have their own (below). */
 .session-sidebar.is-files-below .sidebar-toast-region {
   bottom: calc(var(--sidebar-files-height, 320px) + 8px);
 }
 
 .session-sidebar.is-files-below.is-files-collapsed .sidebar-toast-region {
   bottom: 37px;
+}
+
+/* The file explorer's toast (a move's Undo, an upload's result): the same
+   card, at the bottom of the files panel, where the action happened. */
+.sidebar-files-panel {
+  position: relative;
+}
+
+.sidebar-files-toast-region {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.sidebar-files-panel.has-toast .sidebar-files-scroll {
+  padding-bottom: 56px;
 }
 
 /* One toolbar row in the cells of the chat's top bar beside it (AppShell):

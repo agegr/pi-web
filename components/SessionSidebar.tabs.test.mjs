@@ -73,7 +73,7 @@ test("the tabs layout renders its tabs, no brand and no files section header", (
   assert.doesNotMatch(html, /aria-controls="file-search-input"/);
 });
 
-test("the files tab's keys: the folder's four, then the tree's two views, always the same", () => {
+test("the files tab's keys: the folder's five, then the tree's two views, always the same", () => {
   const row = actionsRow(render({ selectedCwd: "/work/alpha", onOpenTerminal: noop }));
   assert.match(row, /^<div class="sidebar-files-actions" role="group" aria-label="File actions">/);
   // The changes view is there without changes too, disabled, and its count
@@ -82,6 +82,7 @@ test("the files tab's keys: the folder's four, then the tree's two views, always
     "Open workspace terminal",
     "Open in file manager",
     "Upload files to project root",
+    "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",
@@ -90,13 +91,14 @@ test("the files tab's keys: the folder's four, then the tree's two views, always
   assert.match(row, /title="Show ignored files" aria-label="Show ignored files" aria-pressed="false" class="sidebar-tool-button sidebar-files-views-start"/);
   assert.equal((row.match(/sidebar-files-views-start/g) ?? []).length, 1);
   // Their icons stay 14px here (the section header row's are 13px).
-  assert.deepEqual([...row.matchAll(/<svg width="(\d+)" height="(\d+)"/g)].map((match) => `${match[1]}x${match[2]}`), Array(6).fill("14x14"));
+  assert.deepEqual([...row.matchAll(/<svg width="(\d+)" height="(\d+)"/g)].map((match) => `${match[1]}x${match[2]}`), Array(7).fill("14x14"));
 
-  // Without a terminal (no onOpenTerminal) the other five stay; the files
+  // Without a terminal (no onOpenTerminal) the other six stay; the files
   // tab leaves it out where the row below the sessions disables it.
   assert.deepEqual(keyLabels(actionsRow(render({ selectedCwd: "/work/alpha" }))), [
     "Open in file manager",
     "Upload files to project root",
+    "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",

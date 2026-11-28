@@ -145,3 +145,40 @@ export function saveFileViewerState(
   next[index] = tab;
   return next;
 }
+
+/** Where `filePath` is after `from` moved to `to`: the entry itself, or anything below a moved folder. */
+export function movedFilePath(filePath: string, from: string, to: string): string | null {
+  if (filePath === from) return to;
+  for (const separator of ["/", "\\"]) {
+    const prefix = from.endsWith(separator) ? from : from + separator;
+    if (filePath.startsWith(prefix)) return to + filePath.slice(from.length);
+  }
+  return null;
+}
+
+/** The explorer moved or renamed `from`: its open tabs follow, keeping their viewer state. */
+export function retargetFileTabs(tabs: Tab[], from: string, to: string): Tab[] {
+  let changed = false;
+  const next = tabs.map((tab) => {
+    if (tab.kind) return tab;
+    const filePath = movedFilePath(tab.filePath, from, to);
+    if (filePath === null) return tab;
+    changed = true;
+    const label = filePath.split(/[\\/]/).at(-1) || tab.label;
+    return { ...tab, id: `file:${filePath}`, filePath, label };
+  });
+  return changed ? next : tabs;
+}
+
+/** The explorer deleted `deleted`: tabs of it, or of anything below it, close. */
+export function dropDeletedFileTabs(tabs: Tab[], deleted: string): Tab[] {
+  const next = tabs.filter((tab) => tab.kind || movedFilePath(tab.filePath, deleted, deleted) === null);
+  return next.length === tabs.length ? tabs : next;
+}
+
+/** A tab id after `from` moved to `to`, or the id unchanged. */
+export function retargetFileTabId(tabId: string, from: string, to: string): string {
+  if (!tabId.startsWith("file:")) return tabId;
+  const filePath = movedFilePath(tabId.slice("file:".length), from, to);
+  return filePath === null ? tabId : `file:${filePath}`;
+}

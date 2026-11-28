@@ -244,22 +244,23 @@ test("below the sessions the section's header row holds the files' keys in the f
   // tree's two views (what it lists, its changes), then the file search,
   // which the files tab leaves to the toolbar row. The search is the
   // files' (the toolbar row's is the sessions'), an expandable control,
-  // not a toggle. Seven keys always there, so none ever moves.
+  // not a toggle. Eight keys always there, so none ever moves.
   assert.match(keys, /^<div class="sidebar-files-keys" role="group" aria-label="File actions">/);
   assert.deepEqual(keyLabels(keys), [
     "Open workspace terminal",
     "Open in file manager",
     "Upload files to project root",
+    "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",
     "Search files expanded=false",
   ]);
-  assert.equal((keys.match(/<button /g) ?? []).length, 7);
+  assert.equal((keys.match(/<button /g) ?? []).length, 8);
   // Their icons are 13px, a size under the files tab's 14px, in the sidebar
   // icons' one stroke (the files tab's keys keep 14px:
   // SessionSidebar.tabs.test.mjs).
-  assert.deepEqual([...keys.matchAll(/<svg width="(\d+)" height="(\d+)"[^>]*stroke-width="(\d+)"/g)].map((match) => match.slice(1).join(",")), Array(7).fill("13,13,2"));
+  assert.deepEqual([...keys.matchAll(/<svg width="(\d+)" height="(\d+)"[^>]*stroke-width="(\d+)"/g)].map((match) => match.slice(1).join(",")), Array(8).fill("13,13,2"));
   // The head under the row is the picker alone: no second row of keys, no
   // search in the toolbar row's place.
   const head = html.slice(html.indexOf('<div class="sidebar-files-head">'), html.indexOf('<div class="sidebar-files-scroll'));
@@ -270,6 +271,7 @@ test("below the sessions the section's header row holds the files' keys in the f
     "Open workspace terminal (disabled)",
     "Open in file manager (disabled)",
     "Upload files to project root (disabled)",
+    "New folder (disabled)",
     "Refresh file list (disabled)",
     "Show ignored files (disabled) pressed=false",
     "0 changed files (disabled) pressed=false",

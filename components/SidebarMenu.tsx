@@ -796,3 +796,48 @@ export function SidebarMenu({
     portalTarget,
   );
 }
+
+/**
+ * A menu body that asks before deleting: a heading, what it means, and the
+ * red answer. On a phone the sheet's own Cancel is the other answer, so the
+ * body leaves its Cancel out there; on a desktop its Cancel takes the focus,
+ * so Enter never deletes.
+ */
+export function SidebarMenuQuestion({
+  heading,
+  headingTitle,
+  notes,
+  confirmLabel,
+  confirmDisabled = false,
+  cancelLabel,
+  sheet,
+  onConfirm,
+  onCancel,
+}: {
+  heading: string;
+  headingTitle?: string;
+  notes: string[];
+  confirmLabel: string;
+  confirmDisabled?: boolean;
+  cancelLabel: string;
+  sheet: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): ReactNode {
+  return (
+    <div className="sidebar-menu-question">
+      <div className="sidebar-menu-header" title={headingTitle}>{heading}</div>
+      {notes.map((note) => <p key={note} className="sidebar-menu-question-text">{note}</p>)}
+      <div className="sidebar-menu-question-buttons">
+        <button type="button" className="sidebar-menu-question-confirm" disabled={confirmDisabled} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+        {!sheet && (
+          <button type="button" className="sidebar-menu-question-cancel" data-sidebar-menu-autofocus="" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

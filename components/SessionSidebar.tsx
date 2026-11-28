@@ -110,12 +110,12 @@ import { useSessionUiState } from "@/hooks/useSessionUiState";
 import { archiveViewState, filesFoldState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { DismissButton } from "./DismissButton";
-import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { FileExplorer, type FileExplorerHandle, type FileExplorerToast } from "./FileExplorer";
 import { PiWebTitle } from "./PiWebTitle";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
-import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
+import { SidebarMenu, SidebarMenuQuestion, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import { SidebarToast, type SidebarToastAction, type SidebarToastData } from "./SidebarToast";
 import {
   ArchiveIcon,
@@ -127,6 +127,7 @@ import {
   DotOutlineIcon,
   EyeIcon,
   FolderIcon,
+  FolderPlusIcon,
   MessageIcon,
   MoreIcon,
   ForkIcon,
@@ -252,6 +253,9 @@ interface Props {
     projectKey?: string | null,
   ) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
+  /** The explorer moved or renamed an entry (lexical paths, as tabs hold them). */
+  onFileEntryMoved?: (from: string, to: string) => void;
+  onFileEntryDeleted?: (path: string) => void;
   onOpenTerminal?: (cwd: string) => void;
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
@@ -564,7 +568,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSideChat, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onInsertSessionReference, onBackgroundTaskDone, hiddenFinishedSessionIds, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSideChat, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onFileEntryMoved, onFileEntryDeleted, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onInsertSessionReference, onBackgroundTaskDone, hiddenFinishedSessionIds, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -718,6 +722,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   const showToast = useCallback((message: string, actions: SidebarToastAction[] = [], tail?: string) => {
     toastIdRef.current += 1;
     setToast({ id: toastIdRef.current, message, ...(tail ? { tail } : {}), actions });
+  }, []);
+  // The file explorer's notices (a move's Undo, an upload's result): the same
+  // toast, at the bottom of the files rather than the sessions.
+  const [fileToast, setFileToast] = useState<SidebarToastData | null>(null);
+  const showFileToast = useCallback((next: FileExplorerToast) => {
+    toastIdRef.current += 1;
+    setFileToast({ id: toastIdRef.current, message: next.message, actions: next.actions ?? [], ...(next.sticky ? { sticky: true } : {}) });
   }, []);
   const [uiWriteFailures, setUiWriteFailures] = useState(0);
   const shownUiWriteFailuresRef = useRef(0);
@@ -2811,20 +2822,17 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     onConfirm: () => void;
     onCancel: () => void;
   }): ReactNode => (
-    <div className="sidebar-menu-question">
-      <div className="sidebar-menu-header" title={headingTitle}>{heading}</div>
-      {notes.map((note) => <p key={note} className="sidebar-menu-question-text">{note}</p>)}
-      <div className="sidebar-menu-question-buttons">
-        <button type="button" className="sidebar-menu-question-confirm" disabled={count === 0} onClick={onConfirm}>
-          {t("sidebar.deleteCount", { count })}
-        </button>
-        {!isMobile && (
-          <button type="button" className="sidebar-menu-question-cancel" data-sidebar-menu-autofocus="" onClick={onCancel}>
-            {t("sidebar.cancel")}
-          </button>
-        )}
-      </div>
-    </div>
+    <SidebarMenuQuestion
+      heading={heading}
+      headingTitle={headingTitle}
+      notes={notes}
+      confirmLabel={t("sidebar.deleteCount", { count })}
+      confirmDisabled={count === 0}
+      cancelLabel={t("sidebar.cancel")}
+      sheet={isMobile}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 
   const projectDeleteBody = (project: SidebarProject): ReactNode => {
@@ -3100,6 +3108,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
       title={t("sidebar.uploadFilesTitle")}
     >
       <UploadIcon size={keyIconSize} />
+    </ToolbarIconButton>
+  );
+  const newFolderButton = (
+    <ToolbarIconButton
+      onClick={() => {
+        if (stacked && filesCollapsed) setFilesSectionCollapsed(false);
+        // The new folder's row is in the tree: the changes view gives way.
+        setChangesCollapsed(true);
+        fileExplorerRef.current?.createFolder();
+      }}
+      disabled={!explorerCwd}
+      title={t("files.newFolder")}
+    >
+      <FolderPlusIcon size={keyIconSize} />
     </ToolbarIconButton>
   );
   const refreshButton = (
@@ -3402,7 +3424,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         aria-label={stacked ? t("sidebar.tabFiles") : undefined}
         aria-labelledby={stacked ? undefined : "session-sidebar-tab-files"}
         hidden={!stacked && sidebarTab !== "files"}
-        className="sidebar-panel sidebar-files-panel"
+        className={`sidebar-panel sidebar-files-panel${fileToast ? " has-toast" : ""}`}
         onScrollCapture={rememberScroll}
         onTransitionEnd={(event) => { if (event.target === event.currentTarget && event.propertyName === "height") endFilesFold(); }}
       >
@@ -3429,6 +3451,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
               {terminalButton}
               {fileManagerButton}
               {uploadButton}
+              {newFolderButton}
               {refreshButton}
               {ignoredFilesButton()}
               {changesButton}
@@ -3500,6 +3523,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
                 {onOpenTerminal && terminalButton}
                 {fileManagerButton}
                 {uploadButton}
+                {newFolderButton}
                 {refreshButton}
                 {ignoredFilesButton("sidebar-files-views-start")}
                 {changesButton}
@@ -3522,6 +3546,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
                 ref={fileExplorerRef}
                 cwd={explorerCwd}
                 onOpenFile={onOpenFile ?? (() => {})}
+                onToast={showFileToast}
+                mobile={isMobile}
+                onEntryMoved={onFileEntryMoved}
+                onEntryDeleted={onFileEntryDeleted}
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
@@ -3535,6 +3563,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
             )}
           </div>
         </div>
+        <SidebarToast
+          toast={fileToast}
+          onDismiss={() => setFileToast(null)}
+          dismissLabel={t("sidebar.dismiss")}
+          regionClassName="sidebar-files-toast-region"
+        />
       </div>
 
       <SidebarMenu
