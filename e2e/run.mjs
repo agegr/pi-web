@@ -487,6 +487,9 @@ try {
       const agentRoute = `**/api/agent/${LONG}`;
       await page.route(agentRoute, (route) => route.fulfill({ json: {} }));
       try {
+        // The cached view restores the paged-in window without a page read; drop
+        // it, as its expiry or eviction would, so the remount pages history again.
+        await page.evaluate((id) => globalThis.__piSessionViewCache?.delete(id), LONG);
         const pendingHistory = page.waitForRequest((request) => request.url().includes(`/api/sessions/${LONG}/context?`) && new URL(request.url()).searchParams.has("before"));
         await clickSessionRow(text(0));
         await pendingHistory;
