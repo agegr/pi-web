@@ -1653,7 +1653,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     <FileManageContext.Provider value={manageApi}>
     <div
       className={`file-tree${mobile ? " is-mobile" : ""}`}
-      style={{ minHeight: "100%" }}
+      // A column at least the panel's height, so the drop hint's auto margin
+      // can push it to the panel's bottom while the tree is shorter.
+      style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}
       onDragEnter={handleExplorerDragEnter}
       onDragOver={handleExplorerDragOver}
       onDragLeave={handleExplorerDragLeave}
@@ -1873,9 +1875,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           )}
         </div>
       )}
-      {/* Last, pinned to the bottom: at the top it pushed every row down as
-          a drag came in, so the row under the pointer changed. Drags pass
-          through it to the row it covers. */}
+      {/* Last, pinned to the panel's bottom: at the top it pushed every row
+          down as a drag came in, so the row under the pointer changed. The
+          auto margin keeps it there below a short tree (sticky alone left it
+          right under the last row, moving down as hovered folders opened);
+          sticky keeps it in view below a long one. Drags pass through it to
+          the row it covers. */}
       {fileDragActive && (
         <div
           role="status"
@@ -1884,6 +1889,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             position: "sticky",
             bottom: 0,
             zIndex: 1,
+            marginTop: "auto",
             display: "flex",
             alignItems: "center",
             gap: 6,
