@@ -279,7 +279,11 @@ export async function POST(
         }
         uploaded.push(uploadPath);
       } catch (error) {
-        errors.push({ name: uploadPath, error: errorMessage(error) });
+        // Something took the name since the check, or another file of this
+        // upload did on a case-insensitive disk (`A/x` and `a/x`): said
+        // without the errno text, which carries the server's absolute path.
+        const exists = (error as NodeJS.ErrnoException).code === "EEXIST";
+        errors.push({ name: uploadPath, error: exists ? "Already exists" : errorMessage(error) });
       }
     }
 

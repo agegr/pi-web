@@ -210,3 +210,19 @@ test("a folder upload never writes through a link or into a file on its way", as
   ]);
   assert.deepEqual(fs.readdirSync(outside), []);
 });
+
+test("a name taken after the check fails as already existing, without the server's path", async (t) => {
+  const { directory } = fixture();
+  const write = fs.promises.writeFile;
+  // Another writer (or, on a case-insensitive disk, `A/x` before `a/x`) takes the name first.
+  t.mock.method(fs.promises, "writeFile", async (target, ...args) => {
+    if (String(target) === path.join(directory, "data", "late.txt")) fs.writeFileSync(target, "theirs");
+    return write(target, ...args);
+  });
+  const response = await upload(directory, "error", ["late.txt"], "mine", ["data/late.txt"]);
+  assert.equal(response.status, 207);
+  const body = await response.json();
+  assert.deepEqual(body.errors, [{ name: "data/late.txt", error: "Already exists" }]);
+  assert.doesNotMatch(JSON.stringify(body), new RegExp(directory.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(fs.readFileSync(path.join(directory, "data", "late.txt"), "utf8"), "theirs");
+});
