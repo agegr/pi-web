@@ -101,30 +101,34 @@ function SidebarToastCard({ toast, dismissLabel, durationMs, onDismissRef }: Toa
       ) : (
         <span className="sidebar-toast-message" title={toast.message}>{toast.message}</span>
       )}
-      {toast.actions.map((action) => (
+      {/* The buttons stay together: a toast whose message takes a line of
+          its own puts them on the next one as a group. */}
+      <span className="sidebar-toast-buttons">
+        {toast.actions.map((action) => (
+          <button
+            key={action.id}
+            type="button"
+            className="sidebar-toast-action"
+            onClick={() => {
+              // Dismissed first, so a toast the action shows itself (Undo
+              // failed) replaces this one instead of being dismissed with it.
+              onDismissRef.current();
+              action.onClick();
+            }}
+          >
+            {action.label}
+          </button>
+        ))}
         <button
-          key={action.id}
           type="button"
-          className="sidebar-toast-action"
-          onClick={() => {
-            // Dismissed first, so a toast the action shows itself (Undo
-            // failed) replaces this one instead of being dismissed with it.
-            onDismissRef.current();
-            action.onClick();
-          }}
+          className="sidebar-toast-dismiss"
+          aria-label={dismissLabel}
+          title={dismissLabel}
+          onClick={() => onDismissRef.current()}
         >
-          {action.label}
+          <CloseIcon size={12} />
         </button>
-      ))}
-      <button
-        type="button"
-        className="sidebar-toast-dismiss"
-        aria-label={dismissLabel}
-        title={dismissLabel}
-        onClick={() => onDismissRef.current()}
-      >
-        <CloseIcon size={12} />
-      </button>
+      </span>
     </div>
   );
 }

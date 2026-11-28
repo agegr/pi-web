@@ -110,3 +110,31 @@ test("a move across disks says so", async (t) => {
   assert.equal(status, 400);
   assert.equal(data.error, "Cannot move between disks");
 });
+
+test(".git and anything in it are refused, in any case", async () => {
+  const root = fixture();
+  fs.mkdirSync(path.join(root, ".git", "hooks"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".git", "HEAD"), "ref");
+  // `.GIT` and `.git.` are `.git` on a case-insensitive disk and on Windows.
+  for (const name of [".git", ".GIT", ".Git", ".git."]) {
+    assert.equal((await call(path.join(root, name), "delete")).status, 403, name);
+    assert.equal((await call(root, "mkdir", { name })).status, 400, name);
+    assert.equal((await call(path.join(root, "b.txt"), "move", { destination: root, name })).status, 400, name);
+  }
+  assert.equal((await call(path.join(root, ".git", "HEAD"), "delete")).status, 403);
+  assert.equal((await call(path.join(root, ".GIT", "HEAD"), "delete")).status, 403);
+  assert.equal((await call(path.join(root, ".git", "HEAD"), "move", { destination: root, name: "HEAD" })).status, 403);
+  assert.equal((await call(path.join(root, "b.txt"), "move", { destination: path.join(root, ".git", "hooks"), name: "pre-commit" })).status, 403);
+  assert.equal((await call(path.join(root, ".git"), "mkdir", { name: "x" })).status, 403);
+  assert.equal(fs.readFileSync(path.join(root, ".git", "HEAD"), "utf8"), "ref");
+  assert.equal(fs.existsSync(path.join(root, ".git", "hooks", "pre-commit")), false);
+  assert.ok(fs.existsSync(path.join(root, "b.txt")));
+});
+
+test("a move onto a hard link of the same file is refused, not a silent no-op", async () => {
+  const root = fixture();
+  fs.linkSync(path.join(root, "b.txt"), path.join(root, "y.txt"));
+  const { status } = await call(path.join(root, "b.txt"), "move", { destination: root, name: "y.txt" });
+  assert.equal(status, 409);
+  assert.ok(fs.existsSync(path.join(root, "b.txt")));
+});

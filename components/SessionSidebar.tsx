@@ -724,12 +724,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     setToast({ id: toastIdRef.current, message, ...(tail ? { tail } : {}), actions });
   }, []);
   // The file explorer's notices (a move's Undo, an upload's result): the same
-  // toast, at the bottom of the files rather than the sessions.
+  // toast, at the bottom of the files rather than the sessions. A question
+  // (Replace or Skip) waits for its answer: later notices queue behind it
+  // instead of replacing it, which would drop its upload unanswered.
   const [fileToast, setFileToast] = useState<SidebarToastData | null>(null);
-  const showFileToast = useCallback((next: FileExplorerToast) => {
+  const fileQuestionShownRef = useRef(false);
+  const fileToastQueueRef = useRef<FileExplorerToast[]>([]);
+  const putFileToast = useCallback((next: FileExplorerToast | null) => {
+    fileQuestionShownRef.current = next?.question === true;
+    if (!next) {
+      setFileToast(null);
+      return;
+    }
     toastIdRef.current += 1;
-    setFileToast({ id: toastIdRef.current, message: next.message, actions: next.actions ?? [], ...(next.sticky ? { sticky: true } : {}) });
+    const sticky = next.sticky || next.question;
+    setFileToast({ id: toastIdRef.current, message: next.message, actions: next.actions ?? [], ...(sticky ? { sticky: true } : {}) });
   }, []);
+  const showFileToast = useCallback((next: FileExplorerToast) => {
+    if (fileQuestionShownRef.current) fileToastQueueRef.current.push(next);
+    else putFileToast(next);
+  }, [putFileToast]);
+  const dismissFileToast = useCallback(() => {
+    putFileToast(fileToastQueueRef.current.shift() ?? null);
+  }, [putFileToast]);
   const [uiWriteFailures, setUiWriteFailures] = useState(0);
   const shownUiWriteFailuresRef = useRef(0);
   // Focus to hand to the files once they show (revealFiles): the control
@@ -3424,7 +3441,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         aria-label={stacked ? t("sidebar.tabFiles") : undefined}
         aria-labelledby={stacked ? undefined : "session-sidebar-tab-files"}
         hidden={!stacked && sidebarTab !== "files"}
-        className={`sidebar-panel sidebar-files-panel${fileToast ? " has-toast" : ""}`}
+        className="sidebar-panel sidebar-files-panel"
         onScrollCapture={rememberScroll}
         onTransitionEnd={(event) => { if (event.target === event.currentTarget && event.propertyName === "height") endFilesFold(); }}
       >
@@ -3565,7 +3582,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
         </div>
         <SidebarToast
           toast={fileToast}
-          onDismiss={() => setFileToast(null)}
+          onDismiss={dismissFileToast}
           dismissLabel={t("sidebar.dismiss")}
           regionClassName="sidebar-files-toast-region"
         />

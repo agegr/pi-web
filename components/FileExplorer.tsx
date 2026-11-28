@@ -74,11 +74,14 @@ interface Props {
   onEntryDeleted?: (path: string) => void;
 }
 
-/** A notice for the sidebar's toast; `sticky` ones wait for an answer (an upload conflict). */
+/** A notice for the sidebar's toast. */
 export interface FileExplorerToast {
   message: string;
   actions?: { id: string; label: string; onClick: () => void }[];
+  /** Stays until dismissed (failed uploads). */
   sticky?: boolean;
+  /** Waits for an answer (an upload conflict's Replace or Skip): stays, and later notices wait behind it. */
+  question?: boolean;
 }
 
 export interface FileExplorerHandle {
@@ -1147,7 +1150,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  // The result in one line: counts, failed names, and a folder drop's notice.
+  // The result: counts, each failed file with its reason, and a folder drop's
+  // notice. A failure stays until dismissed; a plain success goes like Undo
+  // does (its files stay highlighted, each with Mention in its menu).
   const applyUploadResult = useCallback((data: UploadResponse, directory: string, folderNotice?: string) => {
     const uploaded = data.uploaded ?? [];
     const skipped = data.skipped ?? [];
@@ -1156,7 +1161,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     if (uploaded.length > 0) parts.push(t("files.uploadedCount", { count: uploaded.length }));
     if (skipped.length > 0) parts.push(t("files.skippedCount", { count: skipped.length }));
     if (errors.length > 0) {
-      parts.push(`${t("files.failedCount", { count: errors.length })}: ${errors.map((item) => item.name).join(", ")}`);
+      const failures = errors.map((item) => (item.error ? `${item.name} (${item.error})` : item.name)).join(", ");
+      parts.push(`${t("files.failedCount", { count: errors.length })}: ${failures}`);
     }
     if (folderNotice) parts.push(folderNotice);
     const mentionAction = uploaded.length > 0 && onAtMentions ? [{
@@ -1164,7 +1170,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       label: t("files.mention"),
       onClick: () => onAtMentions(uploaded.map((name) => getRelativeFilePath(joinFilePath(directory, name), cwd))),
     }] : [];
-    if (parts.length > 0) notify({ message: parts.join(" · "), actions: mentionAction });
+    if (parts.length > 0) notify({ message: parts.join(" · "), actions: mentionAction, sticky: errors.length > 0 });
 
     if (uploaded.length > 0) {
       setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(directory, name))));
@@ -1209,7 +1215,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     ].join(" · ");
     notify({
       message,
-      sticky: true,
+      question: true,
       actions: [
         { id: "replace", label: t("files.replace"), onClick: () => void performUpload(files, "overwrite", directory, folderNotice) },
         { id: "skip", label: t("files.skipExisting"), onClick: () => void performUpload(files, "skip", directory, folderNotice) },

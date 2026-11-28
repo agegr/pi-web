@@ -1005,22 +1005,47 @@ a.session-tree-main {
 }
 
 /* The file explorer's toast (a move's Undo, an upload's result): the same
-   card, at the bottom of the files panel, where the action happened. */
-.sidebar-files-panel {
-  position: relative;
-}
-
+   card, at the bottom of the files panel, where the action happened. It
+   takes its own room below the tree instead of covering it, so it may run
+   to several lines: file names are long, and a failed upload's reasons and
+   a conflict's names must be read. With less than 120px left beside the
+   buttons (a conflict's Replace and Skip existing), the message takes a line
+   of its own and the buttons go together, right-aligned, below it. */
 .sidebar-files-toast-region {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  left: 8px;
-  z-index: 30;
-  pointer-events: none;
+  flex: none;
+  padding: 0 8px;
 }
 
-.sidebar-files-panel.has-toast .sidebar-files-scroll {
-  padding-bottom: 56px;
+.sidebar-files-toast-region .sidebar-toast {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 36px;
+  margin-bottom: 8px;
+  padding-block: 4px;
+}
+
+.sidebar-files-toast-region .sidebar-toast-message {
+  display: -webkit-box;
+  flex: 1 1 120px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.sidebar-files-toast-region .sidebar-toast-buttons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+@media (pointer: coarse) {
+  .sidebar-files-toast-region .sidebar-toast {
+    min-height: 44px;
+  }
 }
 
 /* One toolbar row in the cells of the chat's top bar beside it (AppShell):

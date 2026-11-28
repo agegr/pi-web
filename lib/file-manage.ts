@@ -15,14 +15,32 @@ export class FileManageError extends Error {
   }
 }
 
-// `.git` is never listed, so nothing the explorer shows can be it.
-const PROTECTED_NAMES = new Set([".git"]);
+/**
+ * `.git` is never listed, so nothing the explorer shows is it or inside it.
+ * Compared as a case-insensitive disk (macOS, Windows) and Windows' dropping
+ * of trailing dots and spaces would: `.GIT` and `.git.` are the same folder there.
+ */
+function isGitName(name: string): boolean {
+  return name.replace(/[. ]+$/, "").toLowerCase() === ".git";
+}
+
+/** Refuses a real path that is `.git` or inside one, below the project root holding it. */
+function refuseGitPath(realPath: string, allowedRoots: Set<string>): void {
+  // The deepest root: a project opened inside another keeps its own view.
+  let root = "";
+  for (const candidate of resolveRealRoots(allowedRoots)) {
+    if (candidate.length > root.length && isPathWithinRoots(realPath, new Set([candidate]))) root = candidate;
+  }
+  if (path.relative(root, realPath).split(path.sep).some(isGitName)) {
+    throw new FileManageError(403, "Cannot change .git");
+  }
+}
 
 function validateEntryName(name: unknown): string {
   if (typeof name !== "string") throw new FileManageError(400, "name must be a string");
   const error = validateUploadFileNames([name]);
   if (error) throw new FileManageError(400, error);
-  if (PROTECTED_NAMES.has(name)) throw new FileManageError(400, `Cannot use the name ${name}`);
+  if (isGitName(name)) throw new FileManageError(400, `Cannot use the name ${name}`);
   return name;
 }
 
@@ -43,6 +61,7 @@ export function resolveManagedDirectory(directory: string, allowedRoots: Set<str
   if (!isPathWithinRoots(realDirectory, resolveRealRoots(allowedRoots))) {
     throw new FileManageError(403, "Access denied");
   }
+  refuseGitPath(realDirectory, allowedRoots);
   return realDirectory;
 }
 
@@ -53,7 +72,7 @@ interface ManagedEntry {
 
 function resolveManagedEntry(entryPath: string, allowedRoots: Set<string>): ManagedEntry {
   const name = path.basename(entryPath);
-  if (PROTECTED_NAMES.has(name)) throw new FileManageError(403, `Cannot change ${name}`);
+  if (isGitName(name)) throw new FileManageError(403, "Cannot change .git");
   const parent = resolveManagedDirectory(path.dirname(entryPath), allowedRoots);
   const resolved = path.join(parent, name);
   let stat: fs.Stats;
@@ -72,6 +91,10 @@ function resolveManagedEntry(entryPath: string, allowedRoots: Set<string>): Mana
     }
   }
   return { path: resolved, stat };
+}
+
+function foldName(value: string): string {
+  return value.normalize("NFC").toLowerCase();
 }
 
 export async function createDirectory(parent: string, name: unknown, allowedRoots: Set<string>): Promise<string> {
@@ -108,8 +131,14 @@ export async function moveEntry(
   } catch {
     existing = null;
   }
-  // On a case-insensitive disk `a` → `A` finds the entry itself: that rename is allowed.
-  const sameEntry = existing !== null && existing.ino === entry.stat.ino && existing.dev === entry.stat.dev;
+  // On a case-insensitive disk `a` → `A` finds the entry itself: that rename
+  // is allowed. Only a name that differs in case (or Unicode form) can be the
+  // entry itself; another name on the same inode is a hard link, and
+  // rename() onto it would do nothing and report success.
+  const sameEntry = existing !== null
+    && existing.ino === entry.stat.ino
+    && existing.dev === entry.stat.dev
+    && foldName(target) === foldName(entry.path);
   if (existing && !sameEntry) {
     throw new FileManageError(409, `${path.basename(target)} already exists there`);
   }
