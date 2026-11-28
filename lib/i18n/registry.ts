@@ -1,9 +1,10 @@
 import { enLocale } from "./messages/en";
 import { zhCNLocale } from "./messages/zh-CN";
 import { zhTWLocale } from "./messages/zh-TW";
+import { koLocale } from "./messages/ko";
 import type { Locale, LocalePlugin } from "./types";
 
-const localePlugins: LocalePlugin[] = [enLocale, zhCNLocale, zhTWLocale];
+const localePlugins: LocalePlugin[] = [enLocale, zhCNLocale, zhTWLocale, koLocale];
 
 /**
  * 根据标识获取已注册的语言包。
@@ -36,6 +37,7 @@ export function resolveBrowserLocale(languages: readonly string[]): Locale {
       || normalized === "zh-mo" || normalized.startsWith("zh-mo-")
       || normalized === "zh-hant" || normalized.startsWith("zh-hant-")) return "zh-TW";
     if (normalized.startsWith("zh-")) return "zh-CN";
+    if (normalized === "ko" || normalized.startsWith("ko-")) return "ko";
   }
   return "en";
 }
