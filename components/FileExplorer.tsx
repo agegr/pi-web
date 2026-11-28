@@ -14,7 +14,22 @@ import {
 } from "@/lib/file-paths";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
-import { uploadFiles, type DroppedItem, type UploadConflictStrategy, type UploadResponse } from "@/lib/file-upload-client";
+import {
+  collectDroppedItems,
+  fileUploadItems,
+  MAX_UPLOAD_TOTAL_BYTES,
+  pickedFolderItems,
+  summarizeNames,
+  uploadFiles,
+  uploadTopEntries,
+  uploadTotalBytes,
+  type CollectedUpload,
+  type DroppedItem,
+  type UploadConflictStrategy,
+  type UploadItem,
+  type UploadResponse,
+} from "@/lib/file-upload-client";
+import { formatImageBytes } from "@/lib/model-image-limits";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import type { FileTreeHiddenReason } from "@/lib/file-tree-visibility";
 import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
@@ -57,7 +72,8 @@ interface Props {
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
-  onAtMentions?: (relativePaths: string[]) => void;
+  /** Files and folders (an uploaded folder is mentioned as `folder/`). */
+  onAtMentions?: (entries: Array<{ path: string; isDir: boolean }>) => void;
   onUploadBusyChange?: (busy: boolean) => void;
   changesCollapsed: boolean;
   onChangesCountChange?: (count: number) => void;
@@ -90,8 +106,12 @@ export interface FileExplorerToast {
   question?: boolean;
 }
 
+// React's types lack the folder picker's attribute.
+const FOLDER_INPUT_PROPS = { webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>;
+
 export interface FileExplorerHandle {
-  openUploadPicker: () => void;
+  /** Files, or one folder with its subfolders. */
+  openUploadPicker: (kind: "files" | "folder") => void;
   /** Starts naming a new folder at the top of the tree. */
   createFolder: () => void;
 }
@@ -1051,6 +1071,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const prevCwdRef = useRef<string | null>(null);
   const expandedPathsRef = useRef(expandedPaths);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadFolderInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
   const hasSearchQuery = searchQuery.trim().length > 0;
@@ -1157,10 +1178,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  // The result: counts, each failed file with its reason, and a folder drop's
-  // notice. A failure stays until dismissed; a plain success goes like Undo
-  // does (its files stay highlighted, each with Mention in its menu).
-  const applyUploadResult = useCallback((data: UploadResponse, directory: string, folderNotice?: string) => {
+  // The result: counts, each failed file with its reason, and notes from
+  // reading a dropped folder. A failure stays until dismissed; a plain success
+  // goes like Undo does (its files stay highlighted, each with Mention in its
+  // menu). An uploaded folder is highlighted and mentioned, not each file in it.
+  const applyUploadResult = useCallback((data: UploadResponse, directory: string, notes: string[]) => {
     const uploaded = data.uploaded ?? [];
     const skipped = data.skipped ?? [];
     const errors = data.errors ?? [];
@@ -1168,46 +1190,50 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     if (uploaded.length > 0) parts.push(t("files.uploadedCount", { count: uploaded.length }));
     if (skipped.length > 0) parts.push(t("files.skippedCount", { count: skipped.length }));
     if (errors.length > 0) {
-      const failures = errors.map((item) => (item.error ? `${item.name} (${item.error})` : item.name)).join(", ");
+      const failures = summarizeNames(
+        errors.map((item) => (item.error ? `${item.name} (${item.error})` : item.name)),
+        (count) => t("files.moreNames", { count }),
+      );
       parts.push(`${t("files.failedCount", { count: errors.length })}: ${failures}`);
     }
-    if (folderNotice) parts.push(folderNotice);
-    const mentionAction = uploaded.length > 0 && onAtMentions ? [{
+    parts.push(...notes);
+    const added = uploadTopEntries(uploaded);
+    const mentionAction = added.length > 0 && onAtMentions ? [{
       id: "mention",
       label: t("files.mention"),
-      onClick: () => onAtMentions(uploaded.map((name) => getRelativeFilePath(joinFilePath(directory, name), cwd))),
+      onClick: () => onAtMentions(added.map((entry) => ({ ...entry, path: getRelativeFilePath(joinFilePath(directory, entry.path), cwd) }))),
     }] : [];
-    if (parts.length > 0) notify({ message: parts.join(" · "), actions: mentionAction, sticky: errors.length > 0 });
+    if (parts.length > 0) notify({ message: parts.join(" · "), actions: mentionAction, sticky: errors.length > 0 || notes.length > 0 });
 
     if (uploaded.length > 0) {
-      setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(directory, name))));
+      setHighlightedPaths(new Set(added.map((entry) => joinFilePath(directory, entry.path))));
       setTreeRefreshKey((key) => key + 1);
     }
   }, [cwd, notify, onAtMentions, t]);
 
   // Replace or skip: dismissing the toast cancels the upload.
-  const askConflictRef = useRef<(conflict: { directory: string; files: File[]; conflicts: string[]; nonReplaceable: string[]; folderNotice?: string }) => void>(() => {});
+  const askConflictRef = useRef<(conflict: { directory: string; items: UploadItem[]; conflicts: string[]; nonReplaceable: string[]; notes: string[] }) => void>(() => {});
 
   const performUpload = useCallback(async (
-    files: File[],
+    items: UploadItem[],
     strategy: UploadConflictStrategy,
     directory: string,
-    folderNotice?: string,
+    notes: string[],
   ) => {
     setUploadProgress(0);
     setUploadPhase("uploading");
 
     try {
-      const { status, data } = await uploadFiles(directory, files, strategy, setUploadProgress);
+      const { status, data } = await uploadFiles(directory, items, strategy, setUploadProgress);
       if (status === 409 && data.conflicts?.length) {
-        askConflictRef.current({ directory, files, conflicts: data.conflicts, nonReplaceable: data.nonReplaceable ?? [], folderNotice });
+        askConflictRef.current({ directory, items, conflicts: data.conflicts, nonReplaceable: data.nonReplaceable ?? [], notes });
         return;
       }
       if (status < 200 || status >= 300) {
         throw new Error(data.error ?? `Upload failed (HTTP ${status})`);
       }
       setUploadProgress(100);
-      applyUploadResult(data, directory, folderNotice);
+      applyUploadResult(data, directory, notes);
     } catch (uploadFailure) {
       notify({ message: errorMessage(uploadFailure) });
     } finally {
@@ -1215,61 +1241,87 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     }
   }, [applyUploadResult, notify]);
 
-  askConflictRef.current = ({ directory, files, conflicts, nonReplaceable, folderNotice }) => {
+  askConflictRef.current = ({ directory, items, conflicts, nonReplaceable, notes }) => {
+    const names = (list: string[]) => summarizeNames(list, (count) => t("files.moreNames", { count }));
     const message = [
-      t("files.conflictSummary", { count: conflicts.length, countSuffix: conflicts.length === 1 ? "" : "s", files: conflicts.join(", ") }),
-      ...(nonReplaceable.length > 0 ? [t("files.cannotReplace", { files: nonReplaceable.join(", ") })] : []),
+      t("files.conflictSummary", { count: conflicts.length, countSuffix: conflicts.length === 1 ? "" : "s", files: names(conflicts) }),
+      ...(nonReplaceable.length > 0 ? [t("files.cannotReplace", { files: names(nonReplaceable) })] : []),
     ].join(" · ");
     notify({
       message,
       question: true,
       actions: [
-        { id: "replace", label: t("files.replace"), onClick: () => void performUpload(files, "overwrite", directory, folderNotice) },
-        { id: "skip", label: t("files.skipExisting"), onClick: () => void performUpload(files, "skip", directory, folderNotice) },
+        { id: "replace", label: t("files.replace"), onClick: () => void performUpload(items, "overwrite", directory, notes) },
+        { id: "skip", label: t("files.skipExisting"), onClick: () => void performUpload(items, "skip", directory, notes) },
       ],
     });
   };
 
-  const prepareUpload = useCallback(async (files: File[], directory: string, folderNotice?: string) => {
-    if (files.length === 0 || uploadBusy) return;
+  // A dropped folder is read here, while the tree shows "checking".
+  const prepareUpload = useCallback(async (collect: () => Promise<CollectedUpload>, directory: string) => {
+    if (uploadBusy) return;
     setHighlightedPaths(new Set());
     setUploadProgress(0);
     setUploadPhase("checking");
 
     try {
+      const { items, empty, failed } = await collect();
+      const notes = [
+        ...(empty.length > 0 ? [t("files.folderEmpty", { names: empty.join(", ") })] : []),
+        ...failed.map((item) => `${item.name}: ${item.error}`),
+      ];
+      if (items.length === 0) {
+        if (notes.length > 0) notify({ message: notes.join(" · ") });
+        return;
+      }
+      const total = uploadTotalBytes(items);
+      if (total > MAX_UPLOAD_TOTAL_BYTES) {
+        notify({
+          message: t("files.uploadTooLarge", { size: formatImageBytes(total), limit: formatImageBytes(MAX_UPLOAD_TOTAL_BYTES) }),
+          sticky: true,
+        });
+        return;
+      }
+
       const res = await fetch(
         `/api/files/${encodeFilePathForApi(directory)}?type=upload-check`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileNames: files.map((file) => file.name) }),
+          body: JSON.stringify({ paths: items.map((item) => item.path) }),
         },
       );
       const data = await res.json().catch(() => ({})) as UploadResponse;
       if (!res.ok) throw new Error(data.error ?? `Upload check failed (HTTP ${res.status})`);
 
       if (data.conflicts?.length) {
-        askConflictRef.current({ directory, files, conflicts: data.conflicts, nonReplaceable: data.nonReplaceable ?? [], folderNotice });
+        askConflictRef.current({ directory, items, conflicts: data.conflicts, nonReplaceable: data.nonReplaceable ?? [], notes });
         return;
       }
 
-      await performUpload(files, "error", directory, folderNotice);
+      await performUpload(items, "error", directory, notes);
     } catch (uploadFailure) {
       notify({ message: errorMessage(uploadFailure) });
     } finally {
       setUploadPhase("idle");
     }
-  }, [notify, performUpload, uploadBusy]);
+  }, [notify, performUpload, t, uploadBusy]);
 
   const handleUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
+    const folder = event.target === uploadFolderInputRef.current;
     event.target.value = "";
-    void prepareUpload(files, cwd);
+    if (files.length === 0) return;
+    const items = folder ? pickedFolderItems(files) : fileUploadItems(files);
+    // Every file of a chosen folder may be a dot entry: it is named as an empty folder.
+    const empty = folder && items.length === 0 ? [files[0].webkitRelativePath.split("/")[0]] : [];
+    void prepareUpload(async () => ({ items, empty, failed: [] }), cwd);
   }, [cwd, prepareUpload]);
 
   useImperativeHandle(ref, () => ({
-    openUploadPicker() {
-      if (!uploadBusy) uploadInputRef.current?.click();
+    openUploadPicker(kind) {
+      if (uploadBusy) return;
+      (kind === "folder" ? uploadFolderInputRef : uploadInputRef).current?.click();
     },
     createFolder() {
       // The tree shows only without a search query; its row is at the top.
@@ -1512,20 +1564,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     }
   }, []);
 
+  // A dropped folder uploads with its subfolders; its entries were taken
+  // during the drop event and are read now.
   const handleDropFiles = useCallback((directory: string, items: DroppedItem[]) => {
     resetFileDrag();
-    // The endpoint writes files only: a dropped folder would fail the whole
-    // upload, so folders are left out with the chat drop's notice.
-    const files = items.flatMap((item) => (item.kind === "file" ? [item.file] : []));
-    const folders = items.flatMap((item) => (item.kind === "folder" ? [item.name] : []));
-    const folderNotice = folders.length > 0 ? t("chat.dropFoldersUnsupported", { names: folders.join(", ") }) : undefined;
-    // Said with the upload's result; alone when only folders were dropped.
-    if (files.length === 0) {
-      if (folderNotice) notify({ message: folderNotice });
-      return;
-    }
-    void prepareUpload(files, directory, folderNotice);
-  }, [notify, prepareUpload, resetFileDrag, t]);
+    if (items.length === 0) return;
+    void prepareUpload(() => collectDroppedItems(items), directory);
+  }, [prepareUpload, resetFileDrag]);
 
   const handleExplorerDrop = useCallback((event: React.DragEvent) => {
     if (draggingPath !== null && event.dataTransfer.types.includes(FILE_ENTRY_DRAG_MIME)) {
@@ -1662,6 +1707,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       onDrop={handleExplorerDrop}
     >
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
+      <input ref={uploadFolderInputRef} type="file" hidden onChange={handleUploadInput} {...FOLDER_INPUT_PROPS} />
       {uploadBusy && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {(

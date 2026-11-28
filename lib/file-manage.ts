@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { hasParentDirectorySegment, isPathWithinRoots, resolveRealRoots } from "./path-security";
-import { validateUploadFileNames } from "./file-upload";
+import { isGitName, validateUploadFileNames } from "./file-upload";
 
 /**
  * The explorer's three writes besides uploads: create a folder, move or rename
@@ -13,15 +13,6 @@ export class FileManageError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
-}
-
-/**
- * `.git` is never listed, so nothing the explorer shows is it or inside it.
- * Compared as a case-insensitive disk (macOS, Windows) and Windows' dropping
- * of trailing dots and spaces would: `.GIT` and `.git.` are the same folder there.
- */
-function isGitName(name: string): boolean {
-  return name.replace(/[. ]+$/, "").toLowerCase() === ".git";
 }
 
 /**

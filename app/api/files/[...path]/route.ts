@@ -25,8 +25,9 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
+  prepareUploadDestination,
   replaceUploadFile,
-  validateUploadFileNames,
+  validateUploadPaths,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
@@ -46,7 +47,8 @@ const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
 // One limit for a request's files together; a single file may use all of it.
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
-const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
+// A folder adds a part per file for its path, so thousands of files need room.
+const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 16 * 1024 * 1024;
 
 // The source view highlights every language here but text, pdf and word with
 // the Prism grammar of that name (refractor/all); a name it lacks renders
@@ -160,7 +162,7 @@ async function manageEntry(request: NextRequest, segments: string[], type: strin
   }
 }
 
-function parseUploadFileNames(value: unknown): string[] | null {
+function parseUploadPaths(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
   return value;
 }
@@ -183,17 +185,19 @@ export async function POST(
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
 
+    // Each file's path is relative to the upload folder: its name, or
+    // `folder/sub/name` for a file of an uploaded folder.
     if (type === "upload-check") {
-      const body = await request.json().catch(() => null) as { fileNames?: unknown } | null;
-      const fileNames = parseUploadFileNames(body?.fileNames);
-      if (!fileNames) {
-        return NextResponse.json({ error: "fileNames must be an array of strings" }, { status: 400 });
+      const body = await request.json().catch(() => null) as { paths?: unknown } | null;
+      const uploadPaths = parseUploadPaths(body?.paths);
+      if (!uploadPaths) {
+        return NextResponse.json({ error: "paths must be an array of strings" }, { status: 400 });
       }
-      const validationError = validateUploadFileNames(fileNames);
+      const validationError = validateUploadPaths(uploadPaths);
       if (validationError) {
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
-      return NextResponse.json(inspectUploadTargets(directory, fileNames));
+      return NextResponse.json(inspectUploadTargets(directory, uploadPaths));
     }
 
     if (type !== "upload") {
@@ -218,13 +222,18 @@ export async function POST(
     if (files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_TOTAL_BYTES) {
       return NextResponse.json({ error: "Uploads must total 100MB or less" }, { status: 413 });
     }
-    const fileNames = files.map((file) => file.name);
-    const validationError = validateUploadFileNames(fileNames);
+    // A `paths` entry beside each file; without them, each file's own name.
+    const pathEntries = formData.getAll("paths");
+    if (pathEntries.length > 0 && (pathEntries.length !== files.length || pathEntries.some((entry) => typeof entry !== "string"))) {
+      return NextResponse.json({ error: "paths must name each file" }, { status: 400 });
+    }
+    const uploadPaths = pathEntries.length > 0 ? pathEntries as string[] : files.map((file) => file.name);
+    const validationError = validateUploadPaths(uploadPaths);
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const inspection = inspectUploadTargets(directory, fileNames);
+    const inspection = inspectUploadTargets(directory, uploadPaths);
     if (strategy === "error" && inspection.conflicts.length > 0) {
       return NextResponse.json({
         error: "One or more files already exist",
@@ -239,14 +248,14 @@ export async function POST(
     const skipped: string[] = [];
     const errors: Array<{ name: string; error: string }> = [];
 
-    for (const file of files) {
-      const destination = path.join(directory, file.name);
-      if (conflictSet.has(file.name) && strategy === "skip") {
-        skipped.push(file.name);
+    for (const [index, file] of files.entries()) {
+      const uploadPath = uploadPaths[index];
+      if (conflictSet.has(uploadPath) && strategy === "skip") {
+        skipped.push(uploadPath);
         continue;
       }
-      if (conflictSet.has(file.name) && nonReplaceableSet.has(file.name)) {
-        errors.push({ name: file.name, error: "Cannot replace a directory or symbolic link" });
+      if (conflictSet.has(uploadPath) && nonReplaceableSet.has(uploadPath)) {
+        errors.push({ name: uploadPath, error: "Cannot replace a directory or symbolic link" });
         continue;
       }
 
@@ -254,21 +263,27 @@ export async function POST(
       try {
         bytes = Buffer.from(await file.arrayBuffer());
       } catch (error) {
-        errors.push({ name: file.name, error: errorMessage(error) });
+        errors.push({ name: uploadPath, error: errorMessage(error) });
         continue;
       }
 
       try {
+        const destination = prepareUploadDestination(directory, uploadPath);
         // Async writes: a 100MB file written synchronously would stall every
         // stream and request this process serves until the disk catches up.
-        if (conflictSet.has(file.name)) {
+        // `wx` refuses whatever appeared there since, a link included.
+        if (conflictSet.has(uploadPath)) {
           await replaceUploadFile(destination, bytes);
         } else {
           await fs.promises.writeFile(destination, bytes, { flag: "wx" });
         }
-        uploaded.push(file.name);
+        uploaded.push(uploadPath);
       } catch (error) {
-        errors.push({ name: file.name, error: errorMessage(error) });
+        // Something took the name since the check, or another file of this
+        // upload did on a case-insensitive disk (`A/x` and `a/x`): said
+        // without the errno text, which carries the server's absolute path.
+        const exists = (error as NodeJS.ErrnoException).code === "EEXIST";
+        errors.push({ name: uploadPath, error: exists ? "Already exists" : errorMessage(error) });
       }
     }
 

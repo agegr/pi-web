@@ -29,10 +29,11 @@ function fixture() {
   return { directory, destination };
 }
 
-async function upload(directory, strategy = "overwrite", names = ["important.txt"], contents = "replacement") {
+async function upload(directory, strategy = "overwrite", names = ["important.txt"], contents = "replacement", paths = []) {
   const encoded = encodeFilePathForApi(directory);
   const form = new FormData();
   for (const name of names) form.append("files", new File([contents], name));
+  for (const uploadPath of paths) form.append("paths", uploadPath);
   return POST(new NextRequest(`http://localhost/api/files/${encoded}?type=upload&conflict=${strategy}`, {
     method: "POST", headers: { host: "localhost" }, body: form,
   }), { params: Promise.resolve({ path: encoded.split("/").map(decodeURIComponent) }) });
@@ -157,4 +158,71 @@ test("overwrite refuses directories and directory links without touching their t
   assert.deepEqual(body.errors.map((entry) => entry.name), ["folder", "linked"]);
   assert.equal(fs.lstatSync(path.join(directory, "linked")).isSymbolicLink(), true);
   assert.equal(fs.readFileSync(path.join(outside, "secret.txt"), "utf8"), "private contents");
+});
+
+async function check(directory, paths) {
+  const encoded = encodeFilePathForApi(directory);
+  return POST(new NextRequest(`http://localhost/api/files/${encoded}?type=upload-check`, {
+    method: "POST", headers: { host: "localhost", "content-type": "application/json" }, body: JSON.stringify({ paths }),
+  }), { params: Promise.resolve({ path: encoded.split("/").map(decodeURIComponent) }) });
+}
+
+test("a folder upload writes each file at its path, creating the folders", async () => {
+  const { directory } = fixture();
+  const paths = ["data/a.csv", "data/sub/b.csv"];
+  const response = await upload(directory, "error", ["a.csv", "b.csv"], "rows", paths);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { uploaded: paths, skipped: [], errors: [] });
+  assert.equal(fs.readFileSync(path.join(directory, "data", "sub", "b.csv"), "utf8"), "rows");
+
+  const checked = await check(directory, [...paths, "data/new.csv"]);
+  assert.deepEqual(await checked.json(), { conflicts: paths, nonReplaceable: [] });
+  const skipped = await upload(directory, "skip", ["a.csv", "new.csv"], "again", ["data/a.csv", "data/new.csv"]);
+  assert.deepEqual(await skipped.json(), { uploaded: ["data/new.csv"], skipped: ["data/a.csv"], errors: [] });
+  assert.equal(fs.readFileSync(path.join(directory, "data", "a.csv"), "utf8"), "rows");
+});
+
+test("a folder upload refuses unsafe paths before writing anything", async () => {
+  const { directory } = fixture();
+  for (const unsafe of ["../escape.txt", "/abs.txt", "data/../../escape.txt", ".git/hooks/pre-commit"]) {
+    const response = await upload(directory, "error", ["ok.txt", "x.txt"], "x", ["ok.txt", unsafe]);
+    assert.equal(response.status, 400, unsafe);
+    const checked = await check(directory, [unsafe]);
+    assert.equal(checked.status, 400, unsafe);
+  }
+  const mismatched = await upload(directory, "error", ["a.txt", "b.txt"], "x", ["a.txt"]);
+  assert.equal(mismatched.status, 400);
+  assert.deepEqual(fs.readdirSync(directory), ["important.txt"]);
+  assert.equal(fs.existsSync(path.join(base, "escape.txt")), false);
+});
+
+test("a folder upload never writes through a link or into a file on its way", async () => {
+  const { directory } = fixture();
+  const outside = fs.mkdtempSync(path.join(base, "upload-link-outside-"));
+  fs.symlinkSync(outside, path.join(directory, "linked"), process.platform === "win32" ? "junction" : "dir");
+  const response = await upload(directory, "overwrite", ["x.txt", "y.txt", "z.txt"], "x", ["linked/x.txt", "important.txt/y.txt", "fine/z.txt"]);
+  assert.equal(response.status, 207);
+  const body = await response.json();
+  assert.deepEqual(body.uploaded, ["fine/z.txt"]);
+  assert.deepEqual(body.errors, [
+    { name: "linked/x.txt", error: "linked is not a folder" },
+    { name: "important.txt/y.txt", error: "important.txt is not a folder" },
+  ]);
+  assert.deepEqual(fs.readdirSync(outside), []);
+});
+
+test("a name taken after the check fails as already existing, without the server's path", async (t) => {
+  const { directory } = fixture();
+  const write = fs.promises.writeFile;
+  // Another writer (or, on a case-insensitive disk, `A/x` before `a/x`) takes the name first.
+  t.mock.method(fs.promises, "writeFile", async (target, ...args) => {
+    if (String(target) === path.join(directory, "data", "late.txt")) fs.writeFileSync(target, "theirs");
+    return write(target, ...args);
+  });
+  const response = await upload(directory, "error", ["late.txt"], "mine", ["data/late.txt"]);
+  assert.equal(response.status, 207);
+  const body = await response.json();
+  assert.deepEqual(body.errors, [{ name: "data/late.txt", error: "Already exists" }]);
+  assert.doesNotMatch(JSON.stringify(body), new RegExp(directory.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(fs.readFileSync(path.join(directory, "data", "late.txt"), "utf8"), "theirs");
 });
