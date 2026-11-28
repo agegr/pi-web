@@ -2,7 +2,7 @@
 
 import { createContext, forwardRef, useContext, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
-import { DownloadIcon, FolderPlusIcon, MentionIcon, MoreIcon, PencilIcon, TrashIcon } from "./SidebarIcons";
+import { DownloadIcon, FolderOpenIcon, FolderPlusIcon, MentionIcon, MoreIcon, PencilIcon, TrashIcon } from "./SidebarIcons";
 import { SidebarMenu, SidebarMenuQuestion, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
 import {
   encodeFilePathForApi,
@@ -69,6 +69,12 @@ interface Props {
   mobile?: boolean;
   /** Shows a notice in the sidebar's toast (the one session archive uses). */
   onToast?: (toast: FileExplorerToast) => void;
+  /**
+   * "Show in Finder" (Explorer, file manager) in a row's menu: the entry
+   * selected in its folder. Absent where the server cannot raise a window for
+   * this browser. `reveal` resolves the message of a failure, or null.
+   */
+  fileManager?: { label: string; reveal: (path: string) => Promise<string | null> };
   /** An entry moved or was renamed here, so open tabs of it can follow. */
   onEntryMoved?: (from: string, to: string) => void;
   onEntryDeleted?: (path: string) => void;
@@ -1007,6 +1013,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onEntryMoved,
   onEntryDeleted,
   onToast,
+  fileManager,
   mobile = false,
 }, ref) {
   const { t } = useI18n();
@@ -1398,6 +1405,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         },
       });
     }
+    if (fileManager) {
+      items.push({
+        type: "item",
+        id: "reveal",
+        label: fileManager.label,
+        icon: <FolderOpenIcon />,
+        onSelect: () => {
+          void fileManager.reveal(node.fullPath).then((failure) => {
+            if (failure) notify({ message: failure });
+          });
+        },
+      });
+    }
     if (items.length > 0) items.push({ type: "separator", id: "separator-edit" });
     items.push({
       type: "item",
@@ -1440,7 +1460,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       },
     });
     return items;
-  }, [cwd, deleteNode, handleToggleExpanded, menu, onAtMention, t]);
+  }, [cwd, deleteNode, fileManager, handleToggleExpanded, menu, notify, onAtMention, t]);
 
 
   const resetFileDrag = useCallback(() => {

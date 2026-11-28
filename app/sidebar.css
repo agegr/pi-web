@@ -1350,15 +1350,15 @@ a.session-tree-main {
    the label in small capitals in the text column, the changed files' count
    after it (" · N", meta); the whole toggle folds the section. At the right
    end, on the session times' edge, the files' keys in the files tab's
-   order, the search last: eight keys always there (disabled without a
+   order, the search last: seven keys always there (disabled without a
    folder), so no key ever moves. The toggle keeps its content (chevron,
-   label, count) and the keys share what it leaves, 17 to 26px each; only
-   with the keys at 17px does the toggle give way: its label first, then
+   label, count) and the keys share what it leaves, 18 to 26px each; only
+   with the keys at 18px does the toggle give way: its label first, then
    the count, down to the chevron (17px). At the default 260px beside
-   Chromium's 10px scrollbar "文件 · 2" leaves the keys about 21px each and
-   "Files · 123" about 19px; from about 320px they are square, 26px; at the
-   sidebar's 180px minimum (159px inside the row's padding) they are 17px
-   and the toggle keeps 21px. */
+   Chromium's 10px scrollbar "文件 · 2" leaves the keys about 24px each and
+   "Files · 123" about 21px; from about 300px they are square, 26px; at the
+   sidebar's 180px minimum (159px inside the row's padding) they are 18px
+   and the toggle keeps 31px. */
 .sidebar-files-section {
   display: flex;
   flex: none;
@@ -1425,22 +1425,22 @@ a.session-tree-main {
 }
 
 /* The keys' group, right-aligned by the toggle before it: never under its
-   eight keys' minimum (no shrink from 8 x 17px), never over their maximum
-   (8 x 26px). Its grow factor, far above the toggle's, gives it the room
+   seven keys' minimum (no shrink from 7 x 18px), never over their maximum
+   (7 x 26px), counted for the keys there are (SessionSidebar.test.mjs). Its grow factor, far above the toggle's, gives it the room
    the toggle's content leaves until the keys reach 26px; the toggle gets
    the rest (a fraction of a pixel until then). */
 .sidebar-files-keys {
   display: flex;
-  flex: 1000 0 calc(8 * 17px);
+  flex: 1000 0 calc(7 * 18px);
   align-items: center;
-  max-width: calc(8 * 26px);
+  max-width: calc(7 * 26px);
 }
 
 /* The section's keys: the files tab's square keys, a step under the row's
    height, sharing their group's width alike. */
 .sidebar-files-keys .sidebar-tool-button {
   flex: 1 1 0;
-  min-width: 17px;
+  min-width: 18px;
   max-width: 26px;
   height: 26px;
   border-radius: 6px;
@@ -1629,10 +1629,6 @@ a.session-tree-main {
   padding-top: 0;
 }
 
-.session-sidebar.is-files-below .sidebar-files-error {
-  padding: 2px var(--sidebar-files-inset-right) 4px 15px;
-}
-
 /* The head's last row: the actions on that folder and the tree's two
    views, used often enough to stay in view (its search is the toolbar
    row's). The folder's four from the left, the tree's views (ignored files,
@@ -1693,23 +1689,6 @@ a.session-tree-main {
 }
 
 /* Under the head's line, on the boxes' edges. */
-.sidebar-files-error {
-  display: flex;
-  flex: none;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 6px 10px 0;
-  color: #f87171;
-  font-size: 10px;
-  line-height: 1.35;
-}
-
-.sidebar-files-error-text {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 /* The tree's first row 4px under the head's line (with the tree's own 2px),
    as close as it sits under the boxes below the sessions. */
 .sidebar-files-scroll {

@@ -42,3 +42,15 @@ test("refuses requests that are not addressed to this machine", async () => {
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { error: "remote" });
 });
+
+test("a reveal is checked against the allowed roots as an open is", async (t) => {
+  const outside = await mkdtemp(path.join(os.tmpdir(), "pi-web-open-in-explorer-outside-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const response = await POST(new Request("http://localhost/api/open-in-explorer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Host: "localhost:30141" },
+    body: JSON.stringify({ reveal: path.join(outside, "a.txt") }),
+  }));
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: "access-denied" });
+});

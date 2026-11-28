@@ -179,6 +179,16 @@ export function FolderPlusIcon(props: SidebarIconProps) {
   );
 }
 
+/** The folder with an arrow out of it: in the OS file manager, outside Pi Web. */
+export function FolderOpenIcon(props: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props}>
+      <path d="M21 12.5V9.9a2 2 0 0 0-2-2h-8.7L8.4 6H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h7" />
+      <path d="M16 19h5m0 0v-5m0 5-6-6" />
+    </SidebarIcon>
+  );
+}
+
 export function TerminalIcon(props: SidebarIconProps) {
   return (
     <SidebarIcon {...props}>
