@@ -256,6 +256,33 @@ export function subagentNotificationText(run: SubagentRunInfo): string {
   return `${SUBAGENT_NOTIFICATION_PREFIX}This report is from a resumed run of subagent ${run.sessionId}; it supersedes any earlier report from the same subagent.\n\n${text}`;
 }
 
+const DEFAULT_SUBAGENT_TYPE = "general-purpose";
+
+function enabledProfileNames(getProfiles: SubagentProfileProvider): string[] {
+  return getProfiles().filter((profile) => profile.enabled).map((profile) => profile.name);
+}
+
+function availableTypesText(names: readonly string[]): string {
+  return names.length > 0 ? names.join(", ") : "none";
+}
+
+function defaultSubagentType(names: readonly string[]): string | undefined {
+  return names.find((name) => name.toLowerCase() === DEFAULT_SUBAGENT_TYPE);
+}
+
+/**
+ * The type a new subagent starts with. The default is read again here, not taken from the tool
+ * description: Settings can switch general-purpose on or off while the session stays open.
+ */
+function newSubagentProfile(requested: string | undefined, getProfiles: SubagentProfileProvider): string {
+  const named = requested?.trim();
+  if (named) return named;
+  const names = enabledProfileNames(getProfiles);
+  const profile = defaultSubagentType(names);
+  if (!profile) throw new Error(`subagent_type is required: ${DEFAULT_SUBAGENT_TYPE} is not enabled. Available types: ${availableTypesText(names)}.`);
+  return profile;
+}
+
 export function createSubagentExtension(
   runtime: SubagentExtensionRuntime,
   getProfiles: SubagentProfileProvider,
@@ -268,7 +295,13 @@ export function createSubagentExtension(
       if (!isEnabled()) return;
       const profiles = getProfiles().filter((profile) => profile.enabled);
       const profileNames = profiles.map((profile) => profile.name);
-      const availableTypes = profileNames.length > 0 ? profileNames.join(", ") : "none";
+      // The default is general-purpose only while that profile is enabled. Once it is switched off,
+      // an omitted type would name a profile the call cannot start, so a new subagent must name one
+      // (#1833). The schema keeps the key optional because a `resume` call omits it.
+      const defaultType = defaultSubagentType(profileNames);
+      const subagentTypeDescription = `Configured agent profile. Available types: ${availableTypesText(profileNames)}. ${
+        defaultType ? `Default: ${defaultType}.` : "Required for a new subagent."
+      }`;
       pi.registerTool(defineTool({
         name: "Agent",
         label: "Agent",
@@ -282,7 +315,7 @@ export function createSubagentExtension(
         ],
         executionMode: "parallel",
         parameters: Type.Object({
-          subagent_type: Type.Optional(Type.String({ description: `Configured agent profile. Available types: ${availableTypes}. Default: general-purpose.` })),
+          subagent_type: Type.Optional(Type.String({ description: subagentTypeDescription })),
           prompt: Type.String({ description: "The complete task for the subagent." }),
           resume: Type.Optional(Type.String({ description: "Existing session ID to continue with its current profile, model, thinking, and context. Omit new-session options." })),
           input_files: Type.Optional(Type.Array(Type.String(), {
@@ -348,7 +381,7 @@ export function createSubagentExtension(
               : await runtime.start({
               parentContext: ctx,
               parentToolCallId: toolCallId,
-              profile: params.subagent_type ?? "general-purpose",
+              profile: newSubagentProfile(params.subagent_type, getProfiles),
               task: params.prompt,
               ...(params.input_files ? { inputFiles: params.input_files } : {}),
               description: params.description,
