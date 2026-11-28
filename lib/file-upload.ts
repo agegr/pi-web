@@ -18,14 +18,29 @@ export function parseUploadConflictStrategy(value: string | null): UploadConflic
     : null;
 }
 
+/**
+ * `.git` is never listed, so nothing the explorer shows is it or inside it.
+ * Compared as a case-insensitive disk (macOS, Windows) and Windows' dropping
+ * of trailing dots and spaces would: `.GIT` and `.git.` are the same folder there.
+ */
+export function isGitName(name: string): boolean {
+  return name.replace(/[. ]+$/, "").toLowerCase() === ".git";
+}
+
+function invalidNameError(name: string): string | null {
+  if (!name || name === "." || name === ".." || name.includes("\0")) {
+    return `Invalid file name: ${name || "(empty)"}`;
+  }
+  return null;
+}
+
 export function validateUploadFileNames(fileNames: string[]): string | null {
   if (fileNames.length === 0) return "No files selected";
 
   const seen = new Set<string>();
   for (const fileName of fileNames) {
-    if (!fileName || fileName === "." || fileName === ".." || fileName.includes("\0")) {
-      return `Invalid file name: ${fileName || "(empty)"}`;
-    }
+    const invalid = invalidNameError(fileName);
+    if (invalid) return invalid;
     if (fileName.includes("/") || fileName.includes("\\") || path.basename(fileName) !== fileName) {
       return `File names must not contain a path: ${fileName}`;
     }
@@ -36,26 +51,107 @@ export function validateUploadFileNames(fileNames: string[]): string | null {
   return null;
 }
 
-export function inspectUploadTargets(directory: string, fileNames: string[]): UploadTargetInspection {
+/**
+ * Checks each file's path inside the upload folder: relative, `/`-separated,
+ * no empty, `.` or `..` segment, no `.git`. A path that is also another one's
+ * folder is refused, since one of the two could never be written.
+ */
+export function validateUploadPaths(paths: string[]): string | null {
+  if (paths.length === 0) return "No files selected";
+
+  const seen = new Set<string>();
+  const folders = new Set<string>();
+  for (const uploadPath of paths) {
+    if (uploadPath.startsWith("/") || uploadPath.includes("\\") || path.win32.isAbsolute(uploadPath)) {
+      return `Upload paths must be relative: ${uploadPath}`;
+    }
+    const segments = uploadPath.split("/");
+    for (const segment of segments) {
+      const invalid = invalidNameError(segment);
+      if (invalid) return `${invalid} in ${uploadPath || "(empty)"}`;
+      // A drive (`C:`) or anything else the platform reads as more than a name.
+      if (path.basename(segment) !== segment) return `Invalid file name: ${segment} in ${uploadPath}`;
+      if (isGitName(segment)) return `Cannot upload into .git: ${uploadPath}`;
+    }
+    if (seen.has(uploadPath)) return `Duplicate file name in upload: ${uploadPath}`;
+    seen.add(uploadPath);
+    for (let index = 1; index < segments.length; index += 1) folders.add(segments.slice(0, index).join("/"));
+  }
+  for (const uploadPath of paths) {
+    if (folders.has(uploadPath)) return `${uploadPath} is both a file and a folder in the upload`;
+  }
+
+  return null;
+}
+
+function lstatOrNull(target: string): fs.Stats | null {
+  try {
+    return fs.lstatSync(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/**
+ * Where a file of the upload goes. Its folders are looked at one segment at
+ * a time with `lstat`, so a link on the way is seen and never followed.
+ * @returns The destination, or null when a folder on the way is missing (nothing there yet)
+ *   or is not a real folder (the write will be refused)
+ */
+function existingDestination(directory: string, uploadPath: string): string | null {
+  const segments = uploadPath.split("/");
+  let current = directory;
+  for (const segment of segments.slice(0, -1)) {
+    current = path.join(current, segment);
+    const stat = lstatOrNull(current);
+    if (!stat || !stat.isDirectory() || stat.isSymbolicLink()) return null;
+  }
+  return path.join(current, segments[segments.length - 1]);
+}
+
+export function inspectUploadTargets(directory: string, uploadPaths: string[]): UploadTargetInspection {
   const conflicts: string[] = [];
   const nonReplaceable: string[] = [];
 
-  for (const fileName of fileNames) {
-    const destination = path.join(directory, fileName);
-    let stat: fs.Stats;
-    try {
-      stat = fs.lstatSync(destination);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") continue;
-      throw error;
-    }
+  for (const uploadPath of uploadPaths) {
+    const destination = existingDestination(directory, uploadPath);
+    const stat = destination ? lstatOrNull(destination) : null;
+    if (!stat) continue;
 
-    conflicts.push(fileName);
-    if (!stat.isFile() || stat.isSymbolicLink()) nonReplaceable.push(fileName);
+    conflicts.push(uploadPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) nonReplaceable.push(uploadPath);
   }
 
   return { conflicts, nonReplaceable };
+}
+
+/**
+ * Creates the folders of one uploaded file's path inside the upload folder,
+ * one segment at a time, and returns the file's destination. A segment that
+ * is a file or a link is refused rather than followed, so a link inside the
+ * project cannot send the write outside the allowed roots. Synchronous, so
+ * nothing runs between a segment's check and the next one.
+ */
+export function prepareUploadDestination(directory: string, uploadPath: string): string {
+  const segments = uploadPath.split("/");
+  let current = directory;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    current = path.join(current, segments[index]);
+    let stat = lstatOrNull(current);
+    if (!stat) {
+      try {
+        fs.mkdirSync(current);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      stat = fs.lstatSync(current);
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`${segments.slice(0, index + 1).join("/")} is not a folder`);
+    }
+  }
+  return path.join(current, segments[segments.length - 1]);
 }
 
 /** Keep the old entry intact until its complete replacement can be renamed over it. */

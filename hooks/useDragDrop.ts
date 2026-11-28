@@ -15,8 +15,9 @@ function draggedKind(e: React.DragEvent): "session" | "entry" | "files" | null {
 
 /**
  * Reads a drop's files and folders. `webkitGetAsEntry()` only answers during
- * the drop event, so this has to run inside the handler. A folder is told by
- * its entry first: some browsers return no `File` for it.
+ * the drop event, so this has to run inside the handler; a folder's entry can
+ * be read afterwards (`collectDroppedItems()`). A folder is told by its entry
+ * first: some browsers return no `File` for it.
  */
 export function droppedItems(dataTransfer: DataTransfer): DroppedItem[] {
   const items: DroppedItem[] = [];
@@ -24,7 +25,7 @@ export function droppedItems(dataTransfer: DataTransfer): DroppedItem[] {
     if (item.kind !== "file") continue;
     const entry = item.webkitGetAsEntry?.();
     if (entry?.isDirectory) {
-      items.push({ kind: "folder", name: entry.name });
+      items.push({ kind: "folder", name: entry.name, entry: entry as FileSystemDirectoryEntry });
       continue;
     }
     const file = item.getAsFile();

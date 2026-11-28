@@ -170,6 +170,15 @@ export function FolderIcon(props: SidebarIconProps) {
   return <SidebarIcon {...props}><path d="M3 8a2 2 0 0 1 2-2h3.4l1.9 1.9H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></SidebarIcon>;
 }
 
+export function FileIcon(props: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5" />
+    </SidebarIcon>
+  );
+}
+
 export function FolderPlusIcon(props: SidebarIconProps) {
   return (
     <SidebarIcon {...props}>

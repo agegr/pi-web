@@ -209,8 +209,8 @@ function sectionKeys(html) {
 
 /** Each key's name and state, in order. */
 function keyLabels(markup) {
-  return [...markup.matchAll(/<button type="button"( disabled="")? title="([^"]+)" aria-label="\2"( aria-pressed="(true|false)")?( aria-expanded="(true|false)" aria-controls="[^"]+")? class="[^"]+"/g)]
-    .map((match) => `${match[2]}${match[1] ? " (disabled)" : ""}${match[4] ? ` pressed=${match[4]}` : ""}${match[6] ? ` expanded=${match[6]}` : ""}`);
+  return [...markup.matchAll(/<button type="button"( disabled="")? title="([^"]+)" aria-label="\2"( aria-pressed="(true|false)")?( aria-expanded="(true|false)")?( aria-controls="[^"]+")?( aria-haspopup="menu")? class="[^"]+"/g)]
+    .map((match) => `${match[2]}${match[1] ? " (disabled)" : ""}${match[4] ? ` pressed=${match[4]}` : ""}${match[6] ? ` expanded=${match[6]}` : ""}${match[8] ? " menu" : ""}`);
 }
 
 /** A rule's declarations in app/sidebar.css (its first rule for the selector). */
@@ -248,7 +248,7 @@ test("below the sessions the section's header row holds the files' keys in the f
   assert.match(keys, /^<div class="sidebar-files-keys" role="group" aria-label="File actions">/);
   assert.deepEqual(keyLabels(keys), [
     "Open workspace terminal",
-    "Upload files to project root",
+    "Upload to project root expanded=false menu",
     "New folder",
     "Refresh file list",
     "Show ignored files pressed=false",
@@ -268,7 +268,7 @@ test("below the sessions the section's header row holds the files' keys in the f
   // terminal without a handler, where the files tab leaves it out.
   assert.deepEqual(keyLabels(sectionKeys(render())), [
     "Open workspace terminal (disabled)",
-    "Upload files to project root (disabled)",
+    "Upload to project root (disabled) expanded=false menu",
     "New folder (disabled)",
     "Refresh file list (disabled)",
     "Show ignored files (disabled) pressed=false",
@@ -277,7 +277,7 @@ test("below the sessions the section's header row holds the files' keys in the f
   ]);
   assert.deepEqual(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).slice(0, 2), [
     "Open workspace terminal (disabled)",
-    "Upload files to project root",
+    "Upload to project root expanded=false menu",
   ]);
 
   // The keys share their group's width alike, 18 to 26px each. The group

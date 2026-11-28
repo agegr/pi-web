@@ -184,6 +184,7 @@ export function buildFileLineMentionText(entryPath: string, startLine: number, e
   return `${pathMention}${lineSuffix} `;
 }
 
-export function buildFileAtMentionsText(entryPaths: string[]): string {
-  return entryPaths.map((entryPath) => buildAtMentionText(entryPath, false)).join("");
+/** Mentions for several entries; a folder's ends in `/`. */
+export function buildAtMentionsText(entries: ReadonlyArray<{ path: string; isDir: boolean }>): string {
+  return entries.map((entry) => buildAtMentionText(entry.path, entry.isDir)).join("");
 }

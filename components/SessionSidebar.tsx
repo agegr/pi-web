@@ -128,6 +128,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  FileIcon,
   MessageIcon,
   MoreIcon,
   ForkIcon,
@@ -177,6 +178,7 @@ function ToolbarIconButton({
   pressed,
   expanded,
   controls,
+  menu,
   done,
   className,
   children,
@@ -191,6 +193,8 @@ function ToolbarIconButton({
   expanded?: boolean;
   /** The id of what it opens. */
   controls?: string;
+  /** It opens a menu (the Upload key's files or folder): `expanded` says whether it is open. */
+  menu?: boolean;
   /** Brief confirmation after an action (refresh). */
   done?: boolean;
   className?: string;
@@ -207,6 +211,7 @@ function ToolbarIconButton({
       aria-pressed={pressed}
       aria-expanded={expanded}
       aria-controls={controls}
+      aria-haspopup={menu ? "menu" : undefined}
       className={`sidebar-tool-button${pressed || expanded ? " is-active" : ""}${done ? " is-done" : ""}${className ? ` ${className}` : ""}`}
     >
       {children}
@@ -260,7 +265,7 @@ interface Props {
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
-  onAtMentions?: (relativePaths: string[]) => void;
+  onAtMentions?: (entries: Array<{ path: string; isDir: boolean }>) => void;
   /** Fired when sessions that are not currently selected finish running.
    *  Lets the app play a cross-workspace completion tone. `since`: no earlier
    *  than the poll that last saw them running (a chime claim's bound, #1688). */
@@ -339,7 +344,9 @@ type SidebarMenuState =
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
   | { kind: "archive-group"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
-  | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope };
+  | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope }
+  /** The files' Upload key: files, or a folder with its subfolders. */
+  | { kind: "upload"; anchor: SidebarMenuAnchor; opener: HTMLElement };
 
 /** The archive bar's deletes: every archived session, or those archived over 30 days ago. */
 type ArchiveDeleteScope = "all" | "old";
@@ -643,6 +650,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   const detailsHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement>(null);
 
   // The files below the sessions (desktop, by default: both in view, a
   // separator between them, the files section foldable to its header row),
@@ -3000,6 +3008,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     menuItems = archiveGroupMenuItems(project);
     if (menu.askDelete) menuBody = archiveDeleteBody({ projectKey: project.key }, project);
     menuWidth = 248;
+  } else if (menu?.kind === "upload") {
+    menuLabel = t("sidebar.uploadFilesTitle");
+    // Picked from the menu's click, so the browser still opens its file dialog.
+    const pick = (kind: "files" | "folder") => {
+      // The upload's progress and summary are the tree's: a folded section opens.
+      if (stacked && filesCollapsed) setFilesSectionCollapsed(false);
+      fileExplorerRef.current?.openUploadPicker(kind);
+    };
+    menuItems = [
+      { type: "item", id: "upload-files", label: t("sidebar.uploadFiles"), icon: <FileIcon />, onSelect: () => pick("files") },
+      { type: "item", id: "upload-folder", label: t("sidebar.uploadFolder"), icon: <FolderIcon />, onSelect: () => pick("folder") },
+    ];
   } else if (menu?.kind === "archive") {
     menuTitle = t("sidebar.archived");
     menuLabel = t("sidebar.archiveActions");
@@ -3111,12 +3131,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
   );
   const uploadButton = (
     <ToolbarIconButton
+      ref={uploadButtonRef}
       onClick={() => {
-        // The upload's progress and summary are the tree's: a folded section opens.
-        if (stacked && filesCollapsed) setFilesSectionCollapsed(false);
-        fileExplorerRef.current?.openUploadPicker();
+        const opener = uploadButtonRef.current;
+        if (!opener) return;
+        setMenu((current) => (current?.kind === "upload" ? null : { kind: "upload", anchor: buttonAnchor(opener, "end"), opener }));
       }}
       disabled={!explorerCwd || explorerUploadBusy}
+      menu
+      expanded={menu?.kind === "upload"}
       title={t("sidebar.uploadFilesTitle")}
     >
       <UploadIcon size={keyIconSize} />
